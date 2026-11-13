@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="/assets/images/favicon.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0A4D8C" />
+    <title>COpter Pilot — Drohnen Pre-Flight Check</title>
+  </head>
+  <body class="bg-slate-50 text-slate-900 antialiased">
+    <div id="root"></div>
+    <script>
+      // Self-heal: if Vite tells us a pre-bundled dependency is outdated
+      // (server restarted, deps re-optimized) the page would otherwise stay
+      // white. Force a full reload (with cache bypass) so the new ?v=hash
+      // graph is fetched fresh.
+      (function () {
+        var COUNT_KEY = "__viteReloadCount";
+        var TS_KEY = "__viteReloadedAt";
+        var MAX_RELOADS = 5;
+        var MIN_GAP_MS = 800;
+        var lastTs = parseInt(sessionStorage.getItem(TS_KEY) || "0", 10);
+        var count = parseInt(sessionStorage.getItem(COUNT_KEY) || "0", 10);
+        // If the page successfully renders, reset the counter shortly after.
+        setTimeout(function () {
+          if (document.getElementById("root") && document.getElementById("root").children.length > 0) {
+            sessionStorage.removeItem(COUNT_KEY);
+            sessionStorage.removeItem(TS_KEY);
+          }
+        }, 3000);
+        function hardReload() {
+          var now = Date.now();
+          if (now - lastTs < MIN_GAP_MS) return;
+          if (count >= MAX_RELOADS) return;
+          sessionStorage.setItem(TS_KEY, String(now));
+          sessionStorage.setItem(COUNT_KEY, String(count + 1));
+          location.reload();
+        }
+        window.addEventListener("error", function (e) {
+          var msg = (e && e.message) || "";
+          var src = e && e.filename ? String(e.filename) : "";
+          if (
+            msg.indexOf("Outdated Optimize Dep") >= 0 ||
+            msg.indexOf("Failed to fetch dynamically imported module") >= 0 ||
+            (src.indexOf("/.vite/deps/") >= 0 && msg.indexOf("import") >= 0)
+          ) {
+            hardReload();
+          }
+        });
+        window.addEventListener("unhandledrejection", function (e) {
+          var reason = e && e.reason;
+          var msg = reason && (reason.message || String(reason));
+          // Match only Vite-specific dep failures — never a generic "504"
+          // (would loop on backend hiccups or transient API errors).
+          if (
+            msg &&
+            (msg.indexOf("Outdated Optimize Dep") >= 0 ||
+              (msg.indexOf("Failed to fetch dynamically imported module") >= 0 &&
+                msg.indexOf("/.vite/deps/") >= 0))
+          ) {
+            hardReload();
+          }
+        });
+      })();
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

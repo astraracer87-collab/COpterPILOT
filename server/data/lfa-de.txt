@@ -1,0 +1,368 @@
+Die Tieffluggebiete 250 ft sind räumlich wie folgt definiert:
+LFA 1 „Niedersachsen“
+53°11.50′N 007°13.00′E - (deutsch-niederländische Grenze) östlich entlang der
+Eisenbahnlinie nach
+53°09.50′N 007°34.00′E - dann direkt nach
+53°10.67′N 007°40.50′E - (Fluss Leda); entlang dem nördlichen Flussarm bis
+53°07.00′N 007°57.00′E - (Flusskrümmung); dann direkt nach
+53°04.08′N 008°10.55′E - dann südlich entlang einem Kreisbogen mit 1 NM Radius um
+53°03.58′N 008°11.83′E - (Wardenburg) nach
+53°03.43′N 008°13.50′E - dann direkt nach
+52°57.50′N 008°41.33′E - (Fluss); südlich entlang dem Fluss nach
+52°51.70′N 008°42.50′E - dann westlich entlang einem Kreisbogen mit 1 NM Radius um
+52°50.92′N 008°43.33′E - (Bassum) nach
+52°50.00′N 008°42.75′E - (Eisenbahn); dann entlang der Eisenbahnlinie bis
+52°48.50′N 008°39.91′E - dann nördlich entlang einem Kreisbogen mit 1 NM Radius um
+52°48.00′N 008°38.50′E - (Twistringen) nach
+52°47.00′N 008°38.00′E - (Eisenbahn); dann entlang der Eisenbahnlinie bis
+52°43.25′N 008°32.25′E - dann nördlich entlang einem Kreisbogen mit 1 NM Radius um
+52°42.83′N 008°30.75′E - (Barnstorf) nach
+52°42.00′N 008°28.67′E - dann direkt nach
+52°43.25′N 008°18.67′E - dann nördlich entlang einem Kreisbogen mit 1 NM Radius um
+52°43.75′N 008°17.50′E - (Vechta) nach
+52°43.00′N 008°16.50′E - dann südlich entlang der Eisenbahnlinie bis
+52°41.00′N 008°14.45′E - dann westlich entlang einem Kreisbogen mit 1 NM Radius um
+52°40.00′N 008°14.25′E - (Lohne) nach
+52°39.08′N 008°13.50′E - dann südlich entlang der Eisenbahnlinie bis
+52°26.33′N 007°58.00′E - (Eisenbahn-Straßen-Kreuzung); nordwestlich entlang der B 218
+bis
+52°31.33′N 007°40.25′E - (Eisenbahn-Straßen-Kreuzung); dann entlang der B 402 bis
+52°39.33′N 007°29.70′E - dann nördlich entlang einem Kreisbogen mit 1 NM Radius um
+52°40.25′N 007°29.17′E - (Haselünne) nach
+52°41.00′N 007°28.00′E - dann direkt nach
+52°42.00′N 007°24.00′E -
+52°53.00′N 007°32.50′E -
+52°57.00′N 007°36.00′E -
+52°58.00′N 007°26.00′E -
+52°56.00′N 007°24.50′E -
+52°42.00′N 007°15.00′E - dann direkt nach
+52°41.00′N 007°15.17′E - dann entlang der nördlichen Grenze der ED-R 37B nach
+52°43.08′N 007°03.83′E - (deutsch-niederländische Grenze); dann entlang der Grenze
+nach
+53°11.50′N 007°13.00′E
+LFA 2 „Münsterland“
+2025-1-3686
+hebt auf I-90/02
+12 NOV 2025 Eff. 27 NOV 2025
+Powered by TCPDF (www.tcpdf.org)
+DFS Deutsche Flugsicherung GmbH
+Nachrichten für Luftfahrer 52°12.67′N 007°05.00′E - (Eisenbahn) östlich entlang der Eisenbahnlinie nach
+52°12.17′N 007°09.80′E - dann südlich entlang einem Kreisbogen mit 1 NM Radius um
+52°12.50′N 007°11.33′E - (Ochtrup) nach 52°12.50′N 007°11.33′E - (Ochtrup) to
+52°11.65′N 007°13.22′E - dann östlich entlang der Eisenbahnlinie nach
+52°09.50′N 007°18.83′E - dann südlich entlang einem Kreisbogen mit 1 NM Radius um
+52°08.83′N 007°20.17′E - (Burgsteinfurt) nach
+52°08.00′N 007°21.00′E - dann südlich entlang der Eisenbahnlinie nach
+52°02.50′N 007°30.00′E - dann direkt nach
+51°54.67′N 007°30.00′E - dann westlich entlang der Eisenbahnlinie nach
+51°52.00′N 007°22.00′E - (Eisenbahn-Fluss-Kreuzung); dann entlang dem Fluss nach
+51°53.50′N 007°16.00′E - dann direkt nach
+51°50.50′N 007°06.25′E - (Eisenbahn-Fluss-Kreuzung); dann direkt nach
+51°43.50′N 007°06.25′E - (Straße); dann westlich entlang der Straße nach
+51°43.50′N 007°05.50′E - dann nordwestlich entlang der Straße nach
+51°45.08′N 007°01.53′E - (Eisenbahn-Straßen-Kreuzung); dann südlich entlang der
+Eisenbahnlinie nach
+51°43.42′N 007°01.00′E - dann westlich entlang der B 58 nach
+51°41.77′N 006°53.72′E - dann nördlich entlang einem Kreisbogen mit 1 NM Radius um
+51°41.58′N 006°52.33′E - (Schermbeck) nach
+51°41.00′N 006°51.00′E - (Straße); dann westlich entlang der B 58 nach
+51°40.00′N 006°40.50′E - dann nördlich entlang einem Kreisbogen mit 3 NM Radius um
+51°39.67′N 006°35.50′E - (Wesel) nach
+51°39.67′N 006°31.00′E - (Rhein); dann nördlich entlang dem Rhein nach
+51°45.08′N 006°25.25′E - dann nördlich entlang einem Kreisbogen mit 1 NM Radius um
+51°45.92′N 006°24.50′E - (Rees) nach
+51°45.50′N 006°23.00′E - dann westlich entlang dem Rhein nach
+51°46.00′N 006°20.00′E - dann direkt nach
+51°47.83′N 006°25.17′E - (Eisenbahn-Straßen-Kreuzung); östlich entlang der Straße nach
+51°50.33′N 006°27.65′E - (Bahnhof Isselburg); dann südlich entlang der Eisenbahnlinie
+nach
+51°48.67′N 006°34.83′E - dann südlich entlang einem Kreisbogen mit 2 NM Radius um
+51°50.50′N 006°37.00′E - (Bocholt) nach
+51°50.17′N 006°40.08′E - (Straße); dann südlich entlang einem Kreisbogen mit 1 NM
+Radius um
+51°50.25′N 006°41.67′E - (Rhede) nach
+51°51.10′N 006°41.00′E - dann direkt nach
+51°53.83′N 006°43.00′E - (deutsch-niederländische Grenze); dann entlang der Grenze
+nach
+52°08.58′N 006°52.75′E - dann entgegen dem Uhrzeigersinn entlang einem Kreisbogen
+mit
+8 NM Radius um
+52°16.62′N 006°53.40′E - (ARP Twenthe) nach
+2025-1-3686
+hebt auf I-90/02
+12 NOV 2025 Eff. 27 NOV 2025
+DFS Deutsche Flugsicherung GmbH
+Nachrichten für Luftfahrer Powered by TCPDF (www.tcpdf.org)
+52°12.67′N 007°05.00′E
+LFA 3 „Nordhessen“
+51°09.33′N 007°58.00′E - (Eisenbahnlinie) entgegen dem Uhrzeigersinn entlang einem
+Kreisbogen mit 1 NM Radius um
+51°10.33′N 007°58.75′E - (Finnentrop) nach
+51°10.50′N 008°00.20′E - dann nordöstlich entlang der Eisenbahnlinie nach
+51°16.25′N 008°11.50′E - (Eisenbahn-Kreuzung); dann südöstlich entlang der
+Eisenbahnlinie nach
+51°15.00′N 008°12.50′E - (Eisenbahn-Straßen-Kreuzung); dann nördlich entlang der B
+55nach
+51°20.42′N 008°16.00′E - dann entgegen dem Uhrzeigersinn entlang einem Kreisbogen
+mit 1 NM Radius um
+51°21.00′N 008°17.50′E - (Meschede) nach
+51°21.00′N 008°19.00′E - dann entlang der Eisenbahnlinie nach
+51°21.40′N 008°22.00′E - dann entgegen dem Uhrzeigersinn entlang einem Kreisbogen
+mit 1 NM Radius um
+51°21.50′N 008°23.50′E - (Bestwig) nach
+51°22.13′N 008°24.63′E - dann entlang der Eisenbahnlinie nach
+51°22.00′N 008°27.58′E - dann entgegen dem Uhrzeigersinn entlang einem Kreisbogen
+mit 1 NM Radius um
+51°21.50′N 008°29.00′E - (Olsberg) nach
+51°21.80′N 008°30.50′E - dann entlang der Eisenbahnlinie nach
+51°18.17′N 008°35.50′E - dann entgegen dem Uhrzeigersinn entlang einem Kreisbogen
+mit 1 NM Radius um
+51°17.67′N 008°37.00′E - (Willingen) nach
+51°18.50′N 008°38.00′E - dann direkt nach
+51°43.67′N 008°59.83′E - dann entgegen dem Uhrzeigersinn entlang einem Kreisbogen
+mit 1 NM Radius um
+51°44.17′N 009°01.50′E - (Bad Driburg) nach
+51°44.00′N 009°03.00′E - dann direkt nach
+51°45.50′N 009°05.50′E - dann entgegen dem Uhrzeigersinn entlang einem Kreisbogen
+mit 1 NM Radius um
+51°46.00′N 009°03.67′E - (Bad Hermannsborn) nach
+51°47.00′N 009°02.58′E - dann direkt nach
+51°50.25′N 009°05.50′E - (Fluss Emmer); dann nördlich entlang dem Fluss nach
+51°51.18′N 009°06.07′E - dann entgegen dem Uhrzeigersinn entlang einem Kreisbogen
+mit 1 NM Radius um
+51°52.17′N 009°05.50′E - (Steinheim) nach
+51°53.17′N 009°06.00′E - (Eisenbahnlinie); dann nordöstlich entlang der Eisenbahnlinie
+nach
+2025-1-3686
+hebt auf I-90/02
+12 NOV 2025 Eff. 27 NOV 2025
+Powered by TCPDF (www.tcpdf.org)
+DFS Deutsche Flugsicherung GmbH
+Nachrichten für Luftfahrer 51°56.80′N 009°14.77′E - dann entgegen dem Uhrzeigersinn entlang einem Kreisbogen
+mit 1 NM Radius um
+51°57.75′N 009°15.00′E - (Lügde) nach
+51°58.33′N 009°16.30′E - (Eisenbahnlinie); dann nordöstlich entlang der Eisenbahnlinie
+nach
+52°02.50′N 009°23.00′E - (Eisenbahn-Kreuzung); dann südöstlich entlang der
+Eisenbahnlinie nach
+51°59.08′N 009°29.50′E - dann entgegen dem Uhrzeigersinn entlang einem Kreisbogen
+mit 1 NM Radius um
+51°58.83′N 009°31.00′E - (Bodenwerder) nach
+51°58.83′N 009°32.50′E - dann südöstlich entlang der Eisenbahnlinie nach
+51°52.67′N 009°53.00′E - (Eisenbahn-Straßen-Kreuzung); dann direkt nach
+51°50.00′N 009°49.00′E - dann direkt nach
+51°39.50′N 009°46.00′E - (Eisenbahnlinie); dann westlich entlang der Eisenbahnlinie nach
+51°39.42′N 009°40.00′E - dann entgegen dem Uhrzeigersinn entlang einem Kreisbogen
+mit 1 NM Radius um
+51°39.58′N 009°38.42′E - (Uslar) nach
+51°38.67′N 009°38.50′E - dann westlich entlang der Eisenbahnlinie nach
+51°37.67′N 009°34.00′E - dann westlich entlang dem Fluss nach
+51°38.83′N 009°24.75′E - dann direkt nach
+51°40.40′N 009°24.30′E - dann entgegen dem Uhrzeigersinn entlang einem Kreisbogen
+mit 1 NM Radius um
+51°40.17′N 009°22.67′E - (Beverungen) nach
+51°39.70′N 009°21.20′E - dann direkt nach
+51°37.00′N 009°23.00′E - dann direkt nach
+51°10.50′N 008°53.00′E - dann entlang der Eisenbahnlinie nach
+51°05.00′N 008°50.00′E - dann entgegen dem Uhrzeigersinn entlang einem Kreisbogen
+mit 5 NM Radius um
+51°01.17′N 008°44.67′E - nach
+50°56.00′N 008°43.00′E - dann südöstlich entlang der Straße nach
+50°52.50′N 008°45.50′E - dann westlich entlang der Eisenbahnlinie nach
+50°53.67′N 008°32.33′E - dann entgegen dem Uhrzeigersinn entlang einem Kreisbogen
+mit 1 NM Radius um
+50°54.75′N 008°32.00′E - (Biedenkopf) nach
+50°55.25′N 008°30.33′E - dann westlich entlang der Eisenbahnlinie nach
+50°55.50′N 008°26.58′E - dann entgegen dem Uhrzeigersinn entlang einem Kreisbogen
+mit 1 NM Radius um
+50°55.50′N 008°25.00′E - (Laasphe) nach
+50°55.83′N 008°23.50′E - dann westlich entlang der Eisenbahnlinie nach
+50°57.17′N 008°18.33′E - dann direkt nach
+50°58.00′N 008°09.00′E - (Eisenbahn-Straßen-Kreuzung); dann direkt nach
+50°58.60′N 008°07.00′E - dann entgegen dem Uhrzeigersinn entlang einem Kreisbogen
+mit 1 NM Radius um
+2025-1-3686
+hebt auf I-90/02
+12 NOV 2025 Eff. 27 NOV 2025
+DFS Deutsche Flugsicherung GmbH
+Nachrichten für Luftfahrer Powered by TCPDF (www.tcpdf.org)
+50°59.50′N 008°06.17′E - (Hilchenbach) nach
+50°58.53′N 008°05.50′E - (Eisenbahn); dann südwestlich entlang der Eisenbahnlinie nach
+50°57.50′N 008°01.00′E - dann entgegen dem Uhrzeigersinn entlang einem Kreisbogen
+mit 1 NM Radius um
+50°57.67′N 007°59.50′E - (Kreuztal) nach
+50°58.42′N 007°58.50′E - dann nordwestlich entlang der Straße nach
+51°02.25′N 007°52.50′E - dann entgegen dem Uhrzeigersinn entlang einem Kreisbogen
+mit 1 NM Radius um
+51°02.00′N 007°51.00′E - (Olpe) nach
+51°02.75′N 007°50.00′E - dann nordöstlich entlang der Eisenbahnlinie nach
+51°07.00′N 007°53.33′E - dann entgegen dem Uhrzeigersinn entlang einem Kreisbogen
+mit 1 NM Radius um
+51°07.83′N 007°54.50′E - (Attendorn) nach
+51°07.92′N 007°56.00′E - dann nordostwärts entlang der Eisenbahnlinie nach
+51°09.33′N 007°58.00′E
+LFA 4: nicht vergeben
+LFA 5 „Hamburg / Bremen“
+52°57.50′N 009°25.00′E - direkt nach
+53°04.33′N 009°27.00′E - dann entgegen dem Uhrzeigersinn entlang einem Kreisbogen
+mit 5 NM Radius um
+53°07.75′N 009°20.98′E - (ARP Rotenburg/Wümme) nach
+53°09.25′N 009°29.00′E - dann entgegen dem Uhrzeigersinn entlang einem Kreisbogen
+mit 1 NM Radius um
+53°10.00′N 009°28.83′E - (Scheeßel) nach
+53°10.83′N 009°27.50′E - dann nordwestlich entlang einem Kreisbogen mit 5 NM Radius
+um
+53°07.75′N 009°20.98′E - (ARP Rotenburg/Wümme) nach
+53°12.75′N 009°20.00′E - (Eisenbahn); dann nördlich entlang der Eisenbahnlinie nach
+53°16.83′N 009°17.00′E - dann entgegen dem Uhrzeigersinn entlang einem Kreisbogen
+mit 1 NM Radius um
+53°17.67′N 009°16.92′E - (Zeven) nach
+53°18.42′N 009°15.42′E - dann nördlich entlang der Eisenbahnlinie nach
+53°28.50′N 009°09.50′E - (Eisenbahn-Fluss-Kreuzung); dann östlich entlang der
+Eisenbahnlinie nach
+53°18.67′N 009°48.50′E - (Eisenbahn-Straßen-Kreuzung); dann südlich entlang der
+Straße nach
+53°01.17′N 009°51.00′E - (Eisenbahn-Straßen-Kreuzung); dann westlich entlang einem
+Kreisbogen mit 2 NM Radius um
+52°59.00′N 009°50.50′E - (Soltau) nach
+52°59.00′N 009°47.33′E - (Eisenbahnlinie); dann westlich entlang der Eisenbahnlinie nach
+2025-1-3686
+hebt auf I-90/02
+12 NOV 2025 Eff. 27 NOV 2025
+DFS Deutsche Flugsicherung GmbH
+Nachrichten für Luftfahrer Powered by TCPDF (www.tcpdf.org)
+52°58.75′N 009°36.50′E - dann entgegen dem Uhrzeigersinn entlang einem Kreisbogen
+mit 1 NM Radius um
+52°59.00′N 009°35.00′E - (Visselhövede) nach
+52°58.58′N 009°33.50′E - dann westlich entlang der Eisenbahnlinie nach
+52°57.50′N 009°25.00′E
+LFA 6 „Schleswig-Holstein“
+54°01.00′N 009°16.00′E - direkt nach
+54°04.58′N 009°04.67′E - dann nördlich entlang einem Kreisbogen mit 1 NM Radius um
+54°05.50′N 009°04.75′E - (Meldorf) nach
+54°05.00′N 009°03.17′E - dann direkt nach
+54°06.00′N 009°00.00′E - (Küste); dann in nördlicher Richtung entlang der Küste nach
+54°08.50′N 008°55.00′E - dann direkt nach
+54°15.75′N 008°53.50′E - (Küste); dann in nordöstlicher Richtung entlang der Küste (Eider
+Flussmündung) und in nordöstlicher Richtung entlang der Eider
+nach
+54°22.33′N 009°00.00′E - dann direkt nach
+54°21.00′N 009°03.67′E - dann direkt nach
+54°22.00′N 009°04.83′E - (Eider); dann in südöstlicher Richtung entlang der Eider nach
+54°17.00′N 009°21.00′E - dann direkt nach
+54°14.50′N 009°21.50′E - dann direkt nach
+54°15.17′N 009°26.50′E - dann direkt nach
+54°12.83′N 009°29.50′E - dann entgegen dem Uhrzeigersinn entlang einem Kreisbogen
+mit 3 NM Radius um
+54°13.18′N 009°34.67′E - nach
+54°13.00′N 009°39.67′E - dann direkt nach
+54°15.33′N 009°42.83′E - dann entgegen dem Uhrzeigersinn entlang einem Kreisbogen
+mit 3,2 NM Radius um
+54°18.33′N 009°40.00′E - nach
+54°16.42′N 009°44.83′E - (Eisenbahnlinie); dann in südöstlicher Richtung entlang der
+Eisenbahnlinie nach
+54°11.00′N 009°50.50′E - dann südlich entlang einem Kreisbogen mit 1 NM Radius um
+54°10.00′N 009°51.33′E - (Nortorf) nach
+54°09.42′N 009°52.50′E - dann entlang der Eisenbahnlinie nach
+54°07.25′N 009°56.25′E - dann entgegen dem Uhrzeigersinn entlang einem Kreisbogen
+mit 3,5 NM Radius um
+54°04.50′N 010°00.00′E - nach
+54°01.67′N 009°57.00′E - (Straße); dann in südwestlicher Richtung entlang der Straße
+nach
+53°59.67′N 009°56.00′E - nach
+53°58.67′N 009°56.00′E - dann entgegen dem Uhrzeigersinn entlang einem Kreisbogen
+mit 2 NM Radius um
+53°56.67′N 009°54.27′E - (Fuhlendorf) nach
+53°54.67′N 009°53.00′E - dann in südlicher Richtung entlang der Straße nach
+53°47.58′N 009°52.75′E - (Eisenbahn-Straßen-Kreuzung); dann in westlicher Richtung
+entlang der Eisenbahnlinie nach
+2025-1-3686
+hebt auf I-90/02
+12 NOV 2025 Eff. 27 NOV 2025
+DFS Deutsche Flugsicherung GmbH
+Nachrichten für Luftfahrer Powered by TCPDF (www.tcpdf.org)
+53°46.67′N 009°40.33′E - dann entgegen dem Uhrzeigersinn entlang einem Kreisbogen
+mit 1,5 NM Radius um
+53°45.33′N 009°39.25′E - (Elmshorn) nach
+53°46.33′N 009°37.50′E - (Eisenbahnlinie); dann direkt nach
+53°44.00′N 009°27.50′E - (Elbe); dann in nordwestlicher Richtung entlang dem rechten
+Elbufer nach
+53°47.17′N 009°24.67′E - dann ostwärts entlang einem Kreisbogen mit 1 NM Radius um
+53°47.75′N 009°26.00′E - (Glückstadt) nach
+53°48.08′N 009°24.42′E - dann in nordwestlicher Richtung entlang dem rechten Elbufer
+nach
+53°52.67′N 009°17.33′E - dann direkt nach
+54°01.00′N 009°16.00′E
+LFA 7 „Bayern“
+49°17.50′N 010°25.50′E - (Eisenbahnkreuzung) südwestlich entlang der Eisenbahnlinie
+nach
+49°11.33′N 010°09.00′E - dann im Uhrzeigersinn entlang einem Kreisbogen mit 5 NM
+Radius um
+49°08.00′N 010°02.50′E - (Crailsheim) nach
+49°03.33′N 010°05.00′E - dann südlich entlang der Eisenbahnlinie nach
+49°00.00′N 010°07.50′E - dann im Uhrzeigersinn entlang einem Kreisbogen mit 3 NM
+Radius um
+48°56.83′N 010°08.00′E - (südlich Ellwangen) nach
+48°53.83′N 010°09.00′E - dann südöstlich entlang der Eisenbahnlinie nach
+48°51.25′N 010°18.50′E - dann direkt nach
+48°45.67′N 010°20.00′E - dann direkt nach
+48°37.50′N 010°25.50′E - dann direkt nach
+48°36.75′N 010°37.00′E - (Donau); dann nordöstlich entlang der Donau nach
+48°41.17′N 010°43.75′E - dann im Uhrzeigersinn entlang einem Kreisbogen mit 3 NM
+Radius um
+48°43.00′N 010°47.00′E - (Donauwörth) nach
+48°43.50′N 010°51.25′E - dann östlich entlang der Donau nach
+48°44.17′N 011°02.00′E - dann direkt nach
+48°45.75′N 011°02.00′E - dann direkt nach
+48°45.75′N 011°03.50′E - (Eisenbahnlinie); dann nördlich entlang der Eisenbahnlinie nach
+48°53.00′N 011°06.50′E - dann im Uhrzeigersinn entlang einem Kreisbogen mit 3 NM
+Radius um
+48°52.67′N 011°11.00′E - (Eichstätt) nach
+48°53.00′N 011°15.50′E - (Eisenbahnlinie); dann nördlich entlang der Eisenbahnlinie nach
+48°59.83′N 011°22.67′E - (Eisenbahn-Autobahn-Kreuzung); dann nordwestlich entlang
+der Autobahn nach
+49°12.00′N 011°14.50′E - (Autobahn-Straßen-Kreuzung); dann westlich entlang der
+Straße nach
+49°12.00′N 011°13.58′E - dann im Uhrzeigersinn entlang einem Kreisbogen mit 5 NM
+Radius um
+49°13.08′N 011°05.93′E - (ARP Roth) nach
+49°10.75′N 010°59.00′E - (Fluss); dann nordwestlich entlang dem Fluss nach
+2025-1-3686
+12 NOV 2025 Eff. 27 NOV 2025
+DFS Deutsche Flugsicherung GmbH
+Powered by TCPDF (www.tcpdf.org)
+hebt auf I-90/02
+Nachrichten für Luftfahrer 49°16.17′N 010°45.00′E - dann im Uhrzeigersinn entlang einem Kreisbogen mit 5 NM
+Radius um
+49°18.50′N 010°38.00′E - (Ansbach) nach
+49°13.50′N 010°38.00′E - dann direkt nach
+49°12.50′N 010°33.00′E - (Eisenbahnlinie); dann direkt nach
+49°17.50′N 010°25.50′E
+LFA 8 „Neubrandenburg“
+Polygone mit folgenden Sektoren:
+Sektor 8a:
+54°14.00'N 012°30.00'E
+54°14.00'N 013°09.00'E
+53°40.00'N 013°54.00'E
+53°39.00'N 012°49.00'E
+54°14.00'N 012°30.00'E
+Sektor 8b:
+53°39.00'N 012°49.00'E
+53°40.00'N 013°54.00'E
+53°36.00'N 014°00.00'E
+53°00.00'N 014°00.00'E
+53°17.00'N 012°54.00'E
+53°30.00'N 012°54.00'E
+53°39.00'N 012°49.00'E
+Sektor 8c:
+53°17.00'N 012°54.00'E
+53°00.00'N 014°00.00'E
+52°50.00'N 013°18.00'E
+52°50.00'N 012°54.00'E
+53°17.00'N 012°54.00'E
+Sektor 8d:
+53°17.00'N 012°06.00'E
+53°17.00'N 012°54.00'E
+52°50.00'N 012°54.00'E
+52°50.00'N 012°06.00'E
+53°17.00'N 012°06.00'E
