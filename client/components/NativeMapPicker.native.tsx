@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useCallback, useRef } from "react";
 import { StyleSheet, Platform, useColorScheme } from "react-native";
-import MapView, { Marker, UrlTile, WMSTile, Region } from "react-native-maps";
+import MapView, { Marker, UrlTile, WMSTile, Region } from "@/components/maps";
 import { buildCombinedWmsTileUrl, getAllLayerNames } from "@/lib/geozones";
 
 interface NativeMapPickerProps {

@@ -1,10 +1,10 @@
 import React, { useRef, useEffect, useState, useMemo, useCallback } from "react";
 import { View, StyleSheet, Text, Platform, Pressable, ActivityIndicator, ScrollView, LayoutChangeEvent, Modal, SafeAreaView, useColorScheme } from "react-native";
-import MapView, { Marker, Polyline, Circle, Polygon, WMSTile, UrlTile, Region } from "react-native-maps";
+import MapView, { Marker, Polyline, Circle, Polygon, WMSTile, UrlTile, Region } from "@/components/maps";
 import { WebView } from "react-native-webview";
 import { MaterialCommunityIcons, Feather, FontAwesome6 } from "@expo/vector-icons";
 import Svg, { Path } from "react-native-svg";
-import * as Location from "expo-location";
+import * as Location from "@/lib/location";
 import { BorderRadius } from "@/constants/theme";
 import { getCategoryLabel, type AircraftCategory, type DataSource } from "@/lib/opensky";
 import { buildCombinedWmsTileUrl, queryGeozoneFeatureInfo, getCountryGeozoneConfig, getCountriesInRadius, type GeozoneFeatureInfo } from "@/lib/geozones";

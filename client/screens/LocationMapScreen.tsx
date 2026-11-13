@@ -1,6 +1,6 @@
 import React, { useLayoutEffect } from "react";
 import { View, StyleSheet, Platform } from "react-native";
-import MapView, { Marker, Circle } from "react-native-maps";
+import MapView, { Marker, Circle } from "@/components/maps";
 import { useRoute, useNavigation, RouteProp } from "@react-navigation/native";
 import { useHeaderHeight, HeaderButton } from "@react-navigation/elements";
 import { Feather } from "@expo/vector-icons";

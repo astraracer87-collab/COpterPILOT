@@ -4,7 +4,7 @@ import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import * as Location from "expo-location";
+import * as Location from "@/lib/location";
 import { captureRef } from "react-native-view-shot";
 import TrafficMapView, { TrafficMarker, AircraftTrail, WindData } from "@/components/TrafficMapView";
 import { fetchDipulWind, fetchWeather, ForecastData } from "@/lib/weather";

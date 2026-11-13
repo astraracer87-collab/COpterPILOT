@@ -7,7 +7,7 @@ import {
   Dimensions,
   Platform,
 } from "react-native";
-import MapView, { Circle, Marker, Callout, Polygon, Polyline, WMSTile } from "react-native-maps";
+import MapView, { Circle, Marker, Callout, Polygon, Polyline, WMSTile } from "@/components/maps";
 import { useRoute, useNavigation, RouteProp } from "@react-navigation/native";
 import { useHeaderHeight, HeaderButton } from "@react-navigation/elements";
 import { Feather } from "@expo/vector-icons";

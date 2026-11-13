@@ -1,7 +1,7 @@
 import React, { forwardRef, useImperativeHandle, useRef, useState, useMemo, useCallback } from "react";
 import { StyleSheet, View, Platform, useColorScheme, Pressable, Text } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import MapView, { Marker, MapPressEvent, Region, Circle, WMSTile, UrlTile, Polyline } from "react-native-maps";
+import MapView, { Marker, MapPressEvent, Region, Circle, WMSTile, UrlTile, Polyline } from "@/components/maps";
 import { buildCombinedWmsTileUrl, getAllLayerNames } from "@/lib/geozones";
 
 type MapStyle = "osm" | "satellite" | "hybrid";
@@ -81,7 +81,7 @@ const MapPicker = forwardRef<MapPickerRef, MapPickerProps>(
       }
     }, [onMapPress]);
 
-    const handleLongPress = useCallback((event: import("react-native-maps").LongPressEvent) => {
+    const handleLongPress = useCallback((event: import("@/components/maps").LongPressEvent) => {
       if (onMapLongPress) {
         const { latitude, longitude } = event.nativeEvent.coordinate;
         onMapLongPress(latitude, longitude);
