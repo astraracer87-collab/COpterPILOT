@@ -356,7 +356,49 @@ function mergeAircraft(allSources: { states: AircraftState[] }[]): AircraftState
   return Array.from(merged.values());
 }
 
-import { getApiUrl } from "./query-client";
+/**
+ * OGN (Open Glider Network) direkt über den öffentlichen XML-Feed von
+ * live.glidernet.org – früher lief das über eine APRS-Verbindung des Servers.
+ * Format je Eintrag: lat,lon,cn,reg,alt_m,zeit_utc,alter_s,kurs,kmh,vario_ms,
+ * typ,empfänger,geräte_id,eindeutige_id
+ */
+const OGN_LIVE_URL = "https://live.glidernet.org/lxml.php";
+
+function parseOgnXml(xml: string, lat: number, lon: number, radiusKm: number): any[] {
+  const out: any[] = [];
+  const re = /<m a="([^"]*)"/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(xml)) !== null) {
+    const f = m[1].split(",");
+    if (f.length < 11) continue;
+    const aLat = parseFloat(f[0]);
+    const aLon = parseFloat(f[1]);
+    if (!isFinite(aLat) || !isFinite(aLon)) continue;
+    const ageS = parseInt(f[6], 10);
+    if (isFinite(ageS) && ageS > 120) continue;
+    const dLat = (aLat - lat) * 111.32;
+    const dLon = (aLon - lon) * 111.32 * Math.cos((lat * Math.PI) / 180);
+    if (Math.sqrt(dLat * dLat + dLon * dLon) > radiusKm) continue;
+    const altM = parseFloat(f[4]);
+    const kmh = parseFloat(f[8]);
+    const vario = parseFloat(f[9]);
+    const devId = (f[12] && f[12] !== "0" ? f[12] : f[13] || f[3] || "").toUpperCase();
+    const reg = f[3] && !/^[0-9a-f]{8}$/i.test(f[3]) ? f[3] : "";
+    out.push({
+      id: `OGN${devId}`,
+      reg,
+      lat: aLat,
+      lon: aLon,
+      altFt: isFinite(altM) ? altM / 0.3048 : null,
+      course: isFinite(parseFloat(f[7])) ? parseFloat(f[7]) : null,
+      speedKts: isFinite(kmh) ? kmh / 1.852 : null,
+      vsFpm: isFinite(vario) ? vario * 196.85 : null,
+      acType: parseInt(f[10], 10) || 0,
+      type: "ogn",
+    });
+  }
+  return out;
+}
 
 async function fetchOGN(
   lat: number,
@@ -364,18 +406,16 @@ async function fetchOGN(
   radiusKm: number
 ): Promise<{ states: AircraftState[]; status: "ok" | "error" | "timeout" }> {
   try {
-    const baseUrl = getApiUrl();
-    const url = `${baseUrl}/api/ogn/nearby?lat=${lat.toFixed(4)}&lon=${lon.toFixed(4)}&radius=${radiusKm}`;
+    const dLat = radiusKm / 111.32;
+    const dLon = radiusKm / (111.32 * Math.max(Math.cos((lat * Math.PI) / 180), 0.1));
+    const url = `${OGN_LIVE_URL}?a=0&b=${(lat + dLat).toFixed(4)}&c=${(lat - dLat).toFixed(4)}&d=${(lon + dLon).toFixed(4)}&e=${(lon - dLon).toFixed(4)}&z=9`;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 8000);
     try {
       const resp = await fetch(url, { signal: controller.signal });
       clearTimeout(timer);
       if (!resp.ok) return { states: [], status: "error" };
-      const data = await resp.json();
-      if (data.status && !data.status.connected) {
-        return { states: [], status: "error" };
-      }
+      const data = { aircraft: parseOgnXml(await resp.text(), lat, lon, radiusKm) };
       const aircraft: AircraftState[] = (data.aircraft || []).map((ac: any) => {
         const altM = ac.altFt != null ? Math.round(ac.altFt * 0.3048) : null;
         let category: AircraftCategory = "unknown";
@@ -407,7 +447,7 @@ async function fetchOGN(
 
         return {
           icao24,
-          callsign: rawId,
+          callsign: ac.reg || rawId,
           originCountry: "",
           longitude: ac.lon,
           latitude: ac.lat,

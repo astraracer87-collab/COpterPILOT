@@ -25,7 +25,10 @@
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "package": "com.copterpilot.app",
-      "permissions": ["ACCESS_FINE_LOCATION", "ACCESS_COARSE_LOCATION"]
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION"
+      ]
     },
     "web": {
       "output": "single",
@@ -50,7 +53,9 @@
         {
           "locationWhenInUsePermission": "Wir benötigen Ihren Standort für die Wetter- und Luftraumprüfung."
         }
-      ]
+      ],
+      "expo-audio",
+      "expo-font"
     ],
     "experiments": {
       "reactCompiler": true

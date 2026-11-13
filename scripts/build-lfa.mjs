@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Wandelt die offizielle Bundeswehr/Luftwaffe-KML der 7 Tieffluggebiete
 // (LFA, 250 ft AGL — LFA 4 nicht vergeben, LFA 8 in Sektoren a–d unterteilt)
-// aus server/data/lfa-de.kml in eine GeoJSON-FeatureCollection um.
+// aus data/lfa-de.kml in eine GeoJSON-FeatureCollection um.
 //
 // Quelle: Bundeswehr/Luftwaffe — "LFA vereinfacht" (KML, ETRS89/WGS84).
 // Diese Daten sind die kanonischen Polygone, die auch in der offiziellen
@@ -11,8 +11,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const SRC = path.resolve(__dirname, "../server/data/lfa-de.kml");
-const OUT = path.resolve(__dirname, "../server/data/lfa-de.json");
+const SRC = path.resolve(__dirname, "../data/lfa-de.kml");
 // Spiegelkopie für die Mobile-App (Metro-Bundler bündelt JSON-Imports).
 const OUT_CLIENT = path.resolve(__dirname, "../client/data/lfa-de.json");
 
@@ -153,7 +152,6 @@ function build() {
     process.exit(1);
   }
   const json = JSON.stringify(fc, null, 2);
-  fs.writeFileSync(OUT, json);
   fs.mkdirSync(path.dirname(OUT_CLIENT), { recursive: true });
   fs.writeFileSync(OUT_CLIENT, json);
   console.log(`OK: ${features.length} LFA-Polygone aus KML (server + client gespiegelt)`);
