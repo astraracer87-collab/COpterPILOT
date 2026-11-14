@@ -5,11 +5,13 @@ import MainTabNavigator from "@/navigation/MainTabNavigator";
 import FlightCheckNavigator from "@/navigation/FlightCheckNavigator";
 import FlightPlanningNavigator, { type FlightPlanningParamList } from "@/navigation/FlightPlanningNavigator";
 import { useScreenOptions } from "@/hooks/useScreenOptions";
+import WebPageScreen from "@/screens/WebPageScreen";
 
 export type RootStackParamList = {
   Main: undefined;
   FlightCheck: { sessionId?: string; initialScreen?: "SessionResume" | "HoverCheck" | "DebriefingChecklist" } | undefined;
   FlightPlanning: NavigatorScreenParams<FlightPlanningParamList> | undefined;
+  WebPage: { url: string; title?: string };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -40,6 +42,17 @@ export default function RootStackNavigator() {
           presentation: "modal",
           headerShown: false,
           gestureEnabled: false,
+        }}
+      />
+      <Stack.Screen
+        name="WebPage"
+        component={WebPageScreen}
+        options={{
+          headerShown: true,
+          headerTransparent: false,
+          headerTitleAlign: "left",
+          animation: "slide_from_right",
+          title: "",
         }}
       />
     </Stack.Navigator>

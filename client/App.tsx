@@ -14,7 +14,7 @@ import { queryClient } from "@/lib/query-client";
 
 import RootStackNavigator from "@/navigation/RootStackNavigator";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
-import { InAppBrowser } from "@/components/InAppBrowser";
+import { navigationRef } from "@/navigation/navigationRef";
 import { migrateLocalDataToServer } from "@/lib/storage";
 
 SplashScreen.preventAutoHideAsync();
@@ -116,10 +116,9 @@ export default function App() {
         <SafeAreaProvider>
           <GestureHandlerRootView style={styles.root} onLayout={onLayoutRootView}>
             <KeyboardProvider>
-              <NavigationContainer>
+              <NavigationContainer ref={navigationRef}>
                 <RootStackNavigator />
               </NavigationContainer>
-              <InAppBrowser />
               <StatusBar style="auto" />
             </KeyboardProvider>
           </GestureHandlerRootView>
