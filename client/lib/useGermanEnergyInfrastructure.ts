@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
-import { apiJson } from "@/lib/api-client";
 import type { GermanEnergyInfrastructureResponse } from "../../shared/germanEnergyInfrastructure";
+import { getEnergyInfrastructureCountry } from "../../shared/germanEnergyInfrastructure";
+import { queryEnergyInfrastructure } from "@/lib/energyInfrastructureClient";
 
 export function useGermanEnergyInfrastructure(
   latitude: number,
@@ -10,17 +11,16 @@ export function useGermanEnergyInfrastructure(
   enabled = true,
 ) {
   const searchRadiusKm = Math.min(5, Math.max(0.5, radiusKm));
-  const params = new URLSearchParams({
-    lat: String(latitude),
-    lon: String(longitude),
-    radiusKm: String(searchRadiusKm),
-    countryIso,
-  });
-  const route = `/api/proxy/german-energy-infrastructure?${params.toString()}`;
+  const iso = String(countryIso ?? "").trim().toUpperCase();
   return useQuery<GermanEnergyInfrastructureResponse>({
     queryKey: ["energy-infrastructure", countryIso, latitude, longitude, searchRadiusKm],
-    queryFn: () =>
-      apiJson<GermanEnergyInfrastructureResponse>(route, { timeoutMs: 30_000 }),
+    // Direkte Abfrage der öffentlichen Quellen (kein Server-Proxy mehr).
+    queryFn: async () => {
+      if (!getEnergyInfrastructureCountry(iso)) {
+        throw new Error("Für dieses Land sind keine Anlagenquellen konfiguriert");
+      }
+      return queryEnergyInfrastructure(iso, latitude, longitude, searchRadiusKm);
+    },
     enabled: enabled && Number.isFinite(latitude) && Number.isFinite(longitude),
     staleTime: 15 * 60 * 1000,
     // Keep the last nearby result visible while a new viewport is checked.

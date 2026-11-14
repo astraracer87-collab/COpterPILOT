@@ -1,4 +1,4 @@
-import { getApiUrl } from "./query-client";
+import { getNearbyAircraft } from "./traffic/aggregator";
 
 export type AircraftCategory =
   | "airplane"
@@ -73,6 +73,12 @@ export interface ViewportBbox {
   lonMax: number;
 }
 
+/**
+ * Live-Verkehr rund um (lat, lon). Früher lieferte das der Server
+ * (/api/traffic/v2/nearby); jetzt aggregiert die App selbst direkt aus den
+ * öffentlichen Quellen (adsb.lol, airplanes.live, adsb.fi, OGN) —
+ * siehe lib/traffic/aggregator.ts. Rückgabeform unverändert.
+ */
 export async function fetchNearbyAircraft(
   lat: number,
   lon: number,
@@ -80,44 +86,22 @@ export async function fetchNearbyAircraft(
   maxAgeSec: number = 60,
   bbox?: ViewportBbox,
 ): Promise<MultiSourceResponse> {
-  const baseUrl = getApiUrl();
-  let url = `${baseUrl}/api/traffic/v2/nearby?lat=${lat.toFixed(4)}&lon=${lon.toFixed(4)}&radius=${radiusKm}&maxAgeSec=${maxAgeSec}`;
-  if (bbox && isFinite(bbox.latMin) && isFinite(bbox.latMax) && isFinite(bbox.lonMin) && isFinite(bbox.lonMax)) {
-    url += `&bbox=${bbox.lonMin.toFixed(4)},${bbox.latMin.toFixed(4)},${bbox.lonMax.toFixed(4)},${bbox.latMax.toFixed(4)}`;
-  }
-  const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), 12000);
+  const validBbox = bbox && isFinite(bbox.latMin) && isFinite(bbox.latMax) && isFinite(bbox.lonMin) && isFinite(bbox.lonMax)
+    && bbox.latMin < bbox.latMax && bbox.lonMin < bbox.lonMax
+    ? bbox
+    : undefined;
   try {
-    const res = await fetch(url, { signal: ctl.signal });
-    if (!res.ok) {
-      return { time: Date.now() / 1000, states: [], sourceStatus: { ...EMPTY_STATUS }, trails: [] };
-    }
-    const data = (await res.json()) as {
-      fetchedAt?: number;
-      latestSnapshotAt?: number;
-      latestSnapshotAgeSec?: number;
-      aircraft?: AircraftState[];
-      trails?: ServerAircraftTrail[];
-      sourceStatus?: Record<DataSource, SourceStatus>;
-    };
+    const data = await getNearbyAircraft(lat, lon, radiusKm, maxAgeSec, validBbox);
     return {
-      time: (data.fetchedAt ?? Date.now()) / 1000,
+      time: data.fetchedAt / 1000,
       latestSnapshotAt: data.latestSnapshotAt,
       latestSnapshotAgeSec: data.latestSnapshotAgeSec,
-      states: (data.aircraft || []).filter((ac) => !ac.onGround && ac.category !== "ground"),
+      states: data.aircraft.filter((ac) => !ac.onGround && ac.category !== "ground"),
       sourceStatus: data.sourceStatus ?? { ...EMPTY_STATUS },
       trails: data.trails ?? [],
     };
-  } catch (e: unknown) {
-    const isAbort = typeof e === "object" && e !== null && (e as { name?: unknown }).name === "AbortError";
-    const status: SourceStatus = isAbort ? "timeout" : "error";
-    const sourceStatus: Record<DataSource, SourceStatus> = {
-      opensky: status, adsbfi: status, adsbone: status,
-      airplaneslive: status, adsblol: status, ogn: status, fr24: status,
-    };
-    return { time: Date.now() / 1000, states: [], sourceStatus, trails: [] };
-  } finally {
-    clearTimeout(timer);
+  } catch {
+    return { time: Date.now() / 1000, states: [], sourceStatus: { ...EMPTY_STATUS }, trails: [] };
   }
 }
 
@@ -207,6 +191,7 @@ export function getSourceLabels(sources: DataSource[]): string {
       case "airplaneslive": return "airplanes.live";
       case "adsblol": return "adsb.lol";
       case "ogn": return "OGN";
+      case "fr24": return "FR24";
     }
   }).join(", ");
 }

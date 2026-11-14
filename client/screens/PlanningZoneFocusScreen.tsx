@@ -24,6 +24,7 @@ import {
   ringGroupsForZone,
   getCountryGeozoneConfig,
   buildGeozoneCacheTileUrl,
+  buildGeozoneTileUrls,
   buildVectorGeozoneTileUrl,
   isRasterTiledVectorCountry,
   loadGeozoneSettings,
@@ -120,9 +121,8 @@ export default function PlanningZoneFocusScreen() {
       country?.assetComparisonStatusKeyByKind,
     );
   }, [hasGermanEnergyAccess, energyQuery.data]);
-  const energyTileUrl = hasGermanEnergyAccess
-    ? `${getApiUrl().replace(/\/+$/, "")}/api/proxy/energy-infrastructure-tiles/{z}/{x}/{y}.png?supplemental=1`
-    : "";
+  // RC-Version: Anlagen-Kacheln kamen vom Server und entfallen.
+  const energyTileUrl = hasGermanEnergyAccess ? "" : "";
   const [selectedEnergyItem, setSelectedEnergyItem] = useState<GermanEnergyInfrastructureItem | null>(null);
 
   const groups = useMemo(() => geometryGroups(zone), [zone]);
@@ -152,8 +152,7 @@ export default function PlanningZoneFocusScreen() {
         }
         const settings = await loadGeozoneSettings(zoneCountry);
         const enabled = getActiveLayerNames(settings, zoneCountry);
-        const url = buildGeozoneCacheTileUrl(enabled, zoneCountry);
-        if (!cancelled) setWmsUrls(url ? [url] : []);
+        if (!cancelled) setWmsUrls(buildGeozoneTileUrls(enabled, zoneCountry));
       } catch {
         if (!cancelled) setWmsUrls([]);
       }

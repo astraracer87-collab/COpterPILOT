@@ -28,8 +28,8 @@ export default function SourceHealthIndicator({ isDark, testID }: Props) {
   const [status, setStatus] = useState<TrafficStatus | null>(() => getCachedTrafficStatus());
   const [showModal, setShowModal] = useState(false);
 
-  // Subscribe to the shared traffic-status poller. There is exactly one
-  // /api/traffic/v2/status cadence in the app, regardless of how many
+  // Subscribe to the shared traffic-status poller (liest lokal aus dem
+  // clientseitigen Aggregator). There is exactly one cadence in the app, regardless of how many
   // indicators are mounted (first subscriber starts it, last stops it).
   useEffect(() => {
     const unsub = subscribeTrafficStatus((s) => setStatus(s));

@@ -1,15 +1,19 @@
 // Standalone-Helfer für die länderübergreifende Geozonen-Abdeckung (welche
-// Länder ein Pin/Viewport berührt) und den ED-269-Cache-Abruf.
+// Länder ein Pin/Viewport berührt) und den ED-269-Abruf (Gerätecache, siehe
+// geozoneDirect/).
 //
 // Bewusst frei von React-Native-Imports (kein AsyncStorage/expo-constants),
 // damit die reine Logik unter dem tsx-Testrunner (web/run-tests.sh) ohne den
-// nativen Modulgraphen geprüft werden kann – analog zu geozoneTileUrl.ts.
-// geozones.ts re-exportiert dünne Wrapper, die getApiUrl() bzw. die
+// nativen Modulgraphen geprüft werden kann – analog zu geozoneTileUrl.ts
+// (expo-file-system wird im Gerätecache nur lazy geladen).
+// geozones.ts re-exportiert dünne Wrapper, die die
 // COUNTRY_GEOZONE_CONFIGS-Schlüssel injizieren, sodass die öffentliche API
 // (und alle Aufrufer) unverändert bleibt.
 import { detectCountryFromCoordinates } from "./countryMaps";
 import { parseEd269ToGeozoneInfo } from "./ed269";
 import type { GeozoneFeatureInfo } from "./geozones";
+import { getEd269Dataset } from "./geozoneDirect/ed269Store";
+import { queryEd269Features } from "./geozoneDirect/ed269Query";
 
 // Sowohl die Radius- (getCountriesInRadius) als auch die Viewport-Abdeckung
 // (getViewportCountries) bestimmen die berührten Länder polygon-autoritativ über
@@ -19,60 +23,54 @@ import type { GeozoneFeatureInfo } from "./geozones";
 // Grenzen weit ins Nachbarland reichen (z. B. die FR-Box über die belgische
 // Grenze) und so fremde Zonen/Texte in die Flugbereichsliste mischen würden.
 
-// Fragt den serverseitigen ED-269-Cache (z. B. Österreich) für die per bbox
-// abgesteckte Umgebung ab und normalisiert die {countries:[{features:[]}]}-
-// Antwort. Liefert [] bei nicht-ok-Status, kaputter Form oder Netzwerkfehler,
-// ohne zu werfen.
+// Fragt den ED-269-Bestand (AT/BE/DK) für die per bbox abgesteckte Umgebung ab
+// und normalisiert ihn zu GeozoneFeatureInfo. Früher ein Aufruf des Server-
+// Endpoints `/api/cached/geozones`; das Backend existiert nicht mehr. Jetzt
+// lädt die App die Upstream-Feeds selbst, speichert sie auf dem Gerät
+// (geozoneDirect/ed269Store.ts, auch offline nutzbar) und filtert lokal mit
+// derselben Semantik (geozoneDirect/ed269Query.ts). Liefert [] bei nicht
+// unterstütztem Land oder Fehlschlag, ohne zu werfen.
 export async function queryEd269CachedFeaturesFrom(
-  baseUrl: string,
+  // Veraltet und ignoriert (früher die Backend-Basis-URL). Bleibt für die
+  // Signatur-Stabilität der Aufrufer erhalten.
+  _baseUrl: string,
   lat: number,
   lon: number,
   radiusKm: number,
   iso: string,
   limit?: number,
-  // Bei `true` wird KEINE bbox gesetzt -> der Server liefert den gesamten
-  // Landesbestand. Nur für kleine Datensätze (z. B. Belgien, ~288 Zonen) sinnvoll,
-  // damit beim Herauszoomen alle Zonen statt nur der zentrumsnahen erscheinen.
+  // Bei `true` wird KEINE bbox gesetzt -> gesamter Landesbestand. Nur für
+  // kleine Datensätze (z. B. Belgien) bzw. Offline-Pakete sinnvoll.
   fullCountry?: boolean,
-  // Serverseitiger Filter: nur Zonen mit einer Gültigkeitsdauer < N Tagen
-  // (temporäre NOTAM-artige Zonen). Hält die Antwort klein, auch bei großen
-  // Beständen (z. B. DK), da der Server vor dem Senden filtert.
+  // Nur Zonen mit einer Gültigkeitsdauer < N Tagen (temporäre NOTAM-artige
+  // Zonen).
   maxValidityDays?: number,
+  // Download erzwingen (z. B. beim Laden eines Offline-Pakets).
+  forceRefresh?: boolean,
 ): Promise<GeozoneFeatureInfo[]> {
-  const url = new URL("/api/cached/geozones", baseUrl);
-  url.searchParams.set("country", iso.toLowerCase());
-  if (maxValidityDays != null && Number.isFinite(maxValidityDays) && maxValidityDays > 0) {
-    url.searchParams.set("maxValidityDays", String(maxValidityDays));
-  }
-  if (!fullCountry) {
-    const kmToDegLat = 1 / 111.32;
-    const kmToDegLon = 1 / (111.32 * Math.cos((lat * Math.PI) / 180));
-    const dLat = radiusKm * kmToDegLat;
-    const dLon = radiusKm * kmToDegLon;
-    const bbox = `${(lon - dLon).toFixed(6)},${(lat - dLat).toFixed(6)},${(lon + dLon).toFixed(6)},${(lat + dLat).toFixed(6)}`;
-    if (limit != null && Number.isFinite(limit) && limit > 0) {
-      url.searchParams.set("limit", String(Math.floor(limit)));
-    }
-    url.searchParams.set("bbox", bbox);
-  }
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 12000);
   try {
-    const resp = await fetch(url.toString(), { signal: controller.signal });
-    if (!resp.ok) return [];
-    const data = await resp.json();
-    const country = Array.isArray(data?.countries)
-      ? data.countries.find((c: any) => (c?.country || "").toLowerCase() === iso.toLowerCase()) ?? data.countries[0]
-      : null;
-    const features = country?.features;
-    if (!Array.isArray(features)) return [];
-    return parseEd269ToGeozoneInfo(features, iso);
+    const ds = await getEd269Dataset(iso, { forceRefresh });
+    if (!ds) return [];
+    let bbox: [number, number, number, number] | undefined;
+    if (!fullCountry) {
+      const kmToDegLat = 1 / 111.32;
+      const kmToDegLon = 1 / (111.32 * Math.cos((lat * Math.PI) / 180));
+      const dLat = radiusKm * kmToDegLat;
+      const dLon = radiusKm * kmToDegLon;
+      bbox = [lon - dLon, lat - dLat, lon + dLon, lat + dLat];
+    }
+    const feats = queryEd269Features(ds.features, iso, {
+      bbox,
+      limit: !fullCountry && limit != null && Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : undefined,
+      maxValidityDays:
+        maxValidityDays != null && Number.isFinite(maxValidityDays) && maxValidityDays > 0
+          ? maxValidityDays
+          : undefined,
+    });
+    return parseEd269ToGeozoneInfo(feats, iso);
   } catch (e: any) {
-    console.warn("[Geozones] ED-269 cache query error:", e?.message || e);
+    console.warn("[Geozones] ED-269 query error:", e?.message || e);
     return [];
-  } finally {
-    clearTimeout(timeout);
   }
 }
 

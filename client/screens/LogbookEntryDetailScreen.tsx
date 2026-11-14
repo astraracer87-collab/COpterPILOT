@@ -1205,25 +1205,7 @@ export default function LogbookEntryDetailScreen() {
             <ThemedText style={styles.headerText}>Fluglog</ThemedText>
           </View>
           {renderDjiSection()}
-          <Pressable
-            testID="button-dji-add"
-            disabled={uploadingDji}
-            onPress={handleDjiUpload}
-            style={({ pressed }) => [
-              styles.djiButton,
-              { backgroundColor: theme.primary + "15", marginTop: Spacing.md },
-              pressed && { opacity: 0.7 },
-            ]}
-          >
-            <Feather name="plus-circle" size={15} color={theme.primary} />
-            <ThemedText style={[styles.djiButtonText, { color: theme.primary }]}>
-              {uploadingDji
-                ? "Lädt hoch …"
-                : djiLogs.length > 0
-                ? "Weiteres Fluglog hinzufügen (Akku-Tausch)"
-                : "Fluglog hochladen"}
-            </ThemedText>
-          </Pressable>
+          {/* RC-Version: DJI-Fluglogs wurden auf dem Server ausgewertet – Upload entfällt. */}
           <View style={{ marginTop: Spacing.md }}>
             <DjiLogHelp />
           </View>

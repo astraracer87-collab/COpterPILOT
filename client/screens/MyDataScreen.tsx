@@ -5,6 +5,7 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -13,8 +14,14 @@ import { ThemedView } from "@/components/ThemedView";
 import { Card } from "@/components/Card";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, Typography } from "@/constants/theme";
-import { useAuth } from "@/lib/auth";
-import { apiFetch, apiJson, ApiError } from "@/lib/api-client";
+import {
+  getBriefings,
+  getDrones,
+  getFlightSessions,
+  getLogbook,
+  getPilotProfile,
+} from "@/lib/storage";
+import { countLocalCollection } from "@/lib/localCollections";
 import type { SettingsStackParamList } from "@/navigation/SettingsStackNavigator";
 
 type NavigationProp = NativeStackNavigationProp<SettingsStackParamList>;
@@ -26,65 +33,170 @@ interface SummaryGroup {
   details: string[];
 }
 
-interface AccountSummary {
-  account: {
-    email: string;
-    name: string | null;
-    isAdmin: boolean;
-    registeredAt: string | null;
-  };
-  groups: SummaryGroup[];
-}
-
 const GROUP_ICONS: Record<string, keyof typeof Feather.glyphMap> = {
-  konto: "user",
   pilotenprofil: "award",
   drohnen: "send",
   fluege: "map-pin",
-  historie: "tool",
+  sessions: "clock",
+  briefings: "clipboard",
   "glossar-links": "book-open",
-  einstellungen: "sliders",
-  abonnement: "credit-card",
   dokumente: "file-text",
+  speicher: "database",
 };
+
+// Lokal abgelegte Dateien, die zu den Nutzerdaten gehören (siehe objectStorage.ts
+// bzw. offlineStore.ts). Beim Löschen werden diese Verzeichnisse mit entfernt.
+const LOCAL_DOCS_DIR = `${FileSystem.documentDirectory ?? ""}documents/`;
+const LOCAL_OFFLINE_DIR = `${FileSystem.documentDirectory ?? ""}offline/`;
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+async function listLocalDocumentFiles(): Promise<string[]> {
+  if (Platform.OS === "web" || !FileSystem.documentDirectory) return [];
+  try {
+    const info = await FileSystem.getInfoAsync(LOCAL_DOCS_DIR);
+    if (!info.exists) return [];
+    return await FileSystem.readDirectoryAsync(LOCAL_DOCS_DIR);
+  } catch {
+    return [];
+  }
+}
+
+/** Zählt die lokal gespeicherten Daten (ersetzt /api/account/summary). */
+async function loadLocalSummary(): Promise<SummaryGroup[]> {
+  const [profile, drones, logbook, sessions, briefings, glossary, links, docFiles, keys] =
+    await Promise.all([
+      getPilotProfile().catch(() => null),
+      getDrones({ includeArchived: true }).catch(() => []),
+      getLogbook().catch(() => []),
+      getFlightSessions().catch(() => []),
+      getBriefings().catch(() => []),
+      countLocalCollection("/api/user-glossary"),
+      countLocalCollection("/api/user-resources"),
+      listLocalDocumentFiles(),
+      AsyncStorage.getAllKeys().catch(() => [] as readonly string[]),
+    ]);
+
+  let storageBytes = 0;
+  try {
+    const pairs = await AsyncStorage.multiGet(keys as string[]);
+    for (const [, v] of pairs) storageBytes += v ? v.length : 0;
+  } catch {
+    storageBytes = 0;
+  }
+
+  const profileFilled =
+    !!profile &&
+    ([profile.name, profile.pilotId, profile.operatorId].some((v) => typeof v === "string" && v.trim().length > 0) ||
+      profile.licenseA1A3 ||
+      profile.licenseA2 ||
+      profile.licenseSTS ||
+      profile.insuranceActive);
+  const archivedDrones = drones.filter((d) => (d as { archived?: boolean }).archived).length;
+
+  return [
+    {
+      key: "pilotenprofil",
+      title: "Pilotenprofil",
+      count: profileFilled ? 1 : 0,
+      details: profileFilled && profile?.name ? [profile.name] : [],
+    },
+    {
+      key: "drohnen",
+      title: "Drohnen",
+      count: drones.length,
+      details: archivedDrones > 0 ? [`davon ${archivedDrones} archiviert`] : [],
+    },
+    { key: "fluege", title: "Logbuch-Einträge", count: logbook.length, details: [] },
+    { key: "sessions", title: "Flug-Sessions", count: sessions.length, details: [] },
+    { key: "briefings", title: "Briefings", count: briefings.length, details: [] },
+    {
+      key: "glossar-links",
+      title: "Eigenes Glossar & Links",
+      count: glossary + links,
+      details: [`${glossary} Glossar-Einträge`, `${links} Links`],
+    },
+    {
+      key: "dokumente",
+      title: "Große Dokumente (Dateien)",
+      count: docFiles.length,
+      details: ["Kleinere Dokumente sind direkt in den Datensätzen gespeichert."],
+    },
+    {
+      key: "speicher",
+      title: "App-Speicher (Einträge)",
+      count: keys.length,
+      details: [`ca. ${formatBytes(storageBytes)}`],
+    },
+  ];
+}
+
+/** Exportiert alle lokalen Daten als JSON (ersetzt /api/account/export). */
+async function buildLocalExport(): Promise<string> {
+  const keys = (await AsyncStorage.getAllKeys()) as string[];
+  const pairs = await AsyncStorage.multiGet(keys);
+  const data: Record<string, unknown> = {};
+  for (const [k, v] of pairs) {
+    if (v == null) continue;
+    try {
+      data[k] = JSON.parse(v);
+    } catch {
+      data[k] = v;
+    }
+  }
+  const documents: Record<string, string> = {};
+  for (const name of await listLocalDocumentFiles()) {
+    try {
+      documents[name] = await FileSystem.readAsStringAsync(`${LOCAL_DOCS_DIR}${name}`, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+    } catch {
+      // einzelne Datei nicht lesbar → überspringen
+    }
+  }
+  return JSON.stringify(
+    {
+      exportedAt: new Date().toISOString(),
+      format: "copterpilot-rc-local-export",
+      version: 1,
+      storage: data,
+      documentFilesBase64: documents,
+    },
+    null,
+    2,
+  );
+}
 
 export default function MyDataScreen() {
   const navigation = useNavigation<NavigationProp>();
   const { theme } = useTheme();
   const headerHeight = useHeaderHeight();
   const insets = useSafeAreaInsets();
-  const { isAuthenticated, user, logout } = useAuth();
   const queryClient = useQueryClient();
 
   const [exporting, setExporting] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
   const {
-    data: summary,
+    data: groups,
     isLoading: summaryLoading,
     isError: summaryError,
-  } = useQuery<AccountSummary>({
-    queryKey: ["/api/account/summary"],
-    queryFn: () => apiJson<AccountSummary>("/api/account/summary", { timeoutMs: 20000 }),
-    enabled: isAuthenticated,
+    refetch,
+  } = useQuery<SummaryGroup[]>({
+    queryKey: ["local/my-data-summary"],
+    queryFn: loadLocalSummary,
+    staleTime: 0,
   });
 
   const handleExport = useCallback(async () => {
     if (exporting) return;
     setExporting(true);
     try {
-      const res = await apiFetch("/api/account/export", { timeoutMs: 30000 });
-      if (!res.ok) {
-        let msg = `${res.status} ${res.statusText}`;
-        try {
-          const j = await res.json();
-          if (j?.error) msg = String(j.error);
-        } catch {
-          /* noop */
-        }
-        throw new Error(msg);
-      }
-      const json = await res.text();
+      const json = await buildLocalExport();
       const stamp = new Date().toISOString().slice(0, 10);
       const fileName = `meine-daten-${stamp}.json`;
 
@@ -113,7 +225,7 @@ export default function MyDataScreen() {
           UTI: "public.json",
         });
       } else {
-        Alert.alert("Export erstellt", `Die Datei wurde gespeichert: ${fileName}`);
+        Alert.alert("Export erstellt", `Die Datei wurde gespeichert: ${fileUri}`);
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unbekannter Fehler";
@@ -126,23 +238,19 @@ export default function MyDataScreen() {
   const performDelete = useCallback(async () => {
     setDeleting(true);
     try {
-      const res = await apiFetch("/api/account", { method: "DELETE", timeoutMs: 30000 });
-      if (!res.ok) {
-        let msg = `${res.status} ${res.statusText}`;
-        try {
-          const j = await res.json();
-          if (j?.error) msg = String(j.error);
-        } catch {
-          /* noop */
-        }
-        throw new ApiError(res.status, msg);
+      await AsyncStorage.clear();
+      if (Platform.OS !== "web" && FileSystem.documentDirectory) {
+        await FileSystem.deleteAsync(LOCAL_DOCS_DIR, { idempotent: true }).catch(() => {});
+        await FileSystem.deleteAsync(LOCAL_OFFLINE_DIR, { idempotent: true }).catch(() => {});
       }
-      await logout();
       queryClient.clear();
+      await refetch();
+      const msg =
+        "Alle lokal gespeicherten Daten wurden gelöscht. Bitte starte die App neu, damit alle Ansichten zurückgesetzt werden.";
       if (Platform.OS === "web") {
-        window.alert("Dein Konto und alle zugehörigen Daten wurden gelöscht.");
+        window.alert(msg);
       } else {
-        Alert.alert("Konto gelöscht", "Dein Konto und alle zugehörigen Daten wurden gelöscht.");
+        Alert.alert("Daten gelöscht", msg);
       }
       navigation.navigate("Settings");
     } catch (err) {
@@ -151,25 +259,20 @@ export default function MyDataScreen() {
     } finally {
       setDeleting(false);
     }
-  }, [logout, queryClient, navigation]);
+  }, [queryClient, navigation, refetch]);
 
   const handleDelete = useCallback(() => {
     if (deleting) return;
+    const text =
+      "Alle auf diesem Gerät gespeicherten Daten (Profil, Drohnen, Logbuch, Dokumente, Einstellungen, Offline-Pakete) werden dauerhaft entfernt. Diese Aktion kann nicht rückgängig gemacht werden. Tipp: Vorher exportieren.";
     if (Platform.OS === "web") {
-      const ok = window.confirm(
-        "Konto unwiderruflich löschen? Alle serverseitig gespeicherten Daten und Dokumente werden dauerhaft entfernt. Diese Aktion kann nicht rückgängig gemacht werden.",
-      );
-      if (ok) performDelete();
+      if (window.confirm(`Alle lokalen Daten löschen? ${text}`)) performDelete();
       return;
     }
-    Alert.alert(
-      "Konto unwiderruflich löschen?",
-      "Alle serverseitig gespeicherten Daten und Dokumente werden dauerhaft entfernt. Diese Aktion kann nicht rückgängig gemacht werden.",
-      [
-        { text: "Abbrechen", style: "cancel" },
-        { text: "Endgültig löschen", style: "destructive", onPress: performDelete },
-      ],
-    );
+    Alert.alert("Alle lokalen Daten löschen?", text, [
+      { text: "Abbrechen", style: "cancel" },
+      { text: "Endgültig löschen", style: "destructive", onPress: performDelete },
+    ]);
   }, [deleting, performDelete]);
 
   return (
@@ -185,60 +288,35 @@ export default function MyDataScreen() {
         scrollIndicatorInsets={{ bottom: insets.bottom }}
       >
         <ThemedText style={[styles.intro, { color: theme.textSecondary }]}>
-          Hier siehst du, welche Daten wir über dich speichern. Du kannst deine
-          Daten als maschinenlesbare JSON-Datei exportieren oder dein Konto
-          unwiderruflich löschen.
+          Alle Daten werden ausschließlich lokal auf diesem Gerät gespeichert –
+          es gibt kein Konto und keinen Server. Du kannst deine Daten als
+          maschinenlesbare JSON-Datei exportieren oder vollständig löschen.
         </ThemedText>
 
-        {!isAuthenticated ? (
-          <Card style={[styles.notice, { backgroundColor: theme.backgroundSecondary }]}>
-            <Feather name="info" size={20} color={theme.primary} />
-            <View style={{ flex: 1 }}>
-              <ThemedText style={styles.noticeText}>
-                Du bist nicht angemeldet. Export und Löschung beziehen sich auf
-                serverseitig gespeicherte Daten und stehen nur im angemeldeten
-                Zustand zur Verfügung.
-              </ThemedText>
-              <Pressable onPress={() => navigation.navigate("Account")} hitSlop={8}>
-                <ThemedText style={[styles.link, { color: theme.primary }]}>
-                  Zur Anmeldung
-                </ThemedText>
-              </Pressable>
-            </View>
-          </Card>
-        ) : (
-          <Card style={[styles.notice, { backgroundColor: theme.backgroundSecondary }]}>
-            <Feather name="user-check" size={20} color={theme.statusGo} />
-            <ThemedText style={[styles.noticeText, { flex: 1 }]}>
-              Angemeldet als {user?.email}
-            </ThemedText>
-          </Card>
-        )}
+        <Card style={[styles.notice, { backgroundColor: theme.backgroundSecondary }]}>
+          <Feather name="smartphone" size={20} color={theme.primary} />
+          <ThemedText style={[styles.noticeText, { flex: 1 }]}>
+            Lokaler Modus: Beim Deinstallieren der App gehen die Daten verloren.
+            Exportiere sie regelmäßig als Sicherung.
+          </ThemedText>
+        </Card>
 
         <ThemedText style={[styles.sectionTitle, { color: theme.textSecondary }]}>
           GESPEICHERTE DATEN
         </ThemedText>
 
-        {!isAuthenticated ? (
-          <Card style={styles.groupCard}>
-            <ThemedText style={[styles.groupDesc, { color: theme.textSecondary }]}>
-              Melde dich an, um die tatsächlich über dich gespeicherten Daten zu
-              sehen.
-            </ThemedText>
-          </Card>
-        ) : summaryLoading ? (
+        {summaryLoading ? (
           <Card style={[styles.groupCard, styles.centeredCard]}>
             <ActivityIndicator size="small" color={theme.primary} />
           </Card>
-        ) : summaryError || !summary ? (
+        ) : summaryError || !groups ? (
           <Card style={styles.groupCard}>
             <ThemedText style={[styles.groupDesc, { color: theme.statusNoGo }]}>
-              Die Datenübersicht konnte nicht geladen werden. Bitte versuche es
-              später erneut.
+              Die Datenübersicht konnte nicht geladen werden.
             </ThemedText>
           </Card>
         ) : (
-          summary.groups.map((g) => (
+          groups.map((g) => (
             <Card key={g.key} style={styles.groupCard} testID={`group-${g.key}`}>
               <View style={styles.groupRow}>
                 <Feather
@@ -277,11 +355,11 @@ export default function MyDataScreen() {
         </ThemedText>
         <Pressable
           onPress={handleExport}
-          disabled={!isAuthenticated || exporting}
+          disabled={exporting}
           style={({ pressed }) => pressed && styles.pressed}
           testID="button-export-data"
         >
-          <Card style={[styles.actionCard, (!isAuthenticated || exporting) && styles.disabled]}>
+          <Card style={[styles.actionCard, exporting && styles.disabled]}>
             <View style={styles.groupRow}>
               {exporting ? (
                 <ActivityIndicator size="small" color={theme.primary} />
@@ -291,8 +369,8 @@ export default function MyDataScreen() {
               <View style={{ flex: 1 }}>
                 <ThemedText style={styles.groupTitle}>Daten exportieren (JSON)</ThemedText>
                 <ThemedText style={[styles.groupDesc, { color: theme.textSecondary }]}>
-                  Lädt alle über dich gespeicherten Daten als maschinenlesbare
-                  Datei inkl. Dokument-Verweisen herunter.
+                  Speichert bzw. teilt alle lokal gespeicherten Daten inkl.
+                  Dokumenten als maschinenlesbare Datei.
                 </ThemedText>
               </View>
             </View>
@@ -316,11 +394,11 @@ export default function MyDataScreen() {
 
         <Pressable
           onPress={handleDelete}
-          disabled={!isAuthenticated || deleting}
+          disabled={deleting}
           style={({ pressed }) => pressed && styles.pressed}
           testID="button-delete-account"
         >
-          <Card style={[styles.actionCard, styles.dangerCard, { borderColor: theme.statusNoGo }, (!isAuthenticated || deleting) && styles.disabled]}>
+          <Card style={[styles.actionCard, styles.dangerCard, { borderColor: theme.statusNoGo }, deleting && styles.disabled]}>
             <View style={styles.groupRow}>
               {deleting ? (
                 <ActivityIndicator size="small" color={theme.statusNoGo} />
@@ -329,11 +407,11 @@ export default function MyDataScreen() {
               )}
               <View style={{ flex: 1 }}>
                 <ThemedText style={[styles.groupTitle, { color: theme.statusNoGo }]}>
-                  Konto unwiderruflich löschen
+                  Alle lokalen Daten löschen
                 </ThemedText>
                 <ThemedText style={[styles.groupDesc, { color: theme.textSecondary }]}>
-                  Entfernt alle serverseitigen Daten und Dokumente dauerhaft und
-                  kündigt den Stripe-Kundenbezug.
+                  Entfernt Profil, Drohnen, Logbuch, Dokumente, Einstellungen und
+                  Offline-Pakete unwiderruflich von diesem Gerät.
                 </ThemedText>
               </View>
             </View>

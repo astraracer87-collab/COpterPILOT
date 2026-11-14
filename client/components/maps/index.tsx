@@ -430,7 +430,7 @@ function RasterOverlay({ tiles, minzoom, maxzoom, tileSize, opacity, scheme }: {
 export function UrlTile({ urlTemplate, maximumZ, minimumZ, maximumNativeZ, tileSize, opacity = 1, flipY }: UrlTileProps) {
   return (
     <RasterOverlay
-      tiles={urlTemplate}
+      tiles={urlTemplate.replace(/\{bbox\}/g, "{bbox-epsg-3857}")}
       minzoom={minimumZ}
       maxzoom={maximumNativeZ ?? maximumZ}
       tileSize={tileSize}
@@ -446,6 +446,7 @@ export function WMSTile({ urlTemplate, maximumZ, minimumZ, tileSize = 256, opaci
     () =>
       urlTemplate
         .replace("{minX},{minY},{maxX},{maxY}", "{bbox-epsg-3857}")
+        .replace(/\{bbox\}/g, "{bbox-epsg-3857}")
         .replace(/\{width\}/g, String(tileSize))
         .replace(/\{height\}/g, String(tileSize)),
     [urlTemplate, tileSize],

@@ -1,57 +1,89 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { buildGeozoneCacheTileUrlFrom } from "../geozoneTileUrl";
+import {
+  buildGeozoneCacheTileUrlFrom,
+  buildGeozoneWmsTileTemplates,
+  buildVectorGeozoneTileUrlFrom,
+  fillGeozoneTileTemplate,
+  tileToBbox3857,
+  LEAFLET_WMS_BBOX_FN_JS,
+  MAX_LAYERS_PER_GETMAP,
+} from "../geozoneTileUrl";
+import { GEOZONE_LAYERS } from "../../../shared/geozoneLayerCatalog";
 
-const API = "https://example.replit.app";
+const ALL_DE_LAYERS = GEOZONE_LAYERS.map((l) => l.wmsLayer);
 
-// Repräsentativer "alle DE-Layer aktiv"-Satz (Union aus Web-/Mobile-Config).
-const ALL_DE_LAYERS = [
-  "kontrollzonen", "flugbeschraenkungsgebiete", "temporaere_betriebseinschraenkungen",
-  "flughaefen", "flugplaetze", "naturschutzgebiete", "nationalparks", "ffh-gebiete",
-  "militaerische_anlagen", "stromleitungen", "kraftwerke", "windkraftanlagen",
-  "bundesautobahnen", "bahnanlagen", "modellflugplaetze", "wohngrundstuecke",
-];
-
-describe("buildGeozoneCacheTileUrlFrom (Mobile-Karte)", () => {
-  it("bündelt ALLE Layer in EINE Kachel-URL (eine UrlTile pro Land, nicht pro Layer)", () => {
-    const url = buildGeozoneCacheTileUrlFrom(API, ALL_DE_LAYERS, "DE");
-    assert.equal(typeof url, "string");
-    // Genau EIN layers=-Parameter -> EINE UrlTile-Ebene.
-    assert.equal((url.match(/layers=/g) || []).length, 1);
-    const got = decodeURIComponent(url.split("layers=")[1]);
-    // Alle Layer stecken im selben Parameter.
-    for (const l of ALL_DE_LAYERS) assert.ok(got.includes(l), `fehlt: ${l}`);
+describe("buildGeozoneWmsTileTemplates (direkte WMS-Kacheln, kein Backend)", () => {
+  it("zielt direkt auf den Anbieter-WMS (DE: dipul) mit {bbox}-Platzhalter, EPSG:3857, 256 px", () => {
+    const [url] = buildGeozoneWmsTileTemplates(["kontrollzonen", "flughaefen"], "DE");
+    assert.ok(url.startsWith("https://uas-betrieb.de/geoservices/dipul/wms?"), url);
+    assert.doesNotMatch(url, /\/api\/proxy\//);
+    assert.ok(url.endsWith("&BBOX={bbox}"));
+    const q = new URL(url.replace("{bbox}", "0,0,1,1")).searchParams;
+    assert.equal(q.get("REQUEST"), "GetMap");
+    assert.equal(q.get("VERSION"), "1.1.1");
+    assert.equal(q.get("SRS"), "EPSG:3857");
+    assert.equal(q.get("WIDTH"), "256");
+    assert.equal(q.get("TRANSPARENT"), "true");
+    assert.equal(q.get("LAYERS"), "flughaefen,kontrollzonen");
   });
 
-  it("zielt auf den Cache-Endpoint und nicht auf einen Anbieter-WMS", () => {
-    const url = buildGeozoneCacheTileUrlFrom(API, ALL_DE_LAYERS, "DE");
-    assert.ok(url.startsWith(`${API}/api/proxy/geozone-tiles/de/`));
-    assert.match(url, /\{z\}\/\{x\}\/\{y\}\.png\?layers=/);
-    assert.doesNotMatch(url, /uas-betrieb\.de|geo\.admin\.ch|geoportail\.lu|pdok\.nl|geopf\.fr/);
+  it("teilt viele DE-Layer in Pakete à MAX_LAYERS_PER_GETMAP (dipul scheitert an zu vielen Layern)", () => {
+    const urls = buildGeozoneWmsTileTemplates(ALL_DE_LAYERS, "DE");
+    assert.equal(urls.length, Math.ceil(new Set(ALL_DE_LAYERS).size / MAX_LAYERS_PER_GETMAP));
+    const seen: string[] = [];
+    for (const u of urls) {
+      const layers = new URL(u.replace("{bbox}", "0")).searchParams.get("LAYERS")!.split(",");
+      assert.ok(layers.length <= MAX_LAYERS_PER_GETMAP);
+      seen.push(...layers);
+    }
+    assert.deepEqual(seen.sort(), Array.from(new Set(ALL_DE_LAYERS)).sort());
   });
 
-  it("nutzt das ISO-Kürzel kleingeschrieben im Pfad", () => {
-    assert.ok(buildGeozoneCacheTileUrlFrom(API, ["x"], "CH").includes("/geozone-tiles/ch/"));
-    assert.ok(buildGeozoneCacheTileUrlFrom(API, ["x"], "NL").includes("/geozone-tiles/nl/"));
-    // Standard DE ohne explizites Land.
-    assert.ok(buildGeozoneCacheTileUrlFrom(API, ["x"]).includes("/geozone-tiles/de/"));
+  it("legt Layer mit eigenem Endpoint/SLD (NL Natura 2000) in eine eigene Vorlage", () => {
+    const urls = buildGeozoneWmsTileTemplates(["natura2000", "luchtvaartgebieden"], "NL");
+    assert.ok(urls.some((u) => u.startsWith("https://service.pdok.nl/rvo/natura2000/wms/v1_0?")));
+    const natura = urls.find((u) => u.includes("rvo/natura2000"))!;
+    assert.match(natura, /SLD_BODY=/);
+    // Klammern im SLD sind kodiert -> nur {bbox} als Platzhalter.
+    assert.deepEqual(natura.match(/\{[^}]*\}/g), ["{bbox}"]);
   });
 
-  it("dedupliziert und sortiert Layer für stabile Cache-Schlüssel", () => {
-    const a = buildGeozoneCacheTileUrlFrom(API, ["b", "a", "b"], "DE");
-    const b = buildGeozoneCacheTileUrlFrom(API, ["a", "b"], "DE");
+  it("ignoriert unbekannte Layer und Länder ohne WMS", () => {
+    assert.deepEqual(buildGeozoneWmsTileTemplates(["gibtsnicht"], "DE"), []);
+    assert.deepEqual(buildGeozoneWmsTileTemplates(["kontrollzonen"], "AT"), []);
+    assert.deepEqual(buildGeozoneWmsTileTemplates([], "DE"), []);
+  });
+});
+
+describe("buildGeozoneCacheTileUrlFrom (Kompatibilität)", () => {
+  it("liefert die erste direkte Vorlage, dedupliziert/sortiert stabil", () => {
+    const a = buildGeozoneCacheTileUrlFrom("", ["kontrollzonen", "flughaefen", "kontrollzonen"], "DE");
+    const b = buildGeozoneCacheTileUrlFrom("https://ignored.example", ["flughaefen", "kontrollzonen"], "DE");
     assert.equal(a, b);
-    assert.equal(decodeURIComponent(a.split("layers=")[1]), "a,b");
+    assert.equal(a, buildGeozoneWmsTileTemplates(["flughaefen", "kontrollzonen"], "DE")[0]);
   });
 
   it("liefert leeren String ohne Layer", () => {
-    assert.equal(buildGeozoneCacheTileUrlFrom(API, [], "DE"), "");
-    assert.equal(buildGeozoneCacheTileUrlFrom(API, [""], "DE"), "");
+    assert.equal(buildGeozoneCacheTileUrlFrom("", [], "DE"), "");
+    assert.equal(buildGeozoneCacheTileUrlFrom("", [""], "DE"), "");
   });
 
-  it("entfernt nachgestellte Slashes der API-Basis", () => {
-    const url = buildGeozoneCacheTileUrlFrom("https://x.app///", ["a"], "DE");
-    assert.ok(url.startsWith("https://x.app/api/proxy/geozone-tiles/de/"));
+  it("Vektor-Kacheln gibt es ohne Backend nicht mehr", () => {
+    assert.equal(buildVectorGeozoneTileUrlFrom("", "BE"), "");
+  });
+});
+
+describe("bbox-Berechnung", () => {
+  it("fillGeozoneTileTemplate und die Leaflet-Funktion liefern dieselbe EPSG:3857-bbox", () => {
+    const tpl = "https://x/wms?A=1&BBOX={bbox}";
+    const filled = fillGeozoneTileTemplate(tpl, 10, 537, 347);
+    // eslint-disable-next-line no-new-func
+    const fn = new Function(`${LEAFLET_WMS_BBOX_FN_JS}; return __geozoneWmsBbox;`)() as (d: any) => string;
+    assert.equal(filled, `https://x/wms?A=1&BBOX=${fn({ x: 537, y: 347, z: 10 })}`);
+    const [minX, minY, maxX, maxY] = tileToBbox3857(0, 0, 0);
+    assert.ok(Math.abs(minX + 20037508.34) < 0.01 && Math.abs(maxY - 20037508.34) < 0.01);
+    assert.ok(maxX > minX && maxY > minY);
   });
 });

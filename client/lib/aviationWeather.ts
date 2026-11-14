@@ -7,7 +7,6 @@ import {
   type ICloud,
   type Visibility,
 } from "metar-taf-parser";
-import { getApiUrl } from "./query-client";
 
 // Reine Dekodier-Logik liegt in aviationWeatherDecode.ts (ohne query-client/
 // expo-constants), damit das Web-Bundle sie ohne React-Native-Pakete nutzen kann.
@@ -50,26 +49,71 @@ async function fetchWithTimeout(url: string, timeoutMs = 10000): Promise<Respons
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(url, { signal: controller.signal });
+    return await fetch(url, { signal: controller.signal, headers: AWC_HEADERS });
   } finally {
     clearTimeout(timer);
   }
 }
 
+// aviationweather.gov (NOAA/AWC) wird direkt abgefragt – frei, ohne Schlüssel.
+const AWC_BASE = "https://aviationweather.gov/api/data";
+const AWC_HEADERS = { Accept: "application/json", "User-Agent": "COpterPilot-RC/1.0" } as const;
+
+async function fetchAwcJson(path: string): Promise<{ ok: boolean; status: number; data: unknown }> {
+  const res = await fetchWithTimeout(`${AWC_BASE}${path}`);
+  // AWC liefert bei "keine Daten" teils 204/leeren Body.
+  const text = await res.text();
+  let data: unknown = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = null;
+  }
+  return { ok: res.ok, status: res.status, data };
+}
+
+// Kleiner In-Memory-Cache (ersetzt den Server-Cache): frische Werte 10 min,
+// bei AWC-Ausfall werden auch abgelaufene Werte ausgeliefert.
+const AWC_TTL_MS = 10 * 60 * 1000;
+const awcCache = new Map<string, { ts: number; data: unknown }>();
+
 export async function fetchAirportWeather(icao: string): Promise<AirportWeather> {
   const code = icao.trim().toUpperCase();
-  const url = new URL("/api/proxy/metar", getApiUrl());
-  url.searchParams.set("ids", code);
-  let res: Response;
-  try {
-    res = await fetchWithTimeout(url.toString());
-  } catch {
-    throw new Error("Wetterdienst antwortet nicht");
+  const cacheKey = `icao:${code}`;
+  const cached = awcCache.get(cacheKey);
+  let data: { metars?: AwcMetar[]; tafs?: AwcTaf[] };
+  if (cached && Date.now() - cached.ts < AWC_TTL_MS) {
+    data = cached.data as typeof data;
+  } else {
+    try {
+      const id = encodeURIComponent(code);
+      const [metarRes, tafRes] = await Promise.all([
+        fetchAwcJson(`/metar?ids=${id}&format=json`),
+        fetchAwcJson(`/taf?ids=${id}&format=json`),
+      ]);
+      if (!metarRes.ok && !tafRes.ok) {
+        if (cached) {
+          data = cached.data as typeof data;
+        } else {
+          throw new Error(`Wetterdienst nicht erreichbar (${metarRes.status})`);
+        }
+      } else {
+        data = {
+          metars: Array.isArray(metarRes.data) ? (metarRes.data as AwcMetar[]) : [],
+          tafs: Array.isArray(tafRes.data) ? (tafRes.data as AwcTaf[]) : [],
+        };
+        awcCache.set(cacheKey, { ts: Date.now(), data });
+      }
+    } catch (e) {
+      if (cached) {
+        data = cached.data as typeof data;
+      } else if (e instanceof Error && e.message.startsWith("Wetterdienst")) {
+        throw e;
+      } else {
+        throw new Error("Wetterdienst antwortet nicht");
+      }
+    }
   }
-  if (!res.ok) {
-    throw new Error(`Wetterdienst nicht erreichbar (${res.status})`);
-  }
-  const data = (await res.json()) as { metars?: AwcMetar[]; tafs?: AwcTaf[] };
   const metars = Array.isArray(data.metars) ? data.metars : [];
   const tafs = Array.isArray(data.tafs) ? data.tafs : [];
   const metar = metars.find((m) => (m.icaoId || "").toUpperCase() === code) || metars[0];
@@ -93,14 +137,17 @@ export interface AirportStation {
   observedAt: string | null;
 }
 
-interface AwcStationRow {
-  icao?: string;
+interface AwcAreaRow {
+  icaoId?: string;
   name?: string;
   lat?: number;
   lon?: number;
-  raw?: string | null;
-  observedAt?: string | null;
+  rawOb?: string | null;
+  reportTime?: string | null;
 }
+
+const floor2 = (n: number) => Math.floor(n * 2) / 2;
+const ceil2 = (n: number) => Math.ceil(n * 2) / 2;
 
 /**
  * Holt ALLE aktuell meldenden METAR-Stationen in einer Bounding Box (europaweit).
@@ -110,25 +157,34 @@ interface AwcStationRow {
 export async function fetchAirportStationsInArea(
   bbox: [number, number, number, number],
 ): Promise<AirportStation[]> {
-  const url = new URL("/api/proxy/metar-area", getApiUrl());
-  url.searchParams.set("bbox", bbox.join(","));
+  let [minLat, minLon, maxLat, maxLon] = bbox;
+  if (![minLat, minLon, maxLat, maxLon].every(Number.isFinite)) return [];
+  if (minLat > maxLat) [minLat, maxLat] = [maxLat, minLat];
+  if (minLon > maxLon) [minLon, maxLon] = [maxLon, minLon];
+  // Bbox auf 0.5°-Raster erweitern (Obermenge der Anfrage) → bessere Cache-Treffer.
+  const bucket = `${floor2(minLat)},${floor2(minLon)},${ceil2(maxLat)},${ceil2(maxLon)}`;
+  const cacheKey = `area:${bucket}`;
+  const cached = awcCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < AWC_TTL_MS) return cached.data as AirportStation[];
   try {
-    const res = await fetch(url.toString());
-    if (!res.ok) return [];
-    const data = (await res.json()) as { stations?: AwcStationRow[] };
-    const rows = Array.isArray(data.stations) ? data.stations : [];
-    return rows
-      .filter((s) => s.icao && s.lat != null && s.lon != null)
+    const r = await fetchAwcJson(`/metar?bbox=${encodeURIComponent(bucket)}&format=json`);
+    if (!r.ok) return cached ? (cached.data as AirportStation[]) : [];
+    const rows = Array.isArray(r.data) ? (r.data as AwcAreaRow[]) : [];
+    const stations: AirportStation[] = rows
+      .filter((s) => s && s.icaoId && s.lat != null && s.lon != null)
       .map((s) => ({
-        icao: String(s.icao).toUpperCase(),
-        name: s.name || String(s.icao),
+        icao: String(s.icaoId).toUpperCase(),
+        name: s.name || String(s.icaoId),
         lat: Number(s.lat),
         lon: Number(s.lon),
-        raw: s.raw ?? null,
-        observedAt: s.observedAt ?? null,
-      }));
+        raw: typeof s.rawOb === "string" ? s.rawOb.trim() : null,
+        observedAt: s.reportTime ?? null,
+      }))
+      .slice(0, 600);
+    awcCache.set(cacheKey, { ts: Date.now(), data: stations });
+    return stations;
   } catch {
-    return [];
+    return cached ? (cached.data as AirportStation[]) : [];
   }
 }
 

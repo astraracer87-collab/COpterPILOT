@@ -8,48 +8,39 @@ import { getCheckItemLabel } from "@/lib/checklists";
 import { groupDanishBufferRings } from "../../shared/danishGeozones";
 import { resolveFlightTimeDocuments, type ResolvedPilotDocument } from "../../shared/archivedDocuments";
 import { buildWildlifeRescueOrdinancesHtml } from "../../shared/wildlifeRescue";
-import { apiJson } from "@/lib/api-client";
+import { renderProtocolMap } from "@/lib/protocolMapClient";
 
-/** Vorab serverseitig erzeugte echte Karten (OSM-Basis + Geozonen + Vektor). */
+/** Vorab clientseitig erzeugte Karten (OSM-Kacheln + Radius/Route als SVG). */
 export interface ProtocolMaps {
-  planned: string | null; // data:image/png;base64,...
+  planned: string | null; // data:image/svg+xml;base64,...
   route: string | null;
 }
 
-interface ProtocolMapResponse {
-  dataUrl?: string;
-  rendered?: boolean;
-}
-
-async function fetchProtocolMap(body: Record<string, unknown>): Promise<string | null> {
+async function fetchProtocolMap(body: Parameters<typeof renderProtocolMap>[0]): Promise<string | null> {
   try {
-    const res = await apiJson<ProtocolMapResponse>("/api/proxy/protocol-map", {
-      method: "POST",
-      body,
-      timeoutMs: 30000,
-    });
-    return res && res.rendered && res.dataUrl ? res.dataUrl : null;
+    return await renderProtocolMap(body);
   } catch {
     return null;
   }
 }
 
 /**
- * Holt die echten Protokoll-Karten (geplantes Fluggebiet + tatsächliche Route)
- * vom Server. Schlägt das fehl, bleiben die Felder null und die HTML-Generatoren
+ * Erzeugt die Protokoll-Karten (geplantes Fluggebiet + tatsächliche Route)
+ * direkt auf dem Gerät aus OSM-Kacheln (kein Server mehr). Schlägt das fehl
+ * (z. B. offline), bleiben die Felder null und die HTML-Generatoren
  * fallen auf den Snapshot bzw. die schematische Darstellung zurück.
  */
 export async function prefetchProtocolMaps(entry: LogbookEntry): Promise<ProtocolMaps> {
-  // Land leitet der Server aus den Koordinaten ab (LogbookEntry hat kein Land).
   const center = { lat: entry.latitude, lon: entry.longitude };
   const radiusKm = entry.planning?.radiusKm;
   const route = routeLatLon(entry);
 
-  const plannedReq = fetchProtocolMap({
-    kind: "planned",
-    center,
-    radiusKm,
-  });
+  // Ein vorhandener Karten-Snapshot (mit Geozonen) ist aussagekräftiger als die
+  // clientseitige OSM-Karte – dann keine Kacheln laden.
+  const hasSnapshot = !!(entry.mapSnapshotBase64 || entry.mapSatelliteSnapshotBase64);
+  const plannedReq = hasSnapshot
+    ? Promise.resolve(null)
+    : fetchProtocolMap({ kind: "planned", center, radiusKm });
   const routeReq =
     route.length >= 2
       ? fetchProtocolMap({ kind: "route", route, center })
@@ -629,7 +620,7 @@ function generatePlanningMapHtml(entry: LogbookEntry, realMap?: string | null): 
     ? `Geplantes Fluggebiet — ${escapeHtml(locationText)} · Radius ${radiusText}`
     : `Geplantes Fluggebiet — ${escapeHtml(locationText)}`;
   const legend = geozoneLegendHtml(entry.savedGeozoneFeatures);
-  // Bevorzugt die serverseitig erzeugte echte Karte (OSM + Geozonen + Radius).
+  // Bevorzugt die clientseitig erzeugte OSM-Karte (Kacheln + Radius).
   if (realMap) {
     return `
       <h2>Geplantes Fluggebiet (Geozone + Radius)</h2>
@@ -695,7 +686,7 @@ function routeLatLon(entry: LogbookEntry): { lat: number; lon: number }[] {
 function generateRouteMapHtml(entry: LogbookEntry, realMap?: string | null): string {
   const locationText = entry.locationName || `${entry.latitude.toFixed(4)}, ${entry.longitude.toFixed(4)}`;
   const legend = geozoneLegendHtml(entry.savedGeozoneFeatures);
-  // Bevorzugt die serverseitig erzeugte echte Karte (OSM + Geozonen + Route).
+  // Bevorzugt die clientseitig erzeugte OSM-Karte (Kacheln + Route).
   if (realMap) {
     const cap = `Tatsächliche Flugroute mit Geozonen-Overlay — ${escapeHtml(locationText)}`;
     return `

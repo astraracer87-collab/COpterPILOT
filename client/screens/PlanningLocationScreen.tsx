@@ -16,7 +16,6 @@ import { Button } from "@/components/Button";
 import MapPicker, { MapPickerRef } from "@/components/MapPicker";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, Typography, BorderRadius, Colors } from "@/constants/theme";
-import { getApiUrl } from "@/lib/query-client";
 import type { FlightPlanningParamList } from "@/navigation/FlightPlanningNavigator";
 import { getCountryCenter, getCountryMapConfig, reverseGeocodeCountry, detectCountryFromCoordinates, hasOwnMap, getMapConfigOrFallback, buildMapUrl } from "@/lib/countryMaps";
 import { buildManualRestrictionParams, decideLocationContinueTarget } from "@/lib/manualRestrictionFlow";
@@ -119,9 +118,14 @@ function parseGeozoneDetail(
 }
 
 async function searchNominatim(query: string, signal?: AbortSignal): Promise<PoiResult[]> {
-  const url = new URL("/api/proxy/geocode/search", getApiUrl());
-  url.searchParams.set("q", query);
-  const r = await fetch(url.toString(), { signal });
+  // Nominatim direkt (kein Server-Proxy mehr); Nominatim verlangt einen User-Agent.
+  const url =
+    "https://nominatim.openstreetmap.org/search?format=json&limit=8&addressdetails=1&accept-language=de&q=" +
+    encodeURIComponent(query);
+  const r = await fetch(url, {
+    signal,
+    headers: { "User-Agent": "COpterPilot-RC/1.0", Accept: "application/json" },
+  });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   const raw = await r.json();
   if (!Array.isArray(raw)) return [];

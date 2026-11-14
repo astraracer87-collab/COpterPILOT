@@ -1,4 +1,3 @@
-import { getApiUrl } from "./query-client";
 import { isWithinDwdCoverage } from "../../shared/countryDetection";
 
 // Mögliche Wetterquellen. "openmeteo" deckt das Ausland ab (Open-Meteo wählt
@@ -63,8 +62,13 @@ export interface WeatherData {
   forecasts: ForecastData[];
 }
 
+// DFS-dipul-Wetter (ICON-D2) wird direkt abgefragt – der frühere Server-Proxy
+// entfällt. Schlägt der Abruf fehl (z. B. offline oder SSL-Probleme auf dem
+// Gerät), greifen die vorhandenen Fallbacks (Open-Meteo / Bright Sky).
+const DFS_WEATHER_URL = "https://utm-service.dfs.de/api/weather/v1/weather";
+
 function getWeatherProxyUrl(): string {
-  return new URL("/api/proxy/weather", getApiUrl()).toString();
+  return DFS_WEATHER_URL;
 }
 
 function getNext24HourTimestamps(): string[] {

@@ -1,6 +1,7 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 import Constants from "expo-constants";
 import { Platform } from "react-native";
+import { handleLocalCollection, isLocalCollectionRoute } from "./localCollections";
 
 /**
  * Gets the base URL for the Express API server (e.g., "http://localhost:3000")
@@ -47,30 +48,36 @@ export function getApiUrl(): string {
   return "";
 }
 
-async function throwIfResNotOk(res: Response) {
-  if (!res.ok) {
-    const text = (await res.text()) || res.statusText;
-    throw new Error(`${res.status}: ${text}`);
-  }
+/**
+ * Fehler für Routen, die nur der (entfernte) Server bedienen konnte. Es wird
+ * bewusst KEIN Netzwerkaufruf mehr abgesetzt.
+ */
+function serverUnavailable(route: string): Error {
+  return new Error(`503: Server-Funktion in der RC-Version nicht verfügbar (${route})`);
 }
 
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(body === undefined ? null : JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+/**
+ * Früher: Request an das Express-Backend. Jetzt werden die lokalen
+ * Sammlungen (/api/user-glossary, /api/user-resources) aus AsyncStorage
+ * bedient; alle anderen Routen schlagen sofort mit einem klaren Fehler fehl.
+ */
 export async function apiRequest(
   method: string,
   route: string,
   data?: unknown | undefined,
 ): Promise<Response> {
-  const baseUrl = getApiUrl();
-  const url = new URL(route, baseUrl);
-
-  const res = await fetch(url, {
-    method,
-    headers: data ? { "Content-Type": "application/json" } : {},
-    body: data ? JSON.stringify(data) : undefined,
-    credentials: "include",
-  });
-
-  await throwIfResNotOk(res);
-  return res;
+  if (isLocalCollectionRoute(route)) {
+    const result = await handleLocalCollection(method, route, data);
+    return jsonResponse(result);
+  }
+  throw serverUnavailable(route);
 }
 
 type UnauthorizedBehavior = "returnNull" | "throw";
@@ -79,19 +86,12 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
-    const baseUrl = getApiUrl();
-    const url = new URL(queryKey.join("/") as string, baseUrl);
-
-    const res = await fetch(url, {
-      credentials: "include",
-    });
-
-    if (unauthorizedBehavior === "returnNull" && res.status === 401) {
-      return null;
+    const route = queryKey.join("/") as string;
+    if (isLocalCollectionRoute(route)) {
+      return (await handleLocalCollection("GET", route)) as any;
     }
-
-    await throwIfResNotOk(res);
-    return await res.json();
+    if (unauthorizedBehavior === "returnNull") return null as any;
+    throw serverUnavailable(route);
   };
 
 export const queryClient = new QueryClient({

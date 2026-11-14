@@ -175,17 +175,7 @@ export function DroneCard({
           >
             <Feather name="file-text" size={18} color={theme.textSecondary} />
           </Pressable>
-          <Pressable
-            onPress={() => navigation.navigate("DroneFoundLink", { droneId: drone.id })}
-            style={({ pressed }) => [styles.actionButton, pressed && styles.pressed]}
-            testID={`button-found-${drone.id}`}
-          >
-            <Feather
-              name="map-pin"
-              size={18}
-              color={drone.foundEnabled ? theme.primary : theme.textSecondary}
-            />
-          </Pressable>
+          {/* Lost & Found (Finder-Link) benötigte den Server – in der RC-Version ausgeblendet. */}
           <Pressable
             onPress={() => navigation.navigate("DroneSetup", { droneId: drone.id })}
             style={({ pressed }) => [styles.actionButton, pressed && styles.pressed]}

@@ -2,12 +2,11 @@
   "expo": {
     "name": "COpter Pilot",
     "slug": "COpterPilot",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "orientation": "landscape",
     "icon": "./assets/images/icon.png",
     "scheme": "copterpilot",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.copterpilot.app",
@@ -17,12 +16,11 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#0A4D8C",
+        "backgroundColor": "#0E2132",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "package": "com.copterpilot.rc",
       "permissions": [
@@ -31,7 +29,7 @@
         "INTERNET",
         "ACCESS_NETWORK_STATE"
       ],
-      "versionCode": 2,
+      "versionCode": 3,
       "blockedPermissions": [
         "com.google.android.gms.permission.AD_ID"
       ]
@@ -47,9 +45,9 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#0A4D8C",
+          "backgroundColor": "#0E2132",
           "dark": {
-            "backgroundColor": "#1A202C"
+            "backgroundColor": "#081521"
           }
         }
       ],
@@ -61,13 +59,14 @@
         }
       ],
       "expo-audio",
+      "expo-mail-composer",
       "expo-font",
       "@maplibre/maplibre-react-native",
       "./plugins/withReleaseSigning",
       "expo-secure-store"
     ],
     "experiments": {
-      "reactCompiler": true
+      "reactCompiler": false
     }
   }
 }

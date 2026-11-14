@@ -1,13 +1,11 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { apiJson } from "./api-client";
 
 /**
  * EASA "Easy Access Rules for UAS" — konsolidiertes EU-Drohnenregelwerk.
  *
- * Die Daten kommen vom Backend (`GET /api/easa-rules`, statisches JSON aus
- * server/data/easaUasRules.json). Sie werden NICHT in das Expo-Bundle gebündelt
- * (große statische Importe brechen den Metro-Publish), sondern bei Bedarf
- * geladen und in AsyncStorage offline zwischengespeichert.
+ * Die Daten liegen gebündelt in client/data/easaUasRules.json (früher vom
+ * Backend ausgeliefert). Das JSON wird erst bei Bedarf per require() geladen,
+ * damit es den App-Start nicht verzögert – funktioniert vollständig offline.
  *
  * Der amtliche Regeltext ist englisch (EASA-Originaldokument); nur die
  * Rahmen-/Bedienoberfläche ist deutsch.
@@ -38,8 +36,6 @@ export interface EasaRulesDoc {
   nodes: EasaNode[];
 }
 
-const CACHE_KEY = "@easa/rules_v1";
-
 function isValidDoc(doc: unknown): doc is EasaRulesDoc {
   return (
     !!doc &&
@@ -49,30 +45,21 @@ function isValidDoc(doc: unknown): doc is EasaRulesDoc {
   );
 }
 
-/**
- * Lädt das Regelwerk vom Backend und legt es offline ab. Schlägt der Abruf
- * fehl (z. B. offline), wird die zuletzt gespeicherte Version zurückgegeben.
- */
+let cachedDoc: EasaRulesDoc | null = null;
+
+/** Lädt das gebündelte Regelwerk (lazy, einmalig). */
 export async function loadEasaRules(): Promise<EasaRulesDoc> {
-  try {
-    const doc = await apiJson<EasaRulesDoc>("/api/easa-rules");
-    if (isValidDoc(doc)) {
-      AsyncStorage.setItem(CACHE_KEY, JSON.stringify(doc)).catch(() => {});
-      return doc;
-    }
-    throw new Error("Ungültige EASA-Daten vom Server.");
-  } catch (err) {
-    const cached = await AsyncStorage.getItem(CACHE_KEY).catch(() => null);
-    if (cached) {
-      try {
-        const parsed = JSON.parse(cached);
-        if (isValidDoc(parsed)) return parsed;
-      } catch {
-        // beschädigter Cache -> Originalfehler werfen
-      }
-    }
-    throw err;
-  }
+  if (cachedDoc) return cachedDoc;
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const raw: unknown = require("@/data/easaUasRules.json");
+  const doc = (raw && typeof raw === "object" && "default" in (raw as object)
+    ? (raw as { default: unknown }).default
+    : raw) as unknown;
+  if (!isValidDoc(doc)) throw new Error("EASA-Regelwerk konnte nicht geladen werden.");
+  cachedDoc = doc;
+  // Alten AsyncStorage-Cache (aus der Server-Zeit, ~1,4 MB) aufräumen.
+  AsyncStorage.removeItem("@easa/rules_v1").catch(() => {});
+  return doc;
 }
 
 /** Direkte Kinder eines Knotens (oder Wurzelknoten bei parentId = null). */

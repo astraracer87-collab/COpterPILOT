@@ -2,22 +2,17 @@
  * Offline-Länder: Karten, Luftbilder, Geozonen und Hindernisse eines ganzen
  * Landes auf dem Gerät speichern.
  *
- * Karten/Luftbilder/Geozonen laufen über MapLibre-Offline-Pakete (die Karte
- * findet die Kacheln dann automatisch über ihre Adresse). Hindernisse werden
- * als Kacheln aus OpenStreetMap geladen (obstacles.ts).
+ * Kacheln liegen als Dateien unter documentDirectory/tiles/<hash>/<z>/<x>/<y>,
+ * wobei <hash> aus der Kachel-Adresse der Quelle gebildet wird (gleiche
+ * Funktion wie in leafletRc.ts). Die Leaflet-Karten schauen dort zuerst nach.
+ * Hindernisse werden als Kacheln aus OpenStreetMap geladen (obstacles.ts).
  */
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as FileSystem from "expo-file-system/legacy";
-import { OfflineManager, type OfflinePack } from "@maplibre/maplibre-react-native";
-import { COUNTRY_MAP_PROVIDERS, GLYPHS_URL, LABEL_FONT, getMapProvider, type LngLatBox, type RasterDef } from "@/lib/mapSources";
-import {
-  buildCombinedWmsTileUrl,
-  getActiveLayerNames,
-  getAllDefaultEnabledLayerNames,
-  getAllLayerNames,
-  COUNTRY_GEOZONE_CONFIGS,
-  loadGeozoneSettings,
-} from "@/lib/geozones";
+import { COUNTRY_MAP_PROVIDERS, getMapProvider, type LngLatBox, type RasterDef } from "@/lib/mapSources";
+import { COUNTRY_GEOZONE_CONFIGS, buildGeozoneTileUrls, getAllDefaultEnabledLayerNames, getAllLayerNames } from "@/lib/geozones";
+import { detectCountryFromCoordinates } from "../../shared/countryDetection";
+import { detectBundeslandFromCoordinates } from "@/lib/countryMaps";
 import { OBSTACLE_TILE_ZOOM, deleteObstacleTiles, hasObstacleTile, loadObstacleTile, tilesForBounds } from "@/lib/obstacles";
 
 export type DetailLevel = 11 | 12 | 13 | 14 | 15;
@@ -42,13 +37,69 @@ export const DETAIL_LABELS: Record<DetailLevel, string> = {
 };
 
 const CONFIG_KEY = "@copterpilot/offline_countries";
+const LEVELS_KEY = "@copterpilot/offline_tile_levels";
+const PROGRESS_KEY = "@copterpilot/offline_progress";
+const TILE_ROOT = `${FileSystem.documentDirectory}tiles/`;
+const GRID_ZOOM = 10;
 const GEOZONE_MIN_ZOOM = 11;
 const MAP_MIN_ZOOM = 5;
 const SAT_MIN_ZOOM = 8;
 const GEO_KB_PER_TILE = 6;
 const OBSTACLE_KB_PER_TILE = 120;
+const PARALLEL = 6;
 
-/** Länder, die offline gespeichert werden können */
+// ---------------------------------------------------------------------------
+// Hilfsfunktionen
+// ---------------------------------------------------------------------------
+
+/** FNV-1a, identisch mit hash() in leafletRc.ts */
+export function tileSourceHash(s: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return ("0000000" + h.toString(16)).slice(-8);
+}
+
+function lonToX(lon: number, z: number) {
+  return Math.floor(((lon + 180) / 360) * 2 ** z);
+}
+function latToY(lat: number, z: number) {
+  const r = (Math.max(-85, Math.min(85, lat)) * Math.PI) / 180;
+  return Math.floor(((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2) * 2 ** z);
+}
+function xToLon(x: number, z: number) {
+  return (x / 2 ** z) * 360 - 180;
+}
+function yToLat(y: number, z: number) {
+  return (Math.atan(Math.sinh(Math.PI * (1 - (2 * y) / 2 ** z))) * 180) / Math.PI;
+}
+function bbox3857(x: number, y: number, z: number): string {
+  const R = 20037508.342789244;
+  const size = (2 * R) / 2 ** z;
+  const minx = -R + x * size;
+  const maxy = R - y * size;
+  return [minx, maxy - size, minx + size, maxy].join(",");
+}
+function fillTemplate(t: string, x: number, y: number, z: number): string {
+  const sub = ["a", "b", "c"][Math.abs(x + y) % 3];
+  return t
+    .replace(/\{bbox-epsg-3857\}/g, bbox3857(x, y, z))
+    .replace(/\{bbox\}/g, bbox3857(x, y, z))
+    .replace(/\{z\}/g, String(z))
+    .replace(/\{x\}/g, String(x))
+    .replace(/\{y\}/g, String(y))
+    .replace(/\{s\}/g, sub)
+    .replace(/\{r\}/g, "")
+    .replace(/\{width\}/g, "256")
+    .replace(/\{height\}/g, "256");
+}
+
+// ---------------------------------------------------------------------------
+// Konfiguration
+// ---------------------------------------------------------------------------
+
 export function offlineCountries(): { iso: string; label: string; bounds: LngLatBox; hasMap: boolean; hasSatellite: boolean; hasGeozones: boolean }[] {
   return COUNTRY_MAP_PROVIDERS.map((p) => ({
     iso: p.iso,
@@ -56,7 +107,7 @@ export function offlineCountries(): { iso: string; label: string; bounds: LngLat
     bounds: p.bounds,
     hasMap: !!p.map,
     hasSatellite: !!p.satellite?.length,
-    hasGeozones: !!COUNTRY_GEOZONE_CONFIGS[p.iso],
+    hasGeozones: geozoneTemplates(p.iso).length > 0,
   }));
 }
 
@@ -68,7 +119,7 @@ export function defaultConfig(iso: string): CountryOfflineConfig {
     mapMaxZoom: 12,
     satellite: false,
     satMaxZoom: 13,
-    geozones: !!COUNTRY_GEOZONE_CONFIGS[iso],
+    geozones: geozoneTemplates(iso).length > 0,
     geoMaxZoom: 12,
     obstacles: true,
   };
@@ -89,23 +140,67 @@ async function saveOfflineConfigs(list: CountryOfflineConfig[]): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Größen-Abschätzung
+// Für die Karten: welche Quellen liegen bis zu welcher Zoomstufe vor?
 // ---------------------------------------------------------------------------
 
-function lonToX(lon: number, z: number) {
-  return Math.floor(((lon + 180) / 360) * 2 ** z);
+const listeners = new Set<() => void>();
+export function onOfflineTilesChange(l: () => void): () => void {
+  listeners.add(l);
+  l();
+  return () => listeners.delete(l);
 }
-function latToY(lat: number, z: number) {
-  const r = (lat * Math.PI) / 180;
-  return Math.floor(((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2) * 2 ** z);
+function notify() {
+  listeners.forEach((l) => l());
 }
+
+async function loadLevels(): Promise<Record<string, number>> {
+  try {
+    const raw = await AsyncStorage.getItem(LEVELS_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+async function saveLevels(l: Record<string, number>): Promise<void> {
+  await AsyncStorage.setItem(LEVELS_KEY, JSON.stringify(l));
+  notify();
+}
+
+export async function getOfflineTileConfig(): Promise<{ root: string; levels: Record<string, number> }> {
+  return { root: TILE_ROOT, levels: await loadLevels() };
+}
+
+// ---------------------------------------------------------------------------
+// Geozonen-Kacheln (direkte WMS-Adressen, siehe geozoneTileUrl.ts)
+// ---------------------------------------------------------------------------
+
+/**
+ * Adressen der Geozonen-Kacheln eines Landes (direkte WMS-Vorlagen mit {bbox}),
+ * genau so, wie die Karten sie bauen: Standard-Ebenen und alle Ebenen.
+ */
+function geozoneTemplates(iso: string): string[] {
+  const cfg = COUNTRY_GEOZONE_CONFIGS[iso];
+  if (!cfg) return [];
+  try {
+    const urls = new Set<string>();
+    const def = getAllDefaultEnabledLayerNames(iso);
+    for (const layers of [def.length ? def : [cfg.layers[0]?.wmsLayer].filter(Boolean) as string[], getAllLayerNames(iso)]) {
+      for (const u of buildGeozoneTileUrls(layers, iso)) if (/^https?:/.test(u)) urls.add(u);
+    }
+    return [...urls];
+  } catch {
+    return [];
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Größen-Abschätzung
+// ---------------------------------------------------------------------------
 
 export function tileCount(b: LngLatBox, minZ: number, maxZ: number): number {
   let n = 0;
   for (let z = minZ; z <= maxZ; z++) {
-    const dx = lonToX(b[2], z) - lonToX(b[0], z) + 1;
-    const dy = latToY(b[1], z) - latToY(b[3], z) + 1;
-    n += dx * dy;
+    n += (lonToX(b[2], z) - lonToX(b[0], z) + 1) * (latToY(b[1], z) - latToY(b[3], z) + 1);
   }
   return n;
 }
@@ -123,7 +218,7 @@ export interface SizeEstimate {
 
 export function estimateSize(c: CountryOfflineConfig): SizeEstimate {
   const p = getMapProvider(c.iso);
-  const mb = (tiles: number, kb: number) => (tiles * LAND_SHARE * kb) / 1024;
+  const mb = (tiles: number, kb: number, share = LAND_SHARE) => (tiles * share * kb) / 1024;
   let mapMB = 0;
   let satMB = 0;
   let geoMB = 0;
@@ -134,7 +229,7 @@ export function estimateSize(c: CountryOfflineConfig): SizeEstimate {
       satMB += mb(tileCount(s.bounds, Math.max(SAT_MIN_ZOOM, s.minzoom ?? 0), Math.min(c.satMaxZoom, s.maxzoom)), s.kbPerTile);
     }
   }
-  if (c.geozones && p) geoMB = mb(tileCount(p.bounds, GEOZONE_MIN_ZOOM, c.geoMaxZoom), GEO_KB_PER_TILE) * 2;
+  if (c.geozones && p) geoMB = mb(tileCount(p.bounds, GEOZONE_MIN_ZOOM, c.geoMaxZoom), GEO_KB_PER_TILE) * Math.max(1, geozoneTemplates(c.iso).length);
   if (c.obstacles && p) obstaclesMB = (tilesForBounds(...p.bounds).length * LAND_SHARE * OBSTACLE_KB_PER_TILE) / 1024;
   return { mapMB, satMB, geoMB, obstaclesMB, totalMB: mapMB + satMB + geoMB + obstaclesMB };
 }
@@ -154,7 +249,7 @@ export async function freeDiskMB(): Promise<number | null> {
 }
 
 // ---------------------------------------------------------------------------
-// Offline-Pakete (MapLibre)
+// Download-Planung
 // ---------------------------------------------------------------------------
 
 type PackKind = "map" | "sat" | "geo";
@@ -162,94 +257,118 @@ type PackKind = "map" | "sat" | "geo";
 interface PackPlan {
   key: string;
   kind: PackKind;
+  template: string;
   bounds: LngLatBox;
   minZoom: number;
   maxZoom: number;
-  sources: { id: string; tiles: string; tileSize: number; maxzoom?: number }[];
+  /** Zoom-10-Zelle gehört dazu? (Land bzw. Bundesland) */
+  cellFilter: (iso: string, region: string) => boolean;
 }
 
-let initDone = false;
-async function initOffline() {
-  if (initDone) return;
-  initDone = true;
-  OfflineManager.setTileCountLimit(10_000_000);
-  OfflineManager.setProgressEventThrottle(1000);
-}
-
-async function geozoneTemplates(iso: string): Promise<string[]> {
-  const settings = await loadGeozoneSettings(iso);
-  const combos = [getActiveLayerNames(settings, iso), getAllDefaultEnabledLayerNames(iso), getAllLayerNames(iso)];
-  const urls = new Set<string>();
-  for (const layers of combos) {
-    if (!layers.length) continue;
-    // dieselbe Umwandlung wie WMSTile in components/maps
-    for (const u of buildCombinedWmsTileUrl(layers, iso)) {
-      urls.add(
-        u
-          .replace("{minX},{minY},{maxX},{maxY}", "{bbox-epsg-3857}")
-          .replace(/\{width\}/g, "256")
-          .replace(/\{height\}/g, "256"),
-      );
+const cellCache = new Map<string, { iso: string; region: string; border: boolean }>();
+function cellInfo(x: number, y: number) {
+  const k = `${x}_${y}`;
+  const hit = cellCache.get(k);
+  if (hit) return hit;
+  let iso = "";
+  let region = "";
+  let border = false;
+  let first = true;
+  for (const fx of [0.05, 0.5, 0.95]) {
+    for (const fy of [0.05, 0.5, 0.95]) {
+      const lat = yToLat(y + fy, GRID_ZOOM);
+      const lon = xToLon(x + fx, GRID_ZOOM);
+      const i = detectCountryFromCoordinates(lat, lon) ?? "";
+      const r = i === "DE" ? detectBundeslandFromCoordinates(lat, lon) ?? "" : "";
+      if (first) {
+        iso = i;
+        region = r;
+        first = false;
+      } else if (i !== iso || r !== region) {
+        border = true;
+      }
     }
   }
-  return [...urls];
+  const out = { iso, region, border };
+  cellCache.set(k, out);
+  return out;
 }
 
-async function plansFor(c: CountryOfflineConfig): Promise<PackPlan[]> {
+function plansFor(c: CountryOfflineConfig): PackPlan[] {
   const p = getMapProvider(c.iso);
   if (!p) return [];
   const plans: PackPlan[] = [];
-  const src = (d: RasterDef) => ({ id: d.id, tiles: d.tiles, tileSize: d.tileSize, maxzoom: d.maxzoom });
+  const inCountry = (iso: string) => iso === c.iso;
   if (c.map && p.map) {
-    plans.push({ key: `${c.iso}:map`, kind: "map", bounds: p.map.bounds, minZoom: MAP_MIN_ZOOM, maxZoom: c.mapMaxZoom, sources: [src(p.map)] });
+    plans.push({
+      key: `${c.iso}:map`,
+      kind: "map",
+      template: p.map.tiles,
+      bounds: p.map.bounds,
+      minZoom: MAP_MIN_ZOOM,
+      maxZoom: Math.min(c.mapMaxZoom, p.map.maxzoom),
+      cellFilter: inCountry,
+    });
   }
   if (c.satellite && p.satellite) {
-    for (const s of p.satellite) {
+    for (const s of p.satellite as RasterDef[]) {
       plans.push({
         key: `${c.iso}:sat:${s.id}`,
         kind: "sat",
+        template: s.tiles,
         bounds: s.bounds,
         minZoom: Math.max(SAT_MIN_ZOOM, s.minzoom ?? 0),
         maxZoom: Math.min(c.satMaxZoom, s.maxzoom),
-        sources: [src(s)],
+        cellFilter: (iso, region) => iso === c.iso && (!s.region || region === s.region),
       });
     }
   }
-  if (c.geozones && COUNTRY_GEOZONE_CONFIGS[c.iso]) {
-    const tpls = await geozoneTemplates(c.iso);
-    plans.push({
-      key: `${c.iso}:geo`,
-      kind: "geo",
-      bounds: p.bounds,
-      minZoom: GEOZONE_MIN_ZOOM,
-      maxZoom: c.geoMaxZoom,
-      sources: tpls.map((t, i) => ({ id: `geo${i}`, tiles: t, tileSize: 256 })),
+  if (c.geozones) {
+    geozoneTemplates(c.iso).forEach((t, i) => {
+      plans.push({
+        key: `${c.iso}:geo:${i}`,
+        kind: "geo",
+        template: t,
+        bounds: p.bounds,
+        minZoom: GEOZONE_MIN_ZOOM,
+        maxZoom: c.geoMaxZoom,
+        cellFilter: inCountry,
+      });
     });
   }
   return plans;
 }
 
-/** Stil-Datei für ein Paket (MapLibre braucht eine Stil-Adresse) */
-async function writePackStyle(plan: PackPlan): Promise<string> {
-  const dir = `${FileSystem.documentDirectory}offline-styles/`;
-  await FileSystem.makeDirectoryAsync(dir, { intermediates: true }).catch(() => {});
-  const sources: Record<string, any> = {};
-  const layers: any[] = [];
-  for (const s of plan.sources) {
-    sources[s.id] = { type: "raster", tiles: [s.tiles], tileSize: s.tileSize, maxzoom: s.maxzoom ?? 22 };
-    layers.push({ id: `${s.id}-l`, type: "raster", source: s.id });
+/** Alle Kacheln eines Plans in fester Reihenfolge (für Fortsetzen) */
+function* planTiles(plan: PackPlan): Generator<[number, number, number]> {
+  const [w, s, e, n] = plan.bounds;
+  for (let z = plan.minZoom; z <= plan.maxZoom; z++) {
+    const x0 = lonToX(w, z);
+    const x1 = lonToX(e, z);
+    const y0 = latToY(n, z);
+    const y1 = latToY(s, z);
+    for (let x = x0; x <= x1; x++) {
+      for (let y = y0; y <= y1; y++) {
+        if (z >= GRID_ZOOM) {
+          const d = 2 ** (z - GRID_ZOOM);
+          const cell = cellInfo(Math.floor(x / d), Math.floor(y / d));
+          if (!cell.border && !plan.cellFilter(cell.iso, cell.region)) continue;
+        }
+        yield [z, x, y];
+      }
+    }
   }
-  const style: any = { version: 8, sources, layers };
-  if (plan.kind === "geo") {
-    // Schrift für die Höhenangaben an Hindernissen mit speichern
-    style.glyphs = GLYPHS_URL;
-    style.sources.empty = { type: "geojson", data: { type: "FeatureCollection", features: [] } };
-    style.layers.push({ id: "font", type: "symbol", source: "empty", layout: { "text-field": "0", "text-font": LABEL_FONT } });
-  }
-  const path = `${dir}${plan.key.replace(/[^A-Za-z0-9_-]/g, "_")}.json`;
-  await FileSystem.writeAsStringAsync(path, JSON.stringify(style));
-  return path;
 }
+
+function planTileCount(plan: PackPlan): number {
+  let n = 0;
+  for (const _ of planTiles(plan)) n++;
+  return n;
+}
+
+// ---------------------------------------------------------------------------
+// Fortschritt
+// ---------------------------------------------------------------------------
 
 export interface PackProgress {
   key: string;
@@ -260,28 +379,59 @@ export interface PackProgress {
   error?: string;
 }
 
-async function findPacks(iso: string): Promise<OfflinePack[]> {
-  await initOffline();
-  const packs = await OfflineManager.getPacks();
-  return packs.filter((p) => typeof p.metadata?.key === "string" && String(p.metadata.key).startsWith(`${iso}:`));
+type StoredProgress = Record<string, { done: number; total: number; bytes: number; maxZoom: number; template: string }>;
+
+async function loadProgress(): Promise<StoredProgress> {
+  try {
+    const raw = await AsyncStorage.getItem(PROGRESS_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+async function saveProgress(p: StoredProgress): Promise<void> {
+  await AsyncStorage.setItem(PROGRESS_KEY, JSON.stringify(p));
 }
 
 export async function packStatuses(iso: string): Promise<PackProgress[]> {
-  const packs = await findPacks(iso);
-  const out: PackProgress[] = [];
-  for (const p of packs) {
-    try {
-      const s = await p.status();
-      out.push({
-        key: String(p.metadata.key),
-        kind: String(p.metadata.kind) as PackKind,
-        percentage: s.percentage,
-        bytes: s.completedResourceSize,
-        state: s.state,
-      });
-    } catch {}
+  const prog = await loadProgress();
+  return Object.entries(prog)
+    .filter(([k]) => k.startsWith(`${iso}:`))
+    .map(([k, v]) => ({
+      key: k,
+      kind: k.split(":")[1] as PackKind,
+      percentage: v.total ? Math.min(100, (v.done / v.total) * 100) : 0,
+      bytes: v.bytes,
+      state: v.total && v.done >= v.total ? "complete" : "inactive",
+    }));
+}
+
+// ---------------------------------------------------------------------------
+// Laden
+// ---------------------------------------------------------------------------
+
+const madeDirs = new Set<string>();
+async function ensureDir(dir: string) {
+  if (madeDirs.has(dir)) return;
+  await FileSystem.makeDirectoryAsync(dir, { intermediates: true }).catch(() => {});
+  madeDirs.add(dir);
+}
+
+async function downloadTile(template: string, hash: string, z: number, x: number, y: number): Promise<number> {
+  const dir = `${TILE_ROOT}${hash}/${z}/${x}/`;
+  const path = `${dir}${y}`;
+  const info = await FileSystem.getInfoAsync(path);
+  if (info.exists) return 0;
+  await ensureDir(dir);
+  const res = await FileSystem.downloadAsync(fillTemplate(template, x, y, z), path, {
+    headers: { "User-Agent": "COpterPilot-RC/1.0" },
+  });
+  if (res.status !== 200) {
+    await FileSystem.deleteAsync(path, { idempotent: true }).catch(() => {});
+    return 0;
   }
-  return out;
+  const after = await FileSystem.getInfoAsync(path);
+  return after.exists && "size" in after ? after.size ?? 0 : 0;
 }
 
 /** Startet bzw. setzt die Downloads für ein Land fort. */
@@ -291,49 +441,81 @@ export async function startCountryDownload(
   onObstacles: (done: number, total: number) => void,
   shouldStop: () => boolean,
 ): Promise<void> {
-  await initOffline();
   const list = (await loadOfflineConfigs()).filter((x) => x.iso !== c.iso);
   await saveOfflineConfigs([...list, c]);
 
-  const existing = await findPacks(c.iso);
-  const plans = await plansFor(c);
+  const plans = plansFor(c);
   const wanted = new Set(plans.map((p) => p.key));
+  const progress = await loadProgress();
+  const levels = await loadLevels();
 
-  // nicht mehr gewünschte Pakete entfernen (z. B. Satellit abgewählt)
-  for (const p of existing) {
-    if (!wanted.has(String(p.metadata.key))) await OfflineManager.deletePack(p.id).catch(() => {});
+  // abgewählte Teile entfernen
+  for (const key of Object.keys(progress)) {
+    if (key.startsWith(`${c.iso}:`) && !wanted.has(key)) {
+      const h = tileSourceHash(progress[key].template);
+      await FileSystem.deleteAsync(`${TILE_ROOT}${h}/`, { idempotent: true }).catch(() => {});
+      delete levels[h];
+      delete progress[key];
+    }
   }
-
-  const progress = (plan: PackPlan) => (_pack: OfflinePack, s: any) =>
-    onPack({ key: plan.key, kind: plan.kind, percentage: s.percentage, bytes: s.completedResourceSize, state: s.state });
-  const error = (plan: PackPlan) => (_pack: OfflinePack, e: any) =>
-    onPack({ key: plan.key, kind: plan.kind, percentage: 0, bytes: 0, state: "error", error: e?.message });
+  await saveProgress(progress);
+  await saveLevels(levels);
 
   for (const plan of plans) {
-    const have = existing.find((p) => p.metadata.key === plan.key && p.metadata.maxZoom === plan.maxZoom);
-    if (have) {
-      await OfflineManager.addListener(have.id, progress(plan), error(plan));
-      await have.resume().catch(() => {});
-      continue;
+    if (shouldStop()) break;
+    const hash = tileSourceHash(plan.template);
+    let st = progress[plan.key];
+    if (!st || st.maxZoom !== plan.maxZoom || st.template !== plan.template) {
+      st = { done: 0, total: planTileCount(plan), bytes: st?.bytes ?? 0, maxZoom: plan.maxZoom, template: plan.template };
+      progress[plan.key] = st;
     }
-    const old = existing.find((p) => p.metadata.key === plan.key);
-    if (old) await OfflineManager.deletePack(old.id).catch(() => {});
-    const stylePath = await writePackStyle(plan);
-    await OfflineManager.createPack(
-      {
-        mapStyle: stylePath.startsWith("file://") ? stylePath : `file://${stylePath}`,
-        bounds: plan.bounds,
-        minZoom: plan.minZoom,
-        maxZoom: plan.maxZoom,
-        metadata: { key: plan.key, kind: plan.kind, maxZoom: plan.maxZoom },
-      },
-      progress(plan),
-      error(plan),
-    );
+    // Karte darf die Kacheln ab sofort vom Gerät lesen
+    levels[hash] = Math.max(levels[hash] ?? 0, plan.maxZoom);
+    await saveLevels(levels);
+
+    const report = (state: PackProgress["state"], error?: string) =>
+      onPack({ key: plan.key, kind: plan.kind, percentage: st.total ? (st.done / st.total) * 100 : 100, bytes: st.bytes, state, error });
+    report("active");
+
+    const it = planTiles(plan);
+    // bereits erledigte Kacheln überspringen
+    for (let i = 0; i < st.done; i++) if (it.next().done) break;
+
+    let lastSave = Date.now();
+    let failures = 0;
+    const worker = async () => {
+      while (!shouldStop()) {
+        const next = it.next();
+        if (next.done) return;
+        const [z, x, y] = next.value;
+        try {
+          st.bytes += await downloadTile(plan.template, hash, z, x, y);
+          failures = 0;
+        } catch {
+          failures++;
+          if (failures > 30) throw new Error("Zu viele Fehler – Internetverbindung prüfen");
+        }
+        st.done++;
+        if (Date.now() - lastSave > 1500) {
+          lastSave = Date.now();
+          await saveProgress(progress);
+          report("active");
+        }
+      }
+    };
+    try {
+      await Promise.all(Array.from({ length: PARALLEL }, worker));
+      await saveProgress(progress);
+      report(st.done >= st.total ? "complete" : "inactive");
+    } catch (e: any) {
+      await saveProgress(progress);
+      report("error", e?.message);
+      return;
+    }
   }
 
   // Hindernisse: Kachel für Kachel, schonend für die OSM-Server
-  if (c.obstacles) {
+  if (c.obstacles && !shouldStop()) {
     const p = getMapProvider(c.iso);
     if (p) {
       const tiles = tilesForBounds(...p.bounds, OBSTACLE_TILE_ZOOM);
@@ -352,15 +534,23 @@ export async function startCountryDownload(
   }
 }
 
-export async function pauseCountryDownload(iso: string): Promise<void> {
-  for (const p of await findPacks(iso)) await p.pause().catch(() => {});
+export async function pauseCountryDownload(_iso: string): Promise<void> {
+  // Der Download prüft shouldStop(); hier nichts weiter zu tun.
 }
 
 export async function deleteCountry(iso: string): Promise<void> {
-  for (const p of await findPacks(iso)) {
-    OfflineManager.removeListener(p.id);
-    await OfflineManager.deletePack(p.id).catch(() => {});
+  const progress = await loadProgress();
+  const levels = await loadLevels();
+  for (const key of Object.keys(progress)) {
+    if (!key.startsWith(`${iso}:`)) continue;
+    const h = tileSourceHash(progress[key].template);
+    await FileSystem.deleteAsync(`${TILE_ROOT}${h}/`, { idempotent: true }).catch(() => {});
+    delete levels[h];
+    delete progress[key];
   }
+  await saveProgress(progress);
+  await saveLevels(levels);
+
   const list = (await loadOfflineConfigs()).filter((x) => x.iso !== iso);
   const prov = getMapProvider(iso);
   if (prov) {

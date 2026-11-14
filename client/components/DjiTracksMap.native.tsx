@@ -20,6 +20,7 @@ import {
   loadGeozoneSettings,
   getActiveLayerNames,
   buildGeozoneCacheTileUrl,
+  buildGeozoneTileUrls,
   buildVectorGeozoneTileUrl,
   isRasterTiledVectorCountry,
   GEOZONE_TILE_MIN_ZOOM,
@@ -140,8 +141,7 @@ const DjiTracksMap = forwardRef<DjiTracksMapHandle, Props>(function DjiTracksMap
         }
         const settings = await loadGeozoneSettings(countryIso);
         const enabled = getActiveLayerNames(settings, countryIso);
-        const url = buildGeozoneCacheTileUrl(enabled, countryIso);
-        if (!cancelled) setWmsUrls(url ? [url] : []);
+        if (!cancelled) setWmsUrls(buildGeozoneTileUrls(enabled, countryIso));
       } catch {
         if (!cancelled) setWmsUrls([]);
       }

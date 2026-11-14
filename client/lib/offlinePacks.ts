@@ -1,5 +1,5 @@
-import { getApiUrl } from "@/lib/query-client";
 import { queryEd269CachedFeaturesFrom } from "@/lib/geozoneCoverage";
+import { isEd269DirectCountry } from "@/lib/geozoneDirect/ed269Sources";
 import { fetchNotams } from "@/lib/notams";
 import { writePack, readPackData, type OfflinePackMeta } from "@/lib/offlineStore";
 import { isOfflineNow } from "@/lib/network";
@@ -57,7 +57,14 @@ export async function downloadOfflinePack(iso: string): Promise<OfflinePackMeta>
   let features: unknown[] = [];
   let featuresFailed = false;
   try {
-    features = await queryEd269CachedFeaturesFrom(getApiUrl(), lat, lon, radiusKm, up, undefined, true);
+    // Kein Backend mehr: Vektor-Länder (AT/BE/DK) werden direkt von den
+    // Upstream-Feeds geladen (forceRefresh = frischer Download, bei Fehlschlag
+    // der vorhandene Gerätebestand). WMS-Länder liefern hier – wie früher –
+    // keine Vektorzonen.
+    features = await queryEd269CachedFeaturesFrom("", lat, lon, radiusKm, up, undefined, true, undefined, true);
+    // Leeres Ergebnis bei einem Vektor-Land heißt: Download fehlgeschlagen und
+    // kein Gerätebestand -> als Fehlschlag werten (alter Paketstand bleibt).
+    if (features.length === 0 && isEd269DirectCountry(up)) featuresFailed = true;
   } catch {
     featuresFailed = true;
   }

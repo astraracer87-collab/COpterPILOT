@@ -37,6 +37,8 @@ export interface DipulWfsQueryResult {
   fallbackLayers: string[];
 }
 
+// Wird seit dem Direktabruf (kein App-Proxy, keine Anmeldung) nicht mehr
+// geworfen; bleibt für bestehende instanceof-Prüfungen der Aufrufer erhalten.
 export class DipulWfsAccessError extends Error {
   readonly status: number;
 
@@ -176,50 +178,112 @@ export function parseDipulWfsBatches(
   };
 }
 
+// DIPUL-WFS (DFS / uas-betrieb.de) – öffentlich, ohne Anmeldung. Früher über
+// den App-Proxy `/api/proxy/dipul-geozones` abgefragt; jetzt direkt.
+export const DIPUL_WFS_URL = "https://uas-betrieb.de/geoservices/dipul/ows";
+// Diese Layer bleiben beim bisherigen WMS-GetFeatureInfo-Pfad: der temporäre
+// WFS-Layer ist nicht zuverlässig, die übrigen sind in den WFS-Capabilities
+// nicht veröffentlicht.
+export const DIPUL_WFS_EXCLUDED_LAYERS = new Set([
+  "temporaere_betriebseinschraenkungen",
+  "modellflugplaetze",
+  "haengegleiter",
+]);
+// Ab so vielen Treffern gilt ein Layer als abgeschnitten -> WMS-Fallback.
+export const DIPUL_WFS_MAX_FEATURES = 250;
+const DIPUL_WFS_LAYER_TIMEOUT_MS = 6000;
+const DIPUL_WFS_CONCURRENCY = 8;
+
+async function fetchDipulWfsLayer(
+  layer: string,
+  bbox: string,
+): Promise<unknown[] | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), DIPUL_WFS_LAYER_TIMEOUT_MS);
+  try {
+    const params = new URLSearchParams({
+      SERVICE: "WFS",
+      VERSION: "2.0.0",
+      REQUEST: "GetFeature",
+      TYPENAMES: `dipul:${layer}`,
+      OUTPUTFORMAT: "application/json",
+      SRSNAME: "EPSG:4326",
+      BBOX: bbox,
+      COUNT: String(DIPUL_WFS_MAX_FEATURES),
+    });
+    const response = await fetch(`${DIPUL_WFS_URL}?${params}`, {
+      signal: controller.signal,
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) return null;
+    const data = await response.json() as {
+      features?: unknown[];
+      numberMatched?: number | string;
+      totalFeatures?: number | string;
+    };
+    if (!Array.isArray(data?.features)) return null;
+    const matched = Number(data.numberMatched ?? data.totalFeatures);
+    const truncated =
+      (Number.isFinite(matched) && matched > data.features.length) ||
+      data.features.length >= DIPUL_WFS_MAX_FEATURES;
+    return truncated ? null : data.features;
+  } catch (error) {
+    console.warn(`[DIPUL WFS] layer ${layer} failed:`, error instanceof Error ? error.message : error);
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Fragt die permanenten DIPUL-Geozonen als GeoJSON direkt beim DIPUL-WFS ab
+ * (ein GetFeature je Layer, max. 8 parallel). Layer, die fehlschlagen oder
+ * abgeschnitten wären, landen in `failedLayers`; nicht per WFS abfragbare
+ * Layer in `fallbackLayers` (Aufrufer nutzt dafür WMS-GetFeatureInfo).
+ *
+ * @param _apiBaseUrl Veraltet und ignoriert (früher die Backend-Basis-URL).
+ */
 export async function queryDipulWfsFeaturesFrom(
-  apiBaseUrl: string,
+  _apiBaseUrl: string,
   layers: GeozoneLayer[],
   lat: number,
   lon: number,
   radiusKm: number,
 ): Promise<DipulWfsQueryResult> {
-  const base = apiBaseUrl.replace(/\/+$/, "");
-  if (!base) throw new Error("DIPUL Vektordaten: API-Adresse fehlt");
-  const params = new URLSearchParams({
-    lat: String(lat),
-    lon: String(lon),
-    radiusKm: String(radiusKm),
-  });
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 20000);
-  try {
-    const response = await fetch(`${base}/api/proxy/dipul-geozones?${params}`, {
-      signal: controller.signal,
-      credentials: "include",
-      headers: { Accept: "application/json" },
-    });
-    if (!response.ok) {
-      if (response.status === 401 || response.status === 403) {
-        throw new DipulWfsAccessError(response.status);
-      }
-      throw new Error(`DIPUL Vektordaten nicht verfügbar (${response.status})`);
-    }
-    const data = await response.json() as {
-      byLayer?: DipulWfsFeatureBatch[];
-      failedLayers?: string[];
-      fallbackLayers?: string[];
-    };
-    if (!Array.isArray(data.byLayer) || !Array.isArray(data.failedLayers)) {
-      throw new Error("Ungültige Antwort der DIPUL-Vektordaten");
-    }
-    const parsed = parseDipulWfsBatches(data.byLayer, layers, data.failedLayers);
-    parsed.fallbackLayers = Array.isArray(data.fallbackLayers)
-      ? data.fallbackLayers.filter((name) => layers.some((layer) => layer.wmsLayer === name))
-      : [];
-    return parsed;
-  } finally {
-    clearTimeout(timeout);
+  if (
+    !Number.isFinite(lat) || lat < -90 || lat > 90 ||
+    !Number.isFinite(lon) || lon < -180 || lon > 180 ||
+    !Number.isFinite(radiusKm) || radiusKm <= 0 || radiusKm > 25
+  ) {
+    // Wie früher der Proxy (HTTP 400): Aufrufer fällt auf WMS zurück.
+    throw new Error("DIPUL Vektordaten nicht verfügbar (400)");
   }
+
+  // DIPUL-WFS erwartet die EPSG:4326-BBOX in lon,lat-Reihenfolge.
+  const latDelta = radiusKm / 111.32;
+  const lonDelta = radiusKm / (111.32 * Math.max(Math.cos((lat * Math.PI) / 180), 0.01));
+  const bbox = [lon - lonDelta, lat - latDelta, lon + lonDelta, lat + latDelta, "EPSG:4326"].join(",");
+
+  const allLayers = layers.map((layer) => layer.wmsLayer);
+  const fallbackLayers = allLayers.filter((layer) => DIPUL_WFS_EXCLUDED_LAYERS.has(layer));
+  const queue = allLayers.filter((layer) => !DIPUL_WFS_EXCLUDED_LAYERS.has(layer));
+  const byLayer: DipulWfsFeatureBatch[] = [];
+  const failedLayers: string[] = [];
+
+  const worker = async () => {
+    while (queue.length > 0) {
+      const layer = queue.shift();
+      if (!layer) return;
+      const features = await fetchDipulWfsLayer(layer, bbox);
+      if (features) byLayer.push({ layer, features });
+      else failedLayers.push(layer);
+    }
+  };
+  await Promise.all(Array.from({ length: DIPUL_WFS_CONCURRENCY }, () => worker()));
+
+  const parsed = parseDipulWfsBatches(byLayer, layers, failedLayers);
+  parsed.fallbackLayers = fallbackLayers;
+  return parsed;
 }
 
 async function queryChRestIdentifySingle(

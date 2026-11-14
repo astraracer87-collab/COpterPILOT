@@ -59,7 +59,8 @@ export function getVectorMinZoom(iso: string): number {
 // bleiben auf dem Vektor-/NOTAM-Pfad (zeitgefiltert), da die Kacheln 24 h
 // gecacht werden. Für TAP-Abfragen permanenter Zonen werden die Vektor-Daten
 // weiterhin (best-effort) geladen, nur nicht mehr gezeichnet.
-export const RASTER_TILED_VECTOR_ISOS = new Set<string>(["BE"]);
+// RC-Version: kein Server, der Belgien zu Kacheln rendert – BE wird als Vektor gezeichnet.
+export const RASTER_TILED_VECTOR_ISOS = new Set<string>([]);
 
 // True, wenn dauerhafte Vektor-Zonen dieses Landes als serverseitige Rasterkacheln
 // angezeigt werden (siehe RASTER_TILED_VECTOR_ISOS).

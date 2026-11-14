@@ -23,6 +23,8 @@ export interface RasterDef {
   bounds: LngLatBox;
   /** Geschätzte Größe einer Kachel in KB (für die Speicher-Abschätzung) */
   kbPerTile: number;
+  /** Nur für dieses Bundesland gültig (Luftbilder der Länder) */
+  region?: string;
 }
 
 export interface CountryMapProvider {
@@ -58,6 +60,7 @@ export const COUNTRY_MAP_PROVIDERS: CountryMapProvider[] = [
     satellite: [
       {
         id: "de-dop-he",
+        region: "Hessen",
         tiles: wms13("https://www.gds-srv.hessen.de/cgi-bin/lika-services/ogc-free-images.ows", "he_dop20_rgb", "image/png"),
         tileSize: 256,
         maxzoom: 19,
@@ -68,6 +71,7 @@ export const COUNTRY_MAP_PROVIDERS: CountryMapProvider[] = [
       },
       {
         id: "de-dop-rp",
+        region: "Rheinland-Pfalz",
         tiles: wms13("https://geo4.service24.rlp.de/wms/rp_dop20.fcgi", "rp_dop20", "image/png"),
         tileSize: 256,
         maxzoom: 19,
@@ -78,6 +82,7 @@ export const COUNTRY_MAP_PROVIDERS: CountryMapProvider[] = [
       },
       {
         id: "de-dop-nw",
+        region: "Nordrhein-Westfalen",
         tiles: wms13("https://www.wms.nrw.de/geobasis/wms_nw_dop", "nw_dop_rgb", "image/png"),
         tileSize: 256,
         maxzoom: 19,
@@ -88,6 +93,7 @@ export const COUNTRY_MAP_PROVIDERS: CountryMapProvider[] = [
       },
       {
         id: "de-dop-by",
+        region: "Bayern",
         tiles: wms13("https://geoservices.bayern.de/od/wms/dop/v1/dop40", "by_dop40c", "image/png"),
         tileSize: 256,
         maxzoom: 18,

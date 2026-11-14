@@ -1,8 +1,10 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { getCached, setCache, makeCacheKey } from "@/lib/dataCache";
-import { getApiUrl } from "@/lib/query-client";
 import { polygonGroupsIntersectCircle, polygonRingsIntersectCircle } from "@/lib/geozoneSpatial";
-import { buildGeozoneCacheTileUrlFrom } from "@/lib/geozoneTileUrl";
+import {
+  buildGeozoneCacheTileUrlFrom,
+  buildGeozoneWmsTileTemplates,
+} from "@/lib/geozoneTileUrl";
 import {
   queryEd269CachedFeaturesFrom,
   getCountriesInRadius as getCountriesInRadiusFrom,
@@ -92,6 +94,11 @@ import {
   COUNTRY_WMS_MAX_NATIVE_ZOOM,
 } from "@/lib/geozoneZoom";
 import { buildVectorGeozoneTileUrlFrom } from "@/lib/geozoneTileUrl";
+export {
+  LEAFLET_WMS_BBOX_FN_JS,
+  GEOZONE_TILE_BBOX_PLACEHOLDER,
+  fillGeozoneTileTemplate,
+} from "@/lib/geozoneTileUrl";
 export {
   GEOZONE_TILE_MIN_ZOOM,
   GEOZONE_VECTOR_MIN_ZOOM,
@@ -334,28 +341,32 @@ export function buildCombinedWmsTileUrl(layers: string[], countryIso?: string): 
 }
 
 /**
- * URL-Vorlage für die serverseitig zwischengespeicherte, KOMBINIERTE
- * Geozonen-Kachel-Ebene eines Landes. Statt pro WMS-Endpoint eine eigene
- * Live-Kachel direkt vom Anbieter zu laden (ein großer WMS-Aufruf bei „alle
- * Layer an"), holt die App EINE XYZ-Kachel pro Land vom eigenen Backend
- * (`/api/proxy/geozone-tiles/...`). Der Server kombiniert/komponiert die
- * gewählten Layer (inkl. NL-Natura-2000) und legt das PNG dauerhaft ab.
- * Rückgabe ist ein `UrlTile`-Template mit {z}/{x}/{y}-Platzhaltern.
+ * Direkte WMS-GetMap-Kachel-Vorlagen eines Landes (EPSG:3857, 256 px) mit
+ * `{bbox}`-Platzhalter – ersetzt den früheren Server-Kachel-Cache. Pro
+ * Vorlage legt die Karte EINE Kachel-Ebene an (mehrere bei NL-Natura-2000 oder
+ * > 15 DE-Layern). Leaflet löst `{bbox}` über die Option
+ * `bbox: __geozoneWmsBbox` auf (siehe LEAFLET_WMS_BBOX_FN_JS).
  */
-export function buildGeozoneCacheTileUrl(layers: string[], countryIso?: string): string {
-  // Reine Bau-Logik liegt in geozoneTileUrl.ts (RN-/Expo-frei, testbar);
-  // hier wird nur die laufzeit-aufgelöste API-Basis ergänzt.
-  return buildGeozoneCacheTileUrlFrom(getApiUrl(), layers, countryIso);
+export function buildGeozoneTileUrls(layers: string[], countryIso?: string): string[] {
+  return buildGeozoneWmsTileTemplates(layers, countryIso);
 }
 
 /**
- * Wie buildGeozoneCacheTileUrl, aber für VEKTOR-Geozonen-Länder ohne WMS (z. B.
- * Belgien), die der Server selbst zu PNG-Kacheln rasterisiert. Liefert ein
- * `UrlTile`-Template ohne layers-Parameter (der Server zeichnet alle dauerhaften
- * Zonen). Reine Bau-Logik liegt in geozoneTileUrl.ts.
+ * Früher: kombinierte Kachel-URL des Server-Caches. Jetzt die ERSTE direkte
+ * WMS-Vorlage (mit `{bbox}`-Platzhalter); weitere Vorlagen desselben Landes
+ * liefert buildGeozoneTileUrls(). "" ohne gültige Layer.
+ */
+export function buildGeozoneCacheTileUrl(layers: string[], countryIso?: string): string {
+  return buildGeozoneCacheTileUrlFrom("", layers, countryIso);
+}
+
+/**
+ * Früher: serverseitig rasterisierte Kacheln für Vektor-Geozonen-Länder (z. B.
+ * Belgien). Ohne Backend nicht mehr verfügbar -> immer "". Diese Zonen müssen
+ * als Vektor-Polygone gezeichnet werden (queryEd269CachedFeatures).
  */
 export function buildVectorGeozoneTileUrl(countryIso: string): string {
-  return buildVectorGeozoneTileUrlFrom(getApiUrl(), countryIso);
+  return buildVectorGeozoneTileUrlFrom("", countryIso);
 }
 
 /**
@@ -588,9 +599,9 @@ export type GeozoneFeatureInfo = import("../../shared/geozoneFeatureInfo").Geozo
 // tsx/Node getestet werden kann. Re-Export für bestehende Importe aus diesem Modul.
 export { parseEd269ToGeozoneInfo } from "@/lib/ed269";
 
-// Holt die serverseitig zwischengespeicherten ED-269-Zonen (z. B. Österreich)
-// für den sichtbaren Bereich und normalisiert sie. Quelle ist der zentrale
-// Cache-Endpoint (`/api/cached/geozones?country=..&bbox=..`), kein WMS.
+// Holt die ED-269-Zonen (AT/BE/DK) für den sichtbaren Bereich und normalisiert
+// sie. Quelle ist der Gerätecache (geozoneDirect/), der die Upstream-Feeds
+// direkt lädt und regelmäßig aktualisiert – kein Backend, kein WMS.
 export async function queryEd269CachedFeatures(
   lat: number,
   lon: number,
@@ -608,7 +619,7 @@ export async function queryEd269CachedFeatures(
     if (off && off.length) return off as GeozoneFeatureInfo[];
   }
   try {
-    return await queryEd269CachedFeaturesFrom(getApiUrl(), lat, lon, radiusKm, iso, limit, fullCountry, maxValidityDays);
+    return await queryEd269CachedFeaturesFrom("", lat, lon, radiusKm, iso, limit, fullCountry, maxValidityDays);
   } catch (err) {
     const off = await getOfflinePackFeatures(iso);
     if (off && off.length) return off as GeozoneFeatureInfo[];
@@ -1227,7 +1238,7 @@ async function queryDipulGeozones(
 ): Promise<GeozoneFeatureInfo[]> {
   const allLayers = getAllLayerNames("DE");
   try {
-    const result = await queryDipulWfsFeaturesFrom(getApiUrl(), GEOZONE_LAYERS, lat, lon, radiusKm);
+    const result = await queryDipulWfsFeaturesFrom("", GEOZONE_LAYERS, lat, lon, radiusKm);
     const vectorLayerNames = allLayers.filter((name) => !result.fallbackLayers.includes(name));
     const allVectorLayersFailed =
       vectorLayerNames.length > 0 && vectorLayerNames.every((name) => result.failedLayers.includes(name));

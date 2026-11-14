@@ -1,3 +1,5 @@
+import { LEAFLET_CSS, LEAFLET_JS } from "@/lib/leafletBundle";
+import { RC_LEAFLET_JS, RC_WEBVIEW_FILE_PROPS, useRcLeaflet } from "@/lib/leafletRc";
 import { openLink } from "@/lib/webBrowser";
 import React, { forwardRef, useImperativeHandle, useRef, useState, useMemo, useCallback, useEffect } from "react";
 import { StyleSheet, View, Platform, useColorScheme, Pressable, Text, Linking } from "react-native";
@@ -11,6 +13,7 @@ import {
   getViewportCountries,
   getCountryGeozoneConfig,
   buildGeozoneCacheTileUrl,
+  buildGeozoneTileUrls,
   buildVectorGeozoneTileUrl,
   queryEd269CachedFeatures,
   GEOZONE_TILE_MIN_ZOOM,
@@ -120,8 +123,9 @@ const MAP_HTML = `<!DOCTYPE html>
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>${LEAFLET_CSS}</style>
+<script>${LEAFLET_JS}</script>
+<script>${RC_LEAFLET_JS}</script>
 <style>
   html, body, #map { margin: 0; padding: 0; height: 100%; width: 100%; background: #E8ECF2; }
   #map { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
@@ -139,6 +143,7 @@ const MAP_HTML = `<!DOCTYPE html>
   function esc(s){ return String(s == null ? "" : s).replace(/[&<>"']/g, function(m){ return ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[m]; }); }
 
   var map = L.map("map", { zoomControl: false, attributionControl: true, zoomSnap: 1, fadeAnimation: false, maxZoom: 19, minZoom: 3 }).setView([51, 10], 6);
+  window.__rcMap = map;
 
   // ---- Basis-Ebene (Standard / OSM / Satellit / Hybrid) ----
   var baseLayer = null, labelLayer = null, baseKey = "";
@@ -159,7 +164,7 @@ const MAP_HTML = `<!DOCTYPE html>
     } else {
       url = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
     }
-    baseLayer = L.tileLayer(url, {
+    baseLayer = window.__rc.makeBase(style, url, {
       maxZoom: 19,
       keepBuffer: 1,
       updateWhenIdle: false,
@@ -514,6 +519,9 @@ const MapPicker = forwardRef<MapPickerRef, MapPickerProps>(
     const viewport = settledRegion ?? initialRegion ?? null;
     const viewZoom = settledZoom ?? (initialRegion ? zoomFromRegion(initialRegion.latitudeDelta) : 6);
 
+    // RC: Länderkarten, Offline-Kacheln und Hindernisse
+    useRcLeaflet(webRef, ready, viewport, viewZoom);
+
     const viewportCountries = useMemo(() => {
       if (!useViewportCountries || !viewport) return [] as string[];
       return getViewportCountries(viewport.latitude, viewport.longitude, viewport.latitudeDelta, viewport.longitudeDelta);
@@ -543,9 +551,9 @@ const MapPicker = forwardRef<MapPickerRef, MapPickerProps>(
       (useViewportCountries
         ? visibleViewportCountries.includes("DE")
         : countryIso?.toUpperCase() === "DE");
-    const energyTileUrl = showGermanEnergyTiles
-      ? `${getApiUrl().replace(/\/+$/, "")}/api/proxy/energy-infrastructure-tiles/{z}/{x}/{y}.png?supplemental=1`
-      : "";
+    // RC-Version: die Anlagen-Kacheln kamen vom Server. Leitungen, Windräder und
+    // Masten zeigt stattdessen die Hindernis-Ebene (leafletRc.ts).
+    const energyTileUrl = showGermanEnergyTiles ? "" : "";
 
     // Deckkraft des WMS-Overlays je nach Basiskarte: über Standard kräftiger,
     // über OSM/Satellit/Hybrid leicht reduziert, damit der Untergrund durchscheint.
@@ -562,8 +570,9 @@ const MapPicker = forwardRef<MapPickerRef, MapPickerProps>(
           .map((cfg) => {
             const enabled = cfg.layers.filter((l) => l.defaultEnabled).map((l) => l.wmsLayer);
             const layerSet = enabled.length > 0 ? enabled : ([cfg.layers[0]?.wmsLayer].filter(Boolean) as string[]);
-            return { u: buildGeozoneCacheTileUrl(layerSet, cfg.iso), p: geoOpacity, mnz: cfg.wmsMaxNativeZoom };
+            return buildGeozoneTileUrls(layerSet, cfg.iso).map((u) => ({ u, p: geoOpacity, mnz: cfg.wmsMaxNativeZoom }));
           })
+          .flat()
           .filter((t) => !!t.u);
         // Vektor-Länder ohne WMS, die der Server zu PNG-Kacheln rasterisiert
         // (z. B. Belgien) — als reguläre Kachel-Ebene einbinden statt Vektor.
@@ -580,10 +589,10 @@ const MapPicker = forwardRef<MapPickerRef, MapPickerProps>(
         return [{ u: buildVectorGeozoneTileUrl(countryIso), p: geoOpacity, mnz: wmsMnz(countryIso) }];
       }
       if (geozoneLayers && geozoneLayers.length > 0) {
-        return [{ u: buildGeozoneCacheTileUrl(geozoneLayers, countryIso), p: geoOpacity, mnz: wmsMnz(countryIso) }];
+        return buildGeozoneTileUrls(geozoneLayers, countryIso).map((u) => ({ u, p: geoOpacity, mnz: wmsMnz(countryIso) }));
       }
       // Fallback: alle Layer des (Standard-)Landes in EINER Kachel (z. B. Wetter-Picker).
-      return [{ u: buildGeozoneCacheTileUrl(getAllLayerNames(), countryIso), p: geoOpacity, mnz: wmsMnz(countryIso) }];
+      return buildGeozoneTileUrls(getAllLayerNames(), countryIso).map((u) => ({ u, p: geoOpacity, mnz: wmsMnz(countryIso) }));
     }, [useViewportCountries, visibleViewportCountries, geozoneLayers, countryIso, geoOpacity, lockedSet]);
 
     // Vektor-Länder (ED-269: AT/BE/DK), die im Overlay-Set liegen.
@@ -816,8 +825,9 @@ const MapPicker = forwardRef<MapPickerRef, MapPickerProps>(
       <View style={[styles.map, style]}>
         <WebView
           ref={webRef}
-          source={{ html: MAP_HTML }}
+          source={{ html: MAP_HTML, baseUrl: "file:///" }}
           originWhitelist={["*"]}
+          {...RC_WEBVIEW_FILE_PROPS}
           style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? "#1A1F2E" : "#E8ECF2" }]}
           onMessage={onMessage}
           onShouldStartLoadWithRequest={(req) => {

@@ -1,4 +1,4 @@
-import { getApiUrl } from "./query-client";
+import { getAggregatorStatus } from "./traffic/aggregator";
 import type { DataSource, SourceStatus } from "./opensky";
 
 export interface TrafficStatus {
@@ -26,34 +26,39 @@ export const SOURCE_LABELS: Record<DataSource, string> = {
   fr24: "FR24",
 };
 
-// Muss synchron mit ENABLED_SOURCES in server/aggregator.ts gehalten werden.
-// Nur diese Quellen werden aktiv gepollt und sollten in der UI auftauchen.
+// Muss synchron mit ENABLED_DATA_SOURCES in lib/traffic/aggregator.ts gehalten
+// werden. Nur diese Quellen werden aktiv gepollt und sollten in der UI auftauchen.
 export const ENABLED_SOURCES: DataSource[] = [
   "ogn",
   "airplaneslive",
   "adsblol",
-  "fr24",
+  "adsbfi",
 ];
 
 export const ALL_SOURCES: DataSource[] = ENABLED_SOURCES;
 
-export async function fetchTrafficStatus(signal?: AbortSignal): Promise<TrafficStatus | null> {
+/**
+ * Status der Verkehrsquellen. Früher vom Server (/api/traffic/v2/status), jetzt
+ * direkt aus dem clientseitigen Aggregator. Liefert null, solange noch keine
+ * einzige Abfrage lief (kein Radar geöffnet) — dann gibt es nichts zu melden.
+ */
+export async function fetchTrafficStatus(_signal?: AbortSignal): Promise<TrafficStatus | null> {
   try {
-    const baseUrl = getApiUrl();
-    const res = await fetch(`${baseUrl}/api/traffic/v2/status`, { signal });
-    if (!res.ok) return null;
-    return (await res.json()) as TrafficStatus;
+    const s = getAggregatorStatus();
+    if (!s.started) return null;
+    return s;
   } catch {
     return null;
   }
 }
 
 // ---- Shared singleton poller ----------------------------------------------
-// A single /api/traffic/v2/status fetch cadence is kept for the whole app,
-// regardless of how many SourceHealthIndicator instances are mounted. The
-// first subscriber starts the interval; the last one stops it.
+// Eine einzige Status-Kadenz für die ganze App, unabhängig davon, wie viele
+// SourceHealthIndicator-Instanzen montiert sind. Der Status wird nur noch lokal
+// aus dem clientseitigen Aggregator gelesen (kein Netzwerkzugriff), daher
+// genügt ein kurzes Intervall.
 
-const POLL_INTERVAL_MS = 60_000;
+const POLL_INTERVAL_MS = 15_000;
 
 type Listener = (s: TrafficStatus | null) => void;
 

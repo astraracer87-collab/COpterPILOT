@@ -1,116 +1,41 @@
 import React, { useCallback, useState } from "react";
-import { View, StyleSheet, Pressable, Alert, Platform, Share } from "react-native";
+import { StyleSheet, Pressable, Alert, View } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import * as Clipboard from "expo-clipboard";
-import * as Haptics from "expo-haptics";
 import { ThemedText } from "@/components/ThemedText";
 import { Card } from "@/components/Card";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, Typography } from "@/constants/theme";
 import { LogbookEntry } from "@/lib/storage";
-import {
-  sendFlightProtocolByEmail,
-  shareProtocolViaSms,
-} from "@/lib/pdfExport";
-import {
-  apiEnableLogbookShare,
-  apiDisableLogbookShare,
-  apiRegenerateLogbookShare,
-  type ShareState,
-} from "@/lib/api";
-import { getApiUrl } from "@/lib/query-client";
-import { isLoggedInSync } from "@/lib/auth";
+import { exportFlightProtocolPdf, sendFlightProtocolByEmail } from "@/lib/pdfExport";
 
 /**
- * Wiederverwendbare Teilen-Steuerung für einen Logbuch-/Flugprotokoll-Eintrag.
- * Bietet E-Mail-Versand (PDF-Anhang), öffentlichen Freigabe-Schalter sowie
- * — bei aktiver Freigabe — Link kopieren, Link teilen (System-Dialog), SMS und
- * neuen Link erzeugen. Ist die Freigabe aus, führt SMS den Nutzer durch die
- * Aktivierung. Auf Web bzw. ohne Mail-/SMS-Konto: saubere Fallbacks.
+ * Teilen-Steuerung für einen Logbuch-/Flugprotokoll-Eintrag.
+ *
+ * In der RC-Version gibt es keinen Server mehr – öffentliche Freigabe-Links
+ * (inkl. SMS-Versand des Links) entfallen. Geteilt wird ausschließlich lokal:
+ * PDF per E-Mail-Anhang oder über den System-Teilen-Dialog.
  */
 export function ShareControls({
   entry,
-  onEntryChange,
   style,
 }: {
   entry: LogbookEntry;
-  onEntryChange: (entry: LogbookEntry) => void;
+  /** Wird nicht mehr benötigt (früher: Freigabe-Status vom Server). */
+  onEntryChange?: (entry: LogbookEntry) => void;
   style?: any;
 }) {
   const { theme } = useTheme();
-  const [shareBusy, setShareBusy] = useState(false);
   const [emailBusy, setEmailBusy] = useState(false);
-
-  const buildShareUrl = useCallback((token: string) => {
-    const base = getApiUrl().replace(/\/$/, "");
-    return `${base}/p/${token}`;
-  }, []);
-
-  const requireLogin = useCallback(() => {
-    if (isLoggedInSync()) return true;
-    Alert.alert(
-      "Anmeldung erforderlich",
-      "Bitte melde dich an, um ein Protokoll öffentlich freizugeben.",
-    );
-    return false;
-  }, []);
-
-  const enableShare = useCallback(async (): Promise<ShareState | null> => {
-    if (!requireLogin()) return null;
-    setShareBusy(true);
-    try {
-      const state = await apiEnableLogbookShare(entry.id);
-      onEntryChange({ ...entry, shareEnabled: state.shareEnabled, shareToken: state.shareToken });
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      return state;
-    } catch {
-      Alert.alert("Fehler", "Die Freigabe konnte nicht aktiviert werden.");
-      return null;
-    } finally {
-      setShareBusy(false);
-    }
-  }, [entry, onEntryChange, requireLogin]);
-
-  const handleToggleShare = useCallback(async () => {
-    if (!entry.shareEnabled) {
-      await enableShare();
-      return;
-    }
-    if (!requireLogin()) return;
-    setShareBusy(true);
-    try {
-      const state = await apiDisableLogbookShare(entry.id);
-      onEntryChange({ ...entry, shareEnabled: state.shareEnabled, shareToken: state.shareToken });
-    } catch {
-      Alert.alert("Fehler", "Die Freigabe konnte nicht deaktiviert werden.");
-    } finally {
-      setShareBusy(false);
-    }
-  }, [entry, onEntryChange, enableShare, requireLogin]);
-
-  const handleRegenerate = useCallback(async () => {
-    if (!requireLogin()) return;
-    setShareBusy(true);
-    try {
-      const state = await apiRegenerateLogbookShare(entry.id);
-      onEntryChange({ ...entry, shareEnabled: state.shareEnabled, shareToken: state.shareToken });
-      Alert.alert("Neuer Link", "Ein neuer Freigabe-Link wurde erstellt. Der alte Link ist nicht mehr gültig.");
-    } catch {
-      Alert.alert("Fehler", "Der Link konnte nicht neu erstellt werden.");
-    } finally {
-      setShareBusy(false);
-    }
-  }, [entry, onEntryChange, requireLogin]);
+  const [pdfBusy, setPdfBusy] = useState(false);
 
   const handleSendEmail = useCallback(async () => {
     setEmailBusy(true);
     try {
-      const shareUrl = entry.shareEnabled && entry.shareToken ? buildShareUrl(entry.shareToken) : null;
-      const res = await sendFlightProtocolByEmail(entry, { shareUrl });
+      const res = await sendFlightProtocolByEmail(entry);
       if (res.status === "unavailable") {
         Alert.alert(
           "Kein E-Mail-Konto",
-          "Auf diesem Gerät ist kein E-Mail-Konto eingerichtet. Bitte richte ein Konto ein oder nutze „Link teilen“.",
+          "Auf diesem Gerät ist kein E-Mail-Konto eingerichtet. Bitte nutze „PDF teilen“.",
         );
       }
     } catch {
@@ -118,63 +43,18 @@ export function ShareControls({
     } finally {
       setEmailBusy(false);
     }
-  }, [entry, buildShareUrl]);
+  }, [entry]);
 
-  const handleCopyLink = useCallback(async () => {
-    if (!entry.shareToken) return;
-    await Clipboard.setStringAsync(buildShareUrl(entry.shareToken));
-    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    Alert.alert("Kopiert", "Der Freigabe-Link wurde in die Zwischenablage kopiert.");
-  }, [entry, buildShareUrl]);
-
-  const handleNativeShare = useCallback(async () => {
-    if (!entry.shareToken) return;
-    const url = buildShareUrl(entry.shareToken);
+  const handleSharePdf = useCallback(async () => {
+    setPdfBusy(true);
     try {
-      const message = `Flugprotokoll ${entry.droneName || "Drohne"} vom ${entry.flightDate || ""}: ${url}`.trim();
-      await Share.share(Platform.OS === "ios" ? { url, message } : { message });
+      await exportFlightProtocolPdf(entry);
     } catch {
-      // Nutzer hat den System-Dialog abgebrochen — kein Fehler.
+      Alert.alert("Fehler", "Das PDF konnte nicht erstellt werden.");
+    } finally {
+      setPdfBusy(false);
     }
-  }, [entry, buildShareUrl]);
-
-  const doSendSms = useCallback(
-    async (token: string) => {
-      try {
-        const res = await shareProtocolViaSms(entry, buildShareUrl(token));
-        if (res.status === "unavailable") {
-          Alert.alert("SMS nicht verfügbar", "Auf diesem Gerät ist kein SMS-Versand möglich.");
-        } else if (res.status === "web") {
-          Alert.alert("Nicht verfügbar", "SMS-Versand ist nur in der mobilen App möglich.");
-        }
-      } catch {
-        Alert.alert("Fehler", "Die SMS konnte nicht vorbereitet werden.");
-      }
-    },
-    [entry, buildShareUrl],
-  );
-
-  const handleSendSms = useCallback(async () => {
-    if (entry.shareEnabled && entry.shareToken) {
-      await doSendSms(entry.shareToken);
-      return;
-    }
-    // Freigabe ist aus: Nutzer durch die Aktivierung führen, dann senden.
-    Alert.alert(
-      "Freigabe erforderlich",
-      "Für den SMS-Versand muss der öffentliche Freigabe-Link aktiv sein. Jetzt aktivieren und SMS senden?",
-      [
-        { text: "Abbrechen", style: "cancel" },
-        {
-          text: "Aktivieren & senden",
-          onPress: async () => {
-            const state = await enableShare();
-            if (state?.shareToken) await doSendSms(state.shareToken);
-          },
-        },
-      ],
-    );
-  }, [entry, doSendSms, enableShare]);
+  }, [entry]);
 
   return (
     <Card style={[styles.section, style]}>
@@ -198,90 +78,20 @@ export function ShareControls({
         </ThemedText>
       </Pressable>
 
-      <View style={[styles.toggleRow, { borderTopColor: theme.border }]}>
-        <View style={{ flex: 1, paddingRight: Spacing.md }}>
-          <ThemedText style={styles.toggleTitle}>Öffentlicher Freigabe-Link</ThemedText>
-          <ThemedText style={[styles.toggleHint, { color: theme.textSecondary }]}>
-            {entry.shareEnabled
-              ? "Aktiv — jeder mit dem Link kann das Protokoll ansehen."
-              : "Aus — das Protokoll ist privat."}
-          </ThemedText>
-        </View>
-        <Pressable
-          onPress={handleToggleShare}
-          disabled={shareBusy}
-          style={({ pressed }) => [
-            styles.togglePill,
-            {
-              backgroundColor: entry.shareEnabled ? theme.primary : theme.backgroundSecondary,
-              borderColor: entry.shareEnabled ? theme.primary : theme.border,
-            },
-            (pressed || shareBusy) && { opacity: 0.6 },
-          ]}
-        >
-          <ThemedText
-            style={[styles.togglePillText, { color: entry.shareEnabled ? "#fff" : theme.textSecondary }]}
-          >
-            {entry.shareEnabled ? "An" : "Aus"}
-          </ThemedText>
-        </Pressable>
-      </View>
-
-      {entry.shareEnabled && entry.shareToken ? (
-        <View style={styles.activeBox}>
-          <ThemedText
-            style={[styles.linkText, { color: theme.textSecondary }]}
-            numberOfLines={2}
-            selectable
-          >
-            {buildShareUrl(entry.shareToken)}
-          </ThemedText>
-          <View style={styles.actionsRow}>
-            <Pressable
-              onPress={handleCopyLink}
-              style={({ pressed }) => [styles.smallAction, { borderColor: theme.border }, pressed && { opacity: 0.6 }]}
-            >
-              <Feather name="copy" size={14} color={theme.primary} />
-              <ThemedText style={[styles.smallActionText, { color: theme.primary }]}>Kopieren</ThemedText>
-            </Pressable>
-            <Pressable
-              onPress={handleNativeShare}
-              style={({ pressed }) => [styles.smallAction, { borderColor: theme.border }, pressed && { opacity: 0.6 }]}
-            >
-              <Feather name="share" size={14} color={theme.primary} />
-              <ThemedText style={[styles.smallActionText, { color: theme.primary }]}>Link teilen</ThemedText>
-            </Pressable>
-            {Platform.OS !== "web" ? (
-              <Pressable
-                onPress={handleSendSms}
-                style={({ pressed }) => [styles.smallAction, { borderColor: theme.border }, pressed && { opacity: 0.6 }]}
-              >
-                <Feather name="message-square" size={14} color={theme.primary} />
-                <ThemedText style={[styles.smallActionText, { color: theme.primary }]}>Per SMS</ThemedText>
-              </Pressable>
-            ) : null}
-            <Pressable
-              onPress={handleRegenerate}
-              disabled={shareBusy}
-              style={({ pressed }) => [styles.smallAction, { borderColor: theme.border }, (pressed || shareBusy) && { opacity: 0.6 }]}
-            >
-              <Feather name="refresh-cw" size={14} color={theme.primary} />
-              <ThemedText style={[styles.smallActionText, { color: theme.primary }]}>Neuer Link</ThemedText>
-            </Pressable>
-          </View>
-        </View>
-      ) : Platform.OS !== "web" ? (
-        <Pressable
-          onPress={handleSendSms}
-          disabled={shareBusy}
-          style={({ pressed }) => [styles.smsRow, { borderTopColor: theme.border }, (pressed || shareBusy) && { opacity: 0.6 }]}
-        >
-          <Feather name="message-square" size={14} color={theme.primary} />
-          <ThemedText style={[styles.smallActionText, { color: theme.primary }]}>
-            Per SMS senden (aktiviert die Freigabe)
-          </ThemedText>
-        </Pressable>
-      ) : null}
+      <Pressable
+        onPress={handleSharePdf}
+        disabled={pdfBusy}
+        style={({ pressed }) => [
+          styles.primaryButton,
+          { backgroundColor: theme.primary + "15", marginTop: Spacing.sm },
+          (pressed || pdfBusy) && { opacity: 0.6 },
+        ]}
+      >
+        <Feather name="share" size={16} color={theme.primary} />
+        <ThemedText style={[styles.primaryButtonText, { color: theme.primary }]}>
+          {pdfBusy ? "PDF wird erstellt …" : "PDF teilen / speichern"}
+        </ThemedText>
+      </Pressable>
     </Card>
   );
 }
@@ -292,15 +102,4 @@ const styles = StyleSheet.create({
   headerText: { ...Typography.body, fontWeight: "600" },
   primaryButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: Spacing.sm, padding: Spacing.md, borderRadius: 10 },
   primaryButtonText: { ...Typography.body, fontWeight: "600" },
-  toggleRow: { flexDirection: "row", alignItems: "center", marginTop: Spacing.md, paddingTop: Spacing.md, borderTopWidth: StyleSheet.hairlineWidth },
-  toggleTitle: { ...Typography.body, fontWeight: "600" },
-  toggleHint: { ...Typography.caption, marginTop: 2 },
-  togglePill: { minWidth: 56, alignItems: "center", paddingVertical: 6, paddingHorizontal: Spacing.md, borderRadius: 20, borderWidth: 1 },
-  togglePillText: { ...Typography.caption, fontWeight: "700" },
-  activeBox: { marginTop: Spacing.md },
-  linkText: { ...Typography.caption, marginBottom: Spacing.sm },
-  actionsRow: { flexDirection: "row", flexWrap: "wrap", gap: Spacing.sm },
-  smallAction: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 6, paddingHorizontal: Spacing.md, borderRadius: 8, borderWidth: 1 },
-  smallActionText: { ...Typography.caption, fontWeight: "600" },
-  smsRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: Spacing.md, paddingTop: Spacing.md, borderTopWidth: StyleSheet.hairlineWidth },
 });

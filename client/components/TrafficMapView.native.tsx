@@ -1,3 +1,5 @@
+import { LEAFLET_CSS, LEAFLET_JS } from "@/lib/leafletBundle";
+import { RC_LEAFLET_JS, RC_WEBVIEW_FILE_PROPS, useRcLeaflet } from "@/lib/leafletRc";
 import { openLink } from "@/lib/webBrowser";
 import React, { useRef, useEffect, useState, useMemo, useCallback } from "react";
 import { View, StyleSheet, Text, Platform, Pressable, ActivityIndicator, LayoutChangeEvent, Modal, SafeAreaView, useColorScheme, Linking } from "react-native";
@@ -10,7 +12,7 @@ import { BorderRadius } from "@/constants/theme";
 import type { GermanEnergyInfrastructureItem } from "../../shared/germanEnergyInfrastructure";
 import type { EnergyFacility100mPoint } from "../../shared/germanEnergyInfrastructure";
 import { getCategoryLabel, type AircraftCategory, type DataSource } from "@/lib/opensky";
-import { buildGeozoneCacheTileUrl, buildVectorGeozoneTileUrl, isRasterTiledVectorCountry, queryGeozoneFeatureInfo, queryEd269CachedFeatures, getCountryGeozoneConfig, getViewportCountries, separateTempRestrictions, GEOZONE_TILE_MIN_ZOOM, getVectorMinZoom, loadsFullCountryVectorZones, GEOZONE_VECTOR_MAX_RADIUS_KM, GEOZONE_VECTOR_MAX_FEATURES, type GeozoneFeatureInfo } from "@/lib/geozones";
+import { buildGeozoneCacheTileUrl, buildGeozoneTileUrls, buildVectorGeozoneTileUrl, isRasterTiledVectorCountry, queryGeozoneFeatureInfo, queryEd269CachedFeatures, getCountryGeozoneConfig, getViewportCountries, separateTempRestrictions, GEOZONE_TILE_MIN_ZOOM, getVectorMinZoom, loadsFullCountryVectorZones, GEOZONE_VECTOR_MAX_RADIUS_KM, GEOZONE_VECTOR_MAX_FEATURES, type GeozoneFeatureInfo } from "@/lib/geozones";
 import { agencyTagColor } from "@/lib/agencyTag";
 import { simplifyRingGroup, smoothRingGroup } from "@/lib/ringSimplify";
 import { findNearbyCtrAirports, CTR_AIRPORTS } from "@/lib/ctrData";
@@ -410,8 +412,9 @@ export const MAIN_MAP_HTML = `<!DOCTYPE html>
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>${LEAFLET_CSS}</style>
+<script>${LEAFLET_JS}</script>
+<script>${RC_LEAFLET_JS}</script>
 <style>
   html, body, #map { margin: 0; padding: 0; height: 100%; width: 100%; background: #1A1F2E; }
   #map { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
@@ -454,6 +457,7 @@ export const MAIN_MAP_HTML = `<!DOCTYPE html>
   function esc(s){ return String(s == null ? "" : s).replace(/[&<>"']/g, function(m){ return ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[m]; }); }
 
   var map = L.map("map", { zoomControl: false, attributionControl: true, zoomSnap: 1, fadeAnimation: false, maxZoom: 19, minZoom: 3 }).setView([51, 10], 6);
+  window.__rcMap = map;
 
   // ---- Basis-Ebene ----
   var baseLayer = null, baseKey = "";
@@ -474,7 +478,7 @@ export const MAIN_MAP_HTML = `<!DOCTYPE html>
     } else {
       url = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
     }
-    baseLayer = L.tileLayer(url, {
+    baseLayer = window.__rc.makeBase(style, url, {
       maxZoom: 19,
       keepBuffer: 1,
       updateWhenIdle: false,
@@ -1193,6 +1197,9 @@ export default function TrafficMapView({
     return Math.round(Math.log2(360 / currentRegion.latitudeDelta));
   }, [currentRegion.latitudeDelta]);
 
+  // RC: Länderkarten, Offline-Kacheln und Hindernisse
+  useRcLeaflet(webRef, ready, settledRegion, Math.log2(360 / Math.max(settledRegion.longitudeDelta || 0.0001, 0.0001)));
+
   const settledZoom = useMemo(() => {
     if (!settledRegion.latitudeDelta || settledRegion.latitudeDelta <= 0) return 15;
     return Math.round(Math.log2(360 / settledRegion.latitudeDelta));
@@ -1288,8 +1295,8 @@ export default function TrafficMapView({
       const layerSet = (iso === countryIso && geozoneLayers && geozoneLayers.length > 0)
         ? geozoneLayers
         : fallbackLayers;
-      return { iso, url: buildGeozoneCacheTileUrl(layerSet, iso) };
-    }).filter((t) => t.url);
+      return buildGeozoneTileUrls(layerSet, iso).map((url) => ({ iso, url }));
+    }).flat().filter((t) => t.url);
   }, [countryListKey, geozoneLayers, countryIso, lockedSet]);
 
   // ED-269-Vektorländer (ohne WMS, z. B. AT/BE/DK) aus dem sichtbaren Viewport
@@ -1781,11 +1788,8 @@ export default function TrafficMapView({
       air: airportMarkers,
       energy: [],
       windBuffers: [],
-      energyTileUrl: countryIso === "DE" &&
-        geozoneTileUrls.some((tile) => tile.iso === "DE") &&
-        (energyTilesEnabled ?? (windRestrictionPoints.length > 0 || energyInfrastructure.length > 0))
-        ? `${getApiUrl().replace(/\/+$/, "")}/api/proxy/energy-infrastructure-tiles/{z}/{x}/{y}.png${energyTilesShowSupplemental ? "?supplemental=1" : ""}`
-        : "",
+      // RC-Version: Anlagen-Kacheln kamen vom Server; Hindernis-Ebene ersetzt sie.
+      energyTileUrl: "",
     };
     return JSON.stringify(state);
   }, [fit, latitude, longitude, targetZoom, mapStyle, isDark, lockPan, geozonesVisible, geozoneTileUrls, countryIso, renderableMarkers, renderableTrails, scanRadiusM, taRadiusM, alarmRadiusM, fovCoords, hzPolys, vzPolys, ctrBands, airportMarkers, energyInfrastructure, windRestrictionPoints, energyTilesEnabled, energyTilesShowSupplemental]);
@@ -1876,8 +1880,9 @@ export default function TrafficMapView({
     <View style={fullScreen ? styles.mapViewFull : styles.mapView} onLayout={onMapLayout}>
       <WebView
         ref={webRef}
-        source={{ html: MAIN_MAP_HTML }}
+        source={{ html: MAIN_MAP_HTML, baseUrl: "file:///" }}
         originWhitelist={["*"]}
+        {...RC_WEBVIEW_FILE_PROPS}
         style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? "#1A1F2E" : "#E8ECF2" }]}
         onMessage={onMessage}
         onShouldStartLoadWithRequest={(req) => {

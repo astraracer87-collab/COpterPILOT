@@ -2,10 +2,7 @@ import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 import { Alert, Platform } from "react-native";
-import { isLoggedInSync } from "./auth";
-import { getSessionCookie } from "./api-client";
-import { getApiUrl } from "./query-client";
-import { uploadDocumentToStorage } from "./objectStorage";
+import { isLocalObjectPath, resolveLocalObjectPath, uploadDocumentToStorage } from "./objectStorage";
 
 export const MAX_DOCUMENT_BYTES = 15 * 1024 * 1024;
 
@@ -15,17 +12,12 @@ export interface DocumentRef {
   sizeBytes: number;
   uploadedAt: string;
   /**
-   * Verweis auf das private Objekt im Replit Object Storage
-   * (`/objects/...`). Neue Uploads (eingeloggt) nutzen diesen Pfad — das
-   * Dokument liegt dann NICHT mehr base64-codiert im Profil-Datensatz, was
-   * das 500er-Limit beim Speichern umgeht.
+   * Verweis auf eine lokal abgelegte Datei (`local:documents/...`, große
+   * Dateien). Altdaten können noch Server-Pfade (`/objects/...`) enthalten –
+   * diese sind ohne Backend nicht mehr abrufbar.
    */
   objectPath?: string;
-  /**
-   * Legacy: base64-codiertes PDF/Bild. Wird weiterhin gelesen (Altdaten,
-   * Offline-Modus ohne Login), aber für neue Uploads im Online-Modus nicht
-   * mehr verwendet.
-   */
+  /** base64-codiertes PDF/Bild (kleine Dateien, direkt im Datensatz). */
   dataBase64?: string;
 }
 
@@ -39,15 +31,8 @@ function inferMimeFromName(name: string): string {
   return "application/octet-stream";
 }
 
-/**
- * Ein gültiger Object-Storage-Verweis ist immer ein relativer Pfad unter
- * `/objects/`. Diese Prüfung verhindert, dass ein manipulierter `objectPath`
- * (z.B. eine absolute externe URL) beim Download den Session-Cookie an einen
- * fremden Host schickt.
- */
-function isStorageObjectPath(p: string | undefined): p is string {
-  return typeof p === "string" && p.startsWith("/objects/");
-}
+const SERVER_DOC_UNAVAILABLE =
+  "Dieses Dokument lag auf dem früheren Server und ist in der RC-Version nicht mehr verfügbar. Bitte erneut hochladen.";
 
 function extForMime(mime: string, fallbackName: string): string {
   if (mime === "application/pdf") return ".pdf";
@@ -91,45 +76,23 @@ export async function pickDocument(): Promise<DocumentRef | null> {
   const fileName = asset.name || `dokument${extForMime(asset.mimeType || "", "")}`;
   const mimeType = asset.mimeType || inferMimeFromName(fileName);
 
-  // Online (eingeloggt): Direkt-Upload ins Object Storage — kleines Ref im
-  // Profil, kein base64. Offline: base64-Fallback (lokal in AsyncStorage).
-  if (isLoggedInSync()) {
-    const objectPath = await uploadDocumentToStorage(asset.uri, mimeType);
-    return {
-      fileName,
-      mimeType,
-      sizeBytes: sizeBytes || 0,
-      uploadedAt: new Date().toISOString(),
-      objectPath,
-    };
-  }
-
-  const dataBase64 = await FileSystem.readAsStringAsync(asset.uri, {
-    encoding: FileSystem.EncodingType.Base64,
-  });
-  // Zweite Sicherungslinie: base64 ist ~4/3 der Rohgröße.
-  const decodedBytes = Math.ceil((dataBase64.length * 3) / 4);
-  if (decodedBytes > MAX_DOCUMENT_BYTES) {
+  // Lokal ablegen: kleine Dateien base64 im Datensatz, große als Datei im
+  // Dokumentenverzeichnis (kein Server mehr).
+  const ref = await uploadDocumentToStorage(asset.uri, mimeType, fileName, sizeBytes || 0);
+  if (ref.sizeBytes > MAX_DOCUMENT_BYTES) {
     Alert.alert(
       "Datei zu groß",
-      `Maximal ${Math.round(MAX_DOCUMENT_BYTES / 1024 / 1024)} MB erlaubt (gewählt: ${(decodedBytes / 1024 / 1024).toFixed(1)} MB).`,
+      `Maximal ${Math.round(MAX_DOCUMENT_BYTES / 1024 / 1024)} MB erlaubt (gewählt: ${(ref.sizeBytes / 1024 / 1024).toFixed(1)} MB).`,
     );
     return null;
   }
-  if (!sizeBytes) sizeBytes = decodedBytes;
-  return {
-    fileName,
-    mimeType,
-    sizeBytes,
-    uploadedAt: new Date().toISOString(),
-    dataBase64,
-  };
+  return ref;
 }
 
 /**
  * Materialisiert ein Dokument als lokale Datei im Cache und liefert deren
- * `file://`-Pfad zurück. Quelle ist entweder das Object Storage (objectPath,
- * via authentifiziertem Download) oder das Legacy-base64-Feld.
+ * `file://`-Pfad zurück. Quelle ist entweder eine lokal abgelegte Datei
+ * (objectPath `local:...`) oder das base64-Feld.
  *
  * Wirft auf Web — dort wird stattdessen `getWebPreviewUrl` genutzt.
  */
@@ -143,21 +106,6 @@ export async function materializeDocument(doc: DocumentRef): Promise<string> {
     doc.fileName.replace(/[^A-Za-z0-9._-]/g, "_") || `doc${extForMime(doc.mimeType, doc.fileName)}`;
   const path = `${dir}preflight-doc-${Date.now()}-${safeName}`;
 
-  if (doc.objectPath) {
-    if (!isStorageObjectPath(doc.objectPath)) {
-      throw new Error("Ungültiger Dokument-Verweis");
-    }
-    const url = new URL(doc.objectPath, getApiUrl()).toString();
-    const cookie = await getSessionCookie();
-    const result = await FileSystem.downloadAsync(url, path, {
-      headers: cookie ? { Cookie: cookie } : undefined,
-    });
-    if (result.status < 200 || result.status >= 300) {
-      throw new Error(`Dokument konnte nicht geladen werden (Status ${result.status})`);
-    }
-    return result.uri;
-  }
-
   if (doc.dataBase64) {
     await FileSystem.writeAsStringAsync(path, doc.dataBase64, {
       encoding: FileSystem.EncodingType.Base64,
@@ -165,30 +113,37 @@ export async function materializeDocument(doc: DocumentRef): Promise<string> {
     return path;
   }
 
+  if (isLocalObjectPath(doc.objectPath)) {
+    const src = resolveLocalObjectPath(doc.objectPath);
+    const info = await FileSystem.getInfoAsync(src);
+    if (!info.exists) throw new Error("Dokument-Datei wurde auf dem Gerät nicht gefunden");
+    // Kopie mit sprechendem Dateinamen im Cache (für Teilen/Vorschau).
+    await FileSystem.copyAsync({ from: src, to: path });
+    return path;
+  }
+
+  if (doc.objectPath) {
+    throw new Error(SERVER_DOC_UNAVAILABLE);
+  }
+
   throw new Error("Dokument enthält keine Daten");
 }
 
 /**
- * Liefert eine im Web nutzbare URL (data: für base64, Blob-URL für
- * Object-Storage-Refs via authentifiziertem fetch).
+ * Liefert eine im Web nutzbare URL (data:-URL aus base64 bzw. lokaler Datei).
  */
 export async function getWebPreviewUrl(doc: DocumentRef): Promise<string> {
   if (doc.dataBase64) {
     return `data:${doc.mimeType};base64,${doc.dataBase64}`;
   }
-  if (doc.objectPath) {
-    if (!isStorageObjectPath(doc.objectPath)) {
-      throw new Error("Ungültiger Dokument-Verweis");
-    }
-    const url = new URL(doc.objectPath, getApiUrl()).toString();
-    const cookie = await getSessionCookie();
-    const res = await fetch(url, {
-      headers: cookie ? { Cookie: cookie } : undefined,
-      credentials: "include",
+  if (isLocalObjectPath(doc.objectPath)) {
+    const b64 = await FileSystem.readAsStringAsync(resolveLocalObjectPath(doc.objectPath), {
+      encoding: FileSystem.EncodingType.Base64,
     });
-    if (!res.ok) throw new Error(`Dokument konnte nicht geladen werden (Status ${res.status})`);
-    const blob = await res.blob();
-    return URL.createObjectURL(blob);
+    return `data:${doc.mimeType};base64,${b64}`;
+  }
+  if (doc.objectPath) {
+    throw new Error(SERVER_DOC_UNAVAILABLE);
   }
   throw new Error("Dokument enthält keine Daten");
 }

@@ -7,13 +7,22 @@ Android-Fernsteuerungen ohne Google-Dienste) läuft.
 
 Funktionsbeschreibung: [FUNKTIONEN.md](FUNKTIONEN.md)
 
+Basis ist der CopterPilot-Stand von Oktober 2026 (Expo 57). Login, Konto,
+Abo und Cloud-Sync sind entfernt; alle Funktionen sind freigeschaltet und alle
+Daten bleiben auf dem Gerät.
+
 ## Unterschiede zur Replit-Version
 
 | Bereich | Replit-Version | RC-Version |
 |---|---|---|
 | Karten | Google Maps (`react-native-maps`) | MapLibre (`client/components/maps`), Kacheln: CARTO/OSM, Esri-Satellit, dipul-WMS |
 | Standort | expo-location (Google Fused Location) | Android-LocationManager (GPS) über `client/lib/location.ts`, Geocoding über Nominatim |
-| Server | Express + PostgreSQL (Login, Proxy, OGN) | entfällt – alles lokal auf dem Gerät |
+| Server | Express + PostgreSQL (Login, Abo, Proxys, Verkehr) | entfällt – alles lokal auf dem Gerät |
+| Login / Abo | Konto, Stripe-Abo, Paywall | entfällt, alles freigeschaltet |
+| Live-Verkehr | Server-Aggregator | App fragt adsb.lol, adsb.fi, airplanes.live und OGN selbst ab |
+| Geozonen | Server komponiert Kacheln, ED-269-Cache | direkte WMS/WFS-Abfragen, ED-269-Daten (AT/BE/DK) auf dem Gerät gespeichert |
+| Leaflet-Karten | Leaflet vom CDN | Leaflet eingebettet (startet ohne Internet), amtliche Karten je Land, Offline-Kacheln, Hindernisse |
+| DJI-Log-Auswertung, Lost & Found, Teilen-Links | Server | entfallen |
 | OGN-Verkehr | APRS-Verbindung des Servers | direkt über `live.glidernet.org` |
 | Eigene Glossar-Einträge / Links | Datenbank | lokal (AsyncStorage) |
 | Links öffnen | Custom Tabs | Custom Tabs, sonst System-Browser |

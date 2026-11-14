@@ -7,7 +7,6 @@ import {
   queryNlWfsFeaturesFrom,
   queryDipulWfsFeaturesFrom,
   parseDipulWfsBatches,
-  DipulWfsAccessError,
   queryFrWmsFeaturesFrom,
   isLuZonePermanent,
   buildLuNotamFromWms,
@@ -274,34 +273,44 @@ describe("DIPUL WFS Vektordaten", () => {
   beforeEach(() => { urls = []; });
   afterEach(() => { globalThis.fetch = realFetch; });
 
-  it("fragt den festen App-Proxy für den gewählten Standort und Radius ab", async () => {
-    installFetch(async () => jsonResponse({
-      byLayer: [{
-        layer: "flughaefen",
-        features: [{
-          id: "flughaefen.1",
-          properties: { name: "Köln/Bonn", type_code: "FLUGPLATZ", legal_ref: "§ 21h LuftVO" },
-          geometry: {
-            type: "Polygon",
-            coordinates: [[[7.1, 50.8], [7.2, 50.8], [7.2, 50.9], [7.1, 50.8]]],
-          },
-        }],
-      }],
-      failedLayers: [],
-      fallbackLayers: ["temporaere_betriebseinschraenkungen"],
-    }));
+  const KOELN_FEATURE = {
+    id: "flughaefen.1",
+    properties: { name: "Köln/Bonn", type_code: "FLUGPLATZ", legal_ref: "§ 21h LuftVO" },
+    geometry: {
+      type: "Polygon",
+      coordinates: [[[7.1, 50.8], [7.2, 50.8], [7.2, 50.9], [7.1, 50.8]]],
+    },
+  };
 
-    const result = await queryDipulWfsFeaturesFrom("https://app.example/", DE_LAYERS, 50.85, 7.15, 2);
-    const request = new URL(urls[0]);
-    assert.equal(request.origin + request.pathname, "https://app.example/api/proxy/dipul-geozones");
-    assert.equal(request.searchParams.get("lat"), "50.85");
-    assert.equal(request.searchParams.get("lon"), "7.15");
-    assert.equal(request.searchParams.get("radiusKm"), "2");
+  it("fragt den DIPUL-WFS direkt je Layer ab (EPSG:4326-bbox lon,lat) und meldet temporäre Layer als Fallback", async () => {
+    installFetch(async (u) => {
+      const type = new URL(u).searchParams.get("TYPENAMES");
+      return jsonResponse({
+        type: "FeatureCollection",
+        features: type === "dipul:flughaefen" ? [KOELN_FEATURE] : [],
+        numberMatched: type === "dipul:flughaefen" ? 1 : 0,
+      });
+    });
+
+    const result = await queryDipulWfsFeaturesFrom("", DE_LAYERS, 50.85, 7.15, 2);
+    // Kein Request für den temporären Layer (bleibt beim WMS-Pfad).
+    assert.ok(urls.every((u) => !u.includes("temporaere_betriebseinschraenkungen")));
+    const request = new URL(urls.find((u) => u.includes("dipul%3Aflughaefen") || u.includes("dipul:flughaefen"))!);
+    assert.equal(request.origin + request.pathname, "https://uas-betrieb.de/geoservices/dipul/ows");
+    assert.equal(request.searchParams.get("SERVICE"), "WFS");
+    assert.equal(request.searchParams.get("REQUEST"), "GetFeature");
+    const bbox = request.searchParams.get("BBOX")!.split(",");
+    assert.equal(bbox[4], "EPSG:4326");
+    const [minLon, minLat, maxLon, maxLat] = bbox.slice(0, 4).map(Number);
+    assert.ok(minLon < 7.15 && maxLon > 7.15 && minLat < 50.85 && maxLat > 50.85);
+    assert.ok(Math.abs((minLon + maxLon) / 2 - 7.15) < 1e-9);
+
     assert.equal(result.zones.length, 1);
     assert.deepEqual(result.zones[0].polygonRings?.[0][0], [50.8, 7.1]);
     assert.equal(result.zones[0].country, "DE");
     assert.match(result.zones[0].details, /§ 21h LuftVO/);
     assert.deepEqual(result.fallbackLayers, ["temporaere_betriebseinschraenkungen"]);
+    assert.deepEqual(result.failedLayers, []);
   });
 
   it("erhält Löcher in MultiPolygonen und meldet Geometrien ohne Polygon als Fallback", () => {
@@ -332,20 +341,24 @@ describe("DIPUL WFS Vektordaten", () => {
     assert.deepEqual(parsed.failedLayers, ["flughaefen"]);
   });
 
-  it("lehnt eine nicht erfolgreiche Proxy-Antwort ausdrücklich ab", async () => {
-    installFetch(async () => jsonResponse({ error: "upstream unavailable" }, false, 502));
-    await assert.rejects(
-      queryDipulWfsFeaturesFrom("https://app.example/", DE_LAYERS, 50.85, 7.15, 2),
-      /DIPUL Vektordaten nicht verfügbar/,
-    );
+  it("meldet Layer mit HTTP-Fehler oder abgeschnittener Antwort als failedLayers", async () => {
+    installFetch(async () => jsonResponse({ features: [KOELN_FEATURE], numberMatched: 999 }));
+    const truncated = await queryDipulWfsFeaturesFrom("", DE_LAYERS, 50.85, 7.15, 2);
+    assert.ok(truncated.failedLayers.includes("flughaefen"));
+    assert.equal(truncated.zones.length, 0);
+
+    installFetch(async () => jsonResponse({ error: "upstream" }, false, 502));
+    const failed = await queryDipulWfsFeaturesFrom("", DE_LAYERS, 50.85, 7.15, 2);
+    assert.ok(failed.failedLayers.includes("flughaefen"));
   });
 
-  it("lässt fehlende Anmeldung oder Länderfreischaltung nicht auf den WMS-Fallback durch", async () => {
-    installFetch(async () => jsonResponse({ error: "locked" }, false, 403));
+  it("lehnt ungültige Radien wie früher der Proxy ab (Aufrufer fällt auf WMS zurück)", async () => {
+    installFetch(async () => jsonResponse({ features: [] }));
     await assert.rejects(
-      queryDipulWfsFeaturesFrom("https://app.example/", DE_LAYERS, 50.85, 7.15, 2),
-      (error) => error instanceof DipulWfsAccessError && error.status === 403,
+      queryDipulWfsFeaturesFrom("", DE_LAYERS, 50.85, 7.15, 40),
+      /DIPUL Vektordaten nicht verfügbar/,
     );
+    assert.equal(urls.length, 0);
   });
 });
 

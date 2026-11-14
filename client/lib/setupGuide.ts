@@ -1,5 +1,4 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { apiJson } from "./api-client";
 import {
   isValidSetupGuideStatus,
   setupGuideKey,
@@ -10,39 +9,50 @@ export type { SetupGuideStatus } from "./setupGuideKey";
 export { shouldOfferSetupGuide, isValidSetupGuideStatus } from "./setupGuideKey";
 
 /**
- * Konto-gebundener Status + inhaltsbasierte Heuristik vom Server. Quelle der
- * Wahrheit für „schon erledigt/übersprungen" sowie „Konto hat bereits Daten".
+ * Gerätegebundener Status + inhaltsbasierte Heuristik. Früher kam beides vom
+ * Server (konto-gebunden); ohne Backend liegt der Status lokal in AsyncStorage.
  */
 export interface ServerSetupGuideState {
   status: SetupGuideStatus | null;
   hasContent: boolean;
 }
 
+const LOCAL_STATE_KEY = "@setupGuide/state_local";
+
 /**
- * Liest den konto-gebundenen Status (geräteunabhängig) plus die Heuristik, ob
- * das Konto bereits relevante Daten hat. Nur für angemeldete Nutzer sinnvoll.
+ * Liest den lokal gespeicherten Status plus die Heuristik, ob bereits
+ * relevante Daten (Drohnen, Profil, Flüge …) auf dem Gerät vorhanden sind.
  */
 export async function fetchSetupGuideState(): Promise<ServerSetupGuideState> {
-  const data = await apiJson<{ status?: unknown; hasContent?: unknown }>(
-    "/api/setup-guide/state",
-  );
-  return {
-    status: isValidSetupGuideStatus(data?.status) ? data.status : null,
-    hasContent: data?.hasContent === true,
-  };
+  let status: SetupGuideStatus | null = null;
+  try {
+    const value = await AsyncStorage.getItem(LOCAL_STATE_KEY);
+    status = isValidSetupGuideStatus(value) ? value : null;
+  } catch {
+    status = null;
+  }
+  let hasContent = false;
+  try {
+    // Lazy import, um Zyklen mit storage.ts zu vermeiden.
+    const { hasLocalUserData } = await import("./storage");
+    hasContent = await hasLocalUserData();
+  } catch {
+    hasContent = false;
+  }
+  return { status, hasContent };
 }
 
 /**
- * Persistiert den Status konto-gebunden auf dem Server. Best-effort: Fehler
- * werden geloggt, aber nicht eskaliert (der lokale Status greift als Fallback).
+ * Persistiert den Status lokal (Ersatz für den früheren Server-Endpunkt).
+ * Best-effort: Fehler werden geloggt, aber nicht eskaliert.
  */
 export async function persistServerSetupGuideStatus(
   status: SetupGuideStatus,
 ): Promise<void> {
   try {
-    await apiJson("/api/setup-guide/status", { method: "POST", body: { status } });
+    await AsyncStorage.setItem(LOCAL_STATE_KEY, status);
   } catch (e) {
-    console.warn("[setupGuide] Server-Status konnte nicht gespeichert werden:", e);
+    console.warn("[setupGuide] Status konnte nicht lokal gespeichert werden:", e);
   }
 }
 

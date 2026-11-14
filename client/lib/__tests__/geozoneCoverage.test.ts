@@ -6,6 +6,7 @@ import {
   getCountriesInRadius,
   getViewportCountries,
 } from "../geozoneCoverage";
+import { __resetEd269StoreForTests } from "../geozoneDirect/ed269Store";
 
 // Spiegelt Object.keys(COUNTRY_GEOZONE_CONFIGS) aus geozones.ts (die geozones.ts-
 // Wrapper injizieren genau diese Menge). Reihenfolge = Iterationsreihenfolge der
@@ -37,109 +38,87 @@ function jsonResponse(body: any, ok = true, status = 200) {
   };
 }
 
-describe("queryEd269CachedFeaturesFrom – bbox/URL-Aufbau", () => {
+// Österreich-Feed (Austro Control) als Stub: zwei Zonen (Wien, Salzburg) + eine
+// abgelaufene temporäre Zone in Wien.
+const AT_FEED = {
+  type: "FeatureCollection",
+  features: [
+    {
+      type: "Feature",
+      geometry: { type: "Polygon", coordinates: [[[16.3, 48.15], [16.45, 48.15], [16.45, 48.25], [16.3, 48.15]]] },
+      properties: { restriction: "PROHIBITED", name: "Wien-Zone" },
+    },
+    {
+      type: "Feature",
+      geometry: { type: "Polygon", coordinates: [[[13.0, 47.78], [13.1, 47.78], [13.1, 47.85], [13.0, 47.78]]] },
+      properties: { restriction: "REQ_AUTHORISATION", name: "Salzburg-Zone" },
+    },
+    {
+      type: "Feature",
+      geometry: { type: "Polygon", coordinates: [[[16.35, 48.18], [16.4, 48.18], [16.4, 48.2], [16.35, 48.18]]] },
+      properties: {
+        restriction: "PROHIBITED",
+        name: "Abgelaufen",
+        applicability: [{ startDateTime: "2020-01-01T00:00:00Z", endDateTime: "2020-01-02T00:00:00Z" }],
+      },
+    },
+  ],
+};
+
+describe("queryEd269CachedFeaturesFrom – direkter Feed + lokale Abfrage", () => {
   beforeEach(() => {
     lastUrl = "";
+    __resetEd269StoreForTests();
   });
   afterEach(() => {
     globalThis.fetch = realFetch;
   });
 
-  it("baut country (lowercase) + bbox (lon,lat,lon,lat) korrekt und trifft den Cache-Endpoint", async () => {
-    installFetch(async () => jsonResponse({ countries: [] }));
-    await queryEd269CachedFeaturesFrom(API, 47.8095, 13.055, 10, "AT");
+  it("lädt den AT-Feed direkt beim Anbieter und filtert lokal per bbox", async () => {
+    let calls = 0;
+    installFetch(async () => {
+      calls++;
+      return jsonResponse(JSON.parse(JSON.stringify(AT_FEED)));
+    });
+    const wien = await queryEd269CachedFeaturesFrom(API, 48.2, 16.37, 10, "AT");
+    assert.ok(lastUrl.startsWith("https://utm.dronespace.at/"), lastUrl);
+    assert.deepEqual(wien.map((z) => z.name), ["Wien-Zone"]);
+    assert.equal(wien[0].country, "AT");
 
-    const url = new URL(lastUrl);
-    assert.equal(url.origin + url.pathname, `${API}/api/cached/geozones`);
-    assert.equal(url.searchParams.get("country"), "at");
-
-    const bbox = url.searchParams.get("bbox")!;
-    const parts = bbox.split(",").map(Number);
-    assert.equal(parts.length, 4);
-    const [minLon, minLat, maxLon, maxLat] = parts;
-    // bbox ist um den Mittelpunkt zentriert -> Mittelwerte ~ Eingabe.
-    assert.ok(Math.abs((minLat + maxLat) / 2 - 47.8095) < 1e-6, "lat-Mitte");
-    assert.ok(Math.abs((minLon + maxLon) / 2 - 13.055) < 1e-6, "lon-Mitte");
-    // Reihenfolge: minLon < maxLon, minLat < maxLat.
-    assert.ok(minLon < maxLon && minLat < maxLat, "bbox-Reihenfolge");
-    // 10 km in Breitengrad ~ 0.0898 Grad -> Spannweite ~ 0.1796.
-    assert.ok(Math.abs(maxLat - minLat - 2 * (10 / 111.32)) < 1e-3, "lat-Spannweite");
+    // Zweite Abfrage aus dem Gerätecache (kein weiterer Download).
+    const salzburg = await queryEd269CachedFeaturesFrom(API, 47.8095, 13.055, 10, "AT");
+    assert.deepEqual(salzburg.map((z) => z.name), ["Salzburg-Zone"]);
+    assert.equal(calls, 1);
   });
 
-  it("wählt den passenden country-Eintrag aus countries[] (nicht einfach [0])", async () => {
-    installFetch(async () =>
-      jsonResponse({
-        countries: [
-          { country: "ch", features: [] },
-          {
-            country: "AT",
-            features: [
-              {
-                type: "Feature",
-                geometry: {
-                  type: "Polygon",
-                  coordinates: [[[16.0, 48.0], [16.1, 48.0], [16.1, 48.1], [16.0, 48.0]]],
-                },
-                properties: { restriction: "PROHIBITED", name: "Wien-Zone" },
-              },
-            ],
-          },
-        ],
-      }),
-    );
-
-    const out = await queryEd269CachedFeaturesFrom(API, 48.2, 16.37, 10, "AT");
-    assert.equal(out.length, 1);
-    assert.equal(out[0].name, "Wien-Zone");
-    assert.equal(out[0].country, "AT");
+  it("liefert mit fullCountry den gesamten (nicht abgelaufenen) Bestand", async () => {
+    installFetch(async () => jsonResponse(JSON.parse(JSON.stringify(AT_FEED))));
+    const all = await queryEd269CachedFeaturesFrom(API, 0, 0, 1, "AT", undefined, true);
+    assert.deepEqual(all.map((z) => z.name).sort(), ["Salzburg-Zone", "Wien-Zone"]);
   });
 
-  it("fällt auf countries[0] zurück, wenn kein passender ISO-Eintrag existiert", async () => {
-    installFetch(async () =>
-      jsonResponse({
-        countries: [
-          {
-            country: "xx",
-            features: [
-              {
-                type: "Feature",
-                geometry: {
-                  type: "Polygon",
-                  coordinates: [[[16.0, 48.0], [16.1, 48.0], [16.1, 48.1], [16.0, 48.0]]],
-                },
-                properties: { restriction: "PROHIBITED", name: "Fallback-Zone" },
-              },
-            ],
-          },
-        ],
-      }),
-    );
-
-    const out = await queryEd269CachedFeaturesFrom(API, 48.2, 16.37, 10, "AT");
-    assert.equal(out.length, 1);
-    assert.equal(out[0].name, "Fallback-Zone");
+  it("liefert [] für Länder ohne Vektor-Feed, ohne Netzabruf", async () => {
+    installFetch(async () => jsonResponse(AT_FEED));
+    const out = await queryEd269CachedFeaturesFrom(API, 50, 8, 10, "DE");
+    assert.deepEqual(out, []);
+    assert.equal(lastUrl, "");
   });
 });
 
 describe("queryEd269CachedFeaturesFrom – Fehlerfälle ohne throw", () => {
+  beforeEach(() => __resetEd269StoreForTests());
   afterEach(() => {
     globalThis.fetch = realFetch;
   });
 
   it("liefert [] bei nicht-ok-Status", async () => {
-    installFetch(async () => jsonResponse({ countries: [{ country: "at", features: [{}] }] }, false, 503));
+    installFetch(async () => jsonResponse(AT_FEED, false, 503));
     const out = await queryEd269CachedFeaturesFrom(API, 47.8, 13.0, 10, "AT");
     assert.deepEqual(out, []);
   });
 
-  it("liefert [] bei fehlendem countries-Array", async () => {
+  it("liefert [] bei fehlendem features-Array", async () => {
     installFetch(async () => jsonResponse({ foo: "bar" }));
-    const out = await queryEd269CachedFeaturesFrom(API, 47.8, 13.0, 10, "AT");
-    assert.deepEqual(out, []);
-  });
-
-  it("liefert [] wenn features keine Liste ist", async () => {
-    installFetch(async () => jsonResponse({ countries: [{ country: "at", features: "nope" }] }));
     const out = await queryEd269CachedFeaturesFrom(API, 47.8, 13.0, 10, "AT");
     assert.deepEqual(out, []);
   });
