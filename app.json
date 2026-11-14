@@ -63,7 +63,8 @@
       "expo-audio",
       "expo-font",
       "@maplibre/maplibre-react-native",
-      "./plugins/withReleaseSigning"
+      "./plugins/withReleaseSigning",
+      "expo-secure-store"
     ],
     "experiments": {
       "reactCompiler": true

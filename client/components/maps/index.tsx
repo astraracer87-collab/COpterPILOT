@@ -34,7 +34,7 @@ import {
 } from "@maplibre/maplibre-react-native";
 import * as Location from "@/lib/location";
 import { FALLBACK_MAP, FALLBACK_SATELLITE, GLYPHS_URL, HYBRID_LABELS, type LngLatBox } from "@/lib/mapSources";
-import { BASE_ANCHORS, CountryBaseLayers, ObstacleLayer } from "./MapLayers";
+import { BASE_ANCHORS, CountryBaseLayers, GOOGLE_ANCHOR, GoogleSatelliteLayer, ObstacleLayer } from "./MapLayers";
 
 // ---------------------------------------------------------------------------
 // Typen (kompatibel zu react-native-maps)
@@ -81,6 +81,7 @@ function buildStyle(mapType: MapType | undefined) {
     { id: "background", type: "background", paint: { "background-color": satellite ? "#1b2630" : "#e8eef2" } },
     { id: "base", type: "raster", source: "base" },
     ...BASE_ANCHORS.map(anchor),
+    anchor(GOOGLE_ANCHOR),
   ];
   if (hybrid) {
     sources.labels = { type: "raster", tiles: [HYBRID_LABELS], tileSize: 256, maxzoom: 19 };
@@ -344,6 +345,7 @@ const MapViewImpl = forwardRef<MapViewHandle, MapViewProps>(function MapView(pro
           <MLCamera ref={cameraRef} initialViewState={{ bounds: regionToBounds(startRegion) }} />
           {showsUserLocation ? <UserLocation heading accuracy /> : null}
           <CountryBaseLayers view={view} satellite={isSatelliteType(mapType)} />
+          {isSatelliteType(mapType) ? <GoogleSatelliteLayer /> : null}
           <ObstacleLayer view={view} zoom={zoom} />
           {children}
         </MLMap>

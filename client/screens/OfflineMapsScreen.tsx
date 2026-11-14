@@ -4,7 +4,7 @@
  * Karte, Satellitenbilder (optional, sehr groß), Geozonen, Hindernisse.
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Switch, View } from "react-native";
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Switch, TextInput, View } from "react-native";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { Feather } from "@expo/vector-icons";
@@ -31,6 +31,7 @@ import {
   type PackProgress,
 } from "@/lib/offlineMaps";
 import { getObstaclesEnabled, setObstaclesEnabled } from "@/lib/obstacles";
+import { clearGoogleKey, getGoogleKey, setGoogleKey } from "@/lib/googleTiles";
 
 const LEVELS: DetailLevel[] = [11, 12, 13, 14, 15];
 const KIND_LABEL: Record<string, string> = { map: "Karte", sat: "Satellit", geo: "Geozonen" };
@@ -61,6 +62,28 @@ export default function OfflineMapsScreen() {
   const [state, setState] = useState<Record<string, CountryState>>({});
   const [freeMB, setFreeMB] = useState<number | null>(null);
   const [obstaclesOn, setObstaclesOn] = useState(true);
+  const [hasGoogle, setHasGoogle] = useState(false);
+  const [googleInput, setGoogleInput] = useState("");
+  const [googleBusy, setGoogleBusy] = useState(false);
+  const [googleMsg, setGoogleMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    getGoogleKey().then((k) => setHasGoogle(!!k));
+  }, []);
+
+  const saveGoogle = async () => {
+    setGoogleBusy(true);
+    setGoogleMsg(null);
+    const r = await setGoogleKey(googleInput);
+    setGoogleBusy(false);
+    if (r.ok) {
+      setHasGoogle(true);
+      setGoogleInput("");
+      setGoogleMsg("Gespeichert – im Satellitenmodus wird jetzt das Google-Bild gezeigt.");
+    } else {
+      setGoogleMsg(r.error ?? "Schlüssel konnte nicht geprüft werden.");
+    }
+  };
   const stopFlags = useRef<Record<string, boolean>>({});
 
   const patchState = useCallback((iso: string, fn: (s: CountryState) => CountryState) => {
@@ -183,7 +206,50 @@ export default function OfflineMapsScreen() {
   return (
     <ThemedView style={styles.container}>
       <ScrollView contentContainerStyle={[styles.content, { paddingTop: headerHeight + Spacing.xl, paddingBottom: tabBarHeight + Spacing.xl }]}>
-        <ThemedText style={[styles.sectionTitle, { color: theme.textSecondary }]}>HINDERNISSE</ThemedText>
+        <ThemedText style={[styles.sectionTitle, { color: theme.textSecondary }]}>GOOGLE-SATELLITENBILD</ThemedText>
+        <Card style={styles.card}>
+          <ThemedText style={[styles.small, { color: theme.textSecondary }]}>
+            Mit eigenem Google-API-Schlüssel („Map Tiles API“ aktiviert, Abrechnung eingerichtet) zeigt der Satellitenmodus
+            online das Google-Luftbild. Ohne Internet erscheinen die gespeicherten amtlichen Luftbilder. Der Schlüssel bleibt
+            verschlüsselt auf diesem Gerät.
+          </ThemedText>
+          {hasGoogle ? (
+            <View style={[styles.row, { marginTop: Spacing.md }]}>
+              <Feather name="check-circle" size={18} color="#1B8A2A" />
+              <ThemedText style={[styles.rowLabel, { flex: 1 }]}>Schlüssel gespeichert</ThemedText>
+              <Pressable
+                onPress={async () => { await clearGoogleKey(); setHasGoogle(false); setGoogleMsg(null); }}
+                style={[styles.btn, { backgroundColor: "rgba(255,59,48,0.12)" }]}
+              >
+                <ThemedText style={[styles.btnText, { color: "#FF3B30" }]}>Entfernen</ThemedText>
+              </Pressable>
+            </View>
+          ) : (
+            <View style={{ marginTop: Spacing.md, gap: Spacing.sm }}>
+              <TextInput
+                value={googleInput}
+                onChangeText={setGoogleInput}
+                placeholder="API-Schlüssel (AIza…)"
+                placeholderTextColor={theme.textTertiary}
+                autoCapitalize="none"
+                autoCorrect={false}
+                secureTextEntry
+                style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.backgroundSecondary }]}
+              />
+              <Pressable
+                onPress={saveGoogle}
+                disabled={googleBusy || googleInput.trim().length < 20}
+                style={[styles.btn, { backgroundColor: theme.primary, alignSelf: "flex-start", opacity: googleBusy || googleInput.trim().length < 20 ? 0.5 : 1 }]}
+              >
+                {googleBusy ? <ActivityIndicator size="small" color="#FFFFFF" /> : <Feather name="key" size={16} color="#FFFFFF" />}
+                <ThemedText style={[styles.btnText, { color: "#FFFFFF" }]}>Prüfen & speichern</ThemedText>
+              </Pressable>
+            </View>
+          )}
+          {googleMsg ? <ThemedText style={[styles.small, { marginTop: Spacing.sm }]}>{googleMsg}</ThemedText> : null}
+        </Card>
+
+        <ThemedText style={[styles.sectionTitle, { color: theme.textSecondary, marginTop: Spacing["2xl"] }]}>HINDERNISSE</ThemedText>
         <Card style={styles.card}>
           <Row
             label="Hindernisse auf der Karte"
@@ -366,6 +432,7 @@ const styles = StyleSheet.create({
   buttons: { flexDirection: "row", gap: Spacing.sm, flexWrap: "wrap" },
   btn: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10 },
   btnText: { fontWeight: "700" },
+  input: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15 },
   legend: { flexDirection: "row", flexWrap: "wrap", gap: 12, marginTop: Spacing.md },
   legendItem: { flexDirection: "row", alignItems: "center", gap: 6 },
   legendLine: { width: 22, height: 4, borderRadius: 2 },
