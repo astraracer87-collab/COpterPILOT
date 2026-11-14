@@ -16,7 +16,7 @@ import { useRoute, useFocusEffect } from "@react-navigation/native";
 import type { RouteProp } from "@react-navigation/native";
 import { Feather } from "@expo/vector-icons";
 import * as Location from "@/lib/location";
-import * as WebBrowser from "expo-web-browser";
+import * as WebBrowser from "@/lib/webBrowser";
 import MapView, { Circle, Marker, Polygon, WMSTile } from "@/components/maps";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";

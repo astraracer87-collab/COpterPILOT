@@ -25,7 +25,7 @@ import {
 } from "@/lib/storage";
 import { findPresetForDrone, DronePreset, DRONE_TYPE_INFO, LICENSE_LEVEL_LABELS, CONSTRAINT_LABELS } from "@/lib/dronePresets";
 import * as Haptics from "expo-haptics";
-import * as WebBrowser from "expo-web-browser";
+import * as WebBrowser from "@/lib/webBrowser";
 import type { SettingsStackParamList } from "@/navigation/SettingsStackNavigator";
 
 type NavigationProp = NativeStackNavigationProp<SettingsStackParamList>;

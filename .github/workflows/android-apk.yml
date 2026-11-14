@@ -1,0 +1,80 @@
+name: APK bauen (DJI RC)
+
+on:
+  push:
+    branches: ['**']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Abhängigkeiten installieren
+        run: npm ci --no-audit --no-fund
+
+      - name: Typprüfung
+        run: npx tsc --noEmit
+
+      - name: Android-Projekt erzeugen (expo prebuild)
+        run: npx expo prebuild --platform android --clean --no-install
+        env:
+          CI: '1'
+
+      - name: Signatur-Schlüssel bereitstellen (optional)
+        env:
+          KEYSTORE_BASE64: ${{ secrets.CP_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/copterpilot.keystore"
+            echo "CP_KEYSTORE_FILE=$RUNNER_TEMP/copterpilot.keystore" >> "$GITHUB_ENV"
+            echo "Eigener Release-Schlüssel wird verwendet."
+          else
+            echo "Kein Secret CP_KEYSTORE_BASE64 – APK wird mit dem Standard-Debug-Schlüssel signiert."
+          fi
+
+      - name: APK bauen
+        working-directory: android
+        env:
+          CP_KEYSTORE_PASSWORD: ${{ secrets.CP_KEYSTORE_PASSWORD }}
+          CP_KEY_ALIAS: ${{ secrets.CP_KEY_ALIAS }}
+          CP_KEY_PASSWORD: ${{ secrets.CP_KEY_PASSWORD }}
+        run: ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a,armeabi-v7a
+
+      - name: APK umbenennen
+        run: cp android/app/build/outputs/apk/release/app-release.apk COpterPilot-RC.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: COpterPilot-RC
+          path: COpterPilot-RC.apk
+
+      - name: Als Release "latest" veröffentlichen
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest --yes --cleanup-tag || true
+          gh release create latest COpterPilot-RC.apk --target "${{ github.sha }}" \
+            --title "COpter Pilot für DJI RC – Build ${{ github.run_number }}" \
+            --notes "Automatischer Build aus ${{ github.ref_name }} (${{ github.sha }}). COpterPilot-RC.apk auf die Fernsteuerung kopieren und im Dateimanager antippen."

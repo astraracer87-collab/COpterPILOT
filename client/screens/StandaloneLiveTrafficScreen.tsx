@@ -29,7 +29,7 @@ import { useFocusEffect } from "@react-navigation/native";
 import { getSettings } from "@/lib/storage";
 import { getCached, setCache, makeCacheKey } from "@/lib/dataCache";
 import { findNearbyCtrAirports, CtrAirport, getCtrCategoryLabel, getCtrProviderName } from "@/lib/ctrData";
-import * as WebBrowser from "expo-web-browser";
+import * as WebBrowser from "@/lib/webBrowser";
 import {
   fetchNearbyAircraft,
   AircraftState,

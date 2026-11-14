@@ -13,7 +13,7 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
-import * as WebBrowser from "expo-web-browser";
+import * as WebBrowser from "@/lib/webBrowser";
 import { MIL_LOW_FLIGHT_ACTIVATION_TEXT, MIL_LOW_FLIGHT_SOURCE_URL, MIL_LOW_FLIGHT_DATA_STAND } from "@/lib/milLowFlight";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";

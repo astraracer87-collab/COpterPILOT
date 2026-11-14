@@ -11,7 +11,7 @@ import MapView, { Circle, Marker, Callout, Polygon, Polyline, WMSTile } from "@/
 import { useRoute, useNavigation, RouteProp } from "@react-navigation/native";
 import { useHeaderHeight, HeaderButton } from "@react-navigation/elements";
 import { Feather } from "@expo/vector-icons";
-import * as WebBrowser from "expo-web-browser";
+import * as WebBrowser from "@/lib/webBrowser";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { useTheme } from "@/hooks/useTheme";

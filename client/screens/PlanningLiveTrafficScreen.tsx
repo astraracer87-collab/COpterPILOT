@@ -19,7 +19,7 @@ import { useAircraftTrails } from "@/hooks/useAircraftTrails";
 import { Spacing, Typography, BorderRadius } from "@/constants/theme";
 import { GEOZONE_REGULATORY_INFO, GeozoneContact, getContactsForZone, loadGeozoneSettings, saveGeozoneSettings, getActiveLayerNames, MAP_STYLES, MapStyleOption, loadMapStyle, saveMapStyle, loadRadarSettings, saveRadarSettings, getCountryGeozoneLayers, getCountryGeozoneConfig } from "@/lib/geozones";
 import { getMarkerPinColor } from "@/lib/markerColors";
-import * as WebBrowser from "expo-web-browser";
+import * as WebBrowser from "@/lib/webBrowser";
 import {
   fetchNearbyAircraft,
   AircraftState,
