@@ -102,9 +102,11 @@ export function ObstacleLayer({ view, zoom }: { view: LngLatBox | null; zoom: nu
     const id = ++reqId.current;
     const timer = setTimeout(() => {
       // etwas Rand, damit beim Verschieben nichts aufblitzt
-      const padX = (view[2] - view[0]) * 0.25;
-      const padY = (view[3] - view[1]) * 0.25;
-      loadObstaclesForBounds(view[0] - padX, view[1] - padY, view[2] + padX, view[3] + padY)
+      const padX = (view[2] - view[0]) * 0.1;
+      const padY = (view[3] - view[1]) * 0.1;
+      loadObstaclesForBounds(view[0] - padX, view[1] - padY, view[2] + padX, view[3] + padY, (partial) => {
+        if (id === reqId.current) setData(partial);
+      })
         .then((fc) => {
           if (id === reqId.current) setData(fc);
         })

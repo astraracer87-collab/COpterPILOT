@@ -221,6 +221,7 @@ export function toFeatureCollection(json: any): GeoJSON.FeatureCollection {
 
 const memory = new Map<string, TileData>();
 const inflight = new Map<string, Promise<TileData | null>>();
+const failed = new Map<string, number>();
 let dirReady: Promise<void> | null = null;
 let endpointIdx = 0;
 
@@ -254,7 +255,26 @@ async function writeTile(key: string, data: TileData): Promise<void> {
   } catch {}
 }
 
-async function overpass(query: string, timeoutMs = 100000): Promise<any> {
+// Overpass erlaubt pro Gerät nur wenige gleichzeitige Abfragen
+const MAX_PARALLEL = 2;
+let active = 0;
+const waiting: (() => void)[] = [];
+async function slot<T>(fn: () => Promise<T>): Promise<T> {
+  if (active >= MAX_PARALLEL) await new Promise<void>((r) => waiting.push(r));
+  active++;
+  try {
+    return await fn();
+  } finally {
+    active--;
+    waiting.shift()?.();
+  }
+}
+
+function overpass(query: string, timeoutMs = 100000): Promise<any> {
+  return slot(() => overpassDirect(query, timeoutMs));
+}
+
+async function overpassDirect(query: string, timeoutMs: number): Promise<any> {
   let lastErr: unknown = null;
   for (let attempt = 0; attempt < OVERPASS_ENDPOINTS.length; attempt++) {
     const url = OVERPASS_ENDPOINTS[(endpointIdx + attempt) % OVERPASS_ENDPOINTS.length];
@@ -289,6 +309,9 @@ export async function loadObstacleTile(x: number, y: number, opts: { force?: boo
   if (opts.allowNetwork === false) return cached;
   const running = inflight.get(key);
   if (running) return running;
+  // nach einem Fehlschlag nicht sofort erneut fragen (Server schonen)
+  const failedAt = failed.get(key);
+  if (!opts.force && failedAt && Date.now() - failedAt < 120000) return cached;
   const p = (async () => {
     try {
       const json = await overpass(overpassQuery(tileBounds(x, y, OBSTACLE_TILE_ZOOM)));
@@ -296,6 +319,7 @@ export async function loadObstacleTile(x: number, y: number, opts: { force?: boo
       await writeTile(key, data);
       return data;
     } catch {
+      failed.set(key, Date.now());
       return cached; // offline oder Server überlastet: alte Daten weiter nutzen
     } finally {
       inflight.delete(key);
@@ -316,13 +340,24 @@ export async function loadObstaclesForBounds(
   s: number,
   e: number,
   n: number,
+  onPartial?: (fc: GeoJSON.FeatureCollection) => void,
 ): Promise<GeoJSON.FeatureCollection> {
   const tiles = tilesForBounds(w, s, e, n);
-  if (tiles.length > 16) return { type: "FeatureCollection", features: [] };
-  const results = await Promise.all(tiles.map((t) => loadObstacleTile(t.x, t.y)));
-  const features: GeoJSON.Feature[] = [];
-  for (const r of results) if (r) features.push(...r.fc.features);
-  return { type: "FeatureCollection", features };
+  if (tiles.length > 30) return { type: "FeatureCollection", features: [] };
+  const parts: (TileData | null)[] = tiles.map(() => null);
+  const merge = (): GeoJSON.FeatureCollection => ({
+    type: "FeatureCollection",
+    features: parts.flatMap((p) => (p ? p.fc.features : [])),
+  });
+  await Promise.all(
+    tiles.map((t, i) =>
+      loadObstacleTile(t.x, t.y).then((r) => {
+        parts[i] = r;
+        if (r && onPartial) onPartial(merge());
+      }),
+    ),
+  );
+  return merge();
 }
 
 export async function obstacleCacheSize(): Promise<{ files: number; bytes: number }> {
