@@ -33,6 +33,8 @@ import {
   type ViewState,
 } from "@maplibre/maplibre-react-native";
 import * as Location from "@/lib/location";
+import { FALLBACK_MAP, FALLBACK_SATELLITE, GLYPHS_URL, HYBRID_LABELS, type LngLatBox } from "@/lib/mapSources";
+import { BASE_ANCHORS, CountryBaseLayers, ObstacleLayer } from "./MapLayers";
 
 // ---------------------------------------------------------------------------
 // Typen (kompatibel zu react-native-maps)
@@ -59,39 +61,34 @@ export interface MapViewHandle {
 
 const RASTER_ANCHOR = "cp-raster-top";
 
-const BASEMAPS: Record<"standard" | "satellite", { tiles: string[]; attribution: string; maxzoom: number }> = {
-  standard: {
-    tiles: ["https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png"],
-    attribution: "© OpenStreetMap-Mitwirkende © CARTO",
-    maxzoom: 20,
-  },
-  satellite: {
-    tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"],
-    attribution: "Esri World Imagery",
-    maxzoom: 19,
-  },
-};
-const HYBRID_LABELS = "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}";
+export function isSatelliteType(mapType: MapType | undefined): boolean {
+  return mapType === "satellite" || mapType === "hybrid" || mapType === "hybridFlyover" || mapType === "satelliteFlyover";
+}
 
+/**
+ * Grundstil: Online-Ersatzkarte (CARTO/Esri) ganz unten, darüber Ankerebenen für
+ * die amtlichen Länderkarten (MapLayers.tsx), darüber Kachel-Overlays (Geozonen).
+ */
 function buildStyle(mapType: MapType | undefined) {
-  const satellite = mapType === "satellite" || mapType === "hybrid" || mapType === "hybridFlyover" || mapType === "satelliteFlyover";
+  const satellite = isSatelliteType(mapType);
   const hybrid = mapType === "hybrid" || mapType === "hybridFlyover";
-  const base = BASEMAPS[satellite ? "satellite" : "standard"];
+  const base = satellite ? FALLBACK_SATELLITE : FALLBACK_MAP;
+  const anchor = (id: string) => ({ id, type: "background", layout: { visibility: "none" }, paint: { "background-opacity": 0 } });
   const sources: Record<string, any> = {
-    base: { type: "raster", tiles: base.tiles, tileSize: 256, maxzoom: base.maxzoom, attribution: base.attribution },
+    base: { type: "raster", tiles: [base.tiles], tileSize: 256, maxzoom: base.maxzoom, attribution: base.attribution },
   };
   const layers: any[] = [
     { id: "background", type: "background", paint: { "background-color": satellite ? "#1b2630" : "#e8eef2" } },
     { id: "base", type: "raster", source: "base" },
+    ...BASE_ANCHORS.map(anchor),
   ];
   if (hybrid) {
     sources.labels = { type: "raster", tiles: [HYBRID_LABELS], tileSize: 256, maxzoom: 19 };
     layers.push({ id: "labels", type: "raster", source: "labels" });
   }
-  // Unsichtbare Ankerebene: alle Kachel-Overlays (WMS/URL) werden darunter
-  // eingefügt, Kreise/Polygone/Linien darüber.
-  layers.push({ id: RASTER_ANCHOR, type: "background", layout: { visibility: "none" }, paint: { "background-opacity": 0 } });
-  return { version: 8 as const, sources, layers };
+  // Kachel-Overlays (WMS/URL) werden unter RASTER_ANCHOR eingefügt, Kreise/Polygone/Linien darüber.
+  layers.push(anchor(RASTER_ANCHOR));
+  return { version: 8 as const, glyphs: GLYPHS_URL, sources, layers };
 }
 
 function regionToBounds(r: Region): [number, number, number, number] {
@@ -222,6 +219,7 @@ const MapViewImpl = forwardRef<MapViewHandle, MapViewProps>(function MapView(pro
   const cameraRef = useRef<CameraRef>(null);
   const startRegion = useRef<Region>(region ?? initialRegion ?? DEFAULT_REGION).current;
   const [zoom, setZoom] = useState(() => regionToZoom(startRegion));
+  const [view, setView] = useState<LngLatBox | null>(() => regionToBounds(startRegion));
   const mapStyle = useMemo(() => buildStyle(mapType), [mapType]);
 
   const animateToRegion = useCallback((r: Region, duration = 500) => {
@@ -301,6 +299,7 @@ const MapViewImpl = forwardRef<MapViewHandle, MapViewProps>(function MapView(pro
     const v = e?.nativeEvent as ViewState | undefined;
     if (!v?.bounds) return;
     setZoom(v.zoom);
+    setView([v.bounds[0], v.bounds[1], v.bounds[2], v.bounds[3]]);
     onRegionChangeComplete?.(viewStateToRegion(v));
   }, [onRegionChangeComplete]);
 
@@ -344,6 +343,8 @@ const MapViewImpl = forwardRef<MapViewHandle, MapViewProps>(function MapView(pro
         >
           <MLCamera ref={cameraRef} initialViewState={{ bounds: regionToBounds(startRegion) }} />
           {showsUserLocation ? <UserLocation heading accuracy /> : null}
+          <CountryBaseLayers view={view} satellite={isSatelliteType(mapType)} />
+          <ObstacleLayer view={view} zoom={zoom} />
           {children}
         </MLMap>
       </MapContext.Provider>

@@ -11,6 +11,7 @@ import GlossaryScreen from "@/screens/GlossaryScreen";
 import NaturschutzMapScreen from "@/screens/NaturschutzMapScreen";
 import PilotProfileScreen from "@/screens/PilotProfileScreen";
 import PilotLicenseCardScreen from "@/screens/PilotLicenseCardScreen";
+import OfflineMapsScreen from "@/screens/OfflineMapsScreen";
 import { useScreenOptions } from "@/hooks/useScreenOptions";
 
 export type SettingsStackParamList = {
@@ -25,6 +26,7 @@ export type SettingsStackParamList = {
   ResourceLinks: undefined;
   Glossary: undefined;
   Naturschutz: undefined;
+  OfflineMaps: undefined;
 };
 
 const Stack = createNativeStackNavigator<SettingsStackParamList>();
@@ -39,6 +41,13 @@ export default function SettingsStackNavigator() {
         component={SettingsScreen}
         options={{
           headerTitle: "Einstellungen",
+        }}
+      />
+      <Stack.Screen
+        name="OfflineMaps"
+        component={OfflineMapsScreen}
+        options={{
+          headerTitle: "Karten & Offline",
         }}
       />
       <Stack.Screen

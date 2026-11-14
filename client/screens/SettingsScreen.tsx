@@ -117,6 +117,19 @@ export default function SettingsScreen() {
           </View>
         </Card>
 
+        <Card style={[styles.menuItem, styles.menuItemSpacing]} onPress={() => navigation.navigate("OfflineMaps")}>
+          <View style={styles.menuRow}>
+            <Feather name="download-cloud" size={20} color={theme.primary} />
+            <View style={{ flex: 1 }}>
+              <ThemedText style={styles.menuText}>Karten & Offline</ThemedText>
+              <ThemedText style={[styles.switchDescription, { color: theme.textSecondary }]}>
+                Hindernisse, Länder für Karten, Satellit & Geozonen ohne Internet
+              </ThemedText>
+            </View>
+          </View>
+          <Feather name="chevron-right" size={20} color={theme.textTertiary} />
+        </Card>
+
         <ThemedText style={[styles.sectionTitle, { color: theme.textSecondary, marginTop: Spacing["2xl"] }]}>
           PILOT
         </ThemedText>

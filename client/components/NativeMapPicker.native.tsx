@@ -69,14 +69,6 @@ export default function NativeMapPicker({
       rotateEnabled={false}
       mapType={Platform.OS === "ios" ? "mutedStandard" : "standard"}
     >
-      <UrlTile
-        urlTemplate={osmTileUrl}
-        maximumZ={19}
-        zIndex={-3}
-        tileSize={256}
-        opacity={1}
-        shouldReplaceMapContent={true}
-      />
       {combinedWmsUrl ? (
         <WMSTile
           urlTemplate={combinedWmsUrl}

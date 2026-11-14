@@ -738,14 +738,6 @@ export default function TrafficMapView({
         } catch {}
       } : undefined}
     >
-      <UrlTile
-        urlTemplate={osmTileUrl}
-        maximumZ={19}
-        zIndex={-3}
-        tileSize={256}
-        opacity={mapStyle === "osm" ? 1 : 0}
-        shouldReplaceMapContent={mapStyle === "osm"}
-      />
       {wmsUrlsPerCountry.map(({ iso, url }) => url ? (
         <WMSTile
           key={`wms-${iso}-${url.length}`}

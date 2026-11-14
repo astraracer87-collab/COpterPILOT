@@ -121,14 +121,6 @@ const MapPicker = forwardRef<MapPickerRef, MapPickerProps>(
           rotateEnabled={false}
           mapType={resolvedMapType}
         >
-          <UrlTile
-            urlTemplate={osmTileUrl}
-            maximumZ={19}
-            zIndex={-3}
-            tileSize={256}
-            opacity={showOsmTile ? 1 : 0}
-            shouldReplaceMapContent={showOsmTile}
-          />
           {combinedWmsUrl ? (
             <WMSTile
               urlTemplate={combinedWmsUrl}
