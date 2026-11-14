@@ -43,6 +43,7 @@ export default function DipulMapScreen() {
   return (
     <ThemedView style={styles.container}>
       <WebView
+        setSupportMultipleWindows={false}
         source={{ uri: finalUrl }}
         style={[styles.webview, { marginTop: headerHeight }]}
         onLoadStart={() => setLoading(true)}

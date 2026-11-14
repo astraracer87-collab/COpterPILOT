@@ -1,3 +1,4 @@
+import { openLink } from "@/lib/webBrowser";
 import React, { useCallback, useState } from "react";
 import { View, StyleSheet, FlatList, Pressable, Alert, Linking, Platform } from "react-native";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
@@ -50,7 +51,7 @@ export default function DronesScreen() {
 
   const openManualUrl = async (url: string) => {
     if (Platform.OS === "web") {
-      Linking.openURL(url);
+      openLink(url);
     } else {
       await WebBrowser.openBrowserAsync(url);
     }

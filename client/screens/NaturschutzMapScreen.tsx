@@ -31,6 +31,7 @@ export default function NaturschutzMapScreen() {
   return (
     <ThemedView style={styles.container}>
       <WebView
+        setSupportMultipleWindows={false}
         source={{ uri: BFN_URL }}
         style={[styles.webview, { marginTop: headerHeight }]}
         onLoadStart={() => setLoading(true)}

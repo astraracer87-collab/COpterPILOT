@@ -1,3 +1,4 @@
+import { openLink } from "@/lib/webBrowser";
 import React, { useState, useMemo } from "react";
 import {
   View,
@@ -195,7 +196,7 @@ export default function GlossaryScreen() {
               </Text>
               {item.link ? (
                 <Pressable
-                  onPress={() => { Linking.openURL(item.link!.url).catch(() => {}); }}
+                  onPress={() => { openLink(item.link!.url).catch(() => {}); }}
                   style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 8 }}
                 >
                   <Feather name="external-link" size={13} color={theme.primary} />

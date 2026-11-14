@@ -1,3 +1,4 @@
+import { openLink } from "@/lib/webBrowser";
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { View, StyleSheet, FlatList, Pressable, ActivityIndicator, ScrollView, Platform, Modal, Text, Dimensions, AppState, Linking, Alert } from "react-native";
 import { useRoute } from "@react-navigation/native";
@@ -48,7 +49,7 @@ function openGeozoneContact(c: GeozoneContact) {
   const url = c.type === "email" ? `mailto:${c.value}` : `tel:${c.value}`;
   Linking.canOpenURL(url).then((supported) => {
     if (supported) {
-      Linking.openURL(url).catch(() => {
+      openLink(url).catch(() => {
         Alert.alert("Fehler", c.type === "email" ? "E-Mail konnte nicht geöffnet werden." : "Anruf konnte nicht gestartet werden.");
       });
     } else {

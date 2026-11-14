@@ -1,3 +1,4 @@
+import { openLink } from "@/lib/webBrowser";
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { View, StyleSheet, FlatList, Pressable, ActivityIndicator, ScrollView, Platform, Text, Modal, Animated, Dimensions, AppState, Linking, Alert } from "react-native";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
@@ -978,7 +979,7 @@ export default function StandaloneLiveTrafficScreen() {
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                   if (nearbyCtr.length === 1) {
-                    Linking.openURL(`tel:${nearbyCtr[0].towerPhone.replace(/\s/g, "")}`).catch(() => {});
+                    openLink(`tel:${nearbyCtr[0].towerPhone.replace(/\s/g, "")}`).catch(() => {});
                   } else {
                     setShowCtrEmergency(true);
                   }
@@ -1061,7 +1062,7 @@ export default function StandaloneLiveTrafficScreen() {
                         <Pressable
                           onPress={() => {
                             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-                            Linking.openURL(`tel:${ctr.towerPhone.replace(/\s/g, "")}`).catch(() => {});
+                            openLink(`tel:${ctr.towerPhone.replace(/\s/g, "")}`).catch(() => {});
                           }}
                           style={{
                             width: 52, height: 52, borderRadius: 26,
@@ -1642,7 +1643,7 @@ function openGeozoneContact(c: GeozoneContact) {
   const url = c.type === "email" ? `mailto:${c.value}` : `tel:${c.value}`;
   Linking.canOpenURL(url).then((supported) => {
     if (supported) {
-      Linking.openURL(url).catch(() => {
+      openLink(url).catch(() => {
         Alert.alert("Fehler", c.type === "email" ? "E-Mail konnte nicht geöffnet werden." : "Anruf konnte nicht gestartet werden.");
       });
     } else {

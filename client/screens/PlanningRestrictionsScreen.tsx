@@ -1,3 +1,4 @@
+import { openLink } from "@/lib/webBrowser";
 import React, { useState, useEffect, useCallback } from "react";
 import { View, StyleSheet, TextInput, Pressable, ActivityIndicator, ScrollView, Linking, Alert, Platform } from "react-native";
 import { useRoute, useNavigation, useFocusEffect } from "@react-navigation/native";
@@ -380,7 +381,7 @@ export default function PlanningRestrictionsScreen() {
               </View>
 
               <Pressable
-                onPress={() => { Linking.openURL(`tel:${POLIZEI_BERLIN.phone}`).catch(() => {}); }}
+                onPress={() => { openLink(`tel:${POLIZEI_BERLIN.phone}`).catch(() => {}); }}
                 style={[styles.ctrCallButton, { backgroundColor: "#007AFF" }]}
                 testID="edr146-call-polizei"
               >
@@ -393,28 +394,28 @@ export default function PlanningRestrictionsScreen() {
 
               <View style={styles.edrLinksBlock}>
                 <Pressable
-                  onPress={() => { Linking.openURL(BAF_CONTACT.edr146Url).catch(() => {}); }}
+                  onPress={() => { openLink(BAF_CONTACT.edr146Url).catch(() => {}); }}
                   style={[styles.avLinkButton, { backgroundColor: theme.primary + "15" }]}
                 >
                   <Feather name="external-link" size={14} color={theme.primary} />
                   <ThemedText style={[styles.avLinkText, { color: theme.primary }]}>BAF — ED-R 146 Informationen</ThemedText>
                 </Pressable>
                 <Pressable
-                  onPress={() => { Linking.openURL(BAF_CONTACT.antragsformularUrl).catch(() => {}); }}
+                  onPress={() => { openLink(BAF_CONTACT.antragsformularUrl).catch(() => {}); }}
                   style={[styles.avLinkButton, { backgroundColor: theme.primary + "15" }]}
                 >
                   <Feather name="file-text" size={14} color={theme.primary} />
                   <ThemedText style={[styles.avLinkText, { color: theme.primary }]}>Antrag Durchfluggenehmigung</ThemedText>
                 </Pressable>
                 <Pressable
-                  onPress={() => { Linking.openURL(EDR_146_NFL.avUasPdf).catch(() => {}); }}
+                  onPress={() => { openLink(EDR_146_NFL.avUasPdf).catch(() => {}); }}
                   style={[styles.avLinkButton, { backgroundColor: theme.primary + "15" }]}
                 >
                   <Feather name="download" size={14} color={theme.primary} />
                   <ThemedText style={[styles.avLinkText, { color: theme.primary }]}>{EDR_146_NFL.avUas} (AV UAS ED-R 146)</ThemedText>
                 </Pressable>
                 <Pressable
-                  onPress={() => { Linking.openURL(`mailto:${BAF_CONTACT.emailEdr146}`).catch(() => {}); }}
+                  onPress={() => { openLink(`mailto:${BAF_CONTACT.emailEdr146}`).catch(() => {}); }}
                   style={[styles.avLinkButton, { backgroundColor: theme.primary + "15" }]}
                 >
                   <Feather name="mail" size={14} color={theme.primary} />
@@ -554,28 +555,28 @@ export default function PlanningRestrictionsScreen() {
 
                 <View style={styles.edrLinksBlock}>
                   <Pressable
-                    onPress={() => { Linking.openURL(EDR_ENERGIE_NFL.pdf).catch(() => {}); }}
+                    onPress={() => { openLink(EDR_ENERGIE_NFL.pdf).catch(() => {}); }}
                     style={[styles.avLinkButton, { backgroundColor: theme.primary + "15" }]}
                   >
                     <Feather name="download" size={14} color={theme.primary} />
                     <ThemedText style={[styles.avLinkText, { color: theme.primary }]}>{EDR_ENERGIE_NFL.reference} (PDF)</ThemedText>
                   </Pressable>
                   <Pressable
-                    onPress={() => { Linking.openURL(BAF_CONTACT.avEnergieUrl).catch(() => {}); }}
+                    onPress={() => { openLink(BAF_CONTACT.avEnergieUrl).catch(() => {}); }}
                     style={[styles.avLinkButton, { backgroundColor: theme.primary + "15" }]}
                   >
                     <Feather name="external-link" size={14} color={theme.primary} />
                     <ThemedText style={[styles.avLinkText, { color: theme.primary }]}>BAF — AV Energie/Forschung/Wartburg</ThemedText>
                   </Pressable>
                   <Pressable
-                    onPress={() => { Linking.openURL(BAF_CONTACT.antragsformularUrl).catch(() => {}); }}
+                    onPress={() => { openLink(BAF_CONTACT.antragsformularUrl).catch(() => {}); }}
                     style={[styles.avLinkButton, { backgroundColor: theme.primary + "15" }]}
                   >
                     <Feather name="file-text" size={14} color={theme.primary} />
                     <ThemedText style={[styles.avLinkText, { color: theme.primary }]}>Einzelantrag beim BAF stellen</ThemedText>
                   </Pressable>
                   <Pressable
-                    onPress={() => { Linking.openURL(`mailto:${BAF_CONTACT.emailGeneral}`).catch(() => {}); }}
+                    onPress={() => { openLink(`mailto:${BAF_CONTACT.emailGeneral}`).catch(() => {}); }}
                     style={[styles.avLinkButton, { backgroundColor: theme.primary + "15" }]}
                   >
                     <Feather name="mail" size={14} color={theme.primary} />
@@ -648,7 +649,7 @@ export default function PlanningRestrictionsScreen() {
                     Quelle: dipul.de (Approximation, Stand {MIL_LOW_FLIGHT_DATA_STAND})
                   </ThemedText>
                   <Pressable
-                    onPress={() => { Linking.openURL(MIL_LOW_FLIGHT_SOURCE_URL).catch(() => {}); }}
+                    onPress={() => { openLink(MIL_LOW_FLIGHT_SOURCE_URL).catch(() => {}); }}
                     style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 6 }}
                   >
                     <Feather name="external-link" size={11} color="#7B8B3A" />
@@ -729,7 +730,7 @@ export default function PlanningRestrictionsScreen() {
                           ))}
                           {ctr.avInfo.pdfUrl ? (
                             <Pressable
-                              onPress={() => { Linking.openURL(ctr.avInfo!.pdfUrl).catch(() => {}); }}
+                              onPress={() => { openLink(ctr.avInfo!.pdfUrl).catch(() => {}); }}
                               style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 }}
                             >
                               <Feather name="file-text" size={10} color={theme.primary} />
@@ -749,7 +750,7 @@ export default function PlanningRestrictionsScreen() {
                     </View>
                   ) : null}
                   <Pressable
-                    onPress={() => { Linking.openURL(`tel:${ctr.towerPhone.replace(/\s/g, "")}`).catch(() => {}); }}
+                    onPress={() => { openLink(`tel:${ctr.towerPhone.replace(/\s/g, "")}`).catch(() => {}); }}
                     style={[styles.ctrCallButton, { backgroundColor: "#34C759" }]}
                     testID={`ctr-call-${ctr.icao}`}
                   >
@@ -776,7 +777,7 @@ export default function PlanningRestrictionsScreen() {
               ))}
               {nearbyCtr.some((c) => c.category === "dfs" || c.category === "das") ? (
                 <Pressable
-                  onPress={() => { Linking.openURL(DFS_PORTAL_URL).catch(() => {}); }}
+                  onPress={() => { openLink(DFS_PORTAL_URL).catch(() => {}); }}
                   style={[styles.avLinkButton, { backgroundColor: theme.primary + "15", marginTop: Spacing.sm }]}
                 >
                   <Feather name="external-link" size={14} color={theme.primary} />
@@ -900,7 +901,7 @@ export default function PlanningRestrictionsScreen() {
                 </ThemedText>
                 <View style={styles.avLinkRow}>
                   <Pressable
-                    onPress={() => { Linking.openURL(bundeslandAvInfo.antragUrl).catch(() => {}); }}
+                    onPress={() => { openLink(bundeslandAvInfo.antragUrl).catch(() => {}); }}
                     style={[styles.avLinkButton, { backgroundColor: theme.primary + "15" }]}
                   >
                     <Feather name="file-text" size={14} color={theme.primary} />
@@ -910,7 +911,7 @@ export default function PlanningRestrictionsScreen() {
                   </Pressable>
                   {bundeslandAvInfo.pdfUrl ? (
                     <Pressable
-                      onPress={() => { Linking.openURL(bundeslandAvInfo.pdfUrl!).catch(() => {}); }}
+                      onPress={() => { openLink(bundeslandAvInfo.pdfUrl!).catch(() => {}); }}
                       style={[styles.avLinkButton, { backgroundColor: theme.primary + "15" }]}
                     >
                       <Feather name="download" size={14} color={theme.primary} />
@@ -921,7 +922,7 @@ export default function PlanningRestrictionsScreen() {
                   ) : null}
                   {bundeslandAvInfo.infoUrl ? (
                     <Pressable
-                      onPress={() => { Linking.openURL(bundeslandAvInfo.infoUrl!).catch(() => {}); }}
+                      onPress={() => { openLink(bundeslandAvInfo.infoUrl!).catch(() => {}); }}
                       style={[styles.avLinkButton, { backgroundColor: theme.primary + "15" }]}
                     >
                       <Feather name="info" size={14} color={theme.primary} />
@@ -933,7 +934,7 @@ export default function PlanningRestrictionsScreen() {
                   {bundeslandAvInfo.additionalDocs?.map((doc, i) => (
                     <Pressable
                       key={`addoc-${i}`}
-                      onPress={() => { Linking.openURL(doc.url).catch(() => {}); }}
+                      onPress={() => { openLink(doc.url).catch(() => {}); }}
                       style={[styles.avLinkButton, { backgroundColor: theme.primary + "15" }]}
                     >
                       <Feather name={doc.icon as any} size={14} color={theme.primary} />
@@ -972,7 +973,7 @@ export default function PlanningRestrictionsScreen() {
               prüfe manuell, ob du eine gültige Allgemeinverfügung für dieses Gebiet besitzt.
             </ThemedText>
             <Pressable
-              onPress={() => { Linking.openURL("https://dipul.de/homepage/de/antraege-behoerdendienste/einflug-in-geografische-gebiete/").catch(() => {}); }}
+              onPress={() => { openLink("https://dipul.de/homepage/de/antraege-behoerdendienste/einflug-in-geografische-gebiete/").catch(() => {}); }}
               style={[styles.avLinkButton, { backgroundColor: theme.primary + "15" }]}
             >
               <Feather name="external-link" size={14} color={theme.primary} />
@@ -998,7 +999,7 @@ export default function PlanningRestrictionsScreen() {
             </ThemedText>
             <View style={styles.avLinkRow}>
               <Pressable
-                onPress={() => { Linking.openURL("https://dipul.de/homepage/de/antraege-behoerdendienste/einflug-in-geografische-gebiete/").catch(() => {}); }}
+                onPress={() => { openLink("https://dipul.de/homepage/de/antraege-behoerdendienste/einflug-in-geografische-gebiete/").catch(() => {}); }}
                 style={[styles.avLinkButton, { backgroundColor: theme.primary + "15" }]}
               >
                 <Feather name="file-text" size={14} color={theme.primary} />
@@ -1150,7 +1151,7 @@ export default function PlanningRestrictionsScreen() {
               {GENERAL_UAS_RESOURCES.map((res, idx) => (
                 <Pressable
                   key={`res-${idx}`}
-                  onPress={() => { Linking.openURL(res.url).catch(() => {}); }}
+                  onPress={() => { openLink(res.url).catch(() => {}); }}
                   style={[styles.resourceRow, idx < GENERAL_UAS_RESOURCES.length - 1 ? { borderBottomWidth: 1, borderBottomColor: theme.border } : undefined]}
                 >
                   <Feather name={res.icon as any} size={16} color={theme.primary} />
@@ -1163,7 +1164,7 @@ export default function PlanningRestrictionsScreen() {
               {bundeslandAvInfo?.additionalDocs?.map((doc, idx) => (
                 <Pressable
                   key={`bldoc-${idx}`}
-                  onPress={() => { Linking.openURL(doc.url).catch(() => {}); }}
+                  onPress={() => { openLink(doc.url).catch(() => {}); }}
                   style={[styles.resourceRow, { borderTopWidth: 1, borderTopColor: theme.border }]}
                 >
                   <Feather name={doc.icon as any} size={16} color={theme.primary} />
@@ -1220,7 +1221,7 @@ export default function PlanningRestrictionsScreen() {
                     </ThemedText>
                     {item.actionUrl ? (
                       <Pressable
-                        onPress={() => { Linking.openURL(item.actionUrl!).catch(() => {}); }}
+                        onPress={() => { openLink(item.actionUrl!).catch(() => {}); }}
                         style={styles.complianceAction}
                       >
                         <Feather name="external-link" size={12} color={theme.primary} />

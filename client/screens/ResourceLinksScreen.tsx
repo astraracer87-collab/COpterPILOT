@@ -1,3 +1,4 @@
+import { openLink } from "@/lib/webBrowser";
 import React, { useMemo, useState } from "react";
 import {
   View,
@@ -139,12 +140,12 @@ export default function ResourceLinksScreen() {
   const openLink = async (url: string) => {
     try {
       if (Platform.OS === "web") {
-        Linking.openURL(url);
+        openLink(url);
       } else {
         await WebBrowser.openBrowserAsync(url);
       }
     } catch {
-      Linking.openURL(url);
+      openLink(url);
     }
   };
 

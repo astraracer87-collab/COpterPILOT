@@ -1,3 +1,4 @@
+import { openLink } from "@/lib/webBrowser";
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { View, StyleSheet, ScrollView, Pressable, Alert, Modal, Dimensions, Linking } from "react-native";
 import { useNavigation, useRoute } from "@react-navigation/native";
@@ -560,7 +561,7 @@ export default function FlightCheckScreen() {
                       ) : null}
                     </View>
                     <Pressable
-                      onPress={() => { Linking.openURL(`tel:${ctr.towerPhone.replace(/\s/g, "")}`).catch(() => {}); }}
+                      onPress={() => { openLink(`tel:${ctr.towerPhone.replace(/\s/g, "")}`).catch(() => {}); }}
                       style={styles.ctrCallBtn}
                       testID={`flight-ctr-call-${ctr.icao}`}
                     >
@@ -571,7 +572,7 @@ export default function FlightCheckScreen() {
               </View>
             ) : (
               <Pressable
-                onPress={() => { Linking.openURL(`tel:${nearbyCtr[0].towerPhone.replace(/\s/g, "")}`).catch(() => {}); }}
+                onPress={() => { openLink(`tel:${nearbyCtr[0].towerPhone.replace(/\s/g, "")}`).catch(() => {}); }}
                 style={styles.ctrQuickCall}
                 testID="flight-ctr-quick-call"
               >

@@ -80,6 +80,7 @@ export default function PlanningMapScreen() {
       ) : (
         <>
           <WebView
+            setSupportMultipleWindows={false}
             ref={webViewRef}
             source={{ uri: mapUrl }}
             style={[styles.webView, { marginTop: headerHeight }]}

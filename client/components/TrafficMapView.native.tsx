@@ -1086,6 +1086,7 @@ export default function TrafficMapView({
         </View>
         {flightUrl ? (
           <WebView
+            setSupportMultipleWindows={false}
             source={{ uri: flightUrl }}
             style={faStyles.webview}
             startInLoadingState

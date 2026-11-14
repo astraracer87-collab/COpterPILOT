@@ -116,6 +116,7 @@ export default function MapScreen() {
             </ThemedText>
           </View>
           <WebView
+            setSupportMultipleWindows={false}
             ref={webViewRef}
             source={{ uri: mapUrl }}
             style={[styles.webView, { marginTop: headerHeight + 36 }]}
