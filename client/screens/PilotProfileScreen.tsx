@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useCallback } from "react";
-import { View, StyleSheet, ScrollView, TextInput, Pressable, Alert, Switch, Platform } from "react-native";
+import { openLink } from "@/lib/webBrowser";
+import React, { useState, useEffect, useCallback, useRef } from "react";
+import { View, StyleSheet, ScrollView, TextInput, Pressable, Alert, Switch, Platform, Modal, Linking, ActivityIndicator } from "react-native";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
@@ -11,6 +12,7 @@ import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { Card } from "@/components/Card";
 import { Button } from "@/components/Button";
+import { DocumentField } from "@/components/DocumentField";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, Typography, BorderRadius } from "@/constants/theme";
 import {
@@ -21,12 +23,25 @@ import {
   getPilotProfile,
   savePilotProfile,
   isLicenseComplete,
+  enforceLicenseHierarchy,
   BUNDESLAENDER,
   Bundesland,
-  AV_GEOZONE_TYPES,
+  GeoAllgemeinerlaubnis,
+  PARAGRAPH_21H_RULES,
+  BUNDESLAND_AV_INFO,
+  isErlaubnisExpired,
   LICENSE_COUNTRIES,
   LicenseCountryCode,
 } from "@/lib/storage";
+import {
+  COUNTRY_SPECIFIC_INFO,
+  CountrySpecificKey,
+} from "@/lib/countrySpecificInfo";
+import {
+  LICENSE_INFO,
+  LicenseInfoKey,
+} from "@/lib/licenseInfo";
+import { useAuth } from "@/lib/auth";
 import type { SettingsStackParamList } from "@/navigation/SettingsStackNavigator";
 
 type NavigationProp = NativeStackNavigationProp<SettingsStackParamList>;
@@ -34,20 +49,61 @@ type NavigationProp = NativeStackNavigationProp<SettingsStackParamList>;
 export default function PilotProfileScreen() {
   const { theme } = useTheme();
   const navigation = useNavigation<NavigationProp>();
+  const { status } = useAuth();
   const headerHeight = useHeaderHeight();
   const insets = useSafeAreaInsets();
   const tabBarHeight = useBottomTabBarHeight();
   const [profile, setProfile] = useState<PilotProfile | null>(null);
+  const prevStatus = useRef<typeof status>(status);
+  // Sequenz-Guard: nur das Ergebnis der zuletzt gestarteten Ladeoperation darf
+  // setProfile aufrufen — verhindert, dass eine langsamere ältere Anfrage
+  // (z.B. das leere DEFAULT aus der Auth-Auflösung) eine neuere überschreibt.
+  const loadSeq = useRef(0);
+  const loadProfile = useCallback((force?: boolean) => {
+    const seq = ++loadSeq.current;
+    getPilotProfile(force ? { force: true } : undefined).then((p) => {
+      if (seq === loadSeq.current) setProfile(p);
+    });
+  }, []);
   const [dirty, setDirty] = useState(false);
-  const [showBundeslaender, setShowBundeslaender] = useState(false);
-  const [showGeozoneTypes, setShowGeozoneTypes] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [showAddBundesland, setShowAddBundesland] = useState(false);
+  const [show21hRules, setShow21hRules] = useState(false);
   const [showA1A3Country, setShowA1A3Country] = useState(false);
   const [showA2Country, setShowA2Country] = useState(false);
+  const [showSTSCountry, setShowSTSCountry] = useState(false);
+  const [countryInfoKey, setCountryInfoKey] = useState<CountrySpecificKey | null>(null);
+  const [licenseInfoKey, setLicenseInfoKey] = useState<LicenseInfoKey | null>(null);
 
+  // Auth-bewusstes Laden: Während die Session noch geprüft wird ("loading")
+  // NICHT laden — sonst landet das leere DEFAULT-Profil im State (und Cache)
+  // und der Bildschirm wirkt nach dem Öffnen leer. Sobald die Auth steht,
+  // laden wir; beim Wechsel loading/anonymous → authenticated holen wir die
+  // Daten frisch vom Server (force), damit nichts Veraltetes hängen bleibt.
+  // Deckt Mount UND spätere Status-Wechsel ab (Session-Check wird beim Start
+  // oft erst nach dem Mount fertig).
+  useEffect(() => {
+    if (status === "loading") {
+      setProfile(null);
+      return;
+    }
+    const becameAuthenticated =
+      status === "authenticated" && prevStatus.current !== "authenticated";
+    prevStatus.current = status;
+    // Beim Login-Übergang den Sync-Hinweis zeigen, statt das alte (leere)
+    // anonyme Profil stehen zu lassen, während frisch vom Server geladen wird.
+    if (becameAuthenticated) setProfile(null);
+    loadProfile(becameAuthenticated);
+  }, [status, loadProfile]);
+
+  // Beim erneuten Fokussieren (z.B. Rückkehr aus einem Unterscreen) die Daten
+  // auffrischen — aber nur wenn die Auth bereits steht, sonst zeigt der Screen
+  // weiter den Sync-Hinweis.
   useFocusEffect(
     useCallback(() => {
-      getPilotProfile().then(setProfile);
-    }, [])
+      if (status === "loading") return;
+      loadProfile();
+    }, [status, loadProfile])
   );
 
   const update = (partial: Partial<PilotProfile>) => {
@@ -56,13 +112,31 @@ export default function PilotProfileScreen() {
     setDirty(true);
   };
 
-  const updateAV = (partial: Partial<PilotProfile["allgemeinverfuegung"]>) => {
+  const setErlaubnisse = (list: GeoAllgemeinerlaubnis[]) => {
     if (!profile) return;
-    setProfile({
-      ...profile,
-      allgemeinverfuegung: { ...profile.allgemeinverfuegung, ...partial },
-    });
+    setProfile({ ...profile, allgemeinverfuegung: list });
     setDirty(true);
+  };
+
+  const addErlaubnis = (bl: Bundesland) => {
+    if (!profile) return;
+    if (profile.allgemeinverfuegung.some((e) => e.bundesland === bl)) return;
+    setErlaubnisse([...profile.allgemeinverfuegung, { bundesland: bl, document: null }]);
+    setShowAddBundesland(false);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  };
+
+  const removeErlaubnis = (bl: Bundesland) => {
+    if (!profile) return;
+    setErlaubnisse(profile.allgemeinverfuegung.filter((e) => e.bundesland !== bl));
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+  };
+
+  const updateErlaubnis = (bl: Bundesland, partial: Partial<GeoAllgemeinerlaubnis>) => {
+    if (!profile) return;
+    setErlaubnisse(
+      profile.allgemeinverfuegung.map((e) => (e.bundesland === bl ? { ...e, ...partial } : e)),
+    );
   };
 
   const updateCountrySpecific = (partial: Partial<CountrySpecificPilot>) => {
@@ -74,24 +148,29 @@ export default function PilotProfileScreen() {
     setDirty(true);
   };
 
-  const toggleBundesland = (bl: Bundesland) => {
-    if (!profile) return;
-    const current = profile.allgemeinverfuegung.bundeslaender;
-    const next = current.includes(bl)
-      ? current.filter((b) => b !== bl)
-      : [...current, bl];
-    updateAV({ bundeslaender: next });
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  // "David Meier" → { firstName: "David", lastName: "Meier" }.
+  // Mehrteilige Nachnamen (z.B. "von der Heide") landen vollständig im
+  // Nachnamen. So müssen Vor-/Nachname nicht in jeder Lizenz erneut erfasst
+  // werden — sie werden zentral aus "Name des Piloten" abgeleitet.
+  const splitName = (full: string): { firstName: string; lastName: string } => {
+    const trimmed = (full ?? "").trim();
+    if (!trimmed) return { firstName: "", lastName: "" };
+    const parts = trimmed.split(/\s+/);
+    if (parts.length === 1) return { firstName: parts[0], lastName: "" };
+    return { firstName: parts[0], lastName: parts.slice(1).join(" ") };
   };
 
-  const toggleGeozoneType = (id: string) => {
+  const updateName = (name: string) => {
     if (!profile) return;
-    const current = profile.allgemeinverfuegung.geozoneTypes;
-    const next = current.includes(id)
-      ? current.filter((g) => g !== id)
-      : [...current, id];
-    updateAV({ geozoneTypes: next });
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const { firstName, lastName } = splitName(name);
+    setProfile({
+      ...profile,
+      name,
+      licenseA1A3Details: { ...profile.licenseA1A3Details, firstName, lastName },
+      licenseA2Details: { ...profile.licenseA2Details, firstName, lastName },
+      licenseSTSDetails: { ...profile.licenseSTSDetails, firstName, lastName },
+    });
+    setDirty(true);
   };
 
   const updateLicenseA1A3Details = (partial: Partial<LicenseDetails>) => {
@@ -112,21 +191,118 @@ export default function PilotProfileScreen() {
     setDirty(true);
   };
 
-  const hasCompleteLicense =
-    (profile?.licenseA1A3 && profile?.licenseA1A3Details && isLicenseComplete(profile.licenseA1A3Details)) ||
-    (profile?.licenseA2 && profile?.licenseA2Details && isLicenseComplete(profile.licenseA2Details));
-
-  const handleSave = async () => {
+  const updateLicenseSTSDetails = (partial: Partial<LicenseDetails>) => {
     if (!profile) return;
-    await savePilotProfile(profile);
-    setDirty(false);
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    Alert.alert("Gespeichert", "Dein Pilotenprofil wurde gespeichert.");
+    setProfile({
+      ...profile,
+      licenseSTSDetails: { ...profile.licenseSTSDetails, ...partial },
+    });
+    setDirty(true);
   };
 
-  if (!profile) return null;
+  // Aufbauende Hierarchie: A2 setzt A1/A3 voraus, STS setzt A2 voraus.
+  // Beim Ausschalten der Grundlage werden abhängige Lizenzen automatisch
+  // deaktiviert (siehe enforceLicenseHierarchy in storage.ts).
+  const toggleA1A3 = (v: boolean) => {
+    if (!profile) return;
+    setProfile(enforceLicenseHierarchy({ ...profile, licenseA1A3: v }));
+    setDirty(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  };
 
-  const avEnabled = profile.allgemeinverfuegung.enabled;
+  const toggleA2 = (v: boolean) => {
+    if (!profile || !profile.licenseA1A3) return;
+    setProfile(enforceLicenseHierarchy({ ...profile, licenseA2: v }));
+    setDirty(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  };
+
+  const toggleSTS = (v: boolean) => {
+    if (!profile || !profile.licenseA2) return;
+    setProfile(enforceLicenseHierarchy({ ...profile, licenseSTS: v }));
+    setDirty(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  };
+
+  const hasCompleteLicense =
+    (profile?.licenseA1A3 && profile?.licenseA1A3Details && isLicenseComplete(profile.licenseA1A3Details)) ||
+    (profile?.licenseA2 && profile?.licenseA2Details && isLicenseComplete(profile.licenseA2Details)) ||
+    (profile?.licenseSTS && profile?.licenseSTSDetails && isLicenseComplete(profile.licenseSTSDetails));
+
+  // Synchronisiert Lizenz-Namen mit "Name des Piloten" vor jedem Persistieren.
+  // Backward-Compat: Wenn profile.name leer ist, aber in einer Lizenz bereits
+  // ein Name aus früheren Versionen gespeichert wurde, wird dieser nicht
+  // überschrieben (und einmalig in profile.name hochgezogen).
+  const buildSyncedProfile = (p: PilotProfile): PilotProfile => {
+    const legacyName =
+      p.licenseA1A3Details?.firstName || p.licenseA1A3Details?.lastName
+        ? `${p.licenseA1A3Details.firstName} ${p.licenseA1A3Details.lastName}`.trim()
+        : p.licenseA2Details?.firstName || p.licenseA2Details?.lastName
+          ? `${p.licenseA2Details.firstName} ${p.licenseA2Details.lastName}`.trim()
+          : "";
+    const effectiveName = (p.name || "").trim() || legacyName;
+    const { firstName, lastName } = splitName(effectiveName);
+    return {
+      ...p,
+      name: effectiveName,
+      licenseA1A3Details: { ...p.licenseA1A3Details, firstName, lastName },
+      licenseA2Details: { ...p.licenseA2Details, firstName, lastName },
+      licenseSTSDetails: { ...p.licenseSTSDetails, firstName, lastName },
+    };
+  };
+
+  const handleSave = async () => {
+    if (!profile || saving) return;
+    setSaving(true);
+    try {
+      const synced = enforceLicenseHierarchy(buildSyncedProfile(profile));
+      setProfile(synced);
+      await savePilotProfile(synced);
+      setDirty(false);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert("Gespeichert", "Dein Pilotenprofil wurde gespeichert.");
+    } catch (err) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Alert.alert(
+        "Fehler beim Speichern",
+        err instanceof Error ? err.message : "Unbekannter Fehler"
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!profile) {
+    return (
+      <ThemedView style={styles.container}>
+        <View
+          style={[
+            styles.loadingWrap,
+            { paddingTop: headerHeight + Spacing.xl, paddingBottom: tabBarHeight + Spacing.xl },
+          ]}
+          testID="loading-pilot-profile"
+        >
+          <ActivityIndicator size="large" color={theme.primary} />
+          <ThemedText style={[styles.loadingText, { color: theme.textSecondary }]}>
+            {status === "anonymous"
+              ? "Pilotenprofil wird geladen …"
+              : "Profil wird synchronisiert …"}
+          </ThemedText>
+          {status !== "anonymous" ? (
+            <ThemedText style={[styles.loadingHint, { color: theme.textTertiary }]}>
+              Deine Daten werden vom Server geladen.
+            </ThemedText>
+          ) : null}
+        </View>
+      </ThemedView>
+    );
+  }
+
+  const hasA2 = profile.licenseA2;
+  const erlaubnisse = profile.allgemeinverfuegung;
+  const availableBundeslaender = BUNDESLAENDER.filter(
+    (bl) => !erlaubnisse.some((e) => e.bundesland === bl),
+  );
 
   return (
     <ThemedView style={styles.container}>
@@ -145,7 +321,7 @@ export default function PilotProfileScreen() {
           <TextInput
             style={[styles.input, { color: theme.text, backgroundColor: theme.backgroundSecondary, borderColor: theme.border }]}
             value={profile.name}
-            onChangeText={(t) => update({ name: t })}
+            onChangeText={updateName}
             placeholder="Vor- und Nachname"
             placeholderTextColor={theme.textTertiary}
           />
@@ -196,6 +372,49 @@ export default function PilotProfileScreen() {
             />
           </Pressable>
 
+          <DocumentField
+            testID="pilot-insurance-doc"
+            label="Versicherungsbestätigung"
+            hint="PDF oder Foto der gültigen Police — bei einer Polizei-Kontrolle direkt griffbereit."
+            document={profile.insuranceDocument}
+            onChange={(doc) => update({ insuranceDocument: doc })}
+          />
+
+          {profile.insuranceActive ? (
+            <>
+              <View style={[styles.divider, { backgroundColor: theme.border }]} />
+              <Pressable
+                style={styles.toggleRow}
+                onPress={() => {
+                  update({ insuranceVerbandsregelDE: !profile.insuranceVerbandsregelDE });
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                }}
+                testID="toggle-insurance-verbandsregel-de"
+              >
+                <View style={styles.toggleInfo}>
+                  <ThemedText style={styles.toggleLabel}>
+                    DMFV-/DMO-Verbandsversicherung (nur Deutschland)
+                  </ThemedText>
+                  <ThemedText style={[styles.toggleDesc, { color: theme.textTertiary }]}>
+                    Aktivieren, wenn die Haftpflicht über DMFV oder DMO läuft. Dahinter
+                    steht die LBA-Verbandsbetriebserlaubnis nach Art. 16 EU-VO 2019/947:
+                    FPV-Flüge bis 30 m AGL sind dann OHNE Spotter zulässig. Über 30 m
+                    (max. 120 m) gilt weiterhin Spotter-Pflicht.
+                  </ThemedText>
+                </View>
+                <Switch
+                  value={profile.insuranceVerbandsregelDE === true}
+                  onValueChange={(v) => {
+                    update({ insuranceVerbandsregelDE: v });
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  }}
+                  trackColor={{ false: theme.backgroundSecondary, true: theme.primary + "60" }}
+                  thumbColor={profile.insuranceVerbandsregelDE ? theme.primary : theme.textTertiary}
+                />
+              </Pressable>
+            </>
+          ) : null}
+
           <View style={[styles.divider, { backgroundColor: theme.border }]} />
 
           <Pressable
@@ -220,19 +439,38 @@ export default function PilotProfileScreen() {
         <Card style={styles.section}>
           <ThemedText style={styles.sectionTitle}>Lizenzen / Kompetenznachweise</ThemedText>
 
+          {/* Die Identifizierungsnummer (eID) wird oben unter "Personalien"
+              gepflegt und gilt für A1/A3, A2 und STS gleichermaßen — pro
+              Lizenz fragen wir hier nur Ausstellungsland + Gültigkeitsdatum ab. */}
+          <ThemedText style={[styles.toggleDesc, { color: theme.textTertiary, marginBottom: Spacing.md }]}>
+            Die Fernpiloten-Zeugnisnummer (eID) aus den Personalien gilt für A1/A3, A2 und STS — pro Lizenz unterscheidet sich nur das Datum.
+          </ThemedText>
+
+          {/* A1/A3 — Grundlage */}
           <Pressable
             style={styles.toggleRow}
-            onPress={() => { update({ licenseA1A3: !profile.licenseA1A3 }); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+            onPress={() => toggleA1A3(!profile.licenseA1A3)}
           >
             <View style={styles.toggleInfo}>
-              <ThemedText style={styles.toggleLabel}>EU-Kompetenznachweis A1/A3</ThemedText>
+              <View style={styles.toggleLabelRow}>
+                <ThemedText style={styles.toggleLabel}>EU-Kompetenznachweis A1/A3</ThemedText>
+                <Pressable
+                  onPress={() => setLicenseInfoKey("A1A3")}
+                  hitSlop={10}
+                  testID="button-license-info-A1A3"
+                  accessibilityLabel="Mehr Infos zu EU-Kompetenznachweis A1/A3"
+                  style={styles.infoIconBtn}
+                >
+                  <Feather name="info" size={18} color={theme.primary} />
+                </Pressable>
+              </View>
               <ThemedText style={[styles.toggleDesc, { color: theme.textTertiary }]}>
-                Online-Prüfung beim LBA
+                Online-Prüfung beim LBA — Grundlage für A2 und STS
               </ThemedText>
             </View>
             <Switch
               value={profile.licenseA1A3}
-              onValueChange={(v) => { update({ licenseA1A3: v }); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+              onValueChange={toggleA1A3}
               trackColor={{ false: theme.backgroundSecondary, true: theme.primary + "60" }}
               thumbColor={profile.licenseA1A3 ? theme.primary : theme.textTertiary}
             />
@@ -275,63 +513,65 @@ export default function PilotProfileScreen() {
                   </ScrollView>
                 </View>
               ) : null}
-              <View style={styles.licenseRow}>
-                <View style={styles.licenseField}>
-                  <ThemedText style={[styles.fieldLabel, { color: theme.textSecondary }]}>Vorname</ThemedText>
-                  <TextInput
-                    style={[styles.input, { color: theme.text, backgroundColor: theme.backgroundSecondary, borderColor: theme.border }]}
-                    value={profile.licenseA1A3Details?.firstName || ""}
-                    onChangeText={(t) => updateLicenseA1A3Details({ firstName: t })}
-                    placeholder="Vorname"
-                    placeholderTextColor={theme.textTertiary}
-                  />
-                </View>
-                <View style={styles.licenseField}>
-                  <ThemedText style={[styles.fieldLabel, { color: theme.textSecondary }]}>Nachname</ThemedText>
-                  <TextInput
-                    style={[styles.input, { color: theme.text, backgroundColor: theme.backgroundSecondary, borderColor: theme.border }]}
-                    value={profile.licenseA1A3Details?.lastName || ""}
-                    onChangeText={(t) => updateLicenseA1A3Details({ lastName: t })}
-                    placeholder="Nachname"
-                    placeholderTextColor={theme.textTertiary}
-                  />
-                </View>
-              </View>
-              <ThemedText style={[styles.fieldLabel, { color: theme.textSecondary }]}>Identifizierungsnummer</ThemedText>
-              <TextInput
-                style={[styles.input, { color: theme.text, backgroundColor: theme.backgroundSecondary, borderColor: theme.border }]}
-                value={profile.licenseA1A3Details?.identificationNumber || ""}
-                onChangeText={(t) => updateLicenseA1A3Details({ identificationNumber: t })}
-                placeholder="z.B. DEU-RP-123456789ABC"
-                placeholderTextColor={theme.textTertiary}
-                autoCapitalize="characters"
-              />
               <ThemedText style={[styles.fieldLabel, { color: theme.textSecondary }]}>Gültigkeitsdatum</ThemedText>
               <TextInput
                 style={[styles.input, { color: theme.text, backgroundColor: theme.backgroundSecondary, borderColor: theme.border }]}
                 value={profile.licenseA1A3Details?.expirationDate || ""}
                 onChangeText={(t) => updateLicenseA1A3Details({ expirationDate: t })}
-                placeholder="YYYY-MM-DD"
+                placeholder="TT.MM.JJJJ"
                 placeholderTextColor={theme.textTertiary}
               />
+              <ThemedText style={[styles.fieldLabel, { color: theme.textSecondary }]}>QR-Code Link (physische Karte)</ThemedText>
+              <TextInput
+                style={[styles.input, { color: theme.text, backgroundColor: theme.backgroundSecondary, borderColor: theme.border }]}
+                value={profile.licenseA1A3Details?.qrCodeUrl || ""}
+                onChangeText={(t) => updateLicenseA1A3Details({ qrCodeUrl: t })}
+                placeholder="https://…  (QR-Code der Original-Karte scannen)"
+                placeholderTextColor={theme.textTertiary}
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="url"
+                testID="input-qr-url-A1A3"
+              />
+              <ThemedText style={[styles.fieldHint, { color: theme.textTertiary }]}>
+                Scanne den QR-Code auf deinem physischen Kompetenznachweis und füge den Link hier ein — die digitale Lizenzkarte zeigt dann denselben Verifikations-QR wie das Original.
+              </ThemedText>
             </View>
           ) : null}
 
           <View style={[styles.divider, { backgroundColor: theme.border }]} />
 
+          {/* A2 — setzt A1/A3 voraus */}
           <Pressable
-            style={styles.toggleRow}
-            onPress={() => { update({ licenseA2: !profile.licenseA2 }); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+            style={[styles.toggleRow, !profile.licenseA1A3 ? styles.toggleDisabled : null]}
+            onPress={() => toggleA2(!profile.licenseA2)}
+            disabled={!profile.licenseA1A3}
           >
             <View style={styles.toggleInfo}>
-              <ThemedText style={styles.toggleLabel}>Fernpiloten-Zeugnis A2</ThemedText>
+              <View style={styles.toggleLabelRow}>
+                <ThemedText style={[styles.toggleLabel, !profile.licenseA1A3 ? { color: theme.textTertiary } : null]}>
+                  Fernpiloten-Zeugnis A2
+                </ThemedText>
+                <Pressable
+                  onPress={() => setLicenseInfoKey("A2")}
+                  hitSlop={10}
+                  testID="button-license-info-A2"
+                  accessibilityLabel="Mehr Infos zu Fernpiloten-Zeugnis A2"
+                  style={styles.infoIconBtn}
+                >
+                  <Feather name="info" size={18} color={theme.primary} />
+                </Pressable>
+              </View>
               <ThemedText style={[styles.toggleDesc, { color: theme.textTertiary }]}>
-                Praktische Prüfung bei anerkannter Stelle
+                {!profile.licenseA1A3
+                  ? "A1/A3 zuerst aktivieren"
+                  : "Praktische Prüfung bei anerkannter Stelle"}
               </ThemedText>
             </View>
             <Switch
               value={profile.licenseA2}
-              onValueChange={(v) => { update({ licenseA2: v }); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+              onValueChange={toggleA2}
+              disabled={!profile.licenseA1A3}
               trackColor={{ false: theme.backgroundSecondary, true: theme.primary + "60" }}
               thumbColor={profile.licenseA2 ? theme.primary : theme.textTertiary}
             />
@@ -374,67 +614,132 @@ export default function PilotProfileScreen() {
                   </ScrollView>
                 </View>
               ) : null}
-              <View style={styles.licenseRow}>
-                <View style={styles.licenseField}>
-                  <ThemedText style={[styles.fieldLabel, { color: theme.textSecondary }]}>Vorname</ThemedText>
-                  <TextInput
-                    style={[styles.input, { color: theme.text, backgroundColor: theme.backgroundSecondary, borderColor: theme.border }]}
-                    value={profile.licenseA2Details?.firstName || ""}
-                    onChangeText={(t) => updateLicenseA2Details({ firstName: t })}
-                    placeholder="Vorname"
-                    placeholderTextColor={theme.textTertiary}
-                  />
-                </View>
-                <View style={styles.licenseField}>
-                  <ThemedText style={[styles.fieldLabel, { color: theme.textSecondary }]}>Nachname</ThemedText>
-                  <TextInput
-                    style={[styles.input, { color: theme.text, backgroundColor: theme.backgroundSecondary, borderColor: theme.border }]}
-                    value={profile.licenseA2Details?.lastName || ""}
-                    onChangeText={(t) => updateLicenseA2Details({ lastName: t })}
-                    placeholder="Nachname"
-                    placeholderTextColor={theme.textTertiary}
-                  />
-                </View>
-              </View>
-              <ThemedText style={[styles.fieldLabel, { color: theme.textSecondary }]}>Identifizierungsnummer</ThemedText>
-              <TextInput
-                style={[styles.input, { color: theme.text, backgroundColor: theme.backgroundSecondary, borderColor: theme.border }]}
-                value={profile.licenseA2Details?.identificationNumber || ""}
-                onChangeText={(t) => updateLicenseA2Details({ identificationNumber: t })}
-                placeholder="z.B. DEU-RP-123456789ABC"
-                placeholderTextColor={theme.textTertiary}
-                autoCapitalize="characters"
-              />
               <ThemedText style={[styles.fieldLabel, { color: theme.textSecondary }]}>Gültigkeitsdatum</ThemedText>
               <TextInput
                 style={[styles.input, { color: theme.text, backgroundColor: theme.backgroundSecondary, borderColor: theme.border }]}
                 value={profile.licenseA2Details?.expirationDate || ""}
                 onChangeText={(t) => updateLicenseA2Details({ expirationDate: t })}
-                placeholder="YYYY-MM-DD"
+                placeholder="TT.MM.JJJJ"
                 placeholderTextColor={theme.textTertiary}
               />
+              <ThemedText style={[styles.fieldLabel, { color: theme.textSecondary }]}>QR-Code Link (physische Karte)</ThemedText>
+              <TextInput
+                style={[styles.input, { color: theme.text, backgroundColor: theme.backgroundSecondary, borderColor: theme.border }]}
+                value={profile.licenseA2Details?.qrCodeUrl || ""}
+                onChangeText={(t) => updateLicenseA2Details({ qrCodeUrl: t })}
+                placeholder="https://…  (QR-Code der Original-Karte scannen)"
+                placeholderTextColor={theme.textTertiary}
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="url"
+                testID="input-qr-url-A2"
+              />
+              <ThemedText style={[styles.fieldHint, { color: theme.textTertiary }]}>
+                Scanne den QR-Code auf deinem physischen Fernpiloten-Zeugnis und füge den Link hier ein — die digitale Lizenzkarte zeigt dann denselben Verifikations-QR wie das Original.
+              </ThemedText>
             </View>
           ) : null}
 
           <View style={[styles.divider, { backgroundColor: theme.border }]} />
 
+          {/* STS — setzt A2 (und damit A1/A3) voraus */}
           <Pressable
-            style={styles.toggleRow}
-            onPress={() => { update({ licenseSTS: !profile.licenseSTS }); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+            style={[styles.toggleRow, !profile.licenseA2 ? styles.toggleDisabled : null]}
+            onPress={() => toggleSTS(!profile.licenseSTS)}
+            disabled={!profile.licenseA2}
           >
             <View style={styles.toggleInfo}>
-              <ThemedText style={styles.toggleLabel}>STS-Betriebsgenehmigung</ThemedText>
+              <View style={styles.toggleLabelRow}>
+                <ThemedText style={[styles.toggleLabel, !profile.licenseA2 ? { color: theme.textTertiary } : null]}>
+                  STS-Betriebsgenehmigung
+                </ThemedText>
+                <Pressable
+                  onPress={() => setLicenseInfoKey("STS")}
+                  hitSlop={10}
+                  testID="button-license-info-STS"
+                  accessibilityLabel="Mehr Infos zu STS-Betriebsgenehmigung"
+                  style={styles.infoIconBtn}
+                >
+                  <Feather name="info" size={18} color={theme.primary} />
+                </Pressable>
+              </View>
               <ThemedText style={[styles.toggleDesc, { color: theme.textTertiary }]}>
-                Standardszenarien (STS-01, STS-02)
+                {!profile.licenseA2
+                  ? "A2 zuerst aktivieren"
+                  : "Standardszenarien (STS-01, STS-02)"}
               </ThemedText>
             </View>
             <Switch
               value={profile.licenseSTS}
-              onValueChange={(v) => { update({ licenseSTS: v }); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+              onValueChange={toggleSTS}
+              disabled={!profile.licenseA2}
               trackColor={{ false: theme.backgroundSecondary, true: theme.primary + "60" }}
               thumbColor={profile.licenseSTS ? theme.primary : theme.textTertiary}
             />
           </Pressable>
+
+          {profile.licenseSTS ? (
+            <View style={styles.licenseDetails}>
+              <ThemedText style={[styles.fieldLabel, { color: theme.textSecondary }]}>Ausstellungsland</ThemedText>
+              <Pressable
+                style={[styles.countryPicker, { backgroundColor: theme.backgroundSecondary, borderColor: theme.border }]}
+                onPress={() => { setShowSTSCountry(!showSTSCountry); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+              >
+                <ThemedText style={styles.countryPickerText}>
+                  {LICENSE_COUNTRIES.find((c) => c.code === (profile.licenseSTSDetails?.country || "DE"))?.label || "Deutschland"}
+                </ThemedText>
+                <Feather name={showSTSCountry ? "chevron-up" : "chevron-down"} size={16} color={theme.textTertiary} />
+              </Pressable>
+              {showSTSCountry ? (
+                <View style={[styles.countryList, { backgroundColor: theme.backgroundSecondary, borderColor: theme.border }]}>
+                  <ScrollView nestedScrollEnabled style={styles.countryScroll}>
+                    {LICENSE_COUNTRIES.map((c) => {
+                      const selected = (profile.licenseSTSDetails?.country || "DE") === c.code;
+                      return (
+                        <Pressable
+                          key={c.code}
+                          style={[styles.countryItem, selected ? { backgroundColor: theme.primary + "18" } : null]}
+                          onPress={() => {
+                            updateLicenseSTSDetails({ country: c.code as LicenseCountryCode });
+                            setShowSTSCountry(false);
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                          }}
+                        >
+                          <ThemedText style={[styles.countryItemText, selected ? { color: theme.primary, fontWeight: "700" } : null]}>
+                            {c.label}
+                          </ThemedText>
+                          {selected ? <Feather name="check" size={16} color={theme.primary} /> : null}
+                        </Pressable>
+                      );
+                    })}
+                  </ScrollView>
+                </View>
+              ) : null}
+              <ThemedText style={[styles.fieldLabel, { color: theme.textSecondary }]}>Gültigkeitsdatum</ThemedText>
+              <TextInput
+                style={[styles.input, { color: theme.text, backgroundColor: theme.backgroundSecondary, borderColor: theme.border }]}
+                value={profile.licenseSTSDetails?.expirationDate || ""}
+                onChangeText={(t) => updateLicenseSTSDetails({ expirationDate: t })}
+                placeholder="TT.MM.JJJJ"
+                placeholderTextColor={theme.textTertiary}
+              />
+              <ThemedText style={[styles.fieldLabel, { color: theme.textSecondary }]}>QR-Code Link (physische Karte)</ThemedText>
+              <TextInput
+                style={[styles.input, { color: theme.text, backgroundColor: theme.backgroundSecondary, borderColor: theme.border }]}
+                value={profile.licenseSTSDetails?.qrCodeUrl || ""}
+                onChangeText={(t) => updateLicenseSTSDetails({ qrCodeUrl: t })}
+                placeholder="https://…  (QR-Code der Original-Karte scannen)"
+                placeholderTextColor={theme.textTertiary}
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="url"
+                testID="input-qr-url-STS"
+              />
+              <ThemedText style={[styles.fieldHint, { color: theme.textTertiary }]}>
+                Scanne den QR-Code auf deiner physischen STS-Betriebsgenehmigung und füge den Link hier ein — die digitale Lizenzkarte zeigt dann denselben Verifikations-QR wie das Original.
+              </ThemedText>
+            </View>
+          ) : null}
 
           {hasCompleteLicense ? (
             <>
@@ -443,7 +748,9 @@ export default function PilotProfileScreen() {
                 style={[styles.licenseButton, { backgroundColor: theme.primary + "10" }]}
                 onPress={async () => {
                   if (dirty && profile) {
-                    await savePilotProfile(profile);
+                    const synced = buildSyncedProfile(profile);
+                    setProfile(synced);
+                    await savePilotProfile(synced);
                     setDirty(false);
                   }
                   navigation.navigate("PilotLicenseCard");
@@ -462,129 +769,210 @@ export default function PilotProfileScreen() {
         <Card style={styles.section}>
           <View style={styles.avHeader}>
             <View style={styles.toggleInfo}>
-              <ThemedText style={styles.sectionTitle}>Allgemeinverfügung</ThemedText>
+              <ThemedText style={styles.sectionTitle}>Geografische Allgemeinerlaubnis</ThemedText>
               <ThemedText style={[styles.toggleDesc, { color: theme.textTertiary }]}>
-                Genehmigung für bestimmte Geozonen-Typen in ausgewählten Bundesländern
+                § 21h LuftVO — pro Bundesland einzeln bei der Landesluftfahrtbehörde beantragt. Setzt das A2-Fernpilotenzeugnis voraus.
               </ThemedText>
             </View>
-            <Switch
-              value={avEnabled}
-              onValueChange={(v) => { updateAV({ enabled: v }); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
-              trackColor={{ false: theme.backgroundSecondary, true: theme.primary + "60" }}
-              thumbColor={avEnabled ? theme.primary : theme.textTertiary}
-            />
           </View>
 
-          {avEnabled ? (
+          {!hasA2 ? (
+            <View style={[styles.avLockedBox, { backgroundColor: theme.backgroundSecondary, borderColor: theme.border }]}>
+              <Feather name="lock" size={18} color={theme.textTertiary} />
+              <View style={{ flex: 1, gap: Spacing.xs }}>
+                <ThemedText style={[styles.avLockedText, { color: theme.textSecondary }]}>
+                  Eine geografische Allgemeinerlaubnis ist nur mit gültigem A2-Fernpilotenzeugnis möglich. Aktiviere zuerst die Lizenz A2 oben.
+                </ThemedText>
+                <Pressable
+                  onPress={() => openLink("https://dipul.de/homepage/de/antraege-behoerdendienste/einflug-in-geografische-gebiete/").catch(() => {})}
+                  testID="link-dipul-locked"
+                  style={({ pressed }) => [styles.avLinkRow, { opacity: pressed ? 0.6 : 1 }]}
+                >
+                  <Feather name="external-link" size={14} color={theme.primary} />
+                  <ThemedText style={[styles.avLinkText, { color: theme.primary }]}>
+                    Infos &amp; Antrag bei dipul.de
+                  </ThemedText>
+                </Pressable>
+              </View>
+            </View>
+          ) : (
             <>
               <View style={[styles.divider, { backgroundColor: theme.border }]} />
 
-              <Pressable
-                style={styles.expandRow}
-                onPress={() => { setShowBundeslaender(!showBundeslaender); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
-              >
-                <View style={styles.expandRowLeft}>
-                  <Feather name="map" size={18} color={theme.primary} />
-                  <ThemedText style={styles.expandLabel}>
-                    Bundesländer ({profile.allgemeinverfuegung.bundeslaender.length} ausgewählt)
-                  </ThemedText>
-                </View>
-                <Feather name={showBundeslaender ? "chevron-up" : "chevron-down"} size={18} color={theme.textTertiary} />
-              </Pressable>
+              {erlaubnisse.length === 0 ? (
+                <ThemedText style={[styles.toggleDesc, { color: theme.textTertiary, marginBottom: Spacing.sm }]}>
+                  Noch keine Erlaubnis hinterlegt. Füge das Bundesland hinzu, für das dir eine geografische Allgemeinerlaubnis erteilt wurde.
+                </ThemedText>
+              ) : null}
 
-              {showBundeslaender ? (
-                <View style={styles.selectionGrid}>
-                  {BUNDESLAENDER.map((bl) => {
-                    const selected = profile.allgemeinverfuegung.bundeslaender.includes(bl);
-                    return (
-                      <Pressable
-                        key={bl}
-                        style={[
-                          styles.chip,
-                          { borderColor: selected ? theme.primary : theme.border },
-                          selected ? { backgroundColor: theme.primary + "18" } : { backgroundColor: theme.backgroundSecondary },
-                        ]}
-                        onPress={() => toggleBundesland(bl)}
-                      >
-                        {selected ? (
-                          <Feather name="check" size={14} color={theme.primary} />
+              {erlaubnisse.map((e) => {
+                const expired = isErlaubnisExpired(e);
+                const avInfo = BUNDESLAND_AV_INFO[e.bundesland];
+                return (
+                  <View
+                    key={e.bundesland}
+                    style={[
+                      styles.erlaubnisCard,
+                      {
+                        backgroundColor: theme.backgroundSecondary,
+                        borderColor: expired ? "#FF3B30" : theme.border,
+                      },
+                    ]}
+                  >
+                    <View style={styles.erlaubnisHeader}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1 }}>
+                        <Feather name="map-pin" size={16} color={theme.primary} />
+                        <ThemedText style={styles.erlaubnisTitle}>{e.bundesland}</ThemedText>
+                        {expired ? (
+                          <View style={[styles.expiredBadge, { backgroundColor: "#FF3B30" }]}>
+                            <ThemedText style={styles.expiredBadgeText}>Abgelaufen</ThemedText>
+                          </View>
                         ) : null}
-                        <ThemedText
-                          style={[
-                            styles.chipText,
-                            { color: selected ? theme.primary : theme.text },
-                          ]}
-                        >
-                          {bl}
-                        </ThemedText>
+                      </View>
+                      <Pressable
+                        onPress={() => removeErlaubnis(e.bundesland)}
+                        testID={`button-remove-erlaubnis-${e.bundesland}`}
+                        style={({ pressed }) => [styles.iconBtn, { opacity: pressed ? 0.6 : 1 }]}
+                      >
+                        <Feather name="trash-2" size={18} color="#FF3B30" />
                       </Pressable>
-                    );
-                  })}
-                </View>
+                    </View>
+
+                    <ThemedText style={[styles.fieldLabel, { color: theme.textSecondary }]}>
+                      Ablaufdatum
+                    </ThemedText>
+                    <TextInput
+                      style={[styles.input, { color: theme.text, backgroundColor: theme.background, borderColor: expired ? "#FF3B30" : theme.border }]}
+                      value={e.expirationDate || ""}
+                      onChangeText={(t) => updateErlaubnis(e.bundesland, { expirationDate: t })}
+                      placeholder="TT.MM.JJJJ"
+                      placeholderTextColor={theme.textTertiary}
+                      testID={`input-erlaubnis-date-${e.bundesland}`}
+                    />
+
+                    <DocumentField
+                      label="Bescheid (PDF)"
+                      hint="Lade den Erlaubnis-Bescheid der Behörde hoch."
+                      document={e.document}
+                      onChange={(doc) => updateErlaubnis(e.bundesland, { document: doc })}
+                      testID={`document-erlaubnis-${e.bundesland}`}
+                    />
+
+                    <View style={[styles.erlaubnis21hNote, { backgroundColor: theme.background, borderColor: theme.border }]}>
+                      <Feather name="shield" size={13} color={theme.primary} />
+                      <ThemedText style={[styles.erlaubnis21hNoteText, { color: theme.textSecondary }]}>
+                        Es gelten die bundesweit einheitlichen § 21h-Auflagen (unten aufgeklappt) für die erfassten Geozonen-Typen.
+                      </ThemedText>
+                    </View>
+
+                    {avInfo ? (
+                      <View style={styles.erlaubnisLinks}>
+                        <Pressable
+                          onPress={() => openLink(avInfo.antragUrl).catch(() => {})}
+                          testID={`link-antrag-${e.bundesland}`}
+                          style={({ pressed }) => [styles.avLinkRow, { opacity: pressed ? 0.6 : 1 }]}
+                        >
+                          <Feather name="external-link" size={14} color={theme.primary} />
+                          <ThemedText style={[styles.avLinkText, { color: theme.primary }]}>
+                            Antrag stellen (dipul.de)
+                          </ThemedText>
+                        </Pressable>
+                        {avInfo.infoUrl ? (
+                          <Pressable
+                            onPress={() => openLink(avInfo.infoUrl as string).catch(() => {})}
+                            testID={`link-info-${e.bundesland}`}
+                            style={({ pressed }) => [styles.avLinkRow, { opacity: pressed ? 0.6 : 1 }]}
+                          >
+                            <Feather name="info" size={14} color={theme.primary} />
+                            <ThemedText style={[styles.avLinkText, { color: theme.primary }]}>
+                              Infos der Landesluftfahrtbehörde
+                            </ThemedText>
+                          </Pressable>
+                        ) : null}
+                      </View>
+                    ) : null}
+                  </View>
+                );
+              })}
+
+              {availableBundeslaender.length > 0 ? (
+                <>
+                  <Pressable
+                    style={[styles.addBundeslandBtn, { borderColor: theme.primary + "55" }]}
+                    onPress={() => { setShowAddBundesland(!showAddBundesland); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+                    testID="button-add-bundesland"
+                  >
+                    <Feather name={showAddBundesland ? "x" : "plus"} size={16} color={theme.primary} />
+                    <ThemedText style={[styles.addBundeslandText, { color: theme.primary }]}>
+                      {showAddBundesland ? "Abbrechen" : "Bundesland hinzufügen"}
+                    </ThemedText>
+                  </Pressable>
+
+                  {showAddBundesland ? (
+                    <View style={styles.selectionGrid}>
+                      {availableBundeslaender.map((bl) => (
+                        <Pressable
+                          key={bl}
+                          style={[styles.chip, { borderColor: theme.border, backgroundColor: theme.backgroundSecondary }]}
+                          onPress={() => addErlaubnis(bl)}
+                          testID={`chip-add-bundesland-${bl}`}
+                        >
+                          <Feather name="plus" size={14} color={theme.primary} />
+                          <ThemedText style={[styles.chipText, { color: theme.text }]}>{bl}</ThemedText>
+                        </Pressable>
+                      ))}
+                    </View>
+                  ) : null}
+                </>
               ) : null}
 
               <View style={[styles.divider, { backgroundColor: theme.border }]} />
 
               <Pressable
                 style={styles.expandRow}
-                onPress={() => { setShowGeozoneTypes(!showGeozoneTypes); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+                onPress={() => { setShow21hRules(!show21hRules); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+                testID="button-toggle-21h-rules"
               >
                 <View style={styles.expandRowLeft}>
-                  <Feather name="layers" size={18} color={theme.primary} />
+                  <Feather name="info" size={18} color={theme.primary} />
                   <ThemedText style={styles.expandLabel}>
-                    Geozonen-Typen ({profile.allgemeinverfuegung.geozoneTypes.length} ausgewählt)
+                    Erfasste Geozonen &amp; Auflagen (§ 21h)
                   </ThemedText>
                 </View>
-                <Feather name={showGeozoneTypes ? "chevron-up" : "chevron-down"} size={18} color={theme.textTertiary} />
+                <Feather name={show21hRules ? "chevron-up" : "chevron-down"} size={18} color={theme.textTertiary} />
               </Pressable>
 
-              {showGeozoneTypes ? (
-                <View style={styles.selectionGrid}>
-                  {AV_GEOZONE_TYPES.map((gz) => {
-                    const selected = profile.allgemeinverfuegung.geozoneTypes.includes(gz.id);
-                    return (
-                      <Pressable
-                        key={gz.id}
-                        style={[
-                          styles.chip,
-                          { borderColor: selected ? theme.primary : theme.border },
-                          selected ? { backgroundColor: theme.primary + "18" } : { backgroundColor: theme.backgroundSecondary },
-                        ]}
-                        onPress={() => toggleGeozoneType(gz.id)}
-                      >
-                        {selected ? (
-                          <Feather name="check" size={14} color={theme.primary} />
-                        ) : null}
-                        <ThemedText
-                          style={[
-                            styles.chipText,
-                            { color: selected ? theme.primary : theme.text },
-                          ]}
-                        >
-                          {gz.label}
-                        </ThemedText>
-                      </Pressable>
-                    );
-                  })}
+              {show21hRules ? (
+                <View style={{ marginTop: Spacing.xs }}>
+                  <View style={[styles.erlaubnis21hNote, { backgroundColor: theme.background, borderColor: theme.border, marginBottom: Spacing.sm }]}>
+                    <Feather name="award" size={13} color={theme.primary} />
+                    <ThemedText style={[styles.erlaubnis21hNoteText, { color: theme.textSecondary }]}>
+                      Voraussetzung: gültiges A2-Fernpilotenzeugnis und Mindestalter 16 Jahre. Betrieb nur in der offenen Kategorie (A1-A3) bis max. 120 m über Grund.
+                    </ThemedText>
+                  </View>
+                  {PARAGRAPH_21H_RULES.map((rule) => (
+                    <View key={rule.id} style={[styles.ruleRow, { borderColor: theme.border }]}>
+                      <View style={styles.ruleHeader}>
+                        <ThemedText style={[styles.ruleLabel, { color: theme.text }]}>{rule.label}</ThemedText>
+                        <ThemedText style={[styles.ruleParagraph, { color: theme.textTertiary }]}>{rule.paragraph}</ThemedText>
+                      </View>
+                      <ThemedText style={[styles.ruleTatbestand, { color: theme.textTertiary }]}>{rule.tatbestand}</ThemedText>
+                      <ThemedText style={[styles.ruleAuflagenLabel, { color: theme.statusGo || "#34C759" }]}>Mit AV erlaubt - Auflagen:</ThemedText>
+                      {rule.auflagen.map((auflage, ai) => (
+                        <View key={ai} style={styles.ruleBulletRow}>
+                          <ThemedText style={[styles.ruleBullet, { color: theme.textSecondary }]}>{"\u2022"}</ThemedText>
+                          <ThemedText style={[styles.ruleAuflagen, { color: theme.textSecondary }]}>{auflage}</ThemedText>
+                        </View>
+                      ))}
+                    </View>
+                  ))}
+                  <ThemedText style={[styles.toggleDesc, { color: theme.textTertiary, marginTop: Spacing.xs }]}>
+                    Hinweis: Natur- und Vogelschutzgebiete, Nationalparks sowie FFH-Gebiete sind nicht von der geografischen Allgemeinerlaubnis erfasst und benötigen eine separate Genehmigung.
+                  </ThemedText>
                 </View>
               ) : null}
-
-              <View style={[styles.divider, { backgroundColor: theme.border }]} />
-
-              <ThemedText style={[styles.fieldLabel, { color: theme.textSecondary }]}>
-                Anmerkungen zur Allgemeinverfügung
-              </ThemedText>
-              <TextInput
-                style={[styles.input, styles.multilineInput, { color: theme.text, backgroundColor: theme.backgroundSecondary, borderColor: theme.border }]}
-                value={profile.allgemeinverfuegung.notes || ""}
-                onChangeText={(t) => updateAV({ notes: t })}
-                placeholder="z.B. Aktenzeichen, Gültigkeitsdatum..."
-                placeholderTextColor={theme.textTertiary}
-                multiline
-                numberOfLines={3}
-              />
             </>
-          ) : null}
+          )}
         </Card>
 
         <Card style={styles.section}>
@@ -592,7 +980,7 @@ export default function PilotProfileScreen() {
             <View style={styles.toggleInfo}>
               <ThemedText style={styles.sectionTitle}>Länderspezifisch</ThemedText>
               <ThemedText style={[styles.toggleSubtext, { color: theme.textSecondary }]}>
-                Registrierungen und Nachweise fur Fluge im Ausland
+                Registrierungen und Nachweise für Flüge im Ausland
               </ThemedText>
             </View>
           </View>
@@ -600,15 +988,24 @@ export default function PilotProfileScreen() {
           <View style={[styles.divider, { backgroundColor: theme.border }]} />
 
           {([
-            { key: "insuranceCH1Mio" as const, label: "CH: Versicherung 1 Mio. CHF", desc: "Haftpflicht mit mind. 1 Mio. CHF fur die Schweiz" },
-            { key: "insuranceATSzr" as const, label: "AT: Versicherung 750.000 SZR", desc: "Versicherungsnachweis fur Osterreich" },
-            { key: "alphaTangoFR" as const, label: "FR: AlphaTango registriert", desc: "Registrierung auf AlphaTango fur Frankreich" },
-            { key: "dFlightIT" as const, label: "IT: D-Flight QR-Code", desc: "D-Flight QR-Code fur Italien" },
+            { key: "insuranceCH1Mio" as const, label: "CH: Versicherung 1 Mio. CHF", desc: "Haftpflicht mit mind. 1 Mio. CHF für die Schweiz" },
+            { key: "insuranceATSzr" as const, label: "AT: Versicherung 750.000 SZR", desc: "Versicherungsnachweis für Österreich" },
             { key: "caaUK" as const, label: "UK: CAA Registrierung", desc: "Operator ID + Flyer ID bei der CAA UK" },
           ]).map((field) => (
             <View key={field.key} style={styles.toggleRow}>
               <View style={styles.toggleInfo}>
-                <ThemedText style={styles.toggleLabel}>{field.label}</ThemedText>
+                <View style={styles.toggleLabelRow}>
+                  <ThemedText style={styles.toggleLabel}>{field.label}</ThemedText>
+                  <Pressable
+                    onPress={() => setCountryInfoKey(field.key)}
+                    hitSlop={10}
+                    testID={`button-country-info-${field.key}`}
+                    accessibilityLabel={`Mehr Infos zu ${field.label}`}
+                    style={styles.infoIconBtn}
+                  >
+                    <Feather name="info" size={18} color={theme.primary} />
+                  </Pressable>
+                </View>
                 <ThemedText style={[styles.toggleSubtext, { color: theme.textSecondary }]}>
                   {field.desc}
                 </ThemedText>
@@ -626,12 +1023,119 @@ export default function PilotProfileScreen() {
 
       <View style={[styles.footer, { bottom: tabBarHeight, paddingBottom: Spacing.md, backgroundColor: theme.backgroundDefault }]}>
         <Button
-          title="Profil speichern"
+          title={saving ? "Wird gespeichert …" : "Profil speichern"}
           onPress={handleSave}
-          disabled={!dirty}
+          disabled={!dirty || saving}
+          loading={saving}
+          testID="button-save-pilot-profile"
         />
       </View>
+
+      <CountryInfoModal
+        info={countryInfoKey ? COUNTRY_SPECIFIC_INFO[countryInfoKey] : null}
+        onClose={() => setCountryInfoKey(null)}
+      />
+
+      <CountryInfoModal
+        info={licenseInfoKey ? LICENSE_INFO[licenseInfoKey] : null}
+        onClose={() => setLicenseInfoKey(null)}
+      />
     </ThemedView>
+  );
+}
+
+type InfoModalEntry = {
+  flag: string;
+  title: string;
+  whatIsIt: string;
+  howToGet: string;
+  links: { label: string; url: string }[];
+};
+
+function CountryInfoModal({
+  info,
+  onClose,
+}: {
+  info: InfoModalEntry | null;
+  onClose: () => void;
+}) {
+  const { theme } = useTheme();
+  return (
+    <Modal
+      visible={!!info}
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+    >
+      <View style={styles.modalOverlay}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        {info ? (
+          <View style={[styles.modalCard, { backgroundColor: theme.backgroundSecondary }]}>
+            <View style={styles.modalHeader}>
+              <ThemedText style={styles.modalFlag}>{info.flag}</ThemedText>
+              <ThemedText style={styles.modalTitle}>{info.title}</ThemedText>
+              <Pressable onPress={onClose} hitSlop={10} testID="button-country-info-close">
+                <Feather name="x" size={22} color={theme.textTertiary} />
+              </Pressable>
+            </View>
+
+            <ScrollView
+              style={{ flexShrink: 1 }}
+              contentContainerStyle={{ paddingBottom: Spacing.md }}
+              showsVerticalScrollIndicator
+              nestedScrollEnabled
+            >
+              <ThemedText style={styles.modalH3}>Was ist das?</ThemedText>
+              <ThemedText style={[styles.modalBody, { color: theme.textSecondary }]}>
+                {info.whatIsIt}
+              </ThemedText>
+
+              <ThemedText style={styles.modalH3}>Woher bekomme ich das?</ThemedText>
+              <ThemedText style={[styles.modalBody, { color: theme.textSecondary }]}>
+                {info.howToGet}
+              </ThemedText>
+
+              {info.links.length > 0 ? (
+                <ThemedText style={styles.modalH3}>Links</ThemedText>
+              ) : null}
+              {info.links.map((link) => (
+                <Pressable
+                  key={link.url}
+                  onPress={() => openLink(link.url).catch(() => {})}
+                  testID={`button-country-info-link-${link.url}`}
+                  style={({ pressed }) => [
+                    styles.linkBtn,
+                    {
+                      backgroundColor: theme.primary + (pressed ? "30" : "15"),
+                      borderColor: theme.primary + "40",
+                    },
+                  ]}
+                >
+                  <Feather name="external-link" size={16} color={theme.primary} />
+                  <ThemedText style={[styles.linkBtnText, { color: theme.primary }]} numberOfLines={2}>
+                    {link.label}
+                  </ThemedText>
+                </Pressable>
+              ))}
+            </ScrollView>
+
+            <Pressable
+              onPress={onClose}
+              testID="button-country-info-dismiss"
+              style={({ pressed }) => [
+                styles.modalCloseBtn,
+                {
+                  backgroundColor: pressed ? theme.backgroundDefault : "transparent",
+                  borderColor: theme.border,
+                },
+              ]}
+            >
+              <ThemedText style={{ fontWeight: "600" }}>Schließen</ThemedText>
+            </Pressable>
+          </View>
+        ) : null}
+      </View>
+    </Modal>
   );
 }
 
@@ -641,6 +1145,19 @@ const styles = StyleSheet.create({
   },
   content: {
     paddingHorizontal: Spacing.lg,
+  },
+  loadingWrap: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: Spacing.md,
+  },
+  loadingText: {
+    ...Typography.body,
+  },
+  loadingHint: {
+    ...Typography.caption,
+    textAlign: "center",
   },
   section: {
     padding: Spacing.lg,
@@ -654,6 +1171,11 @@ const styles = StyleSheet.create({
     ...Typography.caption,
     marginTop: Spacing.md,
     marginBottom: 4,
+  },
+  fieldHint: {
+    ...Typography.caption,
+    marginTop: 6,
+    lineHeight: 16,
   },
   input: {
     borderWidth: 1,
@@ -672,6 +1194,9 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingVertical: Spacing.sm,
   },
+  toggleDisabled: {
+    opacity: 0.45,
+  },
   toggleInfo: {
     flex: 1,
     marginRight: Spacing.md,
@@ -679,6 +1204,72 @@ const styles = StyleSheet.create({
   toggleLabel: {
     ...Typography.body,
     fontWeight: "600",
+  },
+  toggleLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  infoIconBtn: {
+    padding: 2,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: Spacing.xl,
+  },
+  modalCard: {
+    width: "100%",
+    maxWidth: 480,
+    maxHeight: "85%",
+    borderRadius: 16,
+    padding: Spacing.xl,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.md,
+    marginBottom: Spacing.md,
+  },
+  modalFlag: {
+    fontSize: 28,
+  },
+  modalTitle: {
+    ...Typography.h4,
+    flex: 1,
+  },
+  modalH3: {
+    ...Typography.body,
+    fontWeight: "800",
+    marginTop: Spacing.lg,
+    marginBottom: Spacing.sm,
+  },
+  modalBody: {
+    ...Typography.body,
+    lineHeight: 21,
+  },
+  linkBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm + 2,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    marginTop: Spacing.sm,
+  },
+  linkBtnText: {
+    flex: 1,
+    fontWeight: "600",
+  },
+  modalCloseBtn: {
+    marginTop: Spacing.md,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    alignItems: "center",
   },
   toggleDesc: {
     ...Typography.caption,
@@ -730,6 +1321,134 @@ const styles = StyleSheet.create({
   chipText: {
     fontSize: 13,
     fontWeight: "500",
+  },
+  avLockedBox: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: Spacing.sm,
+    padding: Spacing.md,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    marginTop: Spacing.md,
+  },
+  avLockedText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  avLinkRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 4,
+  },
+  avLinkText: {
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  erlaubnis21hNote: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 6,
+    padding: Spacing.sm,
+    borderRadius: BorderRadius.sm,
+    borderWidth: 1,
+    marginTop: Spacing.sm,
+  },
+  erlaubnis21hNoteText: {
+    flex: 1,
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  erlaubnisLinks: {
+    marginTop: Spacing.xs,
+  },
+  erlaubnisCard: {
+    borderWidth: 1,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    marginBottom: Spacing.sm,
+  },
+  erlaubnisHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  erlaubnisTitle: {
+    ...Typography.body,
+    fontWeight: "700",
+  },
+  expiredBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  expiredBadgeText: {
+    color: "#fff",
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  iconBtn: {
+    padding: 6,
+  },
+  addBundeslandBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: Spacing.sm,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    marginTop: Spacing.xs,
+  },
+  addBundeslandText: {
+    fontWeight: "600",
+  },
+  ruleRow: {
+    paddingVertical: Spacing.sm,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  ruleHeader: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    gap: Spacing.sm,
+    marginBottom: 3,
+  },
+  ruleLabel: {
+    fontSize: 14,
+    fontWeight: "600",
+    flexShrink: 1,
+  },
+  ruleParagraph: {
+    fontSize: 11,
+    fontWeight: "500",
+  },
+  ruleTatbestand: {
+    fontSize: 12,
+    lineHeight: 17,
+    fontStyle: "italic",
+    marginBottom: 5,
+  },
+  ruleAuflagenLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    marginBottom: 3,
+  },
+  ruleBulletRow: {
+    flexDirection: "row",
+    gap: 6,
+    marginBottom: 2,
+  },
+  ruleBullet: {
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  ruleAuflagen: {
+    fontSize: 12,
+    lineHeight: 17,
+    flex: 1,
   },
   countryPicker: {
     flexDirection: "row",

@@ -1,5 +1,6 @@
-import React, { useState, useRef, useMemo, useCallback } from "react";
-import { View, StyleSheet, TextInput, TouchableOpacity, Alert, Platform, Keyboard, ActivityIndicator, ScrollView, Pressable } from "react-native";
+import { openLink } from "@/lib/webBrowser";
+import React, { useState, useRef, useMemo, useEffect, useCallback } from "react";
+import { View, StyleSheet, TextInput, TouchableOpacity, Alert, Platform, Keyboard, ActivityIndicator, ScrollView, Pressable, FlatList, Modal, Linking } from "react-native";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RouteProp } from "@react-navigation/native";
@@ -15,280 +16,135 @@ import { Button } from "@/components/Button";
 import MapPicker, { MapPickerRef } from "@/components/MapPicker";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, Typography, BorderRadius, Colors } from "@/constants/theme";
+import { getApiUrl } from "@/lib/query-client";
 import type { FlightPlanningParamList } from "@/navigation/FlightPlanningNavigator";
-import { getCountryCenter, getCountryMapConfig, reverseGeocodeCountry, detectCountryFromCoordinates } from "@/lib/countryMaps";
+import { getCountryCenter, getCountryMapConfig, reverseGeocodeCountry, detectCountryFromCoordinates, hasOwnMap, getMapConfigOrFallback, buildMapUrl } from "@/lib/countryMaps";
+import { buildManualRestrictionParams, decideLocationContinueTarget } from "@/lib/manualRestrictionFlow";
+import { getFlightPlanningMode } from "@/lib/flightPlanningMode";
+import { getDrone, getSettings } from "@/lib/storage";
+import { useAuth } from "@/lib/auth";
+import { entitlementHasCountry } from "@/lib/subscription";
+import { countryName } from "../../shared/countryEntitlements";
+import { findPresetForDrone } from "@/lib/dronePresets";
+import {
+  getEnergyInfrastructureCenterForViewport,
+  getEnergyInfrastructureCountry,
+  getGermanWindFacility100mPoints,
+  getRadarEnergyInfrastructureItems,
+} from "../../shared/germanEnergyInfrastructure";
+import { entitlementGrantsCountry } from "../../shared/countryEntitlements";
+import { useGermanEnergyInfrastructure } from "@/lib/useGermanEnergyInfrastructure";
+import {
+  computeVlosM,
+  computeHorizontalVlosLimitM,
+  VLOS_OVERRIDE_MAX_FACTOR,
+  alosKindForDroneType,
+  snapMeters,
+  formatMeters,
+} from "@/lib/vlos";
+import { queryGeozonesInArea, type GeozoneFeatureInfo, TEMP_RESTRICTION_LAYER_LABEL } from "@/lib/geozones";
+import { assessGeozoneAltitudeConflict, DEFAULT_REACHABLE_ALTITUDE_M } from "../../shared/geozoneAltitudeFilter";
+import { filterGeozoneDetailLines } from "@/lib/sourceAttribution";
 
 type NavigationProp = NativeStackNavigationProp<FlightPlanningParamList, "PlanningLocation">;
 type RouteParams = RouteProp<FlightPlanningParamList, "PlanningLocation">;
 
-interface WaypointEditorProps {
-  theme: any;
-  waypoints: { latitude: number; longitude: number }[];
-  routeMode: boolean;
-  hideRouteToggle?: boolean;
-  onToggleRouteMode: () => void;
-  onRemove: (index: number) => void;
-  onMove: (index: number, direction: -1 | 1) => void;
-  waypointLat: string;
-  waypointLng: string;
-  onWaypointLatChange: (v: string) => void;
-  onWaypointLngChange: (v: string) => void;
-  onAddManualWaypoint: () => void;
-  onClearRoute: () => void;
+interface PoiResult {
+  id: string;
+  name: string;
+  detail: string;
+  latitude: number;
+  longitude: number;
+  category?: string;
 }
 
-function WaypointEditor({
-  theme,
-  waypoints,
-  routeMode,
-  hideRouteToggle,
-  onToggleRouteMode,
-  onRemove,
-  onMove,
-  waypointLat,
-  waypointLng,
-  onWaypointLatChange,
-  onWaypointLngChange,
-  onAddManualWaypoint,
-  onClearRoute,
-}: WaypointEditorProps) {
-  const hasRoute = waypoints.length >= 2;
-  return (
-    <View style={waypointStyles.container} testID="waypoint-editor">
-      <View style={waypointStyles.headerRow}>
-        <Feather name="git-branch" size={14} color={theme.textSecondary} />
-        <ThemedText style={[waypointStyles.headerLabel, { color: theme.textSecondary }]}>
-          Wegpunkte ({waypoints.length})
-        </ThemedText>
-        {hasRoute ? (
-          <TouchableOpacity onPress={onClearRoute} testID="button-clear-route">
-            <ThemedText style={[waypointStyles.linkText, { color: theme.statusDanger ?? "#FF3B30" }]}>
-              Route löschen
-            </ThemedText>
-          </TouchableOpacity>
-        ) : null}
-      </View>
+const POI_CATEGORY_ICON: Record<string, keyof typeof Feather.glyphMap> = {
+  aeroway: "navigation",
+  airport: "navigation",
+  hospital: "plus-square",
+  amenity: "map-pin",
+  building: "home",
+  highway: "git-merge",
+  natural: "sun",
+  leisure: "sun",
+  tourism: "camera",
+  city: "map",
+  town: "map",
+  village: "map",
+  place: "map",
+  shop: "shopping-bag",
+};
 
-      {!hideRouteToggle ? (
-        <TouchableOpacity
-          onPress={onToggleRouteMode}
-          activeOpacity={0.7}
-          style={[
-            waypointStyles.modeButton,
-            {
-              backgroundColor: routeMode ? theme.primary : theme.backgroundSecondary,
-              borderColor: theme.primary,
-            },
-          ]}
-          testID="button-toggle-route-mode"
-        >
-          <Feather
-            name={routeMode ? "check" : "plus"}
-            size={16}
-            color={routeMode ? "#FFFFFF" : theme.primary}
-          />
-          <ThemedText
-            style={[
-              waypointStyles.modeButtonText,
-              { color: routeMode ? "#FFFFFF" : theme.primary },
-            ]}
-          >
-            {routeMode ? "Langer Druck auf die Karte fügt Wegpunkt hinzu" : "Wegpunkt per langem Druck hinzufügen"}
-          </ThemedText>
-        </TouchableOpacity>
-      ) : null}
-
-      {waypoints.map((wp, idx) => {
-        const isStart = idx === 0;
-        const isEnd = idx === waypoints.length - 1 && waypoints.length > 1;
-        const label = isStart ? "Start" : isEnd ? "Ziel" : `Punkt ${idx + 1}`;
-        const dotColor = isStart
-          ? "#34C759"
-          : isEnd
-          ? "#FF3B30"
-          : theme.primary;
-        return (
-          <View
-            key={`wp-row-${idx}-${wp.latitude}-${wp.longitude}`}
-            style={[waypointStyles.row, { backgroundColor: theme.backgroundSecondary }]}
-            testID={`waypoint-row-${idx}`}
-          >
-            <View style={[waypointStyles.dot, { backgroundColor: dotColor }]} />
-            <View style={waypointStyles.rowText}>
-              <ThemedText style={waypointStyles.rowLabel}>{label}</ThemedText>
-              <ThemedText style={[waypointStyles.rowCoords, { color: theme.textSecondary }]}>
-                {wp.latitude.toFixed(5)}, {wp.longitude.toFixed(5)}
-              </ThemedText>
-            </View>
-            <View style={waypointStyles.rowActions}>
-              <TouchableOpacity
-                onPress={() => onMove(idx, -1)}
-                disabled={idx === 0}
-                style={waypointStyles.iconBtn}
-                testID={`button-move-up-${idx}`}
-              >
-                <Feather
-                  name="chevron-up"
-                  size={18}
-                  color={idx === 0 ? theme.textTertiary : theme.text}
-                />
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => onMove(idx, 1)}
-                disabled={idx === waypoints.length - 1}
-                style={waypointStyles.iconBtn}
-                testID={`button-move-down-${idx}`}
-              >
-                <Feather
-                  name="chevron-down"
-                  size={18}
-                  color={idx === waypoints.length - 1 ? theme.textTertiary : theme.text}
-                />
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => onRemove(idx)}
-                style={waypointStyles.iconBtn}
-                testID={`button-remove-waypoint-${idx}`}
-              >
-                <Feather name="trash-2" size={16} color={theme.statusDanger ?? "#FF3B30"} />
-              </TouchableOpacity>
-            </View>
-          </View>
-        );
-      })}
-
-      <View style={waypointStyles.manualRow}>
-        <TextInput
-          style={[
-            waypointStyles.manualInput,
-            { backgroundColor: theme.backgroundSecondary, color: theme.text },
-          ]}
-          value={waypointLat}
-          onChangeText={onWaypointLatChange}
-          placeholder="Lat"
-          placeholderTextColor={theme.textTertiary}
-          keyboardType="numeric"
-          testID="input-waypoint-lat"
-        />
-        <TextInput
-          style={[
-            waypointStyles.manualInput,
-            { backgroundColor: theme.backgroundSecondary, color: theme.text },
-          ]}
-          value={waypointLng}
-          onChangeText={onWaypointLngChange}
-          placeholder="Lng"
-          placeholderTextColor={theme.textTertiary}
-          keyboardType="numeric"
-          testID="input-waypoint-lng"
-        />
-        <TouchableOpacity
-          onPress={onAddManualWaypoint}
-          style={[waypointStyles.addBtn, { backgroundColor: theme.primary }]}
-          testID="button-add-waypoint"
-        >
-          <Feather name="plus" size={18} color="#FFFFFF" />
-        </TouchableOpacity>
-      </View>
-
-      {waypoints.length < 2 ? (
-        <ThemedText style={[waypointStyles.hintText, { color: theme.textTertiary }]}>
-          Halte einen Punkt auf der Karte gedrückt oder gib Koordinaten ein, um weitere Wegpunkte hinzuzufügen. Eine Strecke wird ab 2 Punkten geprüft.
-        </ThemedText>
-      ) : null}
-    </View>
-  );
+function pickCategoryIcon(category?: string, type?: string): keyof typeof Feather.glyphMap {
+  if (type && POI_CATEGORY_ICON[type]) return POI_CATEGORY_ICON[type];
+  if (category && POI_CATEGORY_ICON[category]) return POI_CATEGORY_ICON[category];
+  return "map-pin";
 }
 
-const waypointStyles = StyleSheet.create({
-  container: {
-    marginBottom: Spacing.md,
-    gap: Spacing.sm,
-  },
-  headerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  headerLabel: {
-    ...Typography.caption,
-    fontWeight: "600",
-    flex: 1,
-  },
-  linkText: {
-    ...Typography.caption,
-    fontWeight: "600",
-  },
-  modeButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.sm,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    borderRadius: BorderRadius.sm,
-    borderWidth: 1,
-  },
-  modeButtonText: {
-    ...Typography.caption,
-    fontWeight: "600",
-    flex: 1,
-  },
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    borderRadius: BorderRadius.sm,
-    gap: Spacing.sm,
-  },
-  dot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-  },
-  rowText: {
-    flex: 1,
-  },
-  rowLabel: {
-    ...Typography.caption,
-    fontWeight: "600",
-  },
-  rowCoords: {
-    ...Typography.caption,
-    fontSize: 11,
-  },
-  rowActions: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 2,
-  },
-  iconBtn: {
-    padding: 6,
-  },
-  manualRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.sm,
-  },
-  manualInput: {
-    flex: 1,
-    height: 40,
-    borderRadius: BorderRadius.sm,
-    paddingHorizontal: Spacing.sm,
-    ...Typography.caption,
-  },
-  addBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: BorderRadius.sm,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  hintText: {
-    ...Typography.caption,
-    fontSize: 11,
-  },
-});
+interface ZoneContact {
+  type: "phone" | "email";
+  value: string;
+}
+
+// Zerlegt die mehrzeiligen Geozonen-Details in anklickbare Kontakte (Telefon/
+// E-Mail) und übrige Detailzeilen (inkl. Quelle/Attribution für den Piloten).
+function parseGeozoneDetail(
+  details: string,
+): { contacts: ZoneContact[]; otherLines: string[] } {
+  // Quelle/Attribution wird in dieser Detail-Ansicht bewusst auch Piloten
+  // gezeigt (Task-Anforderung) -> isAdmin=true, damit "Quelle:"-Zeilen erhalten
+  // bleiben. Nur leere Zeilen werden entfernt.
+  const lines = filterGeozoneDetailLines(details || "", true);
+  const contacts: ZoneContact[] = [];
+  const otherLines: string[] = [];
+  const seen = new Set<string>();
+  for (const line of lines) {
+    const phoneM = line.match(/^\s*Telefon\s*:\s*(.+)$/i);
+    const emailM = line.match(/^\s*E-?Mail\s*:\s*(.+)$/i);
+    if (phoneM) {
+      phoneM[1].split(/[,;]/).map((s) => s.trim()).filter(Boolean).forEach((value) => {
+        const key = `phone|${value}`;
+        if (!seen.has(key)) { seen.add(key); contacts.push({ type: "phone", value }); }
+      });
+    } else if (emailM) {
+      emailM[1].split(/[,;]/).map((s) => s.trim()).filter(Boolean).forEach((value) => {
+        const key = `email|${value}`;
+        if (!seen.has(key)) { seen.add(key); contacts.push({ type: "email", value }); }
+      });
+    } else {
+      otherLines.push(line);
+    }
+  }
+  return { contacts, otherLines };
+}
+
+async function searchNominatim(query: string, signal?: AbortSignal): Promise<PoiResult[]> {
+  const url = new URL("/api/proxy/geocode/search", getApiUrl());
+  url.searchParams.set("q", query);
+  const r = await fetch(url.toString(), { signal });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  const raw = await r.json();
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((row: any) => {
+      const lat = parseFloat(row?.lat);
+      const lon = parseFloat(row?.lon);
+      if (!isFinite(lat) || !isFinite(lon)) return null;
+      const display: string = String(row?.display_name || "");
+      const parts = display.split(",").map((s) => s.trim());
+      const name = String(row?.name || parts[0] || display);
+      const detail = parts.slice(1).join(", ");
+      return {
+        id: String(row?.place_id ?? `${lat},${lon}`),
+        name,
+        detail,
+        latitude: lat,
+        longitude: lon,
+        category: row?.class || row?.category,
+      } as PoiResult;
+    })
+    .filter((x: PoiResult | null): x is PoiResult => x !== null);
+}
 
 export default function PlanningLocationScreen() {
   const navigation = useNavigation<NavigationProp>();
@@ -297,41 +153,123 @@ export default function PlanningLocationScreen() {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const mapRef = useRef<MapPickerRef>(null);
-  
+
+  const [detailZone, setDetailZone] = useState<GeozoneFeatureInfo | null>(null);
+
   const [selectedLocation, setSelectedLocation] = useState<{
     latitude: number;
     longitude: number;
   } | null>(null);
   const [locationName, setLocationName] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState<string>("");
-  const [loading, setLoading] = useState(false);
+  const [searchResults, setSearchResults] = useState<PoiResult[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
+  const [showResults, setShowResults] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [manualLat, setManualLat] = useState("");
   const [manualLng, setManualLng] = useState("");
   const [radiusM, setRadiusM] = useState(1000);
   const radiusKm = radiusM / 1000;
+  // Geplante Flughöhe (AGL) – ab Schritt 1 gewählt und durch den Flow geführt,
+  // damit Höhen-Limit-Zonen bereits hier höhenbewusst bewertet werden.
+  const [maxAltitude, setMaxAltitude] = useState(DEFAULT_REACHABLE_ALTITUDE_M);
+  const [vlosAltitudeCorrection, setVlosAltitudeCorrection] = useState(false);
+  const [vlosInfo, setVlosInfo] = useState<{
+    vlosM: number;
+    charDimensionM: number;
+    limitedBy: "alos" | "dlos";
+  } | null>(null);
+  const vlosInitializedRef = useRef(false);
+  const radiusManuallyAdjustedRef = useRef(false);
   const sliderRef = useRef<View>(null);
-  const [extraWaypoints, setExtraWaypoints] = useState<{ latitude: number; longitude: number }[]>([]);
-  const [routeMode, setRouteMode] = useState(false);
-  const [waypointLat, setWaypointLat] = useState("");
-  const [waypointLng, setWaypointLng] = useState("");
-
-  const allWaypoints = useMemo(() => {
-    if (!selectedLocation) return [];
-    return [selectedLocation, ...extraWaypoints];
-  }, [selectedLocation, extraWaypoints]);
-
-  const hasRoute = allWaypoints.length >= 2;
+  const suppressNextSearchRef = useRef(false);
+  const searchTokenRef = useRef(0);
 
   const { droneId, countryIso } = route.params;
+  const { entitlement } = useAuth();
+  const [energyMapCenter, setEnergyMapCenter] = useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
+  const isPreflightMode = useRef(getFlightPlanningMode() === "preflight").current;
+  const planningCountryIso = selectedLocation
+    ? detectCountryFromCoordinates(selectedLocation.latitude, selectedLocation.longitude) ?? countryIso
+    : countryIso;
+  const energyQueryLatitude = energyMapCenter?.latitude ?? selectedLocation?.latitude ?? 0;
+  const energyQueryLongitude = energyMapCenter?.longitude ?? selectedLocation?.longitude ?? 0;
+  const energyQueryCountryIso = energyMapCenter
+    ? detectCountryFromCoordinates(energyQueryLatitude, energyQueryLongitude) ?? ""
+    : planningCountryIso ?? "";
+  const hasPlanningGermanEnergyAccess =
+    energyQueryCountryIso.toUpperCase() === "DE" &&
+    entitlementGrantsCountry(entitlement, "DE");
+  const planningEnergyQuery = useGermanEnergyInfrastructure(
+    energyQueryLatitude,
+    energyQueryLongitude,
+    5,
+    energyQueryCountryIso,
+    !!selectedLocation &&
+      hasPlanningGermanEnergyAccess,
+  );
+  const planningWindFacilityPoints = useMemo(
+    () => hasPlanningGermanEnergyAccess
+      ? getGermanWindFacility100mPoints("DE", planningEnergyQuery.data?.features)
+      : [],
+    [hasPlanningGermanEnergyAccess, planningEnergyQuery.data?.features],
+  );
+  const planningEnergyInfrastructureItems = useMemo(() => {
+    const response = planningEnergyQuery.data;
+    const country = getEnergyInfrastructureCountry("DE");
+    return getRadarEnergyInfrastructureItems(
+      hasPlanningGermanEnergyAccess,
+      response?.features,
+      response?.sources,
+      country?.assetComparisonStatusKeyByKind,
+    );
+  }, [hasPlanningGermanEnergyAccess, planningEnergyQuery.data]);
+  const onEnergyMapRegionChange = useCallback((region: {
+    latitude: number;
+    longitude: number;
+    latitudeDelta: number;
+    longitudeDelta: number;
+  }) => {
+    const bounds = {
+      latMin: region.latitude - region.latitudeDelta / 2,
+      latMax: region.latitude + region.latitudeDelta / 2,
+      lonMin: region.longitude - region.longitudeDelta / 2,
+      lonMax: region.longitude + region.longitudeDelta / 2,
+    };
+    setEnergyMapCenter((current) => getEnergyInfrastructureCenterForViewport(current, bounds));
+  }, []);
+
+  // Manuelle Einschränkungs-Bewertung für Länder OHNE eigene Geozonen-Daten:
+  // Der Pilot prüft die offizielle Karte selbst und gibt danach an, ob am
+  // Standort Einschränkungen bestehen. Das Ergebnis wird durch die Planungs-
+  // Kette gereicht, damit die Einschränkungs-Stufe nicht erneut fragt.
+  const [manualRestriction, setManualRestriction] = useState<{
+    status: "approved" | "limited";
+    note: string;
+  } | null>(null);
+  const [restrictionModalVisible, setRestrictionModalVisible] = useState(false);
+  const [restrictionNoteDraft, setRestrictionNoteDraft] = useState("");
+  const awaitingRestrictionRef = useRef(false);
+
+  // Gegenprüfung der offiziellen Staatskarte für Länder MIT eigenen Geozonen-
+  // Daten ist ein EIGENER Planungs-Schritt (PlanningCrossCheck) zwischen Standort
+  // und Datum/Zeit. Per Einstellung steuerbar (officialMapCrossCheck, Default an).
+  // Einstellung "Offizielle Karte gegenprüfen" (Default an). Steuert, ob für
+  // Länder MIT eigenen Daten nach der Standortbestätigung der eigene
+  // Gegenprüfungs-Schritt dazwischengeschaltet wird.
+  const [crossCheckEnabled, setCrossCheckEnabled] = useState(true);
+
+  useEffect(() => {
+    getSettings()
+      .then((s) => setCrossCheckEnabled(s.officialMapCrossCheck !== false))
+      .catch(() => {});
+  }, []);
 
   const countryCenter = useMemo(() => {
     return getCountryCenter(countryIso || "DE");
-  }, [countryIso]);
-
-  const countryName = useMemo(() => {
-    const config = getCountryMapConfig(countryIso || "DE");
-    return config?.nameDE || "Deutschland";
   }, [countryIso]);
 
   const radiusToDelta = (rKm: number) => {
@@ -339,19 +277,40 @@ export default function PlanningLocationScreen() {
     return Math.max(delta, 0.005);
   };
 
-  const animateToLocation = (latitude: number, longitude: number) => {
-    const delta = radiusToDelta(radiusKm);
+  const animateToLocation = useCallback((latitude: number, longitude: number) => {
+    const delta = radiusToDelta(radiusM / 1000);
     mapRef.current?.animateToRegion({
       latitude,
       longitude,
       latitudeDelta: delta,
       longitudeDelta: delta,
     }, 500);
+  }, [radiusM]);
+
+  // Snappt den Slider auf den empfohlenen VLOS-Wert, sobald die Berührung
+  // innerhalb der halben Schrittweite liegt — sonst kann der Pilot z.B. 118 m
+  // (exakte VLOS) gar nicht treffen, weil der Slider nur in 25/50-m-Schritten
+  // rastet.
+  const snapToVlos = (rawMeters: number): number => {
+    const step = rawMeters < 50 ? 5 : sliderMaxM <= 600 ? 25 : 50;
+    const stepped = Math.round(rawMeters / step) * step;
+    if (vlosPlanningLimitM != null) {
+      const vlosRounded = vlosPlanningLimitM;
+      if (Math.abs(rawMeters - vlosRounded) <= step / 2) {
+        return vlosRounded;
+      }
+    }
+    return stepped;
   };
 
   const handleRadiusChange = (meters: number) => {
-    const rKm = meters / 1000;
-    setRadiusM(meters);
+    radiusManuallyAdjustedRef.current = true;
+    const cap = vlosPlanningLimitM != null
+      ? Math.max(300, Math.round(vlosPlanningLimitM * VLOS_OVERRIDE_MAX_FACTOR))
+      : 3000;
+    const clamped = Math.max(10, Math.min(cap, meters));
+    const rKm = clamped / 1000;
+    setRadiusM(clamped);
     if (selectedLocation) {
       const delta = radiusToDelta(rKm);
       mapRef.current?.animateToRegion({
@@ -361,6 +320,7 @@ export default function PlanningLocationScreen() {
         longitudeDelta: delta,
       }, 400);
     }
+    return clamped;
   };
 
   const reverseGeocode = async (latitude: number, longitude: number) => {
@@ -375,100 +335,34 @@ export default function PlanningLocationScreen() {
     } catch {}
   };
 
-  const handleMapPress = (latitude: number, longitude: number) => {
-    if (routeMode && selectedLocation) {
-      return;
-    }
+  const selectLocation = useCallback((latitude: number, longitude: number, name?: string) => {
     setSelectedLocation({ latitude, longitude });
-    reverseGeocode(latitude, longitude);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (name) {
+      setLocationName(name);
+    } else {
+      reverseGeocode(latitude, longitude);
+    }
     animateToLocation(latitude, longitude);
+  }, [animateToLocation]);
+
+  const handleMapPress = (latitude: number, longitude: number) => {
+    selectLocation(latitude, longitude);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
 
   const handleMapLongPress = (latitude: number, longitude: number) => {
-    if (routeMode && selectedLocation) {
-      setExtraWaypoints((prev) => [...prev, { latitude, longitude }]);
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      animateToLocation(latitude, longitude);
-      return;
-    }
-    if (!selectedLocation) {
-      setSelectedLocation({ latitude, longitude });
-      reverseGeocode(latitude, longitude);
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      animateToLocation(latitude, longitude);
-    }
+    selectLocation(latitude, longitude);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
   };
 
-  const handleAddWaypointFromInput = () => {
-    const lat = parseFloat(waypointLat);
-    const lng = parseFloat(waypointLng);
-    if (isNaN(lat) || isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
-      Alert.alert("Fehler", "Bitte gib gültige Koordinaten für den Wegpunkt ein.");
-      return;
-    }
-    if (!selectedLocation) {
-      Alert.alert("Hinweis", "Bitte wähle zuerst einen Startpunkt.");
-      return;
-    }
-    setExtraWaypoints((prev) => [...prev, { latitude: lat, longitude: lng }]);
-    setWaypointLat("");
-    setWaypointLng("");
-    animateToLocation(lat, lng);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  };
-
-  const handleRemoveWaypoint = (index: number) => {
-    if (index === 0) {
-      if (extraWaypoints.length === 0) {
-        setSelectedLocation(null);
-        setLocationName("");
-        return;
-      }
-      const [next, ...rest] = extraWaypoints;
-      setSelectedLocation(next);
-      setExtraWaypoints(rest);
-      reverseGeocode(next.latitude, next.longitude);
-      return;
-    }
-    setExtraWaypoints((prev) => prev.filter((_, i) => i !== index - 1));
-  };
-
-  const handleMoveWaypoint = (index: number, direction: -1 | 1) => {
-    const target = index + direction;
-    if (index < 0 || target < 0 || target >= allWaypoints.length) return;
-    const next = [...allWaypoints];
-    [next[index], next[target]] = [next[target], next[index]];
-    const [first, ...rest] = next;
-    setSelectedLocation(first);
-    setExtraWaypoints(rest);
-    reverseGeocode(first.latitude, first.longitude);
-  };
-
-  const handleWaypointDragEnd = (index: number, latitude: number, longitude: number) => {
-    if (index === 0) {
-      setSelectedLocation({ latitude, longitude });
-      reverseGeocode(latitude, longitude);
-    } else {
-      setExtraWaypoints((prev) =>
-        prev.map((wp, i) => (i === index - 1 ? { latitude, longitude } : wp))
-      );
-    }
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  };
-
-  const handleClearRoute = () => {
-    setExtraWaypoints([]);
-    setRouteMode(false);
-  };
-
-
-  const handleGetCurrentLocation = async () => {
+  const handleGetCurrentLocation = async (silent: boolean = false) => {
     setLoading(true);
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== "granted") {
-        Alert.alert("Standort", "Bitte erlaube den Zugriff auf deinen Standort in den Einstellungen.");
+        if (!silent) {
+          Alert.alert("Standort", "Bitte erlaube den Zugriff auf deinen Standort in den Einstellungen.");
+        }
         return;
       }
       const location = await Location.getCurrentPositionAsync({
@@ -478,51 +372,226 @@ export default function PlanningLocationScreen() {
       setSelectedLocation({ latitude, longitude });
       animateToLocation(latitude, longitude);
       await reverseGeocode(latitude, longitude);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      if (!silent) Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (error) {
-      Alert.alert("Fehler", "Standort konnte nicht ermittelt werden.");
+      if (!silent) Alert.alert("Fehler", "Standort konnte nicht ermittelt werden.");
     } finally {
       setLoading(false);
     }
   };
 
-  const handleSearch = async () => {
-    if (!searchQuery.trim()) return;
-    Keyboard.dismiss();
-    setSearchLoading(true);
-    
-    try {
-      const results = await Location.geocodeAsync(searchQuery);
-      if (results.length > 0) {
-        const { latitude, longitude } = results[0];
-        setSelectedLocation({ latitude, longitude });
-        setLocationName(searchQuery);
-        animateToLocation(latitude, longitude);
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  // VLOS-Radius aus CD der gewählten Drohne berechnen und als Default setzen
+  useEffect(() => {
+    if (vlosInitializedRef.current) return;
+    (async () => {
+      try {
+        const drone = await getDrone(droneId);
+        if (!drone) return;
+        let cd = typeof drone.charDimensionM === "number" && drone.charDimensionM > 0
+          ? drone.charDimensionM
+          : undefined;
+        if (cd == null) {
+          const preset = findPresetForDrone(drone.name, drone.manufacturer, drone.model);
+          if (preset?.charDimensionM) cd = preset.charDimensionM;
+        }
+        if (cd == null || cd <= 0) return;
+        const result = computeVlosM(cd, { kind: alosKindForDroneType(drone.droneType) });
+        if (result.vlosM <= 0) return;
+        vlosInitializedRef.current = true;
+        setVlosInfo({ vlosM: result.vlosM, charDimensionM: cd, limitedBy: result.limitedBy });
+        // Default-Radius = exakt die empfohlene VLOS aus CD der Drohne — NICHT
+        // auf 25/50-m-Slider-Schritte snappen, sonst landet VLOS 118m bei 125m
+        // und ist außerhalb VLOS. Der Slider erlaubt Feinjustierung; die
+        // snapToVlos-Logik rastet beim manuellen Schieben am VLOS-Wert ein.
+        setRadiusM(Math.max(10, Math.round(result.vlosM)));
+      } catch {}
+    })();
+  }, [droneId]);
+
+  const vlosPlanningLimitM = useMemo(() => {
+    if (!vlosInfo) return null;
+    return vlosAltitudeCorrection
+      ? computeHorizontalVlosLimitM(vlosInfo.vlosM, maxAltitude)
+      : Math.round(vlosInfo.vlosM);
+  }, [vlosInfo, vlosAltitudeCorrection, maxAltitude]);
+
+  useEffect(() => {
+    if (!vlosInfo || vlosPlanningLimitM == null || radiusManuallyAdjustedRef.current) return;
+    setRadiusM(Math.max(10, vlosPlanningLimitM));
+  }, [vlosInfo, vlosPlanningLimitM]);
+
+  const sliderMaxM = useMemo(() => {
+    if (vlosPlanningLimitM == null) return 3000;
+    return Math.max(300, Math.round(vlosPlanningLimitM * VLOS_OVERRIDE_MAX_FACTOR));
+  }, [vlosPlanningLimitM]);
+  const beyondVlos = vlosPlanningLimitM != null && radiusM > vlosPlanningLimitM;
+
+  // Land der aktuell gewählten Position. Hat das Land KEINE eigenen Geozonen-
+  // Daten, zeigen wir statt unserer (leeren) Karte einen Button zur offiziellen
+  // Staatskarte bzw. zum EASA-Fallback, zentriert auf den Standort.
+  const selectedCountryIso = useMemo(() => {
+    if (!selectedLocation) return null;
+    return detectCountryFromCoordinates(selectedLocation.latitude, selectedLocation.longitude);
+  }, [selectedLocation?.latitude, selectedLocation?.longitude]);
+  // Länder-Berechtigung (Task #561): Die offizielle Länderkarte ist ein
+  // Pflichtschritt. Ist das geplante Land nicht freigeschaltet, zeigen wir statt
+  // Karte/Gegenprüfung einen gesperrten Zustand und blockieren das Weitergehen.
+  const countryLocked =
+    selectedLocation != null && !entitlementHasCountry(entitlement, selectedCountryIso);
+  const showOfficialMap =
+    selectedLocation != null && !countryLocked && !hasOwnMap(selectedCountryIso);
+  const officialMapConfig = showOfficialMap ? getMapConfigOrFallback(selectedCountryIso) : null;
+
+  const handleOpenOfficialMap = useCallback(() => {
+    if (!selectedLocation || !officialMapConfig) return;
+    const url = buildMapUrl(officialMapConfig, selectedLocation.latitude, selectedLocation.longitude);
+    // Nach Rückkehr aus der offiziellen Karte fragen wir, ob Einschränkungen
+    // bestehen (siehe Focus-Listener unten).
+    awaitingRestrictionRef.current = true;
+    navigation.navigate("PlanningExternalMap", {
+      url,
+      title: officialMapConfig.iso === "EASA" ? "EASA Drohnen-Portal" : `Offizielle Karte – ${officialMapConfig.nameDE}`,
+      latitude: selectedLocation.latitude,
+      longitude: selectedLocation.longitude,
+    });
+  }, [selectedLocation?.latitude, selectedLocation?.longitude, officialMapConfig, navigation]);
+
+  // Beim Zurückkehren aus der offiziellen Karte den Ja/Nein-Dialog öffnen.
+  useEffect(() => {
+    const unsub = navigation.addListener("focus", () => {
+      if (awaitingRestrictionRef.current && showOfficialMap) {
+        awaitingRestrictionRef.current = false;
+        setRestrictionNoteDraft(manualRestriction?.note ?? "");
+        setRestrictionModalVisible(true);
       } else {
-        Alert.alert("Nicht gefunden", "Der Ort konnte nicht gefunden werden. Bitte versuche es mit einer anderen Suche.");
+        awaitingRestrictionRef.current = false;
       }
-    } catch (error) {
-      Alert.alert("Fehler", "Die Suche konnte nicht durchgeführt werden.");
-    } finally {
-      setSearchLoading(false);
+    });
+    return unsub;
+  }, [navigation, showOfficialMap, manualRestriction?.note]);
+
+  // Standortwechsel / Wechsel zu einem Land MIT eigenen Daten verwirft eine
+  // zuvor erfasste manuelle Bewertung, damit keine veraltete Angabe mitläuft.
+  useEffect(() => {
+    if (!showOfficialMap) {
+      setManualRestriction(null);
     }
+  }, [showOfficialMap, selectedCountryIso, selectedLocation?.latitude, selectedLocation?.longitude]);
+
+  const handleRestrictionAnswer = useCallback((status: "approved" | "limited") => {
+    setManualRestriction({ status, note: restrictionNoteDraft.trim() });
+    setRestrictionModalVisible(false);
+  }, [restrictionNoteDraft]);
+
+  const openZoneDetail = useCallback((zone: GeozoneFeatureInfo) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    setDetailZone(zone);
+  }, []);
+
+  const detailParsed = useMemo(
+    () => (detailZone ? parseGeozoneDetail(detailZone.details) : null),
+    [detailZone],
+  );
+  const detailHasContent = useMemo(() => {
+    if (!detailZone || !detailParsed) return false;
+    return (
+      detailParsed.otherLines.length > 0 ||
+      detailParsed.contacts.length > 0 ||
+      (detailZone.links?.length ?? 0) > 0 ||
+      !!detailZone.applicationText
+    );
+  }, [detailZone, detailParsed]);
+
+  useEffect(() => {
+    if (isPreflightMode && !selectedLocation) {
+      handleGetCurrentLocation(true);
+      return;
+    }
+    // Im Planungs-Modus: kein Pin setzen, aber Karte einmal auf die GPS-
+    // Position des Piloten zentrieren, damit das viewport-basierte WMS-
+    // Overlay das passende Land lädt (statt immer die DE-Mitte zu zeigen).
+    (async () => {
+      try {
+        const { status } = await Location.getForegroundPermissionsAsync();
+        if (status !== "granted") return;
+        const loc = await Location.getLastKnownPositionAsync({})
+          .catch(() => null);
+        const coords = loc?.coords
+          ?? (await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }).catch(() => null))?.coords;
+        if (!coords) return;
+        const delta = radiusToDelta(radiusM / 1000);
+        mapRef.current?.animateToRegion({
+          latitude: coords.latitude,
+          longitude: coords.longitude,
+          latitudeDelta: delta,
+          longitudeDelta: delta,
+        }, 400);
+      } catch {}
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (suppressNextSearchRef.current) {
+      suppressNextSearchRef.current = false;
+      setSearchLoading(false);
+      return;
+    }
+    const q = searchQuery.trim();
+    if (q.length < 3) {
+      setSearchResults([]);
+      setSearchLoading(false);
+      return;
+    }
+    setSearchLoading(true);
+    const ctrl = new AbortController();
+    const token = ++searchTokenRef.current;
+    const timer = setTimeout(async () => {
+      try {
+        const results = await searchNominatim(q, ctrl.signal);
+        if (token === searchTokenRef.current) {
+          setSearchResults(results);
+          setSearchLoading(false);
+        }
+      } catch (e) {
+        if ((e as any)?.name !== "AbortError" && token === searchTokenRef.current) {
+          setSearchResults([]);
+          setSearchLoading(false);
+        }
+      }
+    }, 400);
+    return () => {
+      ctrl.abort();
+      clearTimeout(timer);
+    };
+  }, [searchQuery]);
+
+  const handleSelectResult = (poi: PoiResult) => {
+    Keyboard.dismiss();
+    suppressNextSearchRef.current = true;
+    searchTokenRef.current++;
+    setShowResults(false);
+    setSearchResults([]);
+    setSearchLoading(false);
+    setSearchQuery(poi.name);
+    selectLocation(poi.latitude, poi.longitude, poi.detail ? `${poi.name}, ${poi.detail.split(",")[0]}` : poi.name);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
 
   const handleManualCoords = () => {
     const lat = parseFloat(manualLat);
     const lng = parseFloat(manualLng);
-    
+
     if (isNaN(lat) || isNaN(lng)) {
       Alert.alert("Fehler", "Bitte gib gültige Koordinaten ein.");
       return;
     }
-    
+
     if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
       Alert.alert("Fehler", "Die Koordinaten liegen außerhalb des gültigen Bereichs.");
       return;
     }
-    
+
     setSelectedLocation({ latitude: lat, longitude: lng });
     animateToLocation(lat, lng);
     reverseGeocode(lat, lng);
@@ -531,47 +600,201 @@ export default function PlanningLocationScreen() {
 
   const [detectingCountry, setDetectingCountry] = useState(false);
 
+  // --- Geozonen-Vorschau am gewählten Standort ---
+  // Zeigt dem Piloten direkt im Standort-Screen, welche Geozonen vom aktuellen
+  // Umkreis berührt werden — damit kann er sofort entscheiden, ob er den
+  // Startpunkt verlegt, statt erst nach "Standort bestätigen" zu sehen, dass
+  // er mitten in einem Schutzgebiet startet.
+  const [touchedGeozones, setTouchedGeozones] = useState<GeozoneFeatureInfo[]>([]);
+  const [touchedLoading, setTouchedLoading] = useState(false);
+  const touchedTokenRef = useRef(0);
+
+  useEffect(() => {
+    if (!selectedLocation) {
+      setTouchedGeozones([]);
+      return;
+    }
+    const token = ++touchedTokenRef.current;
+    setTouchedLoading(true);
+    const timer = setTimeout(async () => {
+      try {
+        const iso = (countryIso || "DE").toUpperCase();
+        const results = await queryGeozonesInArea(
+          selectedLocation.latitude,
+          selectedLocation.longitude,
+          Math.max(radiusM / 1000, 0.05),
+          iso,
+        );
+        // Token-Guard: ignoriert Antworten alter Anfragen (debounce / unmount).
+        // queryGeozonesInArea akzeptiert (noch) keinen AbortSignal — wir
+        // verwerfen das Ergebnis daher hier statt den Request abzubrechen.
+        if (token === touchedTokenRef.current) {
+          const permanent = (results || []).filter(
+            (g) => g.layerLabel !== TEMP_RESTRICTION_LAYER_LABEL,
+          );
+          setTouchedGeozones(permanent);
+          setTouchedLoading(false);
+        }
+      } catch {
+        if (token === touchedTokenRef.current) {
+          setTouchedGeozones([]);
+          setTouchedLoading(false);
+        }
+      }
+    }, 350);
+    return () => {
+      // Token invalidieren → späte fetches setzen keinen State mehr (auch
+      // bei Unmount). Timer abbrechen, falls Debounce noch nicht gefeuert hat.
+      touchedTokenRef.current++;
+      clearTimeout(timer);
+    };
+  }, [selectedLocation?.latitude, selectedLocation?.longitude, radiusM, countryIso]);
+
+  // Höhenbewusste Bewertung der Geozonen im Umkreis: Zonen, deren Höhen-Limit
+  // über/gleich der geplanten Flughöhe liegt, sind unkritisch; Flugverbote und
+  // Limits unter der geplanten Höhe bleiben Konflikt.
+  const touchedAssessment = useMemo(() => {
+    const assessed = touchedGeozones.map((g) => ({
+      g,
+      a: assessGeozoneAltitudeConflict(g, maxAltitude),
+    }));
+    return {
+      conflicts: assessed.filter((x) => !x.a.clearedByAltitude),
+      cleared: assessed.filter((x) => x.a.clearedByAltitude),
+    };
+  }, [touchedGeozones, maxAltitude]);
+
   const handleContinue = async () => {
     if (!selectedLocation) {
       Alert.alert("Fehler", "Bitte wähle einen Standort aus.");
       return;
     }
-    
+
+    if (countryLocked) {
+      Alert.alert(
+        "Land nicht freigeschaltet",
+        `${countryName(selectedCountryIso)} ist nicht freigeschaltet. Bitte schalte das Land frei, um die Flugplanung für diesen Standort fortzusetzen.`,
+      );
+      return;
+    }
+
     setDetectingCountry(true);
-    
+
     let detectedCountryIso = await reverseGeocodeCountry(
-      selectedLocation.latitude, 
+      selectedLocation.latitude,
       selectedLocation.longitude
     );
-    
+
     if (!detectedCountryIso) {
       detectedCountryIso = detectCountryFromCoordinates(
-        selectedLocation.latitude, 
+        selectedLocation.latitude,
         selectedLocation.longitude
       );
     }
-    
+
     const finalCountryIso = detectedCountryIso || countryIso || "DE";
-    
+
     setDetectingCountry(false);
-    
-    navigation.navigate("PlanningDateTime", {
+
+    const vlosParams = vlosInfo
+      ? {
+          recommendedVlosM: vlosInfo.vlosM,
+          vlosExceeded: beyondVlos,
+          vlosCharDimensionM: vlosInfo.charDimensionM,
+          vlosAltitudeCorrection,
+          vlosHorizontalLimitM: vlosPlanningLimitM ?? undefined,
+        }
+      : {};
+
+    const baseParams = {
       droneId,
       latitude: selectedLocation.latitude,
       longitude: selectedLocation.longitude,
       locationName: locationName || undefined,
       countryIso: finalCountryIso,
       radiusKm,
-      routeWaypoints: hasRoute ? allWaypoints : undefined,
+      maxAltitude,
+      ...vlosParams,
+      ...buildManualRestrictionParams(manualRestriction),
+    };
+
+    // Länder MIT eigenen Geozonen-Daten und aktivierter Einstellung bekommen
+    // die offizielle Karten-Gegenprüfung als EIGENEN Zwischenschritt
+    // (PlanningCrossCheck). Sonst geht es direkt zu Datum & Zeit. Die
+    // automatische Geozonen-/§21h-Erkennung bleibt davon unberührt.
+    const target = decideLocationContinueTarget({
+      countryLocked,
+      hasOwnMapData: hasOwnMap(finalCountryIso),
+      crossCheckEnabled,
     });
+
+    if (target === "crosscheck") {
+      navigation.navigate("PlanningCrossCheck", baseParams);
+    } else {
+      navigation.navigate("PlanningDateTime", baseParams);
+    }
+  };
+
+  const renderSearchDropdown = () => {
+    if (!showResults) return null;
+    if (searchQuery.trim().length < 3) return null;
+    if (searchResults.length === 0 && !searchLoading) return null;
+    return (
+      <View style={[styles.searchDropdown, { backgroundColor: theme.backgroundDefault, borderColor: theme.border }]}>
+        {searchLoading ? (
+          <View style={styles.searchLoadingRow}>
+            <ActivityIndicator size="small" color={theme.primary} />
+            <ThemedText style={[styles.searchLoadingText, { color: theme.textSecondary }]}>Suche läuft...</ThemedText>
+          </View>
+        ) : (
+          <FlatList
+            data={searchResults}
+            keyExtractor={(item) => item.id}
+            keyboardShouldPersistTaps="handled"
+            ItemSeparatorComponent={() => <View style={[styles.resultSeparator, { backgroundColor: theme.border }]} />}
+            renderItem={({ item }) => (
+              <Pressable
+                onPress={() => handleSelectResult(item)}
+                style={({ pressed }) => [
+                  styles.resultRow,
+                  { backgroundColor: pressed ? theme.backgroundSecondary : "transparent" },
+                ]}
+                testID={`poi-result-${item.id}`}
+              >
+                <View style={[styles.resultIcon, { backgroundColor: theme.backgroundSecondary }]}>
+                  <Feather
+                    name={pickCategoryIcon(item.category)}
+                    size={16}
+                    color={theme.primary}
+                  />
+                </View>
+                <View style={styles.resultText}>
+                  <ThemedText style={styles.resultName} numberOfLines={1}>{item.name}</ThemedText>
+                  {item.detail ? (
+                    <ThemedText
+                      style={[styles.resultDetail, { color: theme.textSecondary }]}
+                      numberOfLines={1}
+                    >
+                      {item.detail}
+                    </ThemedText>
+                  ) : null}
+                </View>
+              </Pressable>
+            )}
+            style={{ maxHeight: 280 }}
+          />
+        )}
+      </View>
+    );
   };
 
   if (Platform.OS === "web") {
     return (
       <ThemedView style={styles.container}>
-        <ScrollView 
+        <ScrollView
           style={styles.webScrollView}
           contentContainerStyle={[styles.webContent, { paddingTop: headerHeight + Spacing.lg, paddingBottom: 120 }]}
+          keyboardShouldPersistTaps="handled"
         >
           <View style={styles.header}>
             <ThemedText style={styles.title}>Wo möchtest du fliegen?</ThemedText>
@@ -580,27 +803,31 @@ export default function PlanningLocationScreen() {
             </ThemedText>
           </View>
 
-          <View style={[styles.searchBar, { backgroundColor: theme.backgroundSecondary }]}>
-            <Feather name="search" size={20} color={theme.textTertiary} />
-            <TextInput
-              style={[styles.searchInput, { color: theme.text }]}
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              placeholder="Ort oder Adresse suchen..."
-              placeholderTextColor={theme.textTertiary}
-              returnKeyType="search"
-              onSubmitEditing={handleSearch}
-            />
-            {searchLoading ? (
-              <ActivityIndicator size="small" color={theme.primary} />
-            ) : searchQuery.length > 0 ? (
-              <TouchableOpacity onPress={handleSearch} activeOpacity={0.7}>
-                <Feather name="arrow-right" size={20} color={theme.primary} />
-              </TouchableOpacity>
-            ) : null}
+          <View>
+            <View style={[styles.searchBar, { backgroundColor: theme.backgroundSecondary }]}>
+              <Feather name="search" size={20} color={theme.textTertiary} />
+              <TextInput
+                style={[styles.searchInput, { color: theme.text }]}
+                value={searchQuery}
+                onChangeText={(t) => { setSearchQuery(t); setShowResults(true); }}
+                onFocus={() => setShowResults(true)}
+                placeholder="Ort, Adresse oder POI suchen..."
+                placeholderTextColor={theme.textTertiary}
+                returnKeyType="search"
+                testID="input-poi-search"
+              />
+              {searchLoading ? (
+                <ActivityIndicator size="small" color={theme.primary} />
+              ) : searchQuery.length > 0 ? (
+                <TouchableOpacity onPress={() => { setSearchQuery(""); setSearchResults([]); }} activeOpacity={0.7}>
+                  <Feather name="x" size={20} color={theme.textTertiary} />
+                </TouchableOpacity>
+              ) : null}
+            </View>
+            {renderSearchDropdown()}
           </View>
 
-          <TouchableOpacity onPress={handleGetCurrentLocation} disabled={loading} activeOpacity={0.7}>
+          <TouchableOpacity onPress={() => handleGetCurrentLocation(false)} disabled={loading} activeOpacity={0.7}>
             <Card style={[styles.locationCard, { borderColor: theme.primary }]}>
               <View style={[styles.locationIcon, { backgroundColor: theme.primary }]}>
                 <Feather name="navigation" size={24} color="#FFFFFF" />
@@ -653,6 +880,7 @@ export default function PlanningLocationScreen() {
                 style={[styles.applyButton, { backgroundColor: theme.primary }]}
                 onPress={handleManualCoords}
                 activeOpacity={0.7}
+                testID="button-apply-coords"
               >
                 <ThemedText style={styles.applyButtonText}>Übernehmen</ThemedText>
               </TouchableOpacity>
@@ -670,26 +898,86 @@ export default function PlanningLocationScreen() {
               <ThemedText style={[styles.selectedCoords, { color: theme.textSecondary }]}>
                 {selectedLocation.latitude.toFixed(6)}, {selectedLocation.longitude.toFixed(6)}
               </ThemedText>
+              <View style={styles.selectedRadiusRow}>
+                <Feather name="circle" size={14} color={theme.textSecondary} />
+                <ThemedText style={[styles.selectedRadiusLabel, { color: theme.textSecondary }]}>
+                  Umkreis
+                </ThemedText>
+                <ThemedText style={[styles.selectedRadiusValue, { color: theme.primary }]}>
+                  {radiusM >= 1000 ? `${(radiusM / 1000).toFixed(1)} km` : `${radiusM} m`}
+                </ThemedText>
+              </View>
+              <View style={styles.radiusPresetRow}>
+                {[250, 500, 1000, 2000, 3000].map((m) => {
+                  const active = radiusM === m;
+                  return (
+                    <Pressable
+                      key={m}
+                      onPress={() => handleRadiusChange(m)}
+                      style={[
+                        styles.radiusPresetBtn,
+                        {
+                          backgroundColor: active ? theme.primary : theme.backgroundSecondary,
+                          borderColor: active ? theme.primary : theme.border,
+                        },
+                      ]}
+                      testID={`radius-preset-${m}`}
+                    >
+                      <ThemedText
+                        style={[
+                          styles.radiusPresetLabel,
+                          { color: active ? "#FFFFFF" : theme.textSecondary },
+                        ]}
+                      >
+                        {m >= 1000 ? `${m / 1000} km` : `${m} m`}
+                      </ThemedText>
+                    </Pressable>
+                  );
+                })}
+              </View>
             </Card>
           ) : null}
 
-          {selectedLocation ? (
-            <Card style={styles.selectedCard}>
-              <WaypointEditor
-                theme={theme}
-                waypoints={allWaypoints}
-                routeMode={false}
-                onToggleRouteMode={() => {}}
-                hideRouteToggle
-                onRemove={handleRemoveWaypoint}
-                onMove={handleMoveWaypoint}
-                waypointLat={waypointLat}
-                waypointLng={waypointLng}
-                onWaypointLatChange={setWaypointLat}
-                onWaypointLngChange={setWaypointLng}
-                onAddManualWaypoint={handleAddWaypointFromInput}
-                onClearRoute={handleClearRoute}
-              />
+          {selectedLocation && countryLocked ? (
+            <Card style={[styles.selectedCard, { borderColor: theme.statusCaution, borderWidth: 1 }]} testID="planning-country-locked">
+              <View style={styles.selectedHeader}>
+                <Feather name="lock" size={18} color={theme.statusCaution} />
+                <ThemedText style={styles.selectedTitle}>
+                  {`${countryName(selectedCountryIso)} nicht freigeschaltet`}
+                </ThemedText>
+              </View>
+              <ThemedText style={[styles.selectedCoords, { color: theme.textSecondary }]}>
+                {`Die offizielle Länderkarte und die Geozonen-Prüfung sind nur für freigeschaltete Länder verfügbar. Schalte ${countryName(selectedCountryIso)} frei, um die Flugplanung für diesen Standort fortzusetzen.`}
+              </ThemedText>
+            </Card>
+          ) : null}
+
+          {showOfficialMap && officialMapConfig ? (
+            <Card style={[styles.selectedCard, { borderColor: theme.statusCaution, borderWidth: 1 }]}>
+              <View style={styles.selectedHeader}>
+                <Feather name="map" size={18} color={theme.statusCaution} />
+                <ThemedText style={styles.selectedTitle}>Keine eigenen Geozonen-Daten</ThemedText>
+              </View>
+              <ThemedText style={[styles.selectedCoords, { color: theme.textSecondary }]}>
+                {officialMapConfig.iso === "EASA"
+                  ? "Für dieses Land haben wir keine eigene Karte. Nutze das EASA-Drohnenportal, um die zuständige Behörde und deren offizielle Karte zu finden."
+                  : `Für ${officialMapConfig.nameDE} haben wir keine eigenen Geozonen-Daten. Öffne die offizielle Staatskarte${officialMapConfig.supportsCoordinates ? ", zentriert auf deinen Standort" : ""}.`}
+              </ThemedText>
+              <TouchableOpacity
+                style={[styles.officialMapButton, { backgroundColor: theme.primary }]}
+                onPress={() => {
+                  if (!selectedLocation || !officialMapConfig) return;
+                  const url = buildMapUrl(officialMapConfig, selectedLocation.latitude, selectedLocation.longitude);
+                  if (typeof window !== "undefined") window.open(url, "_blank", "noopener,noreferrer");
+                }}
+                activeOpacity={0.7}
+                testID="button-official-map-web"
+              >
+                <Feather name="external-link" size={16} color="#FFFFFF" />
+                <ThemedText style={styles.officialMapButtonText}>
+                  {officialMapConfig.iso === "EASA" ? "EASA-Portal öffnen" : "Offizielle Karte öffnen"}
+                </ThemedText>
+              </TouchableOpacity>
             </Card>
           ) : null}
 
@@ -707,6 +995,7 @@ export default function PlanningLocationScreen() {
             onPress={handleContinue}
             disabled={!selectedLocation || detectingCountry}
             loading={detectingCountry}
+            testID="button-confirm-location"
           />
         </View>
       </ThemedView>
@@ -716,6 +1005,9 @@ export default function PlanningLocationScreen() {
   return (
     <ThemedView style={styles.container}>
       <View style={[styles.mapContainer, { marginTop: headerHeight }]}>
+        {/* Auch für Länder ohne eigene Geozonen-Daten zeigen wir UNSERE
+            interaktive Karte (Pin + Umkreis). Das Geozonen-Overlay bleibt dort
+            leer; die offizielle Staatskarte ist separat per Button erreichbar. */}
         <MapPicker
           ref={mapRef}
           initialRegion={countryCenter}
@@ -723,9 +1015,14 @@ export default function PlanningLocationScreen() {
           locationName={locationName}
           onMapPress={handleMapPress}
           onMapLongPress={handleMapLongPress}
-          radiusMeters={selectedLocation && !hasRoute ? radiusKm * 1000 : undefined}
-          routeWaypoints={hasRoute ? allWaypoints : undefined}
-          onWaypointDragEnd={handleWaypointDragEnd}
+          radiusMeters={selectedLocation ? radiusKm * 1000 : undefined}
+          radiusStrokeColor={beyondVlos ? "rgba(217, 119, 6, 0.9)" : undefined}
+          radiusFillColor={beyondVlos ? "rgba(217, 119, 6, 0.18)" : undefined}
+          allCountriesGeozones
+          showCtrBands
+          windFacilityPoints={planningWindFacilityPoints}
+          energyInfrastructureItems={planningEnergyInfrastructureItems}
+          onRegionChangeComplete={onEnergyMapRegionChange}
         />
 
         <View style={[styles.searchContainer, { top: Spacing.lg }]}>
@@ -734,25 +1031,27 @@ export default function PlanningLocationScreen() {
             <TextInput
               style={[styles.searchInput, { color: theme.text }]}
               value={searchQuery}
-              onChangeText={setSearchQuery}
-              placeholder="Ort oder Adresse suchen..."
+              onChangeText={(t) => { setSearchQuery(t); setShowResults(true); }}
+              onFocus={() => setShowResults(true)}
+              placeholder="Ort, Adresse oder POI suchen..."
               placeholderTextColor={theme.textTertiary}
               returnKeyType="search"
-              onSubmitEditing={handleSearch}
+              testID="input-poi-search"
             />
             {searchLoading ? (
               <ActivityIndicator size="small" color={theme.primary} />
             ) : searchQuery.length > 0 ? (
-              <TouchableOpacity onPress={() => setSearchQuery("")} activeOpacity={0.7}>
+              <TouchableOpacity onPress={() => { setSearchQuery(""); setSearchResults([]); setShowResults(false); }} activeOpacity={0.7}>
                 <Feather name="x" size={20} color={theme.textTertiary} />
               </TouchableOpacity>
             ) : null}
           </View>
+          {renderSearchDropdown()}
         </View>
 
         <TouchableOpacity
           style={[styles.myLocationButton, { backgroundColor: theme.backgroundDefault }]}
-          onPress={handleGetCurrentLocation}
+          onPress={() => handleGetCurrentLocation(false)}
           disabled={loading}
           activeOpacity={0.7}
         >
@@ -781,28 +1080,11 @@ export default function PlanningLocationScreen() {
           ) : null}
 
           {selectedLocation ? (
-            <WaypointEditor
-              theme={theme}
-              waypoints={allWaypoints}
-              routeMode={routeMode}
-              onToggleRouteMode={() => setRouteMode((v) => !v)}
-              onRemove={handleRemoveWaypoint}
-              onMove={handleMoveWaypoint}
-              waypointLat={waypointLat}
-              waypointLng={waypointLng}
-              onWaypointLatChange={setWaypointLat}
-              onWaypointLngChange={setWaypointLng}
-              onAddManualWaypoint={handleAddWaypointFromInput}
-              onClearRoute={handleClearRoute}
-            />
-          ) : null}
-
-          {selectedLocation && !hasRoute ? (
             <View style={styles.radiusSection}>
               <View style={styles.radiusHeader}>
                 <Feather name="circle" size={14} color={theme.textSecondary} />
                 <ThemedText style={[styles.radiusLabel, { color: theme.textSecondary }]}>Umkreis</ThemedText>
-                <ThemedText style={[styles.radiusValue, { color: theme.primary }]}>
+                <ThemedText style={[styles.radiusValue, { color: beyondVlos ? "#D97706" : theme.primary }]}>
                   {radiusM >= 1000 ? `${(radiusM / 1000).toFixed(1)} km` : `${radiusM} m`}
                 </ThemedText>
               </View>
@@ -814,44 +1096,352 @@ export default function PlanningLocationScreen() {
                 onResponderGrant={(e) => {
                   sliderRef.current?.measure((_fx, _fy, width, _h, pageX) => {
                     const pos = Math.max(0, Math.min(1, (e.nativeEvent.pageX - pageX) / width));
-                    const meters = Math.round(pos * 3000 / 100) * 100;
-                    handleRadiusChange(Math.max(100, meters));
+                    handleRadiusChange(snapToVlos(pos * sliderMaxM));
                   });
                 }}
                 onResponderMove={(e) => {
                   sliderRef.current?.measure((_fx, _fy, width, _h, pageX) => {
                     const pos = Math.max(0, Math.min(1, (e.nativeEvent.pageX - pageX) / width));
-                    const meters = Math.round(pos * 3000 / 100) * 100;
-                    handleRadiusChange(Math.max(100, meters));
+                    handleRadiusChange(snapToVlos(pos * sliderMaxM));
                   });
                 }}
               >
                 <View style={[styles.sliderTrackBg, { backgroundColor: theme.backgroundSecondary }]} />
-                <View style={[styles.sliderFill, { width: `${(radiusM / 3000) * 100}%`, backgroundColor: theme.primary }]} />
-                <View style={[styles.sliderThumb, { left: `${(radiusM / 3000) * 100}%`, backgroundColor: theme.primary, borderColor: theme.backgroundDefault }]} />
+                {vlosPlanningLimitM != null ? (
+                  <View style={[styles.sliderVlosMark, { left: `${(vlosPlanningLimitM / sliderMaxM) * 100}%`, backgroundColor: theme.primary }]} />
+                ) : null}
+                <View style={[styles.sliderFill, { width: `${(radiusM / sliderMaxM) * 100}%`, backgroundColor: beyondVlos ? "#D97706" : theme.primary }]} />
+                <View style={[styles.sliderThumb, { left: `${(radiusM / sliderMaxM) * 100}%`, backgroundColor: beyondVlos ? "#D97706" : theme.primary, borderColor: theme.backgroundDefault }]} />
               </View>
               <View style={styles.sliderLabels}>
                 <ThemedText style={[styles.sliderLabelText, { color: theme.textSecondary }]}>0</ThemedText>
-                <ThemedText style={[styles.sliderLabelText, { color: theme.textSecondary }]}>500m</ThemedText>
-                <ThemedText style={[styles.sliderLabelText, { color: theme.textSecondary }]}>1km</ThemedText>
-                <ThemedText style={[styles.sliderLabelText, { color: theme.textSecondary }]}>1.5</ThemedText>
-                <ThemedText style={[styles.sliderLabelText, { color: theme.textSecondary }]}>2km</ThemedText>
-                <ThemedText style={[styles.sliderLabelText, { color: theme.textSecondary }]}>2.5</ThemedText>
-                <ThemedText style={[styles.sliderLabelText, { color: theme.textSecondary }]}>3km</ThemedText>
+                {vlosPlanningLimitM != null ? (
+                  <Pressable
+                    onPress={() => handleRadiusChange(vlosPlanningLimitM)}
+                    hitSlop={8}
+                    testID="button-snap-vlos"
+                  >
+                    <ThemedText style={[styles.sliderLabelText, { color: theme.primary, fontWeight: "600", textDecorationLine: "underline" }]}>
+                      VLOS {formatMeters(vlosPlanningLimitM)}
+                    </ThemedText>
+                  </Pressable>
+                ) : (
+                  <ThemedText style={[styles.sliderLabelText, { color: theme.textSecondary }]}>1.5km</ThemedText>
+                )}
+                <ThemedText style={[styles.sliderLabelText, { color: theme.textSecondary }]}>{formatMeters(sliderMaxM)}</ThemedText>
               </View>
+              {vlosInfo ? (
+                <View style={[styles.vlosInfoBox, { backgroundColor: beyondVlos ? "rgba(217, 119, 6, 0.12)" : theme.backgroundSecondary, borderColor: beyondVlos ? "#D97706" : "transparent", borderWidth: beyondVlos ? 1 : 0 }]}>
+                  <Feather name={beyondVlos ? "alert-triangle" : "eye"} size={14} color={beyondVlos ? "#D97706" : theme.primary} />
+                  <View style={{ flex: 1 }}>
+                    {beyondVlos ? (
+                      <>
+                        <ThemedText style={[styles.vlosInfoTitle, { color: "#D97706" }]}>
+                          {vlosAltitudeCorrection
+                            ? `Über dem horizontalen VLOS-Richtwert – ${formatMeters(radiusM)} > ${formatMeters(vlosPlanningLimitM ?? 0)}`
+                            : `Außerhalb VLOS – ${formatMeters(radiusM)} > ${formatMeters(vlosPlanningLimitM ?? 0)}`}
+                        </ThemedText>
+                        <ThemedText style={[styles.vlosInfoText, { color: theme.textSecondary }]}>
+                          {vlosAltitudeCorrection
+                            ? `Der Planungsradius überschreitet den bei ${maxAltitude} m AGL berechneten horizontalen Richtwert. Die Höhenkorrektur ist eine geometrische Näherung.`
+                            : "In der Offenen Kategorie nicht zulässig (EU 2019/947, Art. 4): VLOS muss vom Fernpiloten selbst gehalten werden. Externe Luftraumbeobachter ersetzen VLOS nicht – BVLOS erfordert eine Betriebsgenehmigung in der Speziellen Kategorie (STS / PDRA / SORA). Wird im Protokoll vermerkt."}
+                        </ThemedText>
+                      </>
+                    ) : (
+                      <>
+                        <ThemedText style={[styles.vlosInfoTitle, { color: theme.text }]}>
+                          {vlosAltitudeCorrection
+                            ? `Horizontaler Richtwert: ${formatMeters(vlosPlanningLimitM ?? 0)}`
+                            : `Empfohlen: ${formatMeters(vlosPlanningLimitM ?? vlosInfo.vlosM)} (VLOS)`}
+                        </ThemedText>
+                        <ThemedText style={[styles.vlosInfoText, { color: theme.textSecondary }]}>
+                          {vlosAltitudeCorrection
+                            ? `Bei ${maxAltitude} m AGL geometrisch aus der direkten VLOS-Grenze abgeleitet. Ohne Höhenkorrektur: ${formatMeters(vlosInfo.vlosM)}.`
+                            : `Der Umkreis kann bei Bedarf bis ${formatMeters(sliderMaxM)} erweitert werden; eine Überschreitung wird kenntlich gemacht.`}
+                        </ThemedText>
+                      </>
+                    )}
+                  </View>
+                </View>
+              ) : null}
             </View>
           ) : null}
 
           {selectedLocation ? (
-            <View style={[styles.geozoneHint, { backgroundColor: theme.backgroundSecondary }]}>
-              <Feather name="layers" size={14} color={theme.primary} />
-              <ThemedText style={[styles.geozoneHintText, { color: theme.textSecondary }]}>
-                Geozonen werden auf der Karte angezeigt. Passe Standort und Umkreis an, um Einschränkungen zu sehen.
+            <View style={styles.altitudeSection}>
+              <View style={styles.radiusHeader}>
+                <Feather name="arrow-up" size={14} color={theme.textSecondary} />
+                <ThemedText style={[styles.radiusLabel, { color: theme.textSecondary }]}>Geplante Flughöhe (AGL)</ThemedText>
+                <ThemedText style={[styles.radiusValue, { color: maxAltitude > 120 ? "#D97706" : theme.primary }]}>
+                  {maxAltitude} m
+                </ThemedText>
+              </View>
+              <View style={styles.altitudeChipRow}>
+                {[30, 50, 80, 100, 120, 150].map((h) => (
+                  <Pressable
+                    key={h}
+                    style={[
+                      styles.altitudeChip,
+                      { borderColor: maxAltitude === h ? theme.primary : theme.border },
+                      maxAltitude === h ? { backgroundColor: theme.primary + "20" } : undefined,
+                    ]}
+                    onPress={() => setMaxAltitude(h)}
+                    testID={`button-altitude-${h}`}
+                  >
+                    <ThemedText style={[styles.altitudeChipText, maxAltitude === h ? { color: theme.primary, fontWeight: "700" } : { color: theme.textSecondary }]}>
+                      {h}m
+                    </ThemedText>
+                  </Pressable>
+                ))}
+              </View>
+              <View style={styles.altitudeCustomRow}>
+                <ThemedText style={[styles.altitudeCustomLabel, { color: theme.textSecondary }]}>Eigene Höhe:</ThemedText>
+                <TextInput
+                  style={[styles.altitudeInput, { color: theme.text, borderColor: theme.border, backgroundColor: theme.backgroundSecondary }]}
+                  value={String(maxAltitude)}
+                  onChangeText={(t) => {
+                    const n = parseInt(t, 10);
+                    if (!isNaN(n) && n >= 0 && n <= 500) setMaxAltitude(n);
+                    else if (t === "") setMaxAltitude(0);
+                  }}
+                  keyboardType="number-pad"
+                  maxLength={3}
+                  testID="input-altitude"
+                />
+                <ThemedText style={[styles.altitudeUnit, { color: theme.textSecondary }]}>m AGL</ThemedText>
+              </View>
+              {vlosInfo ? (
+                <Pressable
+                  style={[styles.vlosCorrectionToggle, { backgroundColor: theme.backgroundSecondary }]}
+                  onPress={() => setVlosAltitudeCorrection((enabled) => !enabled)}
+                  accessibilityRole="switch"
+                  accessibilityState={{ checked: vlosAltitudeCorrection }}
+                  testID="toggle-vlos-altitude-correction"
+                >
+                  <Feather
+                    name={vlosAltitudeCorrection ? "check-square" : "square"}
+                    size={18}
+                    color={vlosAltitudeCorrection ? theme.primary : theme.textSecondary}
+                  />
+                  <View style={styles.vlosCorrectionText}>
+                    <ThemedText style={[styles.vlosCorrectionTitle, { color: theme.text }]}>
+                      Flughöhe bei VLOS berücksichtigen
+                    </ThemedText>
+                    <ThemedText style={[styles.vlosCorrectionDescription, { color: theme.textSecondary }]}>
+                      Verkürzt den horizontalen Planungsradius geometrisch. Die VLOS-Grenze bleibt unverändert. Näherung mit AGL-Höhe als Höhenunterschied.
+                    </ThemedText>
+                  </View>
+                </Pressable>
+              ) : null}
+            </View>
+          ) : null}
+
+          {selectedLocation && countryLocked ? (
+            <View style={[styles.touchedBox, { backgroundColor: theme.statusCautionBackground, borderColor: theme.statusCaution }]} testID="planning-country-locked">
+              <View style={styles.touchedHeader}>
+                <Feather name="lock" size={14} color={theme.statusCaution} />
+                <ThemedText style={[styles.touchedTitle, { color: theme.statusCaution }]}>
+                  {`${countryName(selectedCountryIso)} nicht freigeschaltet`}
+                </ThemedText>
+              </View>
+              <ThemedText style={[styles.touchedHint, { color: theme.textSecondary }]}>
+                {`Die offizielle Länderkarte und die Geozonen-Prüfung sind nur für freigeschaltete Länder verfügbar. Schalte ${countryName(selectedCountryIso)} frei, um die Flugplanung für diesen Standort fortzusetzen.`}
               </ThemedText>
             </View>
           ) : null}
+
+          {showOfficialMap && officialMapConfig ? (
+            <View style={[styles.touchedBox, { backgroundColor: theme.statusCautionBackground, borderColor: theme.statusCaution }]}>
+              <View style={styles.touchedHeader}>
+                <Feather name="map" size={14} color={theme.statusCaution} />
+                <ThemedText style={[styles.touchedTitle, { color: theme.statusCaution }]}>
+                  Geozonen nicht anzeigbar
+                </ThemedText>
+              </View>
+              <ThemedText style={[styles.touchedHint, { color: theme.textSecondary }]}>
+                {officialMapConfig.iso === "EASA"
+                  ? "Geozonen können für dieses Land nicht angezeigt werden – bitte prüfe die offizielle Karte selbst. Nutze das EASA-Drohnenportal, um die zuständige Behörde und deren Karte zu finden."
+                  : `Geozonen können für ${officialMapConfig.nameDE} nicht angezeigt werden – bitte prüfe die offizielle Karte selbst${officialMapConfig.supportsCoordinates ? " (zentriert auf deinen Standort)" : ""}.`}
+              </ThemedText>
+              <TouchableOpacity
+                style={[styles.officialMapButton, { backgroundColor: theme.primary }]}
+                onPress={handleOpenOfficialMap}
+                activeOpacity={0.7}
+                testID="button-official-map"
+              >
+                <Feather name="external-link" size={16} color="#FFFFFF" />
+                <ThemedText style={styles.officialMapButtonText}>
+                  Offizielle Karte ansehen
+                </ThemedText>
+              </TouchableOpacity>
+
+              {manualRestriction ? (
+                <View
+                  style={[
+                    styles.manualAnswerBox,
+                    {
+                      backgroundColor: theme.backgroundDefault,
+                      borderColor: manualRestriction.status === "limited" ? theme.statusCaution : theme.statusGo,
+                    },
+                  ]}
+                  testID="manual-restriction-summary"
+                >
+                  <View style={styles.touchedHeader}>
+                    <Feather
+                      name={manualRestriction.status === "limited" ? "alert-circle" : "check-circle"}
+                      size={14}
+                      color={manualRestriction.status === "limited" ? theme.statusCaution : theme.statusGo}
+                    />
+                    <ThemedText
+                      style={[
+                        styles.touchedTitle,
+                        { color: manualRestriction.status === "limited" ? theme.statusCaution : theme.statusGo },
+                      ]}
+                    >
+                      {manualRestriction.status === "limited"
+                        ? "Einschränkungen am Standort"
+                        : "Keine Einschränkungen am Standort"}
+                    </ThemedText>
+                  </View>
+                  {manualRestriction.note ? (
+                    <ThemedText style={[styles.touchedHint, { color: theme.textSecondary }]}>
+                      Notiz: {manualRestriction.note}
+                    </ThemedText>
+                  ) : null}
+                  <TouchableOpacity
+                    onPress={() => {
+                      setRestrictionNoteDraft(manualRestriction.note);
+                      setRestrictionModalVisible(true);
+                    }}
+                    activeOpacity={0.7}
+                    style={styles.manualAnswerEdit}
+                    testID="button-edit-restriction-answer"
+                  >
+                    <Feather name="edit-2" size={13} color={theme.primary} />
+                    <ThemedText style={[styles.manualAnswerEditText, { color: theme.primary }]}>
+                      Angabe ändern
+                    </ThemedText>
+                  </TouchableOpacity>
+                </View>
+              ) : null}
+            </View>
+          ) : selectedLocation ? (
+            touchedLoading && touchedGeozones.length === 0 ? (
+              <View style={[styles.geozoneHint, { backgroundColor: theme.backgroundSecondary }]}>
+                <ActivityIndicator size="small" color={theme.primary} />
+                <ThemedText style={[styles.geozoneHintText, { color: theme.textSecondary }]}>
+                  Prüfe Geozonen im Umkreis…
+                </ThemedText>
+              </View>
+            ) : touchedGeozones.length === 0 ? (
+              <View style={[styles.geozoneHint, { backgroundColor: theme.statusGoBackground }]}>
+                <Feather name="check-circle" size={14} color={theme.statusGo} />
+                <ThemedText style={[styles.geozoneHintText, { color: theme.statusGo }]}>
+                  Keine permanenten Geozonen im Umkreis erkannt.
+                </ThemedText>
+              </View>
+            ) : touchedAssessment.conflicts.length > 0 ? (
+              <View style={[styles.touchedBox, { backgroundColor: theme.statusCautionBackground, borderColor: theme.statusCaution }]}>
+                <View style={styles.touchedHeader}>
+                  <Feather name="alert-triangle" size={14} color={theme.statusCaution} />
+                  <ThemedText style={[styles.touchedTitle, { color: theme.statusCaution }]}>
+                    {touchedAssessment.conflicts.length} Geozone{touchedAssessment.conflicts.length === 1 ? "" : "n"} im Umkreis
+                  </ThemedText>
+                </View>
+                {touchedAssessment.conflicts.slice(0, 6).map(({ g, a }, idx) => (
+                  <Pressable
+                    key={`${g.layerLabel}-${g.name}-${idx}`}
+                    style={styles.touchedRow}
+                    onPress={() => openZoneDetail(g)}
+                    testID={`button-geozone-detail-conflict-${idx}`}
+                  >
+                    <View style={[styles.touchedDot, { backgroundColor: theme.statusCaution }]} />
+                    <View style={{ flex: 1 }}>
+                      <ThemedText style={[styles.touchedRowName, { color: theme.text }]} numberOfLines={2}>
+                        {g.name}
+                      </ThemedText>
+                      <ThemedText style={[styles.touchedRowLayer, { color: theme.textSecondary }]} numberOfLines={1}>
+                        {g.layerLabel}{a.label ? ` · ${a.label}` : ""}
+                      </ThemedText>
+                    </View>
+                    <Feather name="chevron-right" size={16} color={theme.textTertiary} style={styles.touchedChevron} />
+                  </Pressable>
+                ))}
+                {touchedAssessment.conflicts.length > 6 ? (
+                  <ThemedText style={[styles.touchedMore, { color: theme.textSecondary }]}>
+                    +{touchedAssessment.conflicts.length - 6} weitere — Details im nächsten Schritt
+                  </ThemedText>
+                ) : null}
+                {touchedAssessment.cleared.length > 0 ? (
+                  <>
+                    <ThemedText style={[styles.touchedSubhead, { color: theme.textSecondary }]}>
+                      {touchedAssessment.cleared.length} Höhen-Limit-Zone{touchedAssessment.cleared.length === 1 ? "" : "n"} über deiner Höhe ({maxAltitude} m) – unkritisch:
+                    </ThemedText>
+                    {touchedAssessment.cleared.slice(0, 6).map(({ g, a }, idx) => (
+                      <Pressable
+                        key={`cleared-${g.layerLabel}-${g.name}-${idx}`}
+                        style={styles.touchedRow}
+                        onPress={() => openZoneDetail(g)}
+                        testID={`button-geozone-detail-cleared-${idx}`}
+                      >
+                        <View style={[styles.touchedDot, { backgroundColor: theme.statusGo }]} />
+                        <View style={{ flex: 1 }}>
+                          <ThemedText style={[styles.touchedRowName, { color: theme.text }]} numberOfLines={2}>
+                            {g.name}
+                          </ThemedText>
+                          <ThemedText style={[styles.touchedRowLayer, { color: theme.textSecondary }]} numberOfLines={1}>
+                            {g.layerLabel}{a.label ? ` · ${a.label}` : ""}
+                          </ThemedText>
+                        </View>
+                        <Feather name="chevron-right" size={16} color={theme.textTertiary} style={styles.touchedChevron} />
+                      </Pressable>
+                    ))}
+                    {touchedAssessment.cleared.length > 6 ? (
+                      <ThemedText style={[styles.touchedMore, { color: theme.textSecondary }]}>
+                        +{touchedAssessment.cleared.length - 6} weitere höhen-unkritische Zone{touchedAssessment.cleared.length - 6 === 1 ? "" : "n"}
+                      </ThemedText>
+                    ) : null}
+                  </>
+                ) : null}
+                <ThemedText style={[styles.touchedHint, { color: theme.textSecondary }]}>
+                  Tipp: Standort verschieben, Umkreis verringern oder geplante Flughöhe anpassen, um Konflikte zu vermeiden.
+                </ThemedText>
+              </View>
+            ) : (
+              <View style={[styles.touchedBox, { backgroundColor: theme.statusGoBackground, borderColor: theme.statusGo }]}>
+                <View style={styles.touchedHeader}>
+                  <Feather name="check-circle" size={14} color={theme.statusGo} />
+                  <ThemedText style={[styles.touchedTitle, { color: theme.statusGo }]}>
+                    {touchedAssessment.cleared.length} Höhen-Limit-Zone{touchedAssessment.cleared.length === 1 ? "" : "n"} – unter {maxAltitude} m unkritisch
+                  </ThemedText>
+                </View>
+                {touchedAssessment.cleared.slice(0, 6).map(({ g, a }, idx) => (
+                  <Pressable
+                    key={`${g.layerLabel}-${g.name}-${idx}`}
+                    style={styles.touchedRow}
+                    onPress={() => openZoneDetail(g)}
+                    testID={`button-geozone-detail-cleared-${idx}`}
+                  >
+                    <View style={[styles.touchedDot, { backgroundColor: theme.statusGo }]} />
+                    <View style={{ flex: 1 }}>
+                      <ThemedText style={[styles.touchedRowName, { color: theme.text }]} numberOfLines={2}>
+                        {g.name}
+                      </ThemedText>
+                      <ThemedText style={[styles.touchedRowLayer, { color: theme.textSecondary }]} numberOfLines={1}>
+                        {g.layerLabel}{a.label ? ` · ${a.label}` : ""}
+                      </ThemedText>
+                    </View>
+                    <Feather name="chevron-right" size={16} color={theme.textTertiary} style={styles.touchedChevron} />
+                  </Pressable>
+                ))}
+                <ThemedText style={[styles.touchedHint, { color: theme.textSecondary }]}>
+                  Diese Zonen begrenzen die Flughöhe auf einen Wert über deiner geplanten Höhe ({maxAltitude} m) – kein Konflikt.
+                </ThemedText>
+              </View>
+            )
+          ) : null}
         </ScrollView>
-        
+
         <Button
           title={detectingCountry ? "Land wird erkannt..." : "Standort bestätigen"}
           onPress={handleContinue}
@@ -859,6 +1449,182 @@ export default function PlanningLocationScreen() {
           loading={detectingCountry}
         />
       </View>
+
+      <Modal
+        visible={restrictionModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setRestrictionModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalCard, { backgroundColor: theme.backgroundDefault }]}>
+            <ThemedText style={styles.modalTitle}>Einschränkungen am Standort?</ThemedText>
+            <ThemedText style={[styles.modalText, { color: theme.textSecondary }]}>
+              Bestehen laut offizieller Karte Einschränkungen oder Geozonen an deinem
+              geplanten Standort?
+            </ThemedText>
+
+            <TextInput
+              style={[
+                styles.modalInput,
+                { color: theme.text, borderColor: theme.border, backgroundColor: theme.backgroundSecondary },
+              ]}
+              value={restrictionNoteDraft}
+              onChangeText={setRestrictionNoteDraft}
+              placeholder="Notiz (optional)"
+              placeholderTextColor={theme.textTertiary}
+              multiline
+              testID="input-restriction-note"
+            />
+
+            <View style={styles.modalButtonRow}>
+              <TouchableOpacity
+                style={[styles.modalButton, { backgroundColor: theme.statusGo }]}
+                onPress={() => handleRestrictionAnswer("approved")}
+                activeOpacity={0.7}
+                testID="button-restriction-no"
+              >
+                <Feather name="check" size={16} color="#FFFFFF" />
+                <ThemedText style={styles.modalButtonText}>Nein</ThemedText>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalButton, { backgroundColor: theme.statusCaution }]}
+                onPress={() => handleRestrictionAnswer("limited")}
+                activeOpacity={0.7}
+                testID="button-restriction-yes"
+              >
+                <Feather name="alert-triangle" size={16} color="#FFFFFF" />
+                <ThemedText style={styles.modalButtonText}>Ja</ThemedText>
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity
+              onPress={() => setRestrictionModalVisible(false)}
+              activeOpacity={0.7}
+              style={styles.modalCancel}
+              testID="button-restriction-cancel"
+            >
+              <ThemedText style={[styles.modalCancelText, { color: theme.textSecondary }]}>
+                Später entscheiden
+              </ThemedText>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={detailZone !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setDetailZone(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalCard, { backgroundColor: theme.backgroundDefault }]}>
+            {detailZone ? (
+              <>
+                <View style={styles.touchedHeader}>
+                  <Feather name="map-pin" size={16} color={theme.primary} />
+                  <View style={[styles.zoneDetailBadge, { backgroundColor: theme.primary }]}>
+                    <ThemedText style={styles.zoneDetailBadgeText} numberOfLines={1}>
+                      {detailZone.layerLabel}
+                    </ThemedText>
+                  </View>
+                </View>
+                <ThemedText style={styles.modalTitle} testID="text-zone-detail-name">
+                  {detailZone.name}
+                </ThemedText>
+
+                <ScrollView
+                  style={styles.zoneDetailScroll}
+                  contentContainerStyle={styles.zoneDetailScrollContent}
+                  showsVerticalScrollIndicator={false}
+                >
+                  {detailHasContent ? (
+                    <>
+                      {detailParsed && detailParsed.otherLines.length > 0 ? (
+                        <ThemedText style={[styles.geozoneDetailBody, { color: theme.textSecondary }]} testID="text-zone-detail-info">
+                          {detailParsed.otherLines.join("\n")}
+                        </ThemedText>
+                      ) : null}
+
+                      {detailZone.applicationText ? (
+                        <View style={[styles.zoneDetailNote, { backgroundColor: theme.backgroundSecondary, borderColor: theme.border }]}>
+                          <ThemedText style={[styles.zoneDetailNoteText, { color: theme.textSecondary }]}>
+                            {detailZone.applicationText}
+                          </ThemedText>
+                        </View>
+                      ) : null}
+
+                      {detailParsed && detailParsed.contacts.length > 0 ? (
+                        <View style={styles.zoneDetailContacts}>
+                          {detailParsed.contacts.map((c, ci) => (
+                            <TouchableOpacity
+                              key={`${c.type}-${c.value}-${ci}`}
+                              style={[styles.zoneDetailContactRow, { borderColor: theme.border }]}
+                              activeOpacity={0.7}
+                              onPress={() => {
+                                const url = c.type === "phone" ? `tel:${c.value.replace(/\s/g, "")}` : `mailto:${c.value}`;
+                                openLink(url).catch(() => {});
+                              }}
+                              testID={`button-zone-contact-${ci}`}
+                            >
+                              <Feather name={c.type === "phone" ? "phone" : "mail"} size={15} color={theme.primary} />
+                              <ThemedText style={[styles.zoneDetailContactText, { color: theme.primary }]} numberOfLines={1}>
+                                {c.value}
+                              </ThemedText>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      ) : null}
+
+                      {detailZone.links && detailZone.links.length > 0 ? (
+                        <View style={styles.zoneDetailContacts}>
+                          {detailZone.links.map((l, li) => {
+                            const isMail = l.url.startsWith("mailto:");
+                            const isTel = l.url.startsWith("tel:");
+                            return (
+                              <TouchableOpacity
+                                key={`${l.url}-${li}`}
+                                style={[styles.zoneDetailContactRow, { borderColor: theme.border }]}
+                                activeOpacity={0.7}
+                                onPress={() => { openLink(l.url).catch(() => {}); }}
+                                testID={`button-zone-link-${li}`}
+                              >
+                                <Feather name={isMail ? "mail" : isTel ? "phone" : "external-link"} size={15} color={theme.primary} />
+                                <ThemedText style={[styles.zoneDetailContactText, { color: theme.primary }]} numberOfLines={1}>
+                                  {l.label}
+                                </ThemedText>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                      ) : null}
+                    </>
+                  ) : (
+                    <View style={styles.zoneDetailEmpty} testID="text-zone-detail-empty">
+                      <Feather name="info" size={18} color={theme.textTertiary} />
+                      <ThemedText style={[styles.zoneDetailEmptyText, { color: theme.textSecondary }]}>
+                        Für diese Zone sind keine weiteren Details hinterlegt. Prüfe die offizielle Karte im nächsten Schritt.
+                      </ThemedText>
+                    </View>
+                  )}
+                </ScrollView>
+              </>
+            ) : null}
+
+            <TouchableOpacity
+              onPress={() => setDetailZone(null)}
+              activeOpacity={0.7}
+              style={styles.modalCancel}
+              testID="button-zone-detail-close"
+            >
+              <ThemedText style={[styles.modalCancelText, { color: theme.textSecondary }]}>
+                Schließen
+              </ThemedText>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </ThemedView>
   );
 }
@@ -875,7 +1641,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: Spacing.lg,
     right: Spacing.lg,
-    zIndex: 1,
+    zIndex: 5,
   },
   searchBar: {
     flexDirection: "row",
@@ -894,6 +1660,55 @@ const styles = StyleSheet.create({
     flex: 1,
     ...Typography.body,
     paddingVertical: 0,
+  },
+  searchDropdown: {
+    marginTop: 6,
+    borderRadius: BorderRadius.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 10,
+    elevation: 6,
+  },
+  searchLoadingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    padding: Spacing.md,
+  },
+  searchLoadingText: {
+    ...Typography.caption,
+  },
+  resultRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm + 2,
+  },
+  resultIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  resultText: {
+    flex: 1,
+  },
+  resultName: {
+    ...Typography.body,
+    fontWeight: "600",
+  },
+  resultDetail: {
+    ...Typography.caption,
+    marginTop: 1,
+  },
+  resultSeparator: {
+    height: StyleSheet.hairlineWidth,
+    marginLeft: Spacing.md + 32 + Spacing.sm,
   },
   myLocationButton: {
     position: "absolute",
@@ -1004,6 +1819,33 @@ const styles = StyleSheet.create({
     ...Typography.caption,
     fontSize: 10,
   },
+  sliderVlosMark: {
+    position: "absolute",
+    width: 2,
+    height: 16,
+    top: -2,
+    marginLeft: -1,
+    opacity: 0.55,
+  },
+  vlosInfoBox: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: Spacing.sm,
+    padding: Spacing.md,
+    borderRadius: BorderRadius.sm,
+    marginTop: Spacing.sm,
+    marginBottom: Spacing.sm,
+  },
+  vlosInfoTitle: {
+    ...Typography.small,
+    fontWeight: "600",
+    marginBottom: 2,
+  },
+  vlosInfoText: {
+    ...Typography.caption,
+    fontSize: 11,
+    lineHeight: 15,
+  },
   geozoneHint: {
     flexDirection: "row",
     alignItems: "center",
@@ -1015,6 +1857,269 @@ const styles = StyleSheet.create({
   geozoneHintText: {
     ...Typography.small,
     flex: 1,
+  },
+  touchedBox: {
+    borderRadius: BorderRadius.sm,
+    borderWidth: 1,
+    padding: Spacing.md,
+    marginBottom: Spacing.sm,
+    gap: 6,
+  },
+  altitudeSection: {
+    marginBottom: Spacing.md,
+  },
+  vlosCorrectionToggle: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: Spacing.sm,
+    padding: Spacing.md,
+    borderRadius: BorderRadius.sm,
+    marginTop: Spacing.md,
+  },
+  vlosCorrectionText: {
+    flex: 1,
+    gap: 2,
+  },
+  vlosCorrectionTitle: {
+    ...Typography.small,
+    fontWeight: "600",
+  },
+  vlosCorrectionDescription: {
+    ...Typography.caption,
+    fontSize: 11,
+    lineHeight: 15,
+  },
+  altitudeChipRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: Spacing.sm,
+    marginTop: Spacing.sm,
+  },
+  altitudeChip: {
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    borderRadius: BorderRadius.sm,
+    borderWidth: 1,
+  },
+  altitudeChipText: {
+    ...Typography.small,
+  },
+  altitudeCustomRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    marginTop: Spacing.sm,
+  },
+  altitudeCustomLabel: {
+    ...Typography.small,
+  },
+  altitudeInput: {
+    width: 64,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: BorderRadius.sm,
+    borderWidth: 1,
+    ...Typography.small,
+    textAlign: "center",
+  },
+  altitudeUnit: {
+    ...Typography.small,
+  },
+  touchedHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    marginBottom: 4,
+  },
+  touchedTitle: {
+    ...Typography.caption,
+    fontWeight: "700",
+  },
+  touchedRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: Spacing.sm,
+    paddingVertical: 4,
+  },
+  touchedDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginTop: 7,
+  },
+  touchedRowName: {
+    ...Typography.small,
+    fontWeight: "600",
+  },
+  touchedRowLayer: {
+    ...Typography.small,
+    fontSize: 11,
+  },
+  touchedMore: {
+    ...Typography.small,
+    fontStyle: "italic",
+    marginTop: 4,
+  },
+  touchedHint: {
+    ...Typography.small,
+    fontStyle: "italic",
+    marginTop: 6,
+  },
+  touchedChevron: {
+    marginTop: 2,
+  },
+  touchedSubhead: {
+    ...Typography.small,
+    fontWeight: "600",
+    marginTop: Spacing.sm,
+    marginBottom: 2,
+  },
+  zoneDetailBadge: {
+    borderRadius: BorderRadius.sm,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    flexShrink: 1,
+  },
+  zoneDetailBadgeText: {
+    ...Typography.small,
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#FFFFFF",
+  },
+  zoneDetailScroll: {
+    maxHeight: 320,
+  },
+  zoneDetailScrollContent: {
+    gap: Spacing.md,
+  },
+  geozoneDetailBody: {
+    ...Typography.small,
+    lineHeight: 19,
+  },
+  zoneDetailNote: {
+    borderRadius: BorderRadius.sm,
+    borderWidth: 1,
+    padding: Spacing.md,
+  },
+  zoneDetailNoteText: {
+    ...Typography.small,
+    lineHeight: 18,
+  },
+  zoneDetailContacts: {
+    gap: Spacing.sm,
+  },
+  zoneDetailContactRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderRadius: BorderRadius.md,
+  },
+  zoneDetailContactText: {
+    ...Typography.small,
+    fontWeight: "600",
+    flex: 1,
+  },
+  zoneDetailEmpty: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    paddingVertical: Spacing.sm,
+  },
+  zoneDetailEmptyText: {
+    ...Typography.small,
+    flex: 1,
+    lineHeight: 18,
+  },
+  officialMapButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    marginTop: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: BorderRadius.md,
+  },
+  officialMapButtonText: {
+    ...Typography.body,
+    color: "#FFFFFF",
+    fontWeight: "600",
+  },
+  manualAnswerBox: {
+    marginTop: 12,
+    padding: 12,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    gap: 6,
+  },
+  manualAnswerEdit: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 4,
+  },
+  manualAnswerEditText: {
+    ...Typography.small,
+    fontWeight: "600",
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: Spacing.xl,
+  },
+  modalCard: {
+    width: "100%",
+    maxWidth: 420,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.xl,
+    gap: Spacing.md,
+  },
+  modalTitle: {
+    ...Typography.h3,
+    fontWeight: "700",
+  },
+  modalText: {
+    ...Typography.body,
+  },
+  modalInput: {
+    ...Typography.body,
+    minHeight: 64,
+    borderWidth: 1,
+    borderRadius: BorderRadius.md,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    textAlignVertical: "top",
+  },
+  modalButtonRow: {
+    flexDirection: "row",
+    gap: Spacing.md,
+  },
+  modalButton: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: BorderRadius.md,
+  },
+  modalButtonText: {
+    ...Typography.body,
+    color: "#FFFFFF",
+    fontWeight: "700",
+  },
+  modalCancel: {
+    alignItems: "center",
+    paddingVertical: Spacing.sm,
+  },
+  modalCancelText: {
+    ...Typography.small,
+    fontWeight: "600",
   },
   webScrollView: {
     flex: 1,
@@ -1037,6 +2142,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     padding: Spacing.lg,
     borderWidth: 2,
+    marginTop: Spacing.lg,
     marginBottom: Spacing.md,
   },
   locationIcon: {
@@ -1128,6 +2234,42 @@ const styles = StyleSheet.create({
   selectedCoords: {
     ...Typography.small,
     marginLeft: 26,
+  },
+  selectedRadiusRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: Spacing.md,
+    marginLeft: 26,
+  },
+  selectedRadiusLabel: {
+    ...Typography.caption,
+    fontWeight: "600",
+  },
+  selectedRadiusValue: {
+    ...Typography.caption,
+    fontWeight: "700",
+    fontSize: 13,
+    marginLeft: "auto",
+  },
+  radiusPresetRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: Spacing.sm,
+    marginTop: Spacing.md,
+    marginLeft: 26,
+  },
+  radiusPresetBtn: {
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.sm,
+    borderWidth: 1,
+    minWidth: 56,
+    alignItems: "center",
+  },
+  radiusPresetLabel: {
+    ...Typography.caption,
+    fontWeight: "600",
   },
   webHint: {
     flexDirection: "row",

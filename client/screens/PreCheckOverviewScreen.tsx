@@ -1,23 +1,30 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   View,
   StyleSheet,
   ScrollView,
   Pressable,
   ActivityIndicator,
+  Platform,
 } from "react-native";
+import MapView, { Circle, Marker, Polygon, UrlTile, WMSTile } from "@/components/maps";
 import { useRoute, useNavigation } from "@react-navigation/native";
 import type { RouteProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Feather } from "@expo/vector-icons";
+import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import * as WebBrowser from "@/lib/webBrowser";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { Card } from "@/components/Card";
 import { Button } from "@/components/Button";
 import { useTheme } from "@/hooks/useTheme";
+import { useMapBasemapStyle } from "@/hooks/useMapBasemapStyle";
+import { GRAYSCALE_BASEMAP_TILE_URL, nativeMapBasemapProps } from "@/lib/mapBasemap";
+import { useShowDataSources } from "@/lib/dataSource";
+import { attributionLabel } from "@/lib/sourceAttribution";
 import { Spacing, Typography, BorderRadius } from "@/constants/theme";
 import type { FlightCheckParamList } from "@/navigation/FlightCheckNavigator";
 import {
@@ -27,18 +34,36 @@ import {
   fetchNearbyTempRestrictions,
   DipulTempRestriction,
   DipulTempRestrictionsResult,
+  buildCombinedWmsTileUrl,
+  loadGeozoneSettings,
+  getActiveLayerNames,
+  getCountriesInRadius,
+  getCountryGeozoneConfig,
+  ringGroupsForZone,
 } from "@/lib/geozones";
 import { findMilLowFlightAreasContaining, findMilLowFlightAreasIntersectingRadius, findMilLowFlightAreasOnRoute, MIL_LOW_FLIGHT_LABEL, MIL_LOW_FLIGHT_ACTIVATION_TEXT, MIL_LOW_FLIGHT_DATA_STAND, MIL_LOW_FLIGHT_SOURCE_URL } from "@/lib/milLowFlight";
+import { smoothRingGroup } from "@/lib/ringSimplify";
 import {
   getPilotProfile,
   PilotProfile,
-  AV_GEOZONE_TYPES,
+  is21hLayerAvEligible,
+  isErlaubnisExpired,
+  Bundesland,
   updateFlightSession,
   getFlightSession,
   getDrone,
+  getSettings,
   DEFAULT_LIMITS,
   WeatherLimits,
+  DroneProfile,
 } from "@/lib/storage";
+import { WildlifeRescueInfoModal } from "@/components/WildlifeRescueInfo";
+import { WILDLIFE_RESCUE_MODE_TITLE, WILDLIFE_RESCUE_PLANNING_HINT } from "../../shared/wildlifeRescue";
+import { detectBundeslandFromCoordinates } from "@/lib/countryMaps";
+import { fetchHourlyForecasts, type HourlyForecastSlot } from "@/lib/weather";
+import HourlyForecastTable from "@/components/HourlyForecastTable";
+import { useAuth } from "@/lib/auth";
+import { splitCountriesByAccess, countryName } from "../../shared/countryEntitlements";
 
 type RouteParams = RouteProp<FlightCheckParamList, "PreCheckOverview">;
 type NavigationProp = NativeStackNavigationProp<FlightCheckParamList, "PreCheckOverview">;
@@ -86,10 +111,21 @@ function daysUntilStart(r: DipulTempRestriction): string | null {
   return `In ${diff} Tagen`;
 }
 
+function formatRecurRule(rules: string[]): string | null {
+  if (!rules || rules.length === 0) return null;
+  const rule = rules[0];
+  if (rule.includes("FREQ=DAILY")) return "Täglich aktiv";
+  if (rule.includes("FREQ=WEEKLY")) return "Wöchentlich aktiv";
+  if (rule.includes("FREQ=MONTHLY")) return "Monatlich aktiv";
+  return "Wiederkehrend";
+}
+
 export default function PreCheckOverviewScreen() {
+  const [mapStyle] = useMapBasemapStyle();
   const route = useRoute<RouteParams>();
   const navigation = useNavigation<NavigationProp>();
   const { theme } = useTheme();
+  const isAdmin = useShowDataSources();
   const headerHeight = useHeaderHeight();
   const insets = useSafeAreaInsets();
 
@@ -104,28 +140,125 @@ export default function PreCheckOverviewScreen() {
   const [notamError, setNotamError] = useState(false);
   const [pilotProfile, setPilotProfile] = useState<PilotProfile | null>(null);
   const [limits, setLimits] = useState<WeatherLimits>(DEFAULT_LIMITS);
+  const [drone, setDrone] = useState<DroneProfile | null>(null);
+  const [hourlySlots, setHourlySlots] = useState<HourlyForecastSlot[]>([]);
+  const [hourlySource, setHourlySource] = useState<"dipul" | "brightsky" | "openmeteo" | null>(null);
+  const [hourlyHighlight, setHourlyHighlight] = useState<{ start: Date; end: Date }>(() => {
+    const now = new Date();
+    const start = new Date(now);
+    start.setMinutes(0, 0, 0);
+    const end = new Date(start.getTime() + 3600000);
+    return { start, end };
+  });
   const [expandedNotams, setExpandedNotams] = useState<Set<string>>(new Set());
   const [geozoneChecked, setGeozoneChecked] = useState(false);
   const [notamChecked, setNotamChecked] = useState(false);
   const [planningRadiusKm, setPlanningRadiusKm] = useState<number | null>(null);
   const [planningMaxAltitude, setPlanningMaxAltitude] = useState<number | null>(null);
+  const [hasMapSnapshot, setHasMapSnapshot] = useState(false);
+  const [wmsTileUrls, setWmsTileUrls] = useState<{ iso: string; url: string }[]>([]);
+  const [wmsLoaded, setWmsLoaded] = useState(false);
+  // Gesperrte Nachbarländer (Task #522): kein Geozonen-Overlay, dafür Hinweis.
+  const [lockedCountryNames, setLockedCountryNames] = useState<string[]>([]);
+  const { entitlement } = useAuth();
+  const [mapReady, setMapReady] = useState(false);
+  const [wildlifeRescueMode, setWildlifeRescueMode] = useState(false);
+  const [wildlifeInfoOpen, setWildlifeInfoOpen] = useState(false);
+  const mapRef = useRef<MapView>(null);
+  const snapshotTakenRef = useRef(false);
 
   useEffect(() => {
     getPilotProfile().then(setPilotProfile);
+    getSettings().then((s) => setWildlifeRescueMode(s?.wildlifeRescueMode ?? false));
     if (droneId) {
-      getDrone(droneId).then((d) => { if (d) setLimits(d.limits); });
+      getDrone(droneId).then((d) => { if (d) { setLimits(d.limits); setDrone(d); } });
     }
     if (sessionId) {
       getFlightSession(sessionId).then((s) => {
         setPlanningRadiusKm(s?.planning?.radiusKm ?? 1);
         if (s?.planning?.maxAltitude != null) setPlanningMaxAltitude(s.planning.maxAltitude);
+        if (s?.mapSnapshotBase64) {
+          // Snapshot wurde bereits in einer vorigen Pre-Check-Session erfasst — erneutes Capturen vermeiden.
+          snapshotTakenRef.current = true;
+          setHasMapSnapshot(true);
+        }
       });
     } else {
       setPlanningRadiusKm(1);
     }
   }, [droneId, sessionId]);
 
-  const searchRadiusKm = Math.max(planningRadiusKm ?? 1, 0.5);
+  // WMS-Overlay-URLs für die gezeigten Geozonen-Ebenen pro Land aufbauen
+  // (CTR, ED-R, Krankenhäuser, Autobahnen, Schwimmbäder usw. — je nach Pilot-Einstellung).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const r = planningRadiusKm ?? 1;
+      const allCountries = getCountriesInRadius(latitude, longitude, Math.max(r, 5));
+      const { unlocked, locked } = splitCountriesByAccess(allCountries, entitlement);
+      if (!cancelled) setLockedCountryNames(locked.map((iso) => countryName(iso)));
+      const countries = unlocked;
+      const urls: { iso: string; url: string }[] = [];
+      for (const iso of countries) {
+        try {
+          const settings = await loadGeozoneSettings(iso);
+          const enabledLayers = getActiveLayerNames(settings, iso)
+            .filter((name): name is string => typeof name === "string" && name.length > 0);
+          if (enabledLayers.length > 0) {
+            for (const url of buildCombinedWmsTileUrl(enabledLayers, iso)) {
+              urls.push({ iso, url });
+            }
+          }
+        } catch {
+          // Land hat keine WMS-Konfiguration — ignorieren.
+        }
+      }
+      if (!cancelled) {
+        setWmsTileUrls(urls);
+        setWmsLoaded(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [latitude, longitude, planningRadiusKm, entitlement]);
+
+  const captureMapSnapshot = useCallback(async () => {
+    if (snapshotTakenRef.current) return;
+    if (!mapRef.current) return;
+    if (Platform.OS === "web") return;
+    if (!sessionId) return;
+    snapshotTakenRef.current = true;
+    try {
+      // Längere Verzögerung, damit WMS-Tiles und Overlay-Polygone ausgemalt sind, bevor das Bild aufgezeichnet wird.
+      await new Promise((r) => setTimeout(r, 2200));
+      const base64 = await mapRef.current.takeSnapshot({
+        width: 800,
+        height: 480,
+        format: "png",
+        quality: 0.9,
+        result: "base64",
+      } as any);
+      if (typeof base64 === "string" && base64.length > 0) {
+        await updateFlightSession(sessionId, { mapSnapshotBase64: base64 });
+        setHasMapSnapshot(true);
+      }
+    } catch (err) {
+      // Snapshot ist nice-to-have; Fehler stillschweigend hinnehmen, damit der Pre-Check trotzdem genutzt werden kann.
+      snapshotTakenRef.current = false;
+    }
+  }, [sessionId]);
+
+  // Snapshot erst aufnehmen, wenn Karte bereit ist UND WMS-/NOTAM-/Geozonen-Daten geladen sind,
+  // damit Overlays im persistierten Bild enthalten sind.
+  useEffect(() => {
+    if (!mapReady) return;
+    if (!wmsLoaded) return;
+    if (notamLoading) return;
+    if (geozoneLoading) return;
+    if (snapshotTakenRef.current) return;
+    captureMapSnapshot();
+  }, [mapReady, wmsLoaded, notamLoading, geozoneLoading, captureMapSnapshot]);
+
+  const searchRadiusKm = planningRadiusKm ?? 1;
 
   const loadGeozones = useCallback(async () => {
     setGeozoneLoading(true);
@@ -162,10 +295,56 @@ export default function PreCheckOverviewScreen() {
     }
   }, [loadGeozones, loadNotams, planningRadiusKm]);
 
+  // Stündliche Wettervorhersage für den verbleibenden Tag laden (ab voller Stunde vor jetzt
+  // bis Mitternacht), damit der Pilot vor dem Start die Wetterentwicklung der nächsten
+  // Stunden sieht. Reagiert auf Standort-/Drohnenwechsel.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const now = new Date();
+        const start = new Date(now);
+        start.setMinutes(0, 0, 0);
+        start.setHours(start.getHours() - 1);
+        const end = new Date(now);
+        end.setHours(23, 0, 0, 0);
+        if (end <= start) end.setTime(start.getTime() + 6 * 3600000);
+        const result = await fetchHourlyForecasts(
+          latitude,
+          longitude,
+          start.toISOString(),
+          end.toISOString(),
+        );
+        if (cancelled) return;
+        setHourlySlots(result.slots);
+        setHourlySource(result.source);
+      } catch {
+        if (cancelled) return;
+        setHourlySlots([]);
+        setHourlySource(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [latitude, longitude, droneId]);
+
+  // Aktuelle Stunde alle 60s nachziehen, damit der hervorgehobene Slot stimmt.
+  useEffect(() => {
+    const update = () => {
+      const now = new Date();
+      const s = new Date(now);
+      s.setMinutes(0, 0, 0);
+      const e = new Date(s.getTime() + 3600000);
+      setHourlyHighlight((prev) => (prev.start.getTime() === s.getTime() ? prev : { start: s, end: e }));
+    };
+    update();
+    const id = setInterval(update, 60000);
+    return () => clearInterval(id);
+  }, []);
+
   const milLowFlightContaining = findMilLowFlightAreasContaining(latitude, longitude);
-  const milLowFlightNearby = findMilLowFlightAreasIntersectingRadius(latitude, longitude, Math.max(planningRadiusKm ?? 1, 1));
+  const milLowFlightNearby = findMilLowFlightAreasIntersectingRadius(latitude, longitude, planningRadiusKm ?? 1);
   const sampledRoutePoints = React.useMemo(() => {
-    const r = Math.max(planningRadiusKm ?? 1, 0.5);
+    const r = planningRadiusKm ?? 1;
     const points: Array<{ lat: number; lon: number }> = [{ lat: latitude, lon: longitude }];
     const latPerKm = 1 / 110.574;
     const lonPerKm = 1 / (111.32 * Math.cos((latitude * Math.PI) / 180));
@@ -186,16 +365,20 @@ export default function PreCheckOverviewScreen() {
   const milLowFlightHits = Array.from(mergedMilHitsMap.values());
   const milLowFlightInside = milLowFlightContaining.length > 0;
 
-  const avEnabled = pilotProfile?.allgemeinverfuegung?.enabled || false;
-  const avGeozoneTypes = pilotProfile?.allgemeinverfuegung?.geozoneTypes || [];
+  const detectedBundesland = detectBundeslandFromCoordinates(latitude, longitude);
+  const erlaubnisse = pilotProfile?.allgemeinverfuegung || [];
+  const hasA2 = pilotProfile?.licenseA2 || false;
+  const erlaubnisForBundesland = detectedBundesland
+    ? erlaubnisse.find((e) => e.bundesland === (detectedBundesland as Bundesland))
+    : undefined;
+  const hasValidBundeslandErlaubnis =
+    hasA2 && !!erlaubnisForBundesland && !isErlaubnisExpired(erlaubnisForBundesland);
 
   const isGeozoneCoveredByAV = (gz: GeozoneFeatureInfo): boolean => {
-    if (!avEnabled) return false;
-    const label = gz.layerLabel?.toLowerCase() || "";
-    return avGeozoneTypes.some((avType) => {
-      const avLabel = AV_GEOZONE_TYPES.find((t) => t.id === avType)?.label?.toLowerCase() || "";
-      return label.includes(avLabel) || label.includes(avType);
-    });
+    if (!hasValidBundeslandErlaubnis) return false;
+    // Nur AV-fähige § 21h-Kategorien; Luftsicherheits-/zustimmungspflichtige
+    // Zonen (Flugplätze/HEMS, CTR, Industrie/Energie, Behörden) sind nie gedeckt.
+    return is21hLayerAvEligible(gz.layerLabel);
   };
 
   const coveredGeozones = geozones.filter(isGeozoneCoveredByAV);
@@ -206,7 +389,12 @@ export default function PreCheckOverviewScreen() {
 
   const loading = geozoneLoading || notamLoading;
 
-  const canContinue = geozoneChecked && notamChecked;
+  // Ack nur fordern wenn tatsächlich Daten vorliegen.
+  // Bei Lade-/Fetch-Fehlern bleibt der Status unbekannt — dann muss der Pilot
+  // manuell bestätigen, damit kein stiller Bypass entsteht.
+  const requiresGeozoneAck = hasAnyGeozones || geozoneError;
+  const requiresNotamAck = totalNotams > 0 || notamError;
+  const canContinue = (geozoneChecked || !requiresGeozoneAck) && (notamChecked || !requiresNotamAck);
 
   const allCoveredByAV = hasAnyGeozones && uncoveredGeozones.length === 0 && tempRestrictions.length === 0;
 
@@ -253,17 +441,24 @@ export default function PreCheckOverviewScreen() {
     const borderColor = isMilLowFlight ? "#7B8B3A" : isUpcoming ? "#5856D6" : isEDR ? "#FF3B30" : "#FF9500";
     const statusColor = isMilLowFlight ? "#7B8B3A" : isUpcoming ? "#5856D6" : "#34C759";
     const statusLabel = isMilLowFlight ? "Mil. Tiefflug Tag" : isUpcoming ? "Zukünftig" : "Aktiv";
+    const statusIcon = isMilLowFlight ? "shield" : isUpcoming ? "clock" : "zap";
     const dateRange = formatDateRange(r);
     const remaining = isUpcoming ? daysUntilStart(r) : daysRemaining(r);
     const expanded = expandedNotams.has(r.id);
+    const categoryIcon = r.category === "military" ? "shield" : r.category === "nature" ? "feather" : r.category === "notam" ? "file-text" : "alert-circle";
 
     return (
-      <Pressable key={r.id} onPress={() => toggleNotam(r.id)}>
+      <Pressable key={r.id} onPress={() => toggleNotam(r.id)} testID={`restriction-card-${r.id}`}>
         <Card style={[styles.notamCard, { borderLeftColor: borderColor, borderLeftWidth: 3 }]}>
           <View style={styles.notamHeader}>
             <View style={styles.notamHeaderLeft}>
               <View style={[styles.severityDot, { backgroundColor: borderColor }]} />
-              <ThemedText style={styles.notamName} numberOfLines={expanded ? undefined : 1}>{r.name}</ThemedText>
+              <ThemedText style={styles.notamName} numberOfLines={expanded ? undefined : 2}>{r.name}</ThemedText>
+              {r.type ? (
+                <View style={[styles.typeBadge, { backgroundColor: borderColor + "20" }]}>
+                  <ThemedText style={[styles.typeBadgeText, { color: borderColor }]} numberOfLines={1}>{r.type}</ThemedText>
+                </View>
+              ) : null}
             </View>
             <Feather name={expanded ? "chevron-up" : "chevron-down"} size={14} color={theme.textTertiary} />
           </View>
@@ -274,8 +469,8 @@ export default function PreCheckOverviewScreen() {
                 <Feather name="calendar" size={10} color={theme.textSecondary} />
                 <ThemedText style={[styles.notamDateText, { color: theme.textSecondary }]}>{dateRange}</ThemedText>
                 {remaining ? (
-                  <View style={[styles.remainingBadge, { backgroundColor: isUpcoming ? "#5856D620" : "#34C75920" }]}>
-                    <ThemedText style={[styles.remainingText, { color: isUpcoming ? "#5856D6" : "#34C759" }]}>{remaining}</ThemedText>
+                  <View style={[styles.remainingBadge, { backgroundColor: isUpcoming ? "#5856D620" : remaining === "Heute" || remaining === "Morgen" ? "#FF3B3020" : "#34C75920" }]}>
+                    <ThemedText style={[styles.remainingText, { color: isUpcoming ? "#5856D6" : remaining === "Heute" || remaining === "Morgen" ? "#FF3B30" : "#34C759" }]}>{remaining}</ThemedText>
                   </View>
                 ) : null}
               </View>
@@ -283,24 +478,94 @@ export default function PreCheckOverviewScreen() {
             <View style={styles.notamDateRow}>
               <Feather name="arrow-up" size={10} color={theme.textTertiary} />
               <ThemedText style={[styles.notamDateText, { color: theme.textTertiary }]}>{formatAltitude(r)}</ThemedText>
-              <View style={[styles.statusBadge, { backgroundColor: statusColor + "18" }]}>
+              <View style={[styles.statusBadge, { backgroundColor: statusColor + "18", flexDirection: "row", alignItems: "center", gap: 3 }]}>
+                <Feather name={statusIcon as any} size={9} color={statusColor} />
                 <ThemedText style={[styles.statusBadgeText, { color: statusColor }]}>{statusLabel}</ThemedText>
               </View>
             </View>
           </View>
 
+          {isMilLowFlight ? (
+            <View style={[styles.detailRow, { marginTop: 4 }]}>
+              <Feather name="alert-triangle" size={11} color="#7B8B3A" />
+              <ThemedText style={[styles.detailText, { color: "#7B8B3A", fontWeight: "600" }]} numberOfLines={3}>
+                Aktiv {MIL_LOW_FLIGHT_ACTIVATION_TEXT}. Höhenband GND — 250 ft AGL. Vor Start NOTAMs prüfen.
+              </ThemedText>
+            </View>
+          ) : null}
+
           {expanded ? (
             <View style={styles.notamDetails}>
               <View style={styles.detailRow}>
-                <Feather name="info" size={11} color={theme.primary} />
-                <ThemedText style={[styles.detailText, { color: theme.primary }]}>{r.legalExplanation}</ThemedText>
+                <Feather name={categoryIcon as any} size={11} color={theme.primary} />
+                <ThemedText style={[styles.detailText, { color: theme.primary, fontWeight: "600" }]}>{r.legalExplanation}</ThemedText>
               </View>
+              {isMilLowFlight ? (
+                <Pressable
+                  onPress={() => { WebBrowser.openBrowserAsync(MIL_LOW_FLIGHT_SOURCE_URL).catch(() => {}); }}
+                  style={styles.detailRow}
+                >
+                  <Feather name="external-link" size={11} color="#7B8B3A" />
+                  <ThemedText style={[styles.detailText, { color: "#7B8B3A", fontWeight: "600" }]}>
+                    {attributionLabel(isAdmin, `Karte und Details auf dipul.de (Stand ${MIL_LOW_FLIGHT_DATA_STAND})`, "Karte und Details ansehen")}
+                  </ThemedText>
+                </Pressable>
+              ) : null}
               {r.legalRef ? (
                 <View style={styles.detailRow}>
                   <Feather name="book" size={11} color={theme.textTertiary} />
                   <ThemedText style={[styles.detailText, { color: theme.textSecondary }]}>{r.legalRef}</ThemedText>
                 </View>
               ) : null}
+              <View style={styles.detailRow}>
+                <Feather name="arrow-down" size={11} color={theme.textTertiary} />
+                <ThemedText style={[styles.detailText, { color: theme.textSecondary }]}>
+                  Untergrenze: {r.lowerAlt === 0 && r.lowerAltRef === "AGL" ? "GND (Boden)" : `${Math.round(r.lowerAlt)} ${r.lowerAltUnit} ${r.lowerAltRef}`}
+                </ThemedText>
+              </View>
+              <View style={styles.detailRow}>
+                <Feather name="arrow-up" size={11} color={theme.textTertiary} />
+                <ThemedText style={[styles.detailText, { color: theme.textSecondary }]}>
+                  Obergrenze: {Math.round(r.upperAlt)} {r.upperAltUnit} {r.upperAltRef}
+                  {r.upperAltRef === "MSL" ? ` (${Math.round(r.upperAlt * 3.28084)} ft)` : ""}
+                </ThemedText>
+              </View>
+              {r.startTs ? (
+                <View style={styles.detailRow}>
+                  <Feather name="play" size={11} color={theme.textTertiary} />
+                  <ThemedText style={[styles.detailText, { color: theme.textSecondary }]}>
+                    Beginn: {new Date(r.startTs).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "UTC" })} UTC
+                  </ThemedText>
+                </View>
+              ) : null}
+              {r.endTs ? (
+                <View style={styles.detailRow}>
+                  <Feather name="square" size={11} color={theme.textTertiary} />
+                  <ThemedText style={[styles.detailText, { color: theme.textSecondary }]}>
+                    Ende: {r.endTsIndefinite ? "Unbefristet (Dauerhaft aktiv)" : `${new Date(r.endTs).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "UTC" })} UTC`}
+                  </ThemedText>
+                </View>
+              ) : null}
+              {r.recurRules && formatRecurRule(r.recurRules) ? (
+                <View style={styles.detailRow}>
+                  <Feather name="repeat" size={11} color={theme.textTertiary} />
+                  <ThemedText style={[styles.detailText, { color: theme.textSecondary }]}>
+                    {formatRecurRule(r.recurRules)}
+                  </ThemedText>
+                </View>
+              ) : null}
+              {r.genNames && r.genNames.length > 0 && r.genNames[0] !== r.name ? (
+                <View style={styles.detailRow}>
+                  <Feather name="tag" size={11} color={theme.textTertiary} />
+                  <ThemedText style={[styles.detailText, { color: theme.textTertiary }]}>
+                    {r.genNames.join(", ")}
+                  </ThemedText>
+                </View>
+              ) : null}
+              <View style={styles.detailRow}>
+                <Feather name="hash" size={11} color={theme.textTertiary} />
+                <ThemedText style={[styles.detailText, { color: theme.textTertiary }]} numberOfLines={1}>{r.extRef || r.id}</ThemedText>
+              </View>
             </View>
           ) : null}
         </Card>
@@ -319,6 +584,150 @@ export default function PreCheckOverviewScreen() {
           },
         ]}
       >
+        {wildlifeRescueMode ? (
+          <Card
+            style={[styles.wildlifeHint, { backgroundColor: theme.statusCautionBackground, borderColor: theme.statusCaution }]}
+            onPress={() => setWildlifeInfoOpen(true)}
+            testID="hint-wildlife-rescue"
+          >
+            <View style={styles.wildlifeHintHeader}>
+              <MaterialCommunityIcons name="paw" size={16} color={theme.statusCaution} />
+              <ThemedText style={[styles.wildlifeHintTitle, { color: theme.statusCaution }]}>
+                {WILDLIFE_RESCUE_MODE_TITLE}
+              </ThemedText>
+            </View>
+            <ThemedText style={[styles.wildlifeHintBody, { color: theme.text }]}>
+              {WILDLIFE_RESCUE_PLANNING_HINT}
+            </ThemedText>
+            <ThemedText style={[styles.wildlifeHintLink, { color: theme.primary }]}>
+              Mehr Infos zu den Allgemeinverfügungen
+            </ThemedText>
+          </Card>
+        ) : null}
+        {Platform.OS !== "web" ? (
+          <View style={[styles.mapPreviewWrapper, { borderColor: theme.border }]}>
+            <MapView
+              ref={mapRef}
+              style={StyleSheet.absoluteFill}
+              initialRegion={{
+                latitude,
+                longitude,
+                latitudeDelta: Math.max(0.012, (searchRadiusKm * 2.4) / 111),
+                longitudeDelta: Math.max(0.012, (searchRadiusKm * 2.4) / 111),
+              }}
+              scrollEnabled={false}
+              zoomEnabled={false}
+              rotateEnabled={false}
+              pitchEnabled={false}
+              showsUserLocation={false}
+              showsMyLocationButton={false}
+              showsCompass={false}
+              toolbarEnabled={false}
+              {...nativeMapBasemapProps(mapStyle, Platform.OS)}
+              onMapReady={() => setMapReady(true)}
+            >
+              <UrlTile
+                urlTemplate={mapStyle === "grayscale" ? GRAYSCALE_BASEMAP_TILE_URL : "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"}
+                maximumZ={19}
+                tileSize={256}
+                shouldReplaceMapContent={mapStyle === "grayscale"}
+              />
+              {wmsTileUrls.map(({ iso, url }, i) => url ? (
+                <WMSTile
+                  key={`wms-${iso}-${i}-${url}`}
+                  urlTemplate={url}
+                  maximumNativeZ={getCountryGeozoneConfig(iso).wmsMaxNativeZoom}
+                  opacity={0.6}
+                  tileSize={256}
+                />
+              ) : null)}
+              {[...notams.active, ...notams.upcoming].map((r) => {
+                const isActive = r.status === "active";
+                const isEDR = r.name.startsWith("ED-R");
+                const fillColor = isActive
+                  ? (isEDR ? "rgba(255,59,48,0.45)" : "rgba(255,149,0,0.20)")
+                  : "rgba(88,86,214,0.15)";
+                const strokeColor = isActive
+                  ? (isEDR ? "rgba(255,59,48,1)" : "rgba(255,149,0,0.9)")
+                  : "rgba(88,86,214,0.6)";
+                if ((r.polygonRings && r.polygonRings.length > 0) || (r.polygonGroups && r.polygonGroups.length > 0)) {
+                  return ringGroupsForZone(r).map((group, ri) => {
+                    const [outer, ...holes] = smoothRingGroup(group);
+                    if (!outer || outer.length < 3) return null;
+                    return (
+                      <Polygon
+                        key={`${r.id}-poly-${ri}`}
+                        coordinates={outer.map(([lat, lon]) => ({ latitude: lat, longitude: lon }))}
+                        holes={holes.map((h) => h.map(([lat, lon]) => ({ latitude: lat, longitude: lon })))}
+                        fillColor={fillColor}
+                        strokeColor={strokeColor}
+                        strokeWidth={2}
+                      />
+                    );
+                  }).filter(Boolean);
+                }
+                if (r.centerLat != null && r.centerLon != null) {
+                  return (
+                    <Circle
+                      key={`${r.id}-circle`}
+                      center={{ latitude: r.centerLat, longitude: r.centerLon }}
+                      radius={r.radiusM ?? 5000}
+                      fillColor={fillColor}
+                      strokeColor={strokeColor}
+                      strokeWidth={2}
+                    />
+                  );
+                }
+                return null;
+              })}
+              {geozones.flatMap((gz, gi) => {
+                const groups = ringGroupsForZone(gz);
+                if (groups.length === 0) return [];
+                const fill = gz.fillColor ?? "rgba(0,122,255,0.12)";
+                const stroke = gz.strokeColor ?? "rgba(0,122,255,0.85)";
+                return groups.map((group, ri) => {
+                  const [outer, ...holes] = smoothRingGroup(group);
+                  if (!outer || outer.length < 3) return null;
+                  return (
+                    <Polygon
+                      key={`gz-${gz.featureId ?? gz.name}-${gi}-${ri}`}
+                      coordinates={outer.map(([lat, lon]) => ({ latitude: lat, longitude: lon }))}
+                      holes={holes.map((h) => h.map(([lat, lon]) => ({ latitude: lat, longitude: lon })))}
+                      fillColor={fill}
+                      strokeColor={stroke}
+                      strokeWidth={2}
+                    />
+                  );
+                }).filter(Boolean);
+              })}
+              <Circle
+                center={{ latitude, longitude }}
+                radius={searchRadiusKm * 1000}
+                strokeColor="rgba(0, 122, 255, 0.85)"
+                fillColor="rgba(0, 122, 255, 0.10)"
+                strokeWidth={2}
+              />
+              <Marker coordinate={{ latitude, longitude }} />
+            </MapView>
+            <View style={styles.mapPreviewBadge} pointerEvents="none">
+              <Feather name="map" size={11} color="#fff" />
+              <ThemedText style={styles.mapPreviewBadgeText}>
+                {searchRadiusKm >= 1 ? `${searchRadiusKm.toFixed(1)} km` : `${Math.round(searchRadiusKm * 1000)} m`}
+              </ThemedText>
+            </View>
+            {lockedCountryNames.length > 0 ? (
+              <View style={styles.lockedBadge} pointerEvents="none" testID="hint-locked-countries">
+                <Feather name="lock" size={11} color="#fff" />
+                <ThemedText style={styles.lockedBadgeText}>
+                  {lockedCountryNames.length === 1
+                    ? `${lockedCountryNames[0]}: Land freischalten`
+                    : `Land freischalten: ${lockedCountryNames.join(", ")}`}
+                </ThemedText>
+              </View>
+            ) : null}
+          </View>
+        ) : null}
+
         <Card style={styles.locationCard}>
           <View style={styles.locationRow}>
             <Feather name="map-pin" size={16} color={theme.primary} />
@@ -357,9 +766,11 @@ export default function PreCheckOverviewScreen() {
                     : `Geplanter Flugradius reicht in ${milLowFlightHits.map((m) => m.name).join(", ")}`}
                   {" "}— Aktivierung {MIL_LOW_FLIGHT_ACTIVATION_TEXT}. Vor Start aktuelle NOTAMs prüfen.
                 </ThemedText>
-                <ThemedText style={[styles.locationCoords, { color: theme.textTertiary, fontSize: 10, marginTop: 4 }]}>
-                  Quelle: dipul.de (Approximation, Stand {MIL_LOW_FLIGHT_DATA_STAND})
-                </ThemedText>
+                {isAdmin ? (
+                  <ThemedText style={[styles.locationCoords, { color: theme.textTertiary, fontSize: 10, marginTop: 4 }]}>
+                    Quelle: dipul.de (Approximation, Stand {MIL_LOW_FLIGHT_DATA_STAND})
+                  </ThemedText>
+                ) : null}
               </View>
             </View>
           </Card>
@@ -420,7 +831,7 @@ export default function PreCheckOverviewScreen() {
                   <View style={styles.subSectionHeader}>
                     <Feather name="shield" size={12} color="#34C759" />
                     <ThemedText style={[styles.subSectionTitle, { color: "#34C759" }]}>
-                      Durch AV abgedeckt ({coveredGeozones.length})
+                      Durch Allgemeinerlaubnis abgedeckt ({coveredGeozones.length})
                     </ThemedText>
                   </View>
                   {coveredGeozones.map((gz, i) => (
@@ -477,7 +888,7 @@ export default function PreCheckOverviewScreen() {
             </View>
           )}
 
-          {!geozoneLoading ? (
+          {!geozoneLoading && requiresGeozoneAck ? (
             <Pressable
               onPress={() => { setGeozoneChecked(!geozoneChecked); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
               style={[
@@ -493,7 +904,9 @@ export default function PreCheckOverviewScreen() {
               ]}>
                 {geozoneChecked ? <Feather name="check" size={14} color="#fff" /> : null}
               </View>
-              <ThemedText style={styles.checkText}>Geozonen geprüft und zur Kenntnis genommen</ThemedText>
+              <ThemedText style={styles.checkText}>
+                {geozoneError ? "Geozonen-Status unbekannt — manuell geprüft" : "Geozonen geprüft und zur Kenntnis genommen"}
+              </ThemedText>
             </Pressable>
           ) : null}
         </View>
@@ -573,7 +986,7 @@ export default function PreCheckOverviewScreen() {
             </View>
           )}
 
-          {!notamLoading ? (
+          {!notamLoading && requiresNotamAck ? (
             <Pressable
               onPress={() => { setNotamChecked(!notamChecked); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
               style={[
@@ -589,10 +1002,26 @@ export default function PreCheckOverviewScreen() {
               ]}>
                 {notamChecked ? <Feather name="check" size={14} color="#fff" /> : null}
               </View>
-              <ThemedText style={styles.checkText}>NOTAMs geprüft und zur Kenntnis genommen</ThemedText>
+              <ThemedText style={styles.checkText}>
+                {notamError ? "NOTAM-Status unbekannt — manuell geprüft" : "NOTAMs geprüft und zur Kenntnis genommen"}
+              </ThemedText>
             </Pressable>
           ) : null}
         </View>
+
+        {hourlySlots.length > 0 ? (
+          <HourlyForecastTable
+            hourlySlots={hourlySlots}
+            hourlySource={hourlySource}
+            latitude={latitude}
+            longitude={longitude}
+            maxAltitude={planningMaxAltitude ?? 120}
+            drone={drone}
+            subtitle="Wetter heute (Pre-Check)"
+            highlightStart={hourlyHighlight.start}
+            highlightEnd={hourlyHighlight.end}
+          />
+        ) : null}
       </ScrollView>
 
       <View style={[styles.footer, { paddingBottom: insets.bottom + Spacing.lg, backgroundColor: theme.backgroundDefault }]}>
@@ -602,6 +1031,10 @@ export default function PreCheckOverviewScreen() {
           disabled={!canContinue || loading}
         />
       </View>
+      <WildlifeRescueInfoModal
+        visible={wildlifeInfoOpen}
+        onClose={() => setWildlifeInfoOpen(false)}
+      />
     </ThemedView>
   );
 }
@@ -610,6 +1043,78 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   content: {
     paddingHorizontal: Spacing.lg,
+  },
+  wildlifeHint: {
+    padding: Spacing.md,
+    marginBottom: Spacing.md,
+    borderWidth: 1,
+    borderRadius: BorderRadius.lg,
+  },
+  wildlifeHintHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.xs,
+    marginBottom: Spacing.xs,
+  },
+  wildlifeHintTitle: {
+    ...Typography.body,
+    fontWeight: "700",
+  },
+  wildlifeHintBody: {
+    ...Typography.small,
+    lineHeight: 18,
+  },
+  wildlifeHintLink: {
+    ...Typography.small,
+    fontWeight: "600",
+    marginTop: Spacing.sm,
+  },
+  mapPreviewWrapper: {
+    height: 220,
+    borderRadius: BorderRadius.lg,
+    overflow: "hidden",
+    borderWidth: StyleSheet.hairlineWidth,
+    marginBottom: Spacing.md,
+    position: "relative",
+    backgroundColor: "#E5E7EB",
+  },
+  mapPreviewBadge: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    backgroundColor: "rgba(0, 0, 0, 0.55)",
+  },
+  mapPreviewBadgeText: {
+    color: "#fff",
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  lockedBadge: {
+    position: "absolute",
+    top: 8,
+    left: 8,
+    maxWidth: "70%",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    backgroundColor: "rgba(120, 53, 15, 0.9)",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(251, 191, 36, 0.5)",
+  },
+  lockedBadgeText: {
+    color: "#fff",
+    fontSize: 11,
+    fontWeight: "600",
+    flexShrink: 1,
   },
   locationCard: {
     padding: Spacing.md,
@@ -778,6 +1283,17 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 6,
     flex: 1,
+    flexWrap: "wrap",
+  },
+  typeBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  typeBadgeText: {
+    ...Typography.caption,
+    fontSize: 10,
+    fontWeight: "600",
   },
   severityDot: {
     width: 8,

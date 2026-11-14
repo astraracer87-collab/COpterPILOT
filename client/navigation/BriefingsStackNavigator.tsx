@@ -11,7 +11,7 @@ export type BriefingsStackParamList = {
   Briefings: undefined;
   BriefingDetail: { briefingId: string };
   DipulMap: { latitude: number; longitude: number; title?: string; mapUrl?: string };
-  LocationMap: { latitude: number; longitude: number; title?: string; radiusM?: number };
+  LocationMap: { latitude: number; longitude: number; title?: string; radiusM?: number; countryIso?: string };
   BrightSkyWeather: { latitude: number; longitude: number; locationName?: string };
 };
 

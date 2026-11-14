@@ -16,6 +16,7 @@ import { Button } from "@/components/Button";
 import Checkbox from "@/components/Checkbox";
 import TrafficMapView, { TrafficMarker, AircraftTrail, WindData } from "@/components/TrafficMapView";
 import ProximityAlarmBanner, { ProximityAlarmGlow, AlarmPulseProvider, bearingTo } from "@/components/ProximityAlarmBanner";
+import SourceHealthIndicator from "@/components/SourceHealthIndicator";
 import { useTheme } from "@/hooks/useTheme";
 import { useProximityAlarm } from "@/hooks/useProximityAlarm";
 import { useAircraftTrails } from "@/hooks/useAircraftTrails";
@@ -24,7 +25,7 @@ import { updateFlightSession, getFlightSession, getSettings, DEFAULT_PROXIMITY_A
 import { findNearbyCtrAirports, CtrAirport, getCtrCategoryLabel, getCtrProviderName } from "@/lib/ctrData";
 import { fetchNearbyAircraft, AircraftState, getAltitudeDisplay, getAltitudeDualDisplay, formatAltitudeDual, getSpeedDisplay, DataSource, getRelativeAltitude } from "@/lib/opensky";
 import { fetchDipulWind } from "@/lib/weather";
-import { fetchElevation, enrichAircraftWithElevation } from "@/lib/elevation";
+import { fetchElevation } from "@/lib/elevation";
 import { getMarkerPinColor } from "@/lib/markerColors";
 import { loadGeozoneSettings, getActiveLayerNames, loadMapStyle, saveMapStyle, type MapStyleOption, queryGeozonesInArea, fetchNearbyTempRestrictions, loadRadarSettings } from "@/lib/geozones";
 import type { FlightCheckParamList } from "@/navigation/FlightCheckNavigator";
@@ -99,7 +100,7 @@ const FLIGHT_CHECK_SECTIONS: CheckSection[] = [
         id: "ready_for_mission",
         label: "Bereit für den Flug",
         required: true,
-        tip: "Wenn alle Checks bestanden sind, kannst du den Flug starten.",
+        tip: "Wenn alle Checks bestanden sind und der Flug abgeschlossen ist, kannst du ihn beenden.",
       },
     ],
   },
@@ -139,12 +140,13 @@ export default function FlightCheckScreen() {
   const [wind, setWind] = useState<WindData | null>(null);
   const [geozoneLayers, setGeozoneLayers] = useState<string[]>([]);
   const [sessionCountryIso, setSessionCountryIso] = useState<string | undefined>(undefined);
-  const [mapStyle, setMapStyle] = useState<MapStyleOption>("standard");
+  const [mapStyle, setMapStyle] = useState<MapStyleOption>("grayscale");
   const [sourceStatus, setSourceStatus] = useState<Record<DataSource, "ok" | "error" | "timeout">>({
-    opensky: "ok", adsbfi: "ok", adsbone: "ok", airplaneslive: "ok", adsblol: "ok", ogn: "ok",
+    opensky: "ok", adsbfi: "ok", adsbone: "ok", airplaneslive: "ok", adsblol: "ok", ogn: "ok", fr24: "ok",
   });
   const [trailsState, setTrailsState] = useState<AircraftTrail[]>([]);
   const [planningMaxAlt, setPlanningMaxAlt] = useState<number | undefined>(undefined);
+  const [planningRadiusKm, setPlanningRadiusKm] = useState<number | undefined>(undefined);
   const [nearbyCtr, setNearbyCtr] = useState<CtrAirport[]>([]);
   const [showCtrContacts, setShowCtrContacts] = useState(false);
   const fetchInterval = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -166,8 +168,16 @@ export default function FlightCheckScreen() {
     fetchElevation(radarLat, radarLon).then((elev) => setPilotElevation(elev));
   }, [radarLat, radarLon]);
 
+  // RA-Alarmradius an den Planungs-Umkreis koppeln (Drohne fliegt nur dort).
+  // Vorwarn-Aura: +0.3 km, damit "Descend, Descend" greift bevor der Verkehr
+  // tatsächlich in den Flugbereich einfliegt.
+  const PLANNING_RA_AURA_KM = 0.3;
+  const raOverrideKm = planningRadiusKm != null && planningRadiusKm > 0
+    ? planningRadiusKm + PLANNING_RA_AURA_KM
+    : undefined;
+
   const { activeAlerts, approachingAircraft, alarmActive, alarmLevel, clearOfConflict, dismissAlarm, alarmSettings } =
-    useProximityAlarm(aircraft, radarLat, radarLon, planningMaxAlt, pilotElevation);
+    useProximityAlarm(aircraft, radarLat, radarLon, planningMaxAlt, pilotElevation, raOverrideKm);
   const { updateTrails } = useAircraftTrails();
 
   useEffect(() => {
@@ -181,6 +191,11 @@ export default function FlightCheckScreen() {
           setPlanningMaxAlt(session.planning.maxAltitude);
         } else {
           setPlanningMaxAlt(undefined);
+        }
+        if (session.planning?.radiusKm != null && session.planning.radiusKm > 0) {
+          setPlanningRadiusKm(session.planning.radiusKm);
+        } else {
+          setPlanningRadiusKm(undefined);
         }
       }
     });
@@ -256,18 +271,17 @@ export default function FlightCheckScreen() {
         const radarSettings = await loadRadarSettings();
         const radiusKm = radarSettings.radiusKm;
         const result = await fetchNearbyAircraft(radarLat, radarLon, radiusKm);
-        const enriched = await enrichAircraftWithElevation(result.states);
-        const { trails, bufferedAircraft } = updateTrails(enriched, radarLat, radarLon, radiusKm);
-        // Stale-but-recently-seen Aircraft mit darstellen, damit der Marker
-        // nicht hart verschwindet wenn ein Provider kurz aussetzt.
-        setAircraft(bufferedAircraft.length > 0 ? [...enriched, ...bufferedAircraft] : enriched);
+        const { trails } = updateTrails(result.states, result.trails, radarLat, radarLon, radiusKm);
+        // Stale-but-recently-seen Aircraft sind bereits im Server-Response
+        // enthalten (maxAgeSec) und mit isStale=true markiert.
+        setAircraft(result.states);
         setSourceStatus(result.sourceStatus);
         setTrailsState(trails);
       } catch {}
     };
 
     doFetch();
-    fetchInterval.current = setInterval(doFetch, 3000);
+    fetchInterval.current = setInterval(doFetch, 2000);
     return () => {
       if (fetchInterval.current) clearInterval(fetchInterval.current);
     };
@@ -418,6 +432,7 @@ export default function FlightCheckScreen() {
             trails={coloredTrails}
             alarmRadiusM={raRadiusM}
             taRadiusM={taRadiusM}
+            scanRadiusM={planningRadiusKm != null ? planningRadiusKm * 1000 : 0}
             wind={wind}
             sourceStatus={sourceStatus}
             geozoneLayers={geozoneLayers}
@@ -425,6 +440,8 @@ export default function FlightCheckScreen() {
             mapStyle={mapStyle}
             onMapStyleChange={(s) => { setMapStyle(s); saveMapStyle(s); }}
             onHeadingChange={handleHeadingChangeFC}
+            fullScreen
+            lockPan
           />
           <AlarmPulseProvider alarmActive={alarmActive} alarmLevel={alarmLevel} clearOfConflict={clearOfConflict}>
             <ProximityAlarmGlow
@@ -450,7 +467,7 @@ export default function FlightCheckScreen() {
               <View style={{ flex: 1 }}>
                 <ThemedText style={[styles.radarSectionTitle, { color: theme.primary }]}>Im Flug — Live Radar</ThemedText>
                 <ThemedText style={[styles.radarSectionSub, { color: theme.textSecondary }]}>
-                  {aircraft.length} Flugobjekte{planningMaxAlt != null ? ` | Max ${planningMaxAlt}m` : ""}
+                  {aircraft.length} Flugobjekte{planningMaxAlt != null ? ` | Max ${planningMaxAlt}m` : ""}{planningRadiusKm != null ? ` | Radius ${planningRadiusKm < 1 ? `${Math.round(planningRadiusKm * 1000)}m` : `${planningRadiusKm}km`}` : ""}
                 </ThemedText>
               </View>
               <Pressable
@@ -461,6 +478,9 @@ export default function FlightCheckScreen() {
               >
                 <Feather name="crosshair" size={18} color={theme.primary} />
               </Pressable>
+            </View>
+            <View style={{ alignSelf: "center", marginTop: Spacing.xs }}>
+              <SourceHealthIndicator isDark={isDark} testID="flight-check-source-health" />
             </View>
           </View>
         </View>
@@ -473,7 +493,7 @@ export default function FlightCheckScreen() {
             style={{ flex: 1 }}
           />
           <Button
-            title="Flug starten"
+            title="Flug beenden"
             onPress={handleComplete}
             disabled={!allRequiredChecked}
             loading={saving}
@@ -642,7 +662,7 @@ export default function FlightCheckScreen() {
               <View style={{ flex: 1 }}>
                 <ThemedText style={[styles.radarSectionTitle, { color: theme.primary }]}>Live Radar</ThemedText>
                 <ThemedText style={[styles.radarSectionSub, { color: theme.textSecondary }]}>
-                  {aircraft.length} Flugobjekte{planningMaxAlt != null ? ` | Max ${planningMaxAlt}m` : ""}
+                  {aircraft.length} Flugobjekte{planningMaxAlt != null ? ` | Max ${planningMaxAlt}m` : ""}{planningRadiusKm != null ? ` | Radius ${planningRadiusKm < 1 ? `${Math.round(planningRadiusKm * 1000)}m` : `${planningRadiusKm}km`}` : ""}
                 </ThemedText>
               </View>
               <Pressable
@@ -665,6 +685,7 @@ export default function FlightCheckScreen() {
                 trails={coloredTrails}
                 alarmRadiusM={raRadiusM}
                 taRadiusM={taRadiusM}
+                scanRadiusM={planningRadiusKm != null ? planningRadiusKm * 1000 : 0}
                 wind={wind}
                 sourceStatus={sourceStatus}
                 geozoneLayers={geozoneLayers}
@@ -714,7 +735,7 @@ export default function FlightCheckScreen() {
           style={{ flex: 1 }}
         />
         <Button
-          title="Flug starten"
+          title="Flug beenden"
           onPress={handleComplete}
           disabled={!allRequiredChecked}
           loading={saving}

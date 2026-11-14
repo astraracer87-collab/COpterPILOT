@@ -1,7 +1,63 @@
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
+import * as MailComposer from "expo-mail-composer";
+import * as SMS from "expo-sms";
 import { Platform } from "react-native";
-import { LogbookEntry, TrafficLogData, SavedGeozoneFeature, SavedDipulRestriction } from "@/lib/storage";
+import { LogbookEntry, TrafficLogData, SavedGeozoneFeature, SavedDipulRestriction, DjiLogMeta, DjiLogRecord, getEntryDjiLogs, getPilotProfile, getSettings } from "@/lib/storage";
+import { getCheckItemLabel } from "@/lib/checklists";
+import { groupDanishBufferRings } from "../../shared/danishGeozones";
+import { resolveFlightTimeDocuments, type ResolvedPilotDocument } from "../../shared/archivedDocuments";
+import { buildWildlifeRescueOrdinancesHtml } from "../../shared/wildlifeRescue";
+import { apiJson } from "@/lib/api-client";
+
+/** Vorab serverseitig erzeugte echte Karten (OSM-Basis + Geozonen + Vektor). */
+export interface ProtocolMaps {
+  planned: string | null; // data:image/png;base64,...
+  route: string | null;
+}
+
+interface ProtocolMapResponse {
+  dataUrl?: string;
+  rendered?: boolean;
+}
+
+async function fetchProtocolMap(body: Record<string, unknown>): Promise<string | null> {
+  try {
+    const res = await apiJson<ProtocolMapResponse>("/api/proxy/protocol-map", {
+      method: "POST",
+      body,
+      timeoutMs: 30000,
+    });
+    return res && res.rendered && res.dataUrl ? res.dataUrl : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Holt die echten Protokoll-Karten (geplantes Fluggebiet + tatsächliche Route)
+ * vom Server. Schlägt das fehl, bleiben die Felder null und die HTML-Generatoren
+ * fallen auf den Snapshot bzw. die schematische Darstellung zurück.
+ */
+export async function prefetchProtocolMaps(entry: LogbookEntry): Promise<ProtocolMaps> {
+  // Land leitet der Server aus den Koordinaten ab (LogbookEntry hat kein Land).
+  const center = { lat: entry.latitude, lon: entry.longitude };
+  const radiusKm = entry.planning?.radiusKm;
+  const route = routeLatLon(entry);
+
+  const plannedReq = fetchProtocolMap({
+    kind: "planned",
+    center,
+    radiusKm,
+  });
+  const routeReq =
+    route.length >= 2
+      ? fetchProtocolMap({ kind: "route", route, center })
+      : Promise.resolve(null);
+
+  const [planned, routeMap] = await Promise.all([plannedReq, routeReq]);
+  return { planned, route: routeMap };
+}
 
 function escapeHtml(str: string): string {
   return str
@@ -50,15 +106,28 @@ function zoneBadgeColor(zone: string): string {
   return "#2563EB";
 }
 
+function humanizeChecklistId(id: string): string {
+  // Fallback wenn keine Übersetzung vorhanden ist: Unterstriche durch Leerzeichen
+  // ersetzen und ersten Buchstaben groß schreiben.
+  const cleaned = id.replace(/_/g, " ").trim();
+  return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+}
+
 function generateChecklistHtml(title: string, completed: string[], presented?: string[]): string {
-  if (!completed || completed.length === 0) return "";
-  const items = (presented && presented.length > 0 ? presented : completed).map((item) => {
-    const isChecked = completed.includes(item);
+  if ((!completed || completed.length === 0) && (!presented || presented.length === 0)) return "";
+  const completedSet = new Set(completed || []);
+  const ids = (presented && presented.length > 0 ? presented : completed) || [];
+  const items = ids.map((id) => {
+    const isChecked = completedSet.has(id);
     const icon = isChecked ? "&#9745;" : "&#9744;";
     const color = isChecked ? "#2D8659" : "#C53030";
-    return `<tr><td style="color:${color};width:20px;font-size:14px;">${icon}</td><td>${escapeHtml(item.replace(/_/g, " "))}</td></tr>`;
+    const label = getCheckItemLabel(id) || humanizeChecklistId(id);
+    return `<tr><td style="color:${color};width:20px;font-size:14px;">${icon}</td><td>${escapeHtml(label)}</td></tr>`;
   }).join("");
-  return `<h3>${escapeHtml(title)}</h3><table>${items}</table>`;
+  const totalCompleted = completedSet.size;
+  const totalPresented = ids.length;
+  const summary = `<p class="small" style="margin:0 0 4px 0;color:#6B7280;">${totalCompleted}/${totalPresented} Punkte abgehakt</p>`;
+  return `<h3>${escapeHtml(title)}</h3>${summary}<table>${items}</table>`;
 }
 
 function generateTrafficTableHtml(trafficLog: TrafficLogData): string {
@@ -294,8 +363,11 @@ function generateGeozonesSectionHtml(features?: SavedGeozoneFeature[], restricti
   let html = `<h2 class="page-break">Geozonen &amp; Beschränkungen</h2>`;
 
   if (hasFeatures) {
+    // Konzentrische DK-Pufferringe derselben Anlage zu einer Tabellenzeile
+    // zusammenfassen (gleiche Gruppierung wie in der Planungsübersicht).
+    const dedupedFeatures = groupDanishBufferRings(features);
     const grouped: Record<string, SavedGeozoneFeature[]> = {};
-    features.forEach((f) => {
+    dedupedFeatures.forEach((f) => {
       if (!grouped[f.layerLabel]) grouped[f.layerLabel] = [];
       grouped[f.layerLabel].push(f);
     });
@@ -390,6 +462,61 @@ function generateWeatherSectionHtml(entry: LogbookEntry): string {
   return html;
 }
 
+function generateCtrWeatherSectionHtml(entry: LogbookEntry): string {
+  const ctr = entry.preflight?.ctrWeather;
+  if (!ctr) return "";
+
+  const minVisText = ctr.minVisibilityKm < 1
+    ? `${Math.round(ctr.minVisibilityKm * 1000)} m`
+    : `${ctr.minVisibilityKm} km`;
+  const actualVisText = ctr.visibilityM != null
+    ? (ctr.visibilityM >= 1000 ? `${(ctr.visibilityM / 1000).toFixed(1)} km` : `${ctr.visibilityM} m`)
+    : "—";
+
+  const vmcColor = ctr.vmcCompliant === true ? "#2D8659" : ctr.vmcCompliant === false ? "#C53030" : "#D97706";
+  const vmcText = ctr.vmcCompliant === true
+    ? "VMC-Bedingungen erfüllt"
+    : ctr.vmcCompliant === false
+      ? "VMC-Bedingungen NICHT erfüllt"
+      : "VMC nicht verifizierbar";
+
+  if (!ctr.metarAvailable) {
+    return `
+    <h2>CTR-Wetternachweis</h2>
+    <table>
+      <tr><td class="label">Kontrollzone</td><td>${escapeHtml(ctr.airportName)} (${escapeHtml(ctr.icao)})</td></tr>
+      <tr><td class="label">Distanz zur Flughafen-Referenz</td><td>${ctr.distanceKm.toFixed(1)} km</td></tr>
+      <tr><td class="label">METAR</td><td style="color:#D97706">Keine METAR verfügbar — Sicht/Wolken vor dem Flug manuell beim Tower geprüft.</td></tr>
+      ${ctr.avReference ? `<tr><td class="label">Allgemeinverfügung</td><td>${escapeHtml(ctr.avReference)}</td></tr>` : ""}
+    </table>`;
+  }
+
+  const ceilingRows = ctr.minCeilingFt != null ? `
+      <tr><td class="label">Mind. Wolkenuntergrenze (AV)</td><td>${ctr.minCeilingFt} ft</td></tr>
+      <tr><td class="label">Gemeldete Wolkenuntergrenze</td><td>${ctr.ceilingFt != null ? `${ctr.ceilingFt} ft` : "keine (BKN/OVC) gemeldet"}</td></tr>` : "";
+
+  const reasonsHtml = ctr.vmcReasons && ctr.vmcReasons.length > 0
+    ? `<ul style="margin:4px 0;padding-left:20px;">${ctr.vmcReasons.map(r => `<li>${escapeHtml(r)}</li>`).join("")}</ul>`
+    : "";
+
+  return `
+    <h2>CTR-Wetternachweis</h2>
+    <p style="margin:4px 0;">Flug innerhalb der Kontrollzone <strong>${escapeHtml(ctr.airportName)} (${escapeHtml(ctr.icao)})</strong>. VMC-Prüfung gegen die Bedingungen der Allgemeinverfügung${ctr.avReference ? ` (${escapeHtml(ctr.avReference)})` : ""}.</p>
+    <div style="display:inline-block;background:${vmcColor};color:#fff;padding:4px 10px;border-radius:6px;font-weight:600;margin:4px 0;">${vmcText}</div>
+    <table>
+      <tr><td class="label">Zuständiger Flughafen</td><td>${escapeHtml(ctr.airportName)} (${escapeHtml(ctr.icao)})</td></tr>
+      <tr><td class="label">Distanz zur Flughafen-Referenz</td><td>${ctr.distanceKm.toFixed(1)} km</td></tr>
+      ${ctr.observedAt ? `<tr><td class="label">METAR-Beobachtung</td><td>${escapeHtml(formatTime(ctr.observedAt))}</td></tr>` : ""}
+      <tr><td class="label">Mindestsicht (AV)</td><td>${minVisText}</td></tr>
+      <tr><td class="label">Gemeldete Sicht</td><td>${actualVisText}</td></tr>
+      ${ceilingRows}
+      ${ctr.phenomenaText ? `<tr><td class="label">Wettererscheinungen</td><td>${escapeHtml(ctr.phenomenaText)}</td></tr>` : ""}
+      ${ctr.avProvider ? `<tr><td class="label">Flugsicherung</td><td>${escapeHtml(ctr.avProvider)}</td></tr>` : ""}
+    </table>
+    ${reasonsHtml}
+    ${ctr.raw ? `<p style="font-family:monospace;font-size:10px;background:#F9FAFB;padding:6px 8px;border-radius:6px;margin-top:6px;">${escapeHtml(ctr.raw)}</p>` : ""}`;
+}
+
 function generateSingleEntryHtml(entry: LogbookEntry): string {
   const weather = entry.weatherConditions;
   const weatherHtml = weather
@@ -420,12 +547,27 @@ function generateSingleEntryHtml(entry: LogbookEntry): string {
       <h3>Wetterbedingungen</h3>
       <table>${weatherHtml}</table>
 
+      ${entry.planning?.noGoOverride ? `
+        <div class="incident" style="border-left:4px solid #C53030;background:#FFF5F5;padding:8px;margin:8px 0;">
+          <strong style="color:#C53030">NO-GO bewusst übersteuert</strong>
+          <p style="margin:4px 0;font-size:10px;">Pilot hat trotz NO-GO-Status (${escapeHtml(entry.planning.noGoOverride.originalStatus.toUpperCase())}) die Freigabe am ${escapeHtml(new Date(entry.planning.noGoOverride.acknowledgedAt).toLocaleString("de-DE"))} erteilt.</p>
+          ${entry.planning.noGoOverride.reasons.length > 0 ? `<ul style="margin:4px 0;padding-left:18px;font-size:10px;color:#C53030;">${entry.planning.noGoOverride.reasons.map(r => `<li>${escapeHtml(r)}</li>`).join("")}</ul>` : ""}
+        </div>
+      ` : ""}
+
+      ${entry.planning?.officialMapCrossCheck ? `
+        <div class="${entry.planning.officialMapCrossCheck.blocking ? "caution-box" : ""}" style="${entry.planning.officialMapCrossCheck.blocking ? "border-left:4px solid #D97706;background:#FFFBEB;" : "border-left:4px solid #2D8659;background:#F0FFF4;"}padding:8px;margin:8px 0;">
+          <strong style="color:${entry.planning.officialMapCrossCheck.blocking ? "#D97706" : "#2D8659"}">Offizielle Karte gegengeprüft: ${entry.planning.officialMapCrossCheck.blocking ? "startverhindernde Geozonen" : "keine startverhindernden Geozonen"}</strong>
+          ${entry.planning.officialMapCrossCheck.note ? `<p style="margin:4px 0;font-size:10px;">Notiz: ${escapeHtml(entry.planning.officialMapCrossCheck.note)}</p>` : ""}
+        </div>
+      ` : ""}
+
       ${entry.planning?.flightPurpose ? `<h3>Flugzweck</h3><p>${escapeHtml(entry.planning.flightPurpose)}</p>` : ""}
 
       ${entry.savedGeozoneFeatures && entry.savedGeozoneFeatures.length > 0 ? `
         <h3>Geozonen im Einsatzgebiet</h3>
         <ul style="margin:4px 0;padding-left:20px;font-size:10px;">
-          ${entry.savedGeozoneFeatures.map(f => `<li><strong>${escapeHtml(f.layerLabel)}:</strong> ${escapeHtml(f.name)}${f.details ? ` - ${escapeHtml(f.details)}` : ""}</li>`).join("")}
+          ${groupDanishBufferRings(entry.savedGeozoneFeatures).map(f => `<li><strong>${escapeHtml(f.layerLabel)}:</strong> ${escapeHtml(f.name)}${f.details ? ` - ${escapeHtml(f.details)}` : ""}</li>`).join("")}
         </ul>
       ` : ""}
 
@@ -459,7 +601,358 @@ function generateSingleEntryHtml(entry: LogbookEntry): string {
   `;
 }
 
-function generateProtocolHtml(entry: LogbookEntry): string {
+function formatRadiusKm(radiusKm?: number): string | null {
+  if (typeof radiusKm !== "number" || radiusKm <= 0) return null;
+  return radiusKm >= 1
+    ? `${radiusKm.toFixed(radiusKm % 1 === 0 ? 0 : 1)} km`
+    : `${Math.round(radiusKm * 1000)} m`;
+}
+
+/** Kompakte Chip-Legende der erfassten Geozonen (eindeutige Layer-Bezeichnungen). */
+function geozoneLegendHtml(features?: SavedGeozoneFeature[]): string {
+  if (!features || features.length === 0) return "";
+  const labels = Array.from(new Set(features.map((f) => f.layerLabel))).slice(0, 14);
+  const chips = labels
+    .map(
+      (l) =>
+        `<span style="display:inline-block;margin:2px 6px 2px 0;padding:2px 8px;border-radius:10px;background:#FEE2E2;color:#991B1B;font-size:9px;font-weight:600;">${escapeHtml(l)}</span>`,
+    )
+    .join("");
+  return `<div style="margin-top:6px;"><span style="font-size:9px;color:#6B7280;margin-right:6px;">Geozonen:</span>${chips}</div>`;
+}
+
+function generatePlanningMapHtml(entry: LogbookEntry, realMap?: string | null): string {
+  const radiusKm = entry.planning?.radiusKm;
+  const radiusText = formatRadiusKm(radiusKm);
+  const locationText = entry.locationName || `${entry.latitude.toFixed(4)}, ${entry.longitude.toFixed(4)}`;
+  const caption = radiusText
+    ? `Geplantes Fluggebiet — ${escapeHtml(locationText)} · Radius ${radiusText}`
+    : `Geplantes Fluggebiet — ${escapeHtml(locationText)}`;
+  const legend = geozoneLegendHtml(entry.savedGeozoneFeatures);
+  // Bevorzugt die serverseitig erzeugte echte Karte (OSM + Geozonen + Radius).
+  if (realMap) {
+    return `
+      <h2>Geplantes Fluggebiet (Geozone + Radius)</h2>
+      <div class="map-container" style="margin: 8px 0 16px 0;">
+        <img src="${realMap}" class="map-image" style="display:block;width:100%;max-width:700px;border:1px solid #E5E7EB;border-radius:8px;" />
+        ${legend}
+        <p class="map-caption">${caption}</p>
+      </div>
+    `;
+  }
+  if (entry.mapSnapshotBase64 || entry.mapSatelliteSnapshotBase64) {
+    const stdImg = entry.mapSnapshotBase64
+      ? `<img src="data:image/jpeg;base64,${entry.mapSnapshotBase64}" class="map-image" style="display:block;width:100%;max-width:700px;border:1px solid #E5E7EB;border-radius:8px;" />
+         <p class="map-caption">${caption} — Karte</p>`
+      : "";
+    const satImg = entry.mapSatelliteSnapshotBase64
+      ? `<img src="data:image/jpeg;base64,${entry.mapSatelliteSnapshotBase64}" class="map-image" style="display:block;width:100%;max-width:700px;border:1px solid #E5E7EB;border-radius:8px;margin-top:8px;" />
+         <p class="map-caption">${caption} — Satellit</p>`
+      : "";
+    return `
+      <h2>Geplantes Fluggebiet (Geozone + Radius)</h2>
+      <div class="map-container" style="margin: 8px 0 16px 0;">
+        ${stdImg}
+        ${satImg}
+        ${legend}
+      </div>
+    `;
+  }
+  // Schematische SVG-Darstellung, wenn kein Karten-Snapshot vorhanden ist.
+  const svgW = 700;
+  const svgH = 420;
+  const cx = svgW / 2;
+  const cy = svgH / 2;
+  const rPx = Math.min(svgW, svgH) * 0.36;
+  const hasGeozones = !!(entry.savedGeozoneFeatures && entry.savedGeozoneFeatures.length > 0);
+  return `
+    <h2>Geplantes Fluggebiet (Geozone + Radius)</h2>
+    <div class="map-container" style="margin: 8px 0 16px 0;">
+      <svg viewBox="0 0 ${svgW} ${svgH}" style="width:100%;max-width:${svgW}px;border:1px solid #E5E7EB;border-radius:8px;background:#EAF1F8;">
+        ${hasGeozones ? `<circle cx="${cx}" cy="${cy}" r="${(rPx * 1.18).toFixed(1)}" fill="#FCA5A5" opacity="0.18"/>` : ""}
+        <circle cx="${cx}" cy="${cy}" r="${rPx.toFixed(1)}" fill="#0A4D8C" fill-opacity="0.10" stroke="#0A4D8C" stroke-width="2" stroke-dasharray="6,4"/>
+        <circle cx="${cx}" cy="${cy}" r="5" fill="#0A4D8C" stroke="white" stroke-width="2"/>
+        ${radiusText ? `<text x="${cx}" y="${(cy - rPx - 8).toFixed(1)}" text-anchor="middle" font-size="11" fill="#0A4D8C" font-weight="700">Radius ${escapeHtml(radiusText)}</text>` : ""}
+        <text x="${cx}" y="${(cy + 20).toFixed(1)}" text-anchor="middle" font-size="9" fill="#374151">${escapeHtml(locationText)}</text>
+      </svg>
+      ${legend}
+      <p class="map-caption">${caption} — schematische Darstellung (kein Karten-Snapshot vorhanden).</p>
+    </div>
+  `;
+}
+
+function routeLatLon(entry: LogbookEntry): { lat: number; lon: number }[] {
+  if (entry.gpsTrack && entry.gpsTrack.length >= 2) {
+    return entry.gpsTrack.map((p) => ({ lat: p.lat, lon: p.lon }));
+  }
+  const pts: { lat: number; lon: number }[] = [];
+  getEntryDjiLogs(entry).forEach((l) =>
+    (l.track ?? []).forEach((p) => pts.push({ lat: p.lat, lon: p.lon })),
+  );
+  return pts;
+}
+
+function generateRouteMapHtml(entry: LogbookEntry, realMap?: string | null): string {
+  const locationText = entry.locationName || `${entry.latitude.toFixed(4)}, ${entry.longitude.toFixed(4)}`;
+  const legend = geozoneLegendHtml(entry.savedGeozoneFeatures);
+  // Bevorzugt die serverseitig erzeugte echte Karte (OSM + Geozonen + Route).
+  if (realMap) {
+    const cap = `Tatsächliche Flugroute mit Geozonen-Overlay — ${escapeHtml(locationText)}`;
+    return `
+      <h2 class="page-break">Flugroute (Geozone + Route)</h2>
+      <div class="map-container" style="margin: 8px 0 16px 0;">
+        <img src="${realMap}" class="map-image" style="display:block;width:100%;max-width:700px;border:1px solid #E5E7EB;border-radius:8px;" />
+        ${legend}
+        <p class="map-caption">${cap}</p>
+      </div>
+    `;
+  }
+  if (entry.routeMapSnapshotBase64 || entry.routeMapSatelliteSnapshotBase64) {
+    const cap = `Tatsächliche Flugroute mit Geozonen-Overlay — ${escapeHtml(locationText)}`;
+    const stdImg = entry.routeMapSnapshotBase64
+      ? `<img src="data:image/jpeg;base64,${entry.routeMapSnapshotBase64}" class="map-image" style="display:block;width:100%;max-width:700px;border:1px solid #E5E7EB;border-radius:8px;" />
+         <p class="map-caption">${cap} — Karte</p>`
+      : "";
+    const satImg = entry.routeMapSatelliteSnapshotBase64
+      ? `<img src="data:image/jpeg;base64,${entry.routeMapSatelliteSnapshotBase64}" class="map-image" style="display:block;width:100%;max-width:700px;border:1px solid #E5E7EB;border-radius:8px;margin-top:8px;" />
+         <p class="map-caption">${cap} — Satellit</p>`
+      : "";
+    return `
+      <h2 class="page-break">Flugroute (Geozone + Route)</h2>
+      <div class="map-container" style="margin: 8px 0 16px 0;">
+        ${stdImg}
+        ${satImg}
+        ${legend}
+      </div>
+    `;
+  }
+  const pts = routeLatLon(entry);
+  if (pts.length < 2) return "";
+  let latMin = Infinity, latMax = -Infinity, lonMin = Infinity, lonMax = -Infinity;
+  pts.forEach((p) => {
+    latMin = Math.min(latMin, p.lat);
+    latMax = Math.max(latMax, p.lat);
+    lonMin = Math.min(lonMin, p.lon);
+    lonMax = Math.max(lonMax, p.lon);
+  });
+  const radiusKm = entry.planning?.radiusKm;
+  const hasRadius = typeof radiusKm === "number" && radiusKm > 0;
+  const svgW = 700;
+  const svgH = 460;
+  const centerLat = (latMin + latMax) / 2;
+  const centerLon = (lonMin + lonMax) / 2;
+  const latRad = (centerLat * Math.PI) / 180;
+  const widthM = Math.max(1, (lonMax - lonMin) * 111320 * Math.cos(latRad));
+  const heightM = Math.max(1, (latMax - latMin) * 110540);
+  let spanM = Math.max(widthM, heightM);
+  if (hasRadius) spanM = Math.max(spanM, radiusKm * 2000);
+  spanM = Math.max(spanM, 200);
+  const metersPerPixel = (spanM * 1.3) / Math.min(svgW, svgH);
+  const proj = (lat: number, lon: number) =>
+    latLonToSvg(lat, lon, centerLat, centerLon, svgW, svgH, metersPerPixel);
+  const polyPts = pts.map((p) => {
+    const q = proj(p.lat, p.lon);
+    return `${q.x.toFixed(1)},${q.y.toFixed(1)}`;
+  }).join(" ");
+  const s = proj(pts[0].lat, pts[0].lon);
+  const e = proj(pts[pts.length - 1].lat, pts[pts.length - 1].lon);
+  let radiusSvg = "";
+  if (hasRadius) {
+    const c = proj(entry.latitude, entry.longitude);
+    const rPx = (radiusKm * 1000) / metersPerPixel;
+    radiusSvg = `<circle cx="${c.x.toFixed(1)}" cy="${c.y.toFixed(1)}" r="${rPx.toFixed(1)}" fill="#0A4D8C" fill-opacity="0.06" stroke="#0A4D8C" stroke-width="1.5" stroke-dasharray="6,4"/>`;
+  }
+  const radiusCaption = hasRadius ? ` · geplanter Radius ${formatRadiusKm(radiusKm)}` : "";
+  return `
+    <h2 class="page-break">Flugroute (Geozone + Route)</h2>
+    <div class="map-container" style="margin: 8px 0 16px 0;">
+      <svg viewBox="0 0 ${svgW} ${svgH}" style="width:100%;max-width:${svgW}px;border:1px solid #E5E7EB;border-radius:8px;background:#EAF1F8;">
+        ${radiusSvg}
+        <polyline points="${polyPts}" fill="none" stroke="#E53E3E" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="${s.x.toFixed(1)}" cy="${s.y.toFixed(1)}" r="5" fill="#34C759" stroke="white" stroke-width="1.5"/>
+        <circle cx="${e.x.toFixed(1)}" cy="${e.y.toFixed(1)}" r="5" fill="#FF3B30" stroke="white" stroke-width="1.5"/>
+        <text x="${s.x.toFixed(1)}" y="${(s.y - 8).toFixed(1)}" text-anchor="middle" font-size="9" fill="#1F7A33" font-weight="700">Start</text>
+        <text x="${e.x.toFixed(1)}" y="${(e.y - 8).toFixed(1)}" text-anchor="middle" font-size="9" fill="#B91C1C" font-weight="700">Ende</text>
+      </svg>
+      ${legend}
+      <p class="map-caption">Flugroute (${pts.length} Punkte) — ${escapeHtml(locationText)}${radiusCaption} · schematische Darstellung</p>
+    </div>
+  `;
+}
+
+function formatLogSeconds(t: number): string {
+  const m = Math.floor(t / 60);
+  const s = Math.floor(t % 60);
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+function generateDjiRecordsTableHtml(records: DjiLogRecord[]): string {
+  if (!records || records.length === 0) return "";
+  const max = 120;
+  const step = records.length > max ? Math.ceil(records.length / max) : 1;
+  const sampled = records.filter((_, i) => i % step === 0);
+  const cell = (v: string | number | null | undefined) =>
+    `<td style="padding:3px 6px;border:1px solid #E5E7EB;font-size:10px;white-space:nowrap;">${
+      v == null || v === "" ? "—" : escapeHtml(String(v))
+    }</td>`;
+  const head = [
+    "Zeit",
+    "Modus",
+    "Sats",
+    "Höhe (m)",
+    "VPS (m)",
+    "H-Speed (m/s)",
+    "V-Speed (m/s)",
+    "Distanz (m)",
+    "Akku %",
+    "V",
+    "Zellen (V)",
+  ]
+    .map(
+      (h) =>
+        `<th style="padding:3px 6px;border:1px solid #E5E7EB;font-size:10px;background:#F3F4F6;text-align:left;white-space:nowrap;">${h}</th>`,
+    )
+    .join("");
+  const body = sampled
+    .map((r) => {
+      const cells = [
+        cell(formatLogSeconds(r.t)),
+        cell(r.mode),
+        cell(r.sats),
+        cell(r.heightM != null ? r.heightM.toFixed(1) : null),
+        cell(r.vpsM != null ? r.vpsM.toFixed(1) : null),
+        cell(r.hSpeedMs != null ? r.hSpeedMs.toFixed(1) : null),
+        cell(r.vSpeedMs != null ? r.vSpeedMs.toFixed(1) : null),
+        cell(r.distM != null ? r.distM.toFixed(0) : null),
+        cell(r.battPct),
+        cell(r.battV != null ? r.battV.toFixed(2) : null),
+        cell(r.cells && r.cells.length > 0 ? r.cells.map((c) => c.toFixed(2)).join(" / ") : null),
+      ].join("");
+      return `<tr>${cells}</tr>`;
+    })
+    .join("");
+  const note =
+    step > 1
+      ? `<p class="map-caption">Detailauswertung (gesampelt: jede ${step}. Zeile, ${sampled.length} von ${records.length}).</p>`
+      : `<p class="map-caption">Detailauswertung (${records.length} Datensätze).</p>`;
+  return `
+    <div style="overflow-x:auto;margin-top:6px;">
+      <table style="border-collapse:collapse;width:100%;"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>
+    </div>
+    ${note}
+  `;
+}
+
+function generateSingleDjiLogHtml(d: DjiLogMeta, index: number, total: number): string {
+  const battery =
+    d.batteryStartPercent != null || d.batteryEndPercent != null || d.batteryMinPercent != null
+      ? [
+          d.batteryStartPercent != null ? `${d.batteryStartPercent}%` : "—",
+          d.batteryEndPercent != null ? `${d.batteryEndPercent}%` : "—",
+          d.batteryMinPercent != null ? `${d.batteryMinPercent}%` : "—",
+        ].join(" / ")
+      : null;
+  const notice =
+    d.status === "undecryptable"
+      ? "Verschlüsseltes Protokoll (DJI v13+) — ohne DJI-API-Schlüssel nicht vollständig ausgewertet. Datei als Download verfügbar."
+      : d.status === "error"
+        ? "Protokoll konnte nicht ausgewertet werden. Datei als Download verfügbar."
+        : null;
+  const rows = [
+    `<tr><td class="label">Datei</td><td>${escapeHtml(d.fileName)}</td></tr>`,
+    d.batteryLabel ? `<tr><td class="label">Akku</td><td>${escapeHtml(d.batteryLabel)}</td></tr>` : "",
+    d.droneName ? `<tr><td class="label">Drohne (Log)</td><td>${escapeHtml(d.droneName)}</td></tr>` : "",
+    d.version != null ? `<tr><td class="label">Log-Version</td><td>v${d.version}</td></tr>` : "",
+    d.maxAltitudeM != null ? `<tr><td class="label">Max. Höhe (Log)</td><td>${d.maxAltitudeM.toFixed(1)} m</td></tr>` : "",
+    d.durationSec != null ? `<tr><td class="label">Flugdauer (Log)</td><td>${Math.round(d.durationSec)} s</td></tr>` : "",
+    d.totalDistanceM != null ? `<tr><td class="label">Strecke (Log)</td><td>${(d.totalDistanceM / 1000).toFixed(2)} km</td></tr>` : "",
+    battery ? `<tr><td class="label">Akku (Start/Ende/Min)</td><td>${battery}</td></tr>` : "",
+  ].join("");
+  const title = total > 1 ? `<h3>Log ${index + 1}${d.batteryLabel ? ` — ${escapeHtml(d.batteryLabel)}` : ""}</h3>` : "";
+  return `
+    ${title}
+    ${notice ? `<div class="caution-box"><p>${escapeHtml(notice)}</p></div>` : ""}
+    <table>${rows}</table>
+    ${generateDjiRecordsTableHtml(d.records ?? [])}
+  `;
+}
+
+function generateDjiLogHtml(entry: LogbookEntry): string {
+  const logs = getEntryDjiLogs(entry);
+  if (logs.length === 0) return "";
+
+  let aggregateHtml = "";
+  if (logs.length > 1) {
+    const aggDuration = logs.reduce((s, l) => s + (l.durationSec ?? 0), 0);
+    const aggDistance = logs.reduce((s, l) => s + (l.totalDistanceM ?? 0), 0);
+    const aggMaxAlt = logs.reduce(
+      (m, l) => (l.maxAltitudeM != null && l.maxAltitudeM > m ? l.maxAltitudeM : m),
+      0,
+    );
+    aggregateHtml = `
+      <table>
+        <tr><td class="label">Anzahl Logs</td><td>${logs.length} (Akku-Tausch)</td></tr>
+        <tr><td class="label">Gesamtdauer</td><td>${Math.round(aggDuration)} s</td></tr>
+        <tr><td class="label">Gesamtstrecke</td><td>${(aggDistance / 1000).toFixed(2)} km</td></tr>
+        ${aggMaxAlt > 0 ? `<tr><td class="label">Max. Höhe (alle Logs)</td><td>${aggMaxAlt.toFixed(1)} m</td></tr>` : ""}
+      </table>
+    `;
+  }
+
+  return `
+    <h2>Fluglog${logs.length > 1 ? `s (${logs.length})` : ""}</h2>
+    ${aggregateHtml}
+    ${logs.map((l, i) => generateSingleDjiLogHtml(l, i, logs.length)).join("")}
+  `;
+}
+
+/**
+ * Rendert die zum Flugzeitpunkt gültigen Pilotendokumente (Allgemeinverfügung,
+ * A2-Zeugnis, Versicherungsnachweis) als PDF-Abschnitt. Bild-Dokumente mit
+ * eingebetteten Daten werden als Vorschau gerendert; sonst Metadaten + Hinweis.
+ */
+function generateDocumentsHtml(docs: ResolvedPilotDocument[]): string {
+  if (!docs || docs.length === 0) return "";
+  const blocks = docs
+    .map((d) => {
+      const matchNote = d.matchedExactly
+        ? "Zum Flugzeitpunkt gültige Fassung"
+        : "Bestmögliche Fassung (keine exakte Zuordnung zum Flugdatum)";
+      const expRow = d.expirationDate
+        ? `<tr><td class="label">Gültig bis</td><td>${escapeHtml(d.expirationDate)}</td></tr>`
+        : "";
+      const a2Row =
+        d.type === "a2" && d.licenseDetails
+          ? `<tr><td class="label">Lizenznummer</td><td>${escapeHtml(d.licenseDetails.identificationNumber || "-")}</td></tr>`
+          : "";
+      const doc = d.document;
+      let fileRow = "";
+      let preview = "";
+      if (doc) {
+        const isImage = (doc.mimeType || "").startsWith("image/");
+        if (isImage && doc.dataBase64) {
+          preview = `<div><img src="data:${doc.mimeType};base64,${doc.dataBase64}" style="max-width:100%;max-height:420px;border:1px solid #ddd;border-radius:6px;margin-top:8px"/></div>`;
+        }
+        fileRow = `<tr><td class="label">Datei</td><td>${escapeHtml(doc.fileName || "Dokument")}</td></tr>`;
+      }
+      return `
+    <h3>${escapeHtml(d.label)}</h3>
+    <table>
+      <tr><td class="label">Fassung</td><td>${escapeHtml(matchNote)}</td></tr>
+      ${expRow}
+      ${a2Row}
+      ${fileRow}
+    </table>
+    ${preview}`;
+    })
+    .join("");
+  return `
+    <h2>Hinterlegte Dokumente</h2>
+    <p style="color:#555;font-size:12px;margin-top:-4px">Die folgenden Pilotendokumente waren zum Flugzeitpunkt gültig und werden zum Nachweis beigefügt.</p>
+    ${blocks}`;
+}
+
+function generateProtocolHtml(entry: LogbookEntry, maps?: ProtocolMaps, attachedDocs?: ResolvedPilotDocument[], wildlife?: WildlifeOrdinancesForExport): string {
   const generatedDate = new Date().toLocaleDateString("de-DE", {
     day: "2-digit",
     month: "2-digit",
@@ -492,8 +985,14 @@ function generateProtocolHtml(entry: LogbookEntry): string {
       ${entry.planning.maxAltitude ? `<tr><td class="label">Max. Höhe</td><td>${entry.planning.maxAltitude}m</td></tr>` : ""}
       ${entry.planning.maxDistance ? `<tr><td class="label">Max. Entfernung</td><td>${entry.planning.maxDistance}m</td></tr>` : ""}
       ${entry.planning.estimatedDuration ? `<tr><td class="label">Geplante Dauer</td><td>${entry.planning.estimatedDuration} min</td></tr>` : ""}
+      ${entry.planning.radiusKm ? `<tr><td class="label">Geplanter Umkreis</td><td>${entry.planning.radiusKm >= 1 ? `${entry.planning.radiusKm.toFixed(entry.planning.radiusKm % 1 === 0 ? 0 : 1)} km` : `${Math.round(entry.planning.radiusKm * 1000)} m`}${entry.planning.vlosExceeded ? (entry.planning.vlosAltitudeCorrection ? ' <strong style="color:#C53030">⚠ über Höhenrichtwert</strong>' : ' <strong style="color:#C53030">⚠ außerhalb VLOS</strong>') : ''}</td></tr>` : ""}
+      ${typeof entry.planning.recommendedVlosM === "number" && entry.planning.recommendedVlosM > 0 ? `<tr><td class="label">Empfohlene VLOS</td><td>${entry.planning.recommendedVlosM >= 1000 ? `${(entry.planning.recommendedVlosM / 1000).toFixed(1)} km` : `${entry.planning.recommendedVlosM} m`}</td></tr>` : ""}
+      ${entry.planning.vlosAltitudeCorrection && typeof entry.planning.vlosHorizontalLimitM === "number" ? `<tr><td class="label">Horizontaler VLOS-Richtwert</td><td>${entry.planning.vlosHorizontalLimitM} m bei ${Math.round(entry.planning.maxAltitude ?? 0)} m AGL (geometrische Näherung)</td></tr>` : ""}
+      ${entry.planning.vlosExceeded ? `<tr><td class="label">VLOS-Hinweis</td><td style="color:#C53030">${entry.planning.vlosAltitudeCorrection ? 'Geplanter Umkreis überschreitet den höhenkorrigierten horizontalen VLOS-Richtwert. Die Korrektur ist eine geometrische Näherung.' : 'Flug außerhalb der direkten Sichtweite (BVLOS) — Spotter erforderlich. Pilot hat den Override bewusst gesetzt.'}</td></tr>` : ""}
       ${entry.planning.routeDescription ? `<tr><td class="label">Routenbeschreibung</td><td>${escapeHtml(entry.planning.routeDescription)}</td></tr>` : ""}
       ${entry.planning.isFpvFlight ? `<tr><td class="label">FPV-Flug</td><td>Ja</td></tr>` : ""}
+      ${entry.planning.noGoOverride ? `<tr><td class="label" style="color:#C53030">NO-GO Override</td><td style="color:#C53030"><strong>Pilot hat trotz NO-GO-Status bewusst Freigabe erteilt</strong><br/>Zeitpunkt: ${escapeHtml(new Date(entry.planning.noGoOverride.acknowledgedAt).toLocaleString("de-DE"))}<br/>Ursprünglicher Status: ${escapeHtml(entry.planning.noGoOverride.originalStatus.toUpperCase())}<br/>Gründe:<ul>${entry.planning.noGoOverride.reasons.map(r => `<li>${escapeHtml(r)}</li>`).join("")}</ul></td></tr>` : ""}
+      ${entry.planning.officialMapCrossCheck ? `<tr><td class="label"${entry.planning.officialMapCrossCheck.blocking ? ' style="color:#D97706"' : ''}>Offizielle Karte gegengeprüft</td><td${entry.planning.officialMapCrossCheck.blocking ? ' style="color:#D97706"' : ''}>${entry.planning.officialMapCrossCheck.blocking ? "<strong>Startverhindernde Geozonen</strong>" : "Keine startverhindernden Geozonen"}${entry.planning.officialMapCrossCheck.note ? `<br/>Notiz: ${escapeHtml(entry.planning.officialMapCrossCheck.note)}` : ""}</td></tr>` : ""}
     </table>
     ${generateChecklistHtml("Planungs-Checkliste", entry.planning.checklistCompleted, entry.planning.checklistPresented)}
   ` : "";
@@ -581,6 +1080,7 @@ function generateProtocolHtml(entry: LogbookEntry): string {
   ` : geozoneListHtml;
 
   const weatherSectionHtml = generateWeatherSectionHtml(entry);
+  const ctrWeatherSectionHtml = generateCtrWeatherSectionHtml(entry);
 
   return `
   <!DOCTYPE html>
@@ -790,6 +1290,12 @@ function generateProtocolHtml(entry: LogbookEntry): string {
     <h2>Flugdaten</h2>
     <table>
       <tr><td class="label">Drohne</td><td>${escapeHtml(entry.droneName)} (${entry.droneClass})</td></tr>
+      ${entry.planning?.droneSerialNumber ? `<tr><td class="label">Seriennummer</td><td>${escapeHtml(entry.planning.droneSerialNumber)}</td></tr>` : ""}
+      ${entry.planning?.droneAlphaTangoId
+        ? `<tr><td class="label">AlphaTango-ID (FR)</td><td>${escapeHtml(entry.planning.droneAlphaTangoId)}</td></tr>`
+        : entry.planning?.alphaTangoMissingAcknowledged
+          ? `<tr><td class="label">AlphaTango-ID (FR)</td><td style="color:#d33;font-weight:600">FEHLT – Pilot hat Flug trotz Hinweis fortgesetzt (Verstoß gegen DGAC-Pflicht ab MTOM 800 g)</td></tr>`
+          : ""}
       <tr><td class="label">Ort</td><td>${escapeHtml(entry.locationName || "-")}</td></tr>
       <tr><td class="label">Koordinaten</td><td>${entry.latitude.toFixed(6)}, ${entry.longitude.toFixed(6)}</td></tr>
       <tr><td class="label">Start</td><td>${formatTime(entry.takeoffTime)}</td></tr>
@@ -798,7 +1304,9 @@ function generateProtocolHtml(entry: LogbookEntry): string {
       <tr><td class="label">Max. Höhe</td><td>${entry.maxAltitude ? `${entry.maxAltitude}m` : "-"}</td></tr>
     </table>
 
+    ${generatePlanningMapHtml(entry, maps?.planned)}
     ${weatherSectionHtml ? weatherSectionHtml : (weatherHtml ? `<h3>Wetter bei Flugbeginn</h3><table>${weatherHtml}</table>` : "")}
+    ${ctrWeatherSectionHtml}
     ${restrictionsHtml}
 
     ${planningHtml}
@@ -806,9 +1314,13 @@ function generateProtocolHtml(entry: LogbookEntry): string {
     ${hoverHtml}
     ${postLandingHtml}
     ${debriefingHtml}
+    ${generateRouteMapHtml(entry, maps?.route)}
+    ${generateDjiLogHtml(entry)}
     ${geozonesSectionHtml}
     ${mapWithTrailsHtml || mapFallbackHtml}
     ${trafficHtml}
+    ${attachedDocs && attachedDocs.length > 0 ? generateDocumentsHtml(attachedDocs) : ""}
+    ${wildlife?.active ? buildWildlifeRescueOrdinancesHtml(escapeHtml, wildlife.ordinanceIds) : ""}
 
     <div class="footer">
       DrohnenPilot - Vollstaendiges Flugprotokoll
@@ -1006,7 +1518,182 @@ export async function exportSingleEntryPdf(entry: LogbookEntry): Promise<void> {
   return exportLogbookPdf([entry]);
 }
 
-export async function exportFlightProtocolPdf(entry: LogbookEntry): Promise<void> {
-  const html = generateProtocolHtml(entry);
+/**
+ * Löst die zum Flugzeitpunkt gültigen Pilotendokumente auf. `includeDocs`
+ * überschreibt die globale Einstellung pro Export; ohne Angabe gilt die
+ * Nutzereinstellung `attachPilotDocsToExports` (Default: an).
+ */
+export async function resolveAttachedDocsForEntry(
+  entry: LogbookEntry,
+  includeDocs?: boolean,
+): Promise<ResolvedPilotDocument[]> {
+  let include = includeDocs;
+  if (include == null) {
+    try {
+      const settings = await getSettings();
+      include = settings.attachPilotDocsToExports ?? true;
+    } catch {
+      include = true;
+    }
+  }
+  if (!include) return [];
+  try {
+    const pilot = await getPilotProfile();
+    return resolveFlightTimeDocuments(pilot, {
+      flightDateISO: entry.flightDate,
+      bundesland: entry.bundesland,
+    });
+  } catch {
+    return [];
+  }
+}
+
+export interface WildlifeOrdinancesForExport {
+  /** Ob der Abschnitt überhaupt gerendert wird. */
+  active: boolean;
+  /** Zum Flugzeitpunkt eingefrorene Verfügungs-IDs (Snapshot). `null` → alle. */
+  ordinanceIds?: string[] | null;
+}
+
+/**
+ * Entscheidet, ob die Wildtierrettungs-Allgemeinverfügungen dem Export
+ * beigefügt werden. Sie folgen derselben Opt-in-Logik wie die
+ * Pilotendokumente (`includeDocs`).
+ *
+ * Der Wildtierretter-STATUS wird primär aus dem Eintrag gelesen (Snapshot vom
+ * Flugzeitpunkt) — so belegt das PDF genau die damals gültige Rechtslage. Nur
+ * Altdaten OHNE erfassten Snapshot (`wildlifeRescueAtFlight == null`) fallen auf
+ * die aktuelle Live-Einstellung zurück.
+ */
+export async function resolveWildlifeOrdinancesForExport(
+  entry: LogbookEntry,
+  includeDocs?: boolean,
+): Promise<WildlifeOrdinancesForExport> {
+  let include = includeDocs;
+  const hasSnapshot = entry.wildlifeRescueAtFlight != null;
+  let wildlife = hasSnapshot ? !!entry.wildlifeRescueAtFlight : false;
+  try {
+    const settings = await getSettings();
+    if (include == null) include = settings.attachPilotDocsToExports ?? true;
+    if (!hasSnapshot) wildlife = settings.wildlifeRescueMode ?? false;
+  } catch {
+    if (include == null) include = true;
+  }
+  return {
+    active: !!include && wildlife,
+    // Snapshot-IDs nur für erfasste Einträge; Altdaten → alle aktuellen.
+    ordinanceIds: hasSnapshot ? entry.wildlifeRescueOrdinanceIds : null,
+  };
+}
+
+export interface ProtocolExportOptions {
+  /** Pilotendokumente anhängen? Überschreibt die globale Einstellung. */
+  includeDocs?: boolean;
+}
+
+export async function exportFlightProtocolPdf(
+  entry: LogbookEntry,
+  options?: ProtocolExportOptions,
+): Promise<void> {
+  const [maps, docs, wildlife] = await Promise.all([
+    prefetchProtocolMaps(entry),
+    resolveAttachedDocsForEntry(entry, options?.includeDocs),
+    resolveWildlifeOrdinancesForExport(entry, options?.includeDocs),
+  ]);
+  const html = generateProtocolHtml(entry, maps, docs, wildlife);
   await sharePdf(html, "Vollstaendiges Flugprotokoll exportieren");
+}
+
+/** Erzeugt das Flugprotokoll-PDF und gibt die lokale Datei-URI zurueck. */
+async function buildProtocolPdfUri(entry: LogbookEntry, options?: ProtocolExportOptions): Promise<string> {
+  const [maps, docs, wildlife] = await Promise.all([
+    prefetchProtocolMaps(entry),
+    resolveAttachedDocsForEntry(entry, options?.includeDocs),
+    resolveWildlifeOrdinancesForExport(entry, options?.includeDocs),
+  ]);
+  const html = generateProtocolHtml(entry, maps, docs, wildlife);
+  const { uri } = await Print.printToFileAsync({ html, base64: false });
+  return uri;
+}
+
+export interface EmailShareResult {
+  status: "sent" | "saved" | "cancelled" | "unavailable" | "web";
+}
+
+/**
+ * Versendet das Flugprotokoll als PDF-Anhang per E-Mail (expo-mail-composer).
+ * Auf Web bzw. ohne konfiguriertes Mail-Konto: sauberer Fallback (PDF oeffnen).
+ */
+export async function sendFlightProtocolByEmail(
+  entry: LogbookEntry,
+  options?: { recipients?: string[]; shareUrl?: string | null },
+): Promise<EmailShareResult> {
+  if (Platform.OS === "web") {
+    const [maps, docs, wildlife] = await Promise.all([
+      prefetchProtocolMaps(entry),
+      resolveAttachedDocsForEntry(entry),
+      resolveWildlifeOrdinancesForExport(entry),
+    ]);
+    const html = generateProtocolHtml(entry, maps, docs, wildlife);
+    const { uri } = await Print.printToFileAsync({ html });
+    window.open(uri, "_blank");
+    return { status: "web" };
+  }
+
+  const isAvailable = await MailComposer.isAvailableAsync();
+  if (!isAvailable) {
+    return { status: "unavailable" };
+  }
+
+  const uri = await buildProtocolPdfUri(entry);
+  const dateLabel = entry.flightDate || "";
+  const droneLabel = entry.droneName || "Drohne";
+  const linkLine = options?.shareUrl ? `\n\nFreigabe-Link: ${options.shareUrl}` : "";
+
+  const result = await MailComposer.composeAsync({
+    recipients: options?.recipients,
+    subject: `Flugprotokoll ${droneLabel} ${dateLabel}`.trim(),
+    body:
+      `Anbei das Flugprotokoll vom ${dateLabel} (${droneLabel}).` +
+      linkLine +
+      `\n\nErstellt mit der Pre-Flight-Check-App.`,
+    attachments: [uri],
+  });
+
+  if (result.status === MailComposer.MailComposerStatus.SENT) return { status: "sent" };
+  if (result.status === MailComposer.MailComposerStatus.SAVED) return { status: "saved" };
+  return { status: "cancelled" };
+}
+
+export interface SmsShareResult {
+  status: "sent" | "cancelled" | "unknown" | "unavailable" | "web";
+}
+
+/**
+ * Versendet den Freigabe-Link per SMS (expo-sms). Nur sinnvoll, wenn die
+ * Freigabe aktiv ist (Link erreichbar). Web/ohne SMS: sauberer Fallback.
+ */
+export async function shareProtocolViaSms(
+  entry: LogbookEntry,
+  shareUrl: string,
+  recipients?: string[],
+): Promise<SmsShareResult> {
+  if (Platform.OS === "web") {
+    return { status: "web" };
+  }
+
+  const isAvailable = await SMS.isAvailableAsync();
+  if (!isAvailable) {
+    return { status: "unavailable" };
+  }
+
+  const dateLabel = entry.flightDate || "";
+  const droneLabel = entry.droneName || "Drohne";
+  const message =
+    `Flugprotokoll ${droneLabel} vom ${dateLabel}: ${shareUrl}`.trim();
+
+  const { result } = await SMS.sendSMSAsync(recipients || [], message);
+  if (result === "sent") return { status: "sent" };
+  if (result === "cancelled") return { status: "cancelled" };
+  return { status: "unknown" };
 }

@@ -9,6 +9,7 @@ import { ThemedView } from "@/components/ThemedView";
 import { Card } from "@/components/Card";
 import { Button } from "@/components/Button";
 import { useTheme } from "@/hooks/useTheme";
+import { DataSource } from "@/lib/dataSource";
 import { Spacing, Typography } from "@/constants/theme";
 import { fetchWeather, WeatherData } from "@/lib/weather";
 import { fetchKpIndex, KpIndexData, getKpLabel } from "@/lib/kpindex";
@@ -208,9 +209,11 @@ export default function DipulWeatherScreen() {
             </ThemedText>
             <Feather name="chevron-right" size={16} color={theme.primary} />
           </Pressable>
-          <ThemedText style={[styles.sourceLabel, { color: theme.textTertiary }]}>
-            Quelle: dipul DFS (DWD ICON-D2)
-          </ThemedText>
+          <DataSource>
+            <ThemedText style={[styles.sourceLabel, { color: theme.textTertiary }]}>
+              Quelle: dipul DFS (DWD ICON-D2)
+            </ThemedText>
+          </DataSource>
           {isCustomLocation ? (
             <Pressable onPress={handleResetToCurrentLocation} style={styles.resetButton}>
               <Feather name="navigation" size={14} color={theme.textSecondary} />

@@ -17,11 +17,15 @@ import type { RouteProp } from "@react-navigation/native";
 import { Feather } from "@expo/vector-icons";
 import * as Location from "@/lib/location";
 import * as WebBrowser from "@/lib/webBrowser";
-import MapView, { Circle, Marker, Polygon, WMSTile } from "@/components/maps";
+import NotamRestrictionMap, { type NotamMapOverlay } from "@/components/NotamRestrictionMap";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { Card } from "@/components/Card";
 import { useTheme } from "@/hooks/useTheme";
+import { useMapBasemapStyle } from "@/hooks/useMapBasemapStyle";
+import { useShowDataSources } from "@/lib/dataSource";
+import { ED269_SOURCE_LABELS } from "@/lib/ed269";
+import { geozoneBadgeLabel, filterGeozoneDetailLines } from "@/lib/sourceAttribution";
 import { Spacing, Typography, BorderRadius } from "@/constants/theme";
 import type { NotamsStackParamList } from "@/navigation/NotamsStackNavigator";
 import {
@@ -29,19 +33,22 @@ import {
   DipulTempRestriction,
   DipulTempRestrictionsResult,
   buildDipulLink,
+  ringGroupsForZone,
 } from "@/lib/geozones";
 import { MIL_LOW_FLIGHT_SOURCE_URL, MIL_LOW_FLIGHT_ACTIVATION_TEXT } from "@/lib/milLowFlight";
+import { smoothRingGroup } from "@/lib/ringSimplify";
 import {
   buildWmsTileUrl,
-  buildCombinedWmsTileUrl,
-  getCountriesInRadius,
-  pointInPolygon,
+  pointInZone,
   queryGeozoneFeatureInfo,
   GeozoneFeatureInfo,
   fetchAllLuZonesAsNotams,
   getCountryGeozoneConfig,
   LU_TEMP_ZONE_LABEL,
+  TEMP_RESTRICTION_LAYER_LABEL,
   separateTempRestrictions,
+  getAllDefaultEnabledLayerNames,
+  queryEd269CachedFeatures,
 } from "@/lib/geozones";
 import {
   deriveMilLowFlightStatuses,
@@ -54,10 +61,15 @@ import {
   MilLowFlightAreaStatus,
   isMilLowFlightLikelyActive,
 } from "@/lib/milLowFlight";
-import { detectCountryFromCoordinates, getCountryMapConfig, getCountryDefaultCenter } from "@/lib/countryMaps";
+import { detectCountryFromCoordinates, getCountryMapConfig, getCountryDefaultCenter, getCountryFlag, isPointInCountry } from "@/lib/countryMaps";
 import { getCached, setCache } from "@/lib/dataCache";
-import { getSettings } from "@/lib/storage";
+import { getSettings, saveSettings } from "@/lib/storage";
 import { setActiveNotamCount } from "@/lib/notamAlertStore";
+import CountryPickerModal from "@/components/CountryPickerModal";
+import {
+  ed269ZonesToNotamRestrictions,
+  formatBelgianNotamValidityRange,
+} from "@/lib/ed269Notams";
 
 type RouteParams = RouteProp<NotamsStackParamList, "Notams">;
 
@@ -98,6 +110,9 @@ function altitudeExplanation(r: DipulTempRestriction): string {
 }
 
 function formatDateRange(r: DipulTempRestriction): string {
+  const belgianRange = formatBelgianNotamValidityRange(r);
+  if (belgianRange != null) return belgianRange;
+  if (r.validityUnknown) return "Gültigkeit im Quelldatensatz nicht angegeben";
   if (!r.startTs) return "";
   const opts: Intl.DateTimeFormatOptions = { day: "2-digit", month: "2-digit", year: "numeric" };
   const startStr = new Date(r.startTs).toLocaleDateString("de-DE", opts);
@@ -108,6 +123,7 @@ function formatDateRange(r: DipulTempRestriction): string {
 }
 
 function daysRemaining(r: DipulTempRestriction): string | null {
+  if (r.validityUnknown) return "Gültigkeit prüfen";
   if (!r.endTs || r.endTsIndefinite) return "Dauerhaft";
   const now = new Date();
   const end = new Date(r.endTs);
@@ -138,22 +154,35 @@ function daysUntilStart(r: DipulTempRestriction): string | null {
 }
 
 function RestrictionCard({ restriction, theme, onShowOnMap }: { restriction: DipulTempRestriction; theme: any; onShowOnMap?: (lat: number, lon: number, id?: string) => void }) {
+  const isAdmin = useShowDataSources();
   const [expanded, setExpanded] = useState(false);
   const isMilLowFlight = restriction.kind === "mil_low_flight_day";
   const isEDR = restriction.name.startsWith("ED-R");
   const isUpcoming = restriction.status === "upcoming";
+  const hasRecurringSchedule = !!restriction.scheduleText?.length;
   const milLikelyActive = isMilLowFlight ? isMilLowFlightLikelyActive() : false;
   const borderColor = isMilLowFlight
     ? milLikelyActive ? "#7B8B3A" : "#8E8E93"
     : isUpcoming ? "#5856D6" : isEDR ? "#FF3B30" : "#FF9500";
-  const statusColor = borderColor;
+  const statusColor = hasRecurringSchedule ? "#5856D6" : borderColor;
   const statusLabel = isMilLowFlight
     ? milLikelyActive ? "Mil. Tiefflug Tag (aktiv)" : "Mil. Tiefflug Tag (jetzt nicht aktiv)"
-    : isUpcoming ? "Zukünftig" : "Aktiv";
-  const statusIcon = isMilLowFlight ? "shield" : isUpcoming ? "clock" : "zap";
+    : hasRecurringSchedule
+      ? isUpcoming
+        ? "Zeitplan · zukünftig"
+        : "Zeitplan"
+      : isUpcoming
+        ? "Zukünftig"
+        : "Aktiv";
+  const statusIcon = isMilLowFlight ? "shield" : hasRecurringSchedule ? "repeat" : isUpcoming ? "clock" : "zap";
+  // dipul ist die deutsche Quelle. Für ausländische ED-269-Zonen (BE/AT/DK,
+  // id-Präfix "ed269-") wird weder der dipul-Link noch der Quellhinweis gezeigt.
+  const isGermanZone = !restriction.id.startsWith("ed269-");
   const dipulUrl = isMilLowFlight ? MIL_LOW_FLIGHT_SOURCE_URL : buildDipulLink(restriction.name);
   const dateRange = formatDateRange(restriction);
-  const remaining = isUpcoming ? daysUntilStart(restriction) : daysRemaining(restriction);
+  const remaining = hasRecurringSchedule && !isUpcoming
+    ? null
+    : isUpcoming ? daysUntilStart(restriction) : daysRemaining(restriction);
 
   const categoryIcon = restriction.category === "military" ? "shield" : restriction.category === "nature" ? "feather" : restriction.category === "notam" ? "file-text" : "alert-circle";
 
@@ -278,6 +307,14 @@ function RestrictionCard({ restriction, theme, onShowOnMap }: { restriction: Dip
                 </ThemedText>
               </View>
             ) : null}
+            {restriction.scheduleText?.map((schedule, index) => (
+              <View key={`schedule-${index}`} style={styles.detailRow}>
+                <Feather name="repeat" size={12} color={theme.textTertiary} />
+                <ThemedText style={[styles.detailText, { color: theme.textSecondary }]}>
+                  Aktivzeit (wiederkehrend): {schedule}
+                </ThemedText>
+              </View>
+            ))}
             {restriction.recurRules ? (
               <View style={styles.detailRow}>
                 <Feather name="repeat" size={12} color={theme.textTertiary} />
@@ -300,15 +337,17 @@ function RestrictionCard({ restriction, theme, onShowOnMap }: { restriction: Dip
                 {restriction.extRef || restriction.id}
               </ThemedText>
             </View>
-            <Pressable
-              onPress={(e) => { e.stopPropagation?.(); WebBrowser.openBrowserAsync(dipulUrl || "https://www.dipul.de/homepage/de/temporaere-betriebseinschraenkungen/").catch(() => {}); }}
-              style={styles.dipulLink}
-            >
-              <Feather name="external-link" size={12} color={borderColor} />
-              <ThemedText style={[styles.dipulLinkText, { color: borderColor }]}>
-                {isMilLowFlight ? "Karte und Details auf dipul.de" : dipulUrl ? "Details auf dipul.de" : "Alle Einschränkungen auf dipul.de"}
-              </ThemedText>
-            </Pressable>
+            {isGermanZone ? (
+              <Pressable
+                onPress={(e) => { e.stopPropagation?.(); WebBrowser.openBrowserAsync(dipulUrl || "https://www.dipul.de/homepage/de/temporaere-betriebseinschraenkungen/").catch(() => {}); }}
+                style={styles.dipulLink}
+              >
+                <Feather name="external-link" size={12} color={borderColor} />
+                <ThemedText style={[styles.dipulLinkText, { color: borderColor }]}>
+                  {isMilLowFlight ? (isAdmin ? "Karte und Details auf dipul.de" : "Karte und Details ansehen") : dipulUrl ? (isAdmin ? "Details auf dipul.de" : "Details ansehen") : (isAdmin ? "Alle Einschränkungen auf dipul.de" : "Alle Einschränkungen ansehen")}
+                </ThemedText>
+              </Pressable>
+            ) : null}
           </View>
         ) : null}
       </Card>
@@ -328,7 +367,7 @@ function SectionHeader({ title, count, color, icon, theme }: { title: string; co
   );
 }
 
-function NotamMapView({ restrictions, milStatusMap, centerLat, centerLon, focusLat, focusLon, focusId }: {
+function NotamMapView({ restrictions, milStatusMap, centerLat, centerLon, focusLat, focusLon, focusId, countryIso }: {
   restrictions: DipulTempRestriction[];
   milStatusMap: Record<string, MilLowFlightAreaStatus>;
   centerLat: number;
@@ -336,56 +375,86 @@ function NotamMapView({ restrictions, milStatusMap, centerLat, centerLon, focusL
   focusLat?: number;
   focusLon?: number;
   focusId?: string;
+  countryIso?: string | null;
 }) {
+  const isAdmin = useShowDataSources();
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
   const theme = isDark
     ? { bg: "#1C1C1E", text: "#FFFFFF", textSec: "#AEAEB2", border: "#38383A", primary: "#0A84FF" }
     : { bg: "#FFFFFF", text: "#000000", textSec: "#6C6C70", border: "#E5E5EA", primary: "#007AFF" };
-  const mapRef = React.useRef<MapView>(null);
   const [selectedRestriction, setSelectedRestriction] = useState<DipulTempRestriction | null>(null);
+  const [otherRestrictions, setOtherRestrictions] = useState<DipulTempRestriction[]>([]);
   const [isProximityMatch, setIsProximityMatch] = useState(false);
   const [wmsZones, setWmsZones] = useState<GeozoneFeatureInfo[]>([]);
   const [wmsLoading, setWmsLoading] = useState(false);
   const [pinCoord, setPinCoord] = useState<{ latitude: number; longitude: number } | null>(null);
-  const [mapType, setMapType] = useState<"standard" | "satellite">("standard");
+  const [mapType, setMapType] = useMapBasemapStyle();
 
-  const defaultCenter = { latitude: centerLat, longitude: centerLon };
-  const defaultDelta = { latitudeDelta: 2.0, longitudeDelta: 2.0 };
+  // Delta aus dem Länder-Profil ableiten, damit beim Wechsel z. B. nach
+  // Deutschland nicht nur ein 2°-Ausschnitt um Mittelpunkt zu sehen ist,
+  // sondern das ganze Land aufs Display passt.
+  const countryDefaults = getCountryDefaultCenter(countryIso || "DE");
+  const defaultDelta = { latitudeDelta: countryDefaults.latDelta, longitudeDelta: countryDefaults.lonDelta };
 
-  const mappedRestrictions = restrictions.filter((r) => r.centerLat != null && r.centerLon != null);
+  const validMapPoint = (lat: number, lon: number) =>
+    Number.isFinite(lat) && Number.isFinite(lon) && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180;
+  const hasRenderableRing = (ring: [number, number][]) =>
+    ring.filter(([lat, lon]) => validMapPoint(lat, lon)).length >= 3;
+  // Polygongeometrien auch ohne berechneten Mittelpunkt zeichnen. Der Mittelpunkt
+  // wird nur zum Fokussieren/Kreis-Overlay benötigt, nicht zum Rendern eines Polygons.
+  const canRenderRestriction = (r: DipulTempRestriction) =>
+    (r.centerLat != null && r.centerLon != null && validMapPoint(r.centerLat, r.centerLon)) ||
+    (r.polygonRings?.some(hasRenderableRing) ?? false) ||
+    (r.polygonGroups?.some((group) => group.some(hasRenderableRing)) ?? false);
+  const mappedRestrictions = restrictions.filter(canRenderRestriction);
+  const unmappedRestrictions = restrictions.filter((r) => !canRenderRestriction(r));
 
-  useEffect(() => {
-    if (focusLat != null && focusLon != null && mapRef.current) {
-      mapRef.current.animateToRegion({
-        latitude: focusLat,
-        longitude: focusLon,
-        latitudeDelta: 0.15,
-        longitudeDelta: 0.15,
-      }, 500);
-    }
-  }, [focusLat, focusLon]);
-
-  const [currentRegion, setCurrentRegion] = useState({
-    latitude: centerLat, longitude: centerLon, latitudeDelta: 2.0, longitudeDelta: 2.0,
-  });
-
-  const NOTAM_ONLY_LAYERS: Record<string, string[]> = useMemo(() => ({
-    DE: ["temporaere_betriebseinschraenkungen"],
-    LU: ["1927", "1928"],
-  }), []);
-
-  const wmsUrlsPerCountry = useMemo(() => {
-    const viewRadiusKm = Math.max(
-      (currentRegion.latitudeDelta || 0) * 111.32 / 2,
-      (currentRegion.longitudeDelta || 0) * 111.32 * Math.cos((currentRegion.latitude * Math.PI) / 180) / 2,
-      80
-    );
-    const countries = getCountriesInRadius(currentRegion.latitude, currentRegion.longitude, viewRadiusKm);
-    return countries
-      .filter((iso) => NOTAM_ONLY_LAYERS[iso] && NOTAM_ONLY_LAYERS[iso].length > 0)
-      .map((iso) => ({ iso, url: buildCombinedWmsTileUrl(NOTAM_ONLY_LAYERS[iso], iso) }));
-  }, [currentRegion.latitude, currentRegion.longitude, currentRegion.latitudeDelta, currentRegion.longitudeDelta, NOTAM_ONLY_LAYERS]);
+  // Beschränkungs-Overlays (Polygone/Kreise) mit Einfärbung nach mil-Low-Flight-
+  // Status, ED-R (rot), aktiv (orange) bzw. zukünftig (violett); bei gesetztem
+  // Fokus werden Nicht-Treffer abgeblendet. Das generische Format wird sowohl
+  // von der nativen Leaflet-Karte als auch der Web-Karte gezeichnet.
+  const overlays = useMemo<NotamMapOverlay[]>(() => {
+    return mappedRestrictions.map((r) => {
+      const isActive = r.status === "active";
+      const isEDR = r.name.startsWith("ED-R");
+      const isMilLowFlight = r.kind === "mil_low_flight_day";
+      const milStatus = isMilLowFlight ? milStatusMap[r.id]?.status ?? "inactive" : null;
+      const isFocused = focusId === r.id;
+      const dimmed = focusId != null && !isFocused;
+      const fillColor = dimmed
+        ? "rgba(128,128,128,0.04)"
+        : isMilLowFlight && milStatus
+          ? getStatusFillColor(milStatus)
+          : isActive
+            ? (isEDR ? "rgba(255,59,48,0.45)" : "rgba(255,149,0,0.15)")
+            : "rgba(88,86,214,0.12)";
+      const strokeColor = dimmed
+        ? "rgba(128,128,128,0.15)"
+        : isMilLowFlight && milStatus
+          ? getStatusStrokeColor(milStatus)
+          : isActive
+            ? (isEDR ? "rgba(255,59,48,1)" : "rgba(255,149,0,0.7)")
+            : "rgba(88,86,214,0.5)";
+      const strokeWidth = isFocused ? 3 : dimmed ? 1 : 2;
+      const polygonGroups = ringGroupsForZone(r)
+        .map((group) => group
+          .map((ring) => ring.filter(([lat, lon]) => validMapPoint(lat, lon)))
+          .filter((ring) => ring.length >= 3))
+        .filter((group) => group[0]?.length >= 3)
+        .map((group) => smoothRingGroup(group));
+      const hasPolygon = polygonGroups.length > 0;
+      return {
+        id: r.id,
+        groups: hasPolygon ? polygonGroups : undefined,
+        center: hasPolygon ? undefined : [r.centerLat as number, r.centerLon as number],
+        radiusM: hasPolygon ? undefined : (r.radiusM ?? 5000),
+        fillColor,
+        strokeColor,
+        strokeWidth,
+      };
+    });
+  }, [mappedRestrictions, milStatusMap, focusId]);
 
   const toRad = (d: number) => d * Math.PI / 180;
   const haversineM = (lat1: number, lon1: number, lat2: number, lon2: number) => {
@@ -395,35 +464,40 @@ function NotamMapView({ restrictions, milStatusMap, centerLat, centerLon, focusL
     return 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   };
 
-  const findRestrictionAt = useCallback((latitude: number, longitude: number): { restriction: DipulTempRestriction | null; isProximity: boolean } => {
-    let best: DipulTempRestriction | null = null;
-    let bestDist = Infinity;
+  const findRestrictionAt = useCallback((latitude: number, longitude: number): { primary: DipulTempRestriction | null; others: DipulTempRestriction[]; isProximity: boolean } => {
+    // Sammelt ALLE Restriktionen, die den getippten Punkt enthalten —
+    // sortiert nach Nähe zum Zentrum, sodass die naheste oben steht.
+    // Die übrigen werden im Bottom-Sheet als "Weitere Zonen an dieser
+    // Position" gerendert, damit überlappende Zonen nicht verborgen sind.
+    const containing: { r: DipulTempRestriction; dist: number }[] = [];
     let nearestFallback: DipulTempRestriction | null = null;
     let nearestFallbackDist = Infinity;
     const MAX_PROXIMITY_M = 15000;
     for (const r of restrictions) {
       if (r.centerLat == null || r.centerLon == null) continue;
       const dist = haversineM(latitude, longitude, r.centerLat, r.centerLon);
-      if (r.polygonRings && r.polygonRings.length > 0) {
-        if (pointInPolygon(latitude, longitude, r.polygonRings) && dist < bestDist) {
-          best = r;
-          bestDist = dist;
-        }
-      } else {
-        const radius = r.radiusM ?? 5000;
-        if (dist <= radius * 1.5 && dist < bestDist) {
-          best = r;
-          bestDist = dist;
-        }
+      const hasPolygon = (r.polygonRings && r.polygonRings.length > 0) || (r.polygonGroups && r.polygonGroups.length > 0);
+      const inside = hasPolygon
+        ? pointInZone(latitude, longitude, r)
+        : dist <= (r.radiusM ?? 5000) * 1.5;
+      if (inside) {
+        containing.push({ r, dist });
       }
-      if (!best && dist < nearestFallbackDist && dist <= MAX_PROXIMITY_M) {
+      if (dist < nearestFallbackDist && dist <= MAX_PROXIMITY_M) {
         nearestFallback = r;
         nearestFallbackDist = dist;
       }
     }
-    if (best) return { restriction: best, isProximity: false };
-    if (nearestFallback) return { restriction: nearestFallback, isProximity: true };
-    return { restriction: null, isProximity: false };
+    containing.sort((a, b) => a.dist - b.dist);
+    if (containing.length > 0) {
+      return {
+        primary: containing[0].r,
+        others: containing.slice(1).map((c) => c.r),
+        isProximity: false,
+      };
+    }
+    if (nearestFallback) return { primary: nearestFallback, others: [], isProximity: true };
+    return { primary: null, others: [], isProximity: false };
   }, [restrictions]);
 
   const matchDipulRestriction = useCallback((zone: GeozoneFeatureInfo): DipulTempRestriction | null => {
@@ -443,17 +517,20 @@ function NotamMapView({ restrictions, milStatusMap, centerLat, centerLon, focusL
     setWmsZones([]);
     try {
       const tapCountry = detectCountryFromCoordinates(latitude, longitude) ?? undefined;
-      const config = getCountryGeozoneConfig(tapCountry);
-      const allLayers = config.layers.map(l => l.wmsLayer);
+      // Alle Default-Geozone-Layer abfragen (NOTAMs UND CTR/ED-R/Naturschutz/...)
+      // damit der Pilot sieht, was alles an dieser Position übereinander liegt
+      // — nicht nur die oberste Zone.
+      const layers = getAllDefaultEnabledLayerNames(tapCountry);
       const mapSize = 512;
       const latDelta = 0.01;
       const lonDelta = 0.01;
       const results = await queryGeozoneFeatureInfo(
-        allLayers.length > 0 ? allLayers : ["temporaere_betriebseinschraenkungen"],
+        layers,
         latitude, longitude, mapSize, mapSize, latDelta, lonDelta, tapCountry
       );
       const { tempRestrictions, geozones } = separateTempRestrictions(results);
-      setWmsZones(tempRestrictions.length > 0 ? tempRestrictions : geozones.length > 0 ? geozones : results);
+      // Reihenfolge: temporäre Beschränkungen zuerst, dann statische Geozonen.
+      setWmsZones([...tempRestrictions, ...geozones]);
     } catch {
       setWmsZones([]);
     } finally {
@@ -461,115 +538,58 @@ function NotamMapView({ restrictions, milStatusMap, centerLat, centerLon, focusL
     }
   }, []);
 
-  const handleMapPress = useCallback((e: any) => {
-    const { latitude, longitude } = e.nativeEvent.coordinate;
+  const handleMapPress = useCallback((latitude: number, longitude: number) => {
     setPinCoord({ latitude, longitude });
-    const { restriction, isProximity } = findRestrictionAt(latitude, longitude);
-    setSelectedRestriction(restriction);
+    const { primary, others, isProximity } = findRestrictionAt(latitude, longitude);
+    setSelectedRestriction(primary);
+    setOtherRestrictions(others);
     setIsProximityMatch(isProximity);
-    queryWmsAtPoint(latitude, longitude);
+    // Die native NOTAM-Karte zeigt absichtlich nur die Polygone der NOTAM-Liste.
+    // Zusätzliche WMS-Geozonen-Abfragen bleiben auf der Web-Karte verfügbar.
+    if (Platform.OS === "web") queryWmsAtPoint(latitude, longitude);
+    else {
+      setWmsZones([]);
+      setWmsLoading(false);
+    }
   }, [findRestrictionAt, queryWmsAtPoint]);
 
-  const handleMapLongPress = useCallback((e: any) => {
-    const { latitude, longitude } = e.nativeEvent.coordinate;
+  const handleMapLongPress = useCallback((latitude: number, longitude: number) => {
     setPinCoord({ latitude, longitude });
-    const { restriction, isProximity } = findRestrictionAt(latitude, longitude);
-    setSelectedRestriction(restriction);
+    const { primary, others, isProximity } = findRestrictionAt(latitude, longitude);
+    setSelectedRestriction(primary);
+    setOtherRestrictions(others);
     setIsProximityMatch(isProximity);
-    queryWmsAtPoint(latitude, longitude);
+    if (Platform.OS === "web") queryWmsAtPoint(latitude, longitude);
+    else {
+      setWmsZones([]);
+      setWmsLoading(false);
+    }
   }, [findRestrictionAt, queryWmsAtPoint]);
-
-  const iosMapType = mapType === "satellite" ? "hybridFlyover" : (Platform.OS === "ios" ? "mutedStandard" : "standard");
 
   return (
-    <View style={StyleSheet.absoluteFillObject}>
-      <MapView
-        ref={mapRef}
-        style={StyleSheet.absoluteFillObject}
-        mapType={iosMapType as any}
-        initialRegion={{
-          latitude: focusLat ?? defaultCenter.latitude,
-          longitude: focusLon ?? defaultCenter.longitude,
-          latitudeDelta: focusLat != null ? 0.15 : defaultDelta.latitudeDelta,
-          longitudeDelta: focusLon != null ? 0.15 : defaultDelta.longitudeDelta,
-        }}
-        showsUserLocation
-        showsMyLocationButton
-        onPress={handleMapPress}
+    <View collapsable={false} style={{ flex: 1, position: "relative", overflow: "hidden" }}>
+      <NotamRestrictionMap
+        centerLat={centerLat}
+        centerLon={centerLon}
+        latDelta={defaultDelta.latitudeDelta}
+        lonDelta={defaultDelta.longitudeDelta}
+        focusLat={focusLat}
+        focusLon={focusLon}
+        countryIso={countryIso}
+        mapType={mapType}
+        overlays={overlays}
+        pin={pinCoord}
+        onMapPress={handleMapPress}
         onLongPress={handleMapLongPress}
-        onRegionChangeComplete={(region) => setCurrentRegion(region)}
-      >
-        {wmsUrlsPerCountry.map(({ iso, url }) => url ? (
-          <WMSTile
-            key={`wms-notam-${iso}`}
-            urlTemplate={url}
-            zIndex={-1}
-            opacity={isDark ? 0.5 : 0.65}
-            tileSize={256}
-          />
-        ) : null)}
-        {mappedRestrictions.map((r) => {
-          const isActive = r.status === "active";
-          const isEDR = r.name.startsWith("ED-R");
-          const isMilLowFlight = r.kind === "mil_low_flight_day";
-          const milStatus = isMilLowFlight ? milStatusMap[r.id]?.status ?? "inactive" : null;
-          const isFocused = focusId === r.id;
-          const dimmed = focusId != null && !isFocused;
-          const fillColor = dimmed
-            ? "rgba(128,128,128,0.04)"
-            : isMilLowFlight && milStatus
-              ? getStatusFillColor(milStatus)
-              : isActive
-                ? (isEDR ? "rgba(255,59,48,0.45)" : "rgba(255,149,0,0.15)")
-                : "rgba(88,86,214,0.12)";
-          const strokeColor = dimmed
-            ? "rgba(128,128,128,0.15)"
-            : isMilLowFlight && milStatus
-              ? getStatusStrokeColor(milStatus)
-              : isActive
-                ? (isEDR ? "rgba(255,59,48,1)" : "rgba(255,149,0,0.7)")
-                : "rgba(88,86,214,0.5)";
-          const hasPolygon = r.polygonRings && r.polygonRings.length > 0;
-          return (
-            <React.Fragment key={r.id}>
-              {hasPolygon ? (
-                r.polygonRings!.map((ring, ri) => (
-                  <Polygon
-                    key={`${r.id}-poly-${ri}`}
-                    coordinates={ring.map(([lat, lon]) => ({ latitude: lat, longitude: lon }))}
-                    fillColor={fillColor}
-                    strokeColor={strokeColor}
-                    strokeWidth={isFocused ? 3 : dimmed ? 1 : 2}
-                  />
-                ))
-              ) : (
-                <Circle
-                  center={{ latitude: r.centerLat!, longitude: r.centerLon! }}
-                  radius={r.radiusM ?? 5000}
-                  fillColor={fillColor}
-                  strokeColor={strokeColor}
-                  strokeWidth={isFocused ? 3 : dimmed ? 1 : 2}
-                />
-              )}
-            </React.Fragment>
-          );
-        })}
-        {pinCoord ? (
-          <Marker
-            coordinate={pinCoord}
-            pinColor="#007AFF"
-            zIndex={300}
-          />
-        ) : null}
-      </MapView>
+      />
 
       <View style={mapStyles.mapTypeSelector}>
         <Pressable
           onPress={() => setMapType("standard")}
-          style={[mapStyles.mapTypeBtn, mapType === "standard" ? { backgroundColor: theme.primary } : { backgroundColor: theme.bg + "E8" }]}
+          style={[mapStyles.mapTypeBtn, mapType === "standard" || mapType === "osm" ? { backgroundColor: theme.primary } : { backgroundColor: theme.bg + "E8" }]}
         >
-          <Feather name="map" size={14} color={mapType === "standard" ? "#FFFFFF" : theme.text} />
-          <ThemedText style={[mapStyles.mapTypeBtnText, { color: mapType === "standard" ? "#FFFFFF" : theme.text }]}>Normal</ThemedText>
+          <Feather name="map" size={14} color={mapType === "standard" || mapType === "osm" ? "#FFFFFF" : theme.text} />
+          <ThemedText style={[mapStyles.mapTypeBtnText, { color: mapType === "standard" || mapType === "osm" ? "#FFFFFF" : theme.text }]}>Normal</ThemedText>
         </Pressable>
         <Pressable
           onPress={() => setMapType("satellite")}
@@ -578,7 +598,51 @@ function NotamMapView({ restrictions, milStatusMap, centerLat, centerLon, focusL
           <Feather name="globe" size={14} color={mapType === "satellite" ? "#FFFFFF" : theme.text} />
           <ThemedText style={[mapStyles.mapTypeBtnText, { color: mapType === "satellite" ? "#FFFFFF" : theme.text }]}>Satellit</ThemedText>
         </Pressable>
+        <Pressable
+          onPress={() => setMapType("grayscale")}
+          style={[mapStyles.mapTypeBtn, mapType === "grayscale" ? { backgroundColor: theme.primary } : { backgroundColor: theme.bg + "E8" }]}
+        >
+          <Feather name="sliders" size={14} color={mapType === "grayscale" ? "#FFFFFF" : theme.text} />
+          <ThemedText style={[mapStyles.mapTypeBtnText, { color: mapType === "grayscale" ? "#FFFFFF" : theme.text }]}>Graustufen</ThemedText>
+        </Pressable>
       </View>
+
+      {unmappedRestrictions.length > 0 ? (
+        <View
+          testID="notam-map-unmapped"
+          style={{
+            position: "absolute",
+            top: 56,
+            left: 12,
+            right: 12,
+            maxHeight: 180,
+            padding: 10,
+            borderRadius: 10,
+            borderWidth: 1,
+            borderColor: theme.border,
+            backgroundColor: theme.bg + "F2",
+            zIndex: 20,
+          }}
+        >
+          <ThemedText style={{ color: "#FF9500", fontWeight: "700", marginBottom: 4 }}>
+            {unmappedRestrictions.length} Eintrag{unmappedRestrictions.length === 1 ? "" : "e"} ohne darstellbare Geometrie
+          </ThemedText>
+          <ThemedText style={{ color: theme.textSec, fontSize: 12, marginBottom: 6 }}>
+            Die App konnte aus den übermittelten Positionsdaten keine gültige Kartenfläche oder Punktposition erzeugen.
+          </ThemedText>
+          <ScrollView nestedScrollEnabled showsVerticalScrollIndicator>
+            {unmappedRestrictions.map((restriction) => (
+              <ThemedText
+                key={restriction.id}
+                style={{ color: theme.text, fontSize: 12, paddingVertical: 2 }}
+                numberOfLines={2}
+              >
+                {restriction.name} · {restriction.extRef || restriction.id}
+              </ThemedText>
+            ))}
+          </ScrollView>
+        </View>
+      ) : null}
 
       {pinCoord && !selectedRestriction && !wmsLoading && wmsZones.length > 0 ? (
         <ScrollView
@@ -592,7 +656,7 @@ function NotamMapView({ restrictions, milStatusMap, centerLat, centerLon, focusL
                 {wmsZones.length} Beschränkung{wmsZones.length !== 1 ? "en" : ""}
               </ThemedText>
             </View>
-            <Pressable onPress={() => { setPinCoord(null); setSelectedRestriction(null); setWmsZones([]); }} hitSlop={12}>
+            <Pressable onPress={() => { setPinCoord(null); setSelectedRestriction(null); setOtherRestrictions([]); setWmsZones([]); }} hitSlop={12}>
               <Feather name="x" size={20} color={theme.textSec} />
             </Pressable>
           </View>
@@ -604,7 +668,7 @@ function NotamMapView({ restrictions, milStatusMap, centerLat, centerLon, focusL
               <View key={`wms-${i}`} style={{ marginTop: i === 0 ? 8 : 12, paddingTop: i === 0 ? 0 : 10, borderTopWidth: i === 0 ? 0 : StyleSheet.hairlineWidth, borderTopColor: theme.border }}>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4, flexWrap: "wrap" }}>
                   <View style={[mapStyles.infoPanelBadge, { backgroundColor: statusColor + "18" }]}>
-                    <ThemedText style={[mapStyles.infoPanelBadgeText, { color: statusColor }]}>{z.layerLabel}</ThemedText>
+                    <ThemedText style={[mapStyles.infoPanelBadgeText, { color: statusColor }]}>{geozoneBadgeLabel(z.layerLabel, isAdmin, Object.values(ED269_SOURCE_LABELS))}</ThemedText>
                   </View>
                   {statusLabel ? (
                     <View style={[mapStyles.infoPanelBadge, { backgroundColor: statusColor + "18" }]}>
@@ -705,7 +769,7 @@ function NotamMapView({ restrictions, milStatusMap, centerLat, centerLon, focusL
                         >
                           <Feather name="external-link" size={11} color={statusColor} />
                           <ThemedText style={[mapStyles.infoPanelDetails, { color: statusColor, fontWeight: "600" }]}>
-                            {isMilLowFlightMatch ? "Karte und Details auf dipul.de" : dipulUrl ? "Details auf dipul.de" : "Alle Einschränkungen auf dipul.de"}
+                            {isMilLowFlightMatch ? (isAdmin ? "Karte und Details auf dipul.de" : "Karte und Details ansehen") : dipulUrl ? (isAdmin ? "Details auf dipul.de" : "Details ansehen") : (isAdmin ? "Alle Einschränkungen auf dipul.de" : "Alle Einschränkungen ansehen")}
                           </ThemedText>
                         </Pressable>
                       </View>
@@ -713,7 +777,7 @@ function NotamMapView({ restrictions, milStatusMap, centerLat, centerLon, focusL
                   })()
                 ) : (
                   (() => {
-                    const details = z.details.split("\n").filter((d: string) => d.trim().length > 0);
+                    const details = filterGeozoneDetailLines(z.details, isAdmin);
                     return details.length > 0 ? details.slice(0, 5).map((line: string, li: number) => {
                       const parts = line.split(":");
                       return parts.length >= 2 ? (
@@ -739,10 +803,10 @@ function NotamMapView({ restrictions, milStatusMap, centerLat, centerLon, focusL
             <View style={{ flex: 1 }}>
               <ThemedText style={[mapStyles.infoPanelTitle, { color: "#34C759" }]}>Keine Einschränkung erkannt</ThemedText>
               <ThemedText style={[mapStyles.infoPanelDetails, { color: theme.textSec, marginTop: 4 }]}>
-                An dieser Position wurde keine zuordenbare Beschränkung gefunden. Prüfe ggf. die Listenansicht oder dipul.de für aktuelle Einschränkungen.
+                An dieser Position wurde keine zuordenbare Beschränkung gefunden. Prüfe ggf. die Listenansicht{isAdmin ? " oder dipul.de" : ""} für aktuelle Einschränkungen.
               </ThemedText>
             </View>
-            <Pressable onPress={() => { setPinCoord(null); setSelectedRestriction(null); setWmsZones([]); }} hitSlop={12}>
+            <Pressable onPress={() => { setPinCoord(null); setSelectedRestriction(null); setOtherRestrictions([]); setWmsZones([]); }} hitSlop={12}>
               <Feather name="x" size={20} color={theme.textSec} />
             </Pressable>
           </View>
@@ -756,18 +820,33 @@ function NotamMapView({ restrictions, milStatusMap, centerLat, centerLon, focusL
               <ActivityIndicator size="small" color={theme.primary} />
               <ThemedText style={[mapStyles.infoPanelDetails, { color: theme.textSec }]}>Beschränkungen werden geprüft…</ThemedText>
             </View>
-            <Pressable onPress={() => { setPinCoord(null); setSelectedRestriction(null); setWmsZones([]); setWmsLoading(false); }} hitSlop={12}>
+            <Pressable onPress={() => { setPinCoord(null); setSelectedRestriction(null); setOtherRestrictions([]); setWmsZones([]); setWmsLoading(false); }} hitSlop={12}>
               <Feather name="x" size={20} color={theme.textSec} />
             </Pressable>
           </View>
         </View>
       ) : null}
 
-      {selectedRestriction ? (
+      {selectedRestriction ? (() => {
+        // Vorab berechnen: Wieviele zusätzliche Zonen liegen an der Tap-Position?
+        // Wird sowohl als prominentes Banner direkt unter dem Titel
+        // angezeigt (damit es nie unter den Scroll-Cutoff fällt) als auch
+        // unten als ausklappbare Liste.
+        const usedIds = new Set<string>([selectedRestriction.id, ...otherRestrictions.map((r) => r.id)]);
+        const extraWmsZones = wmsZones.filter((z) => {
+          const m = matchDipulRestriction(z);
+          return !(m && usedIds.has(m.id));
+        });
+        const totalAdditional = otherRestrictions.length + extraWmsZones.length;
+        const hasNotamAmongAdditional =
+          otherRestrictions.some((r) => r.category === "notam") ||
+          extraWmsZones.some((z) => z.layerLabel === TEMP_RESTRICTION_LAYER_LABEL || z.layerLabel === LU_TEMP_ZONE_LABEL);
+        const screenH = Dimensions.get("window").height;
+        return (
         <ScrollView
-          style={[mapStyles.infoPanel, { backgroundColor: theme.bg, borderColor: theme.border, maxHeight: 280 }]}
+          style={[mapStyles.infoPanel, { backgroundColor: theme.bg, borderColor: theme.border, maxHeight: Math.min(560, Math.round(screenH * 0.62)) }]}
           contentContainerStyle={{ paddingBottom: 4 }}
-          showsVerticalScrollIndicator={false}
+          showsVerticalScrollIndicator={true}
         >
           <View style={mapStyles.infoPanelHeader}>
             <View style={{ flex: 1 }}>
@@ -805,10 +884,31 @@ function NotamMapView({ restrictions, milStatusMap, centerLat, centerLon, focusL
                 </ThemedText>
               ) : null}
             </View>
-            <Pressable onPress={() => { setSelectedRestriction(null); setPinCoord(null); setWmsZones([]); }} hitSlop={12}>
+            <Pressable onPress={() => { setSelectedRestriction(null); setOtherRestrictions([]); setPinCoord(null); setWmsZones([]); }} hitSlop={12}>
               <Feather name="x" size={20} color={theme.textSec} />
             </Pressable>
           </View>
+          {totalAdditional > 0 ? (
+            <View style={{
+              marginTop: 8,
+              padding: 8,
+              borderRadius: 8,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 6,
+              backgroundColor: hasNotamAmongAdditional ? "#FF950018" : (theme.border + "55"),
+              borderWidth: StyleSheet.hairlineWidth,
+              borderColor: hasNotamAmongAdditional ? "#FF950055" : theme.border,
+            }}>
+              <Feather name={hasNotamAmongAdditional ? "alert-triangle" : "layers"} size={13} color={hasNotamAmongAdditional ? "#FF9500" : theme.primary} />
+              <ThemedText style={[mapStyles.infoPanelDetails, { color: hasNotamAmongAdditional ? "#FF9500" : theme.text, fontWeight: "700", flex: 1 }]}>
+                {hasNotamAmongAdditional
+                  ? `+${totalAdditional} weitere Zone${totalAdditional !== 1 ? "n" : ""} an dieser Position — inkl. NOTAM`
+                  : `+${totalAdditional} weitere Zone${totalAdditional !== 1 ? "n" : ""} an dieser Position`}
+              </ThemedText>
+              <Feather name="chevron-down" size={14} color={hasNotamAmongAdditional ? "#FF9500" : theme.textSec} />
+            </View>
+          ) : null}
           <View style={{ marginTop: 8, gap: 6 }}>
             {selectedRestriction.legalExplanation ? (
               <View style={mapStyles.infoPanelRow}>
@@ -902,29 +1002,74 @@ function NotamMapView({ restrictions, milStatusMap, centerLat, centerLon, focusL
             style={[mapStyles.dipulLink, { borderColor: theme.border }]}
           >
             <Feather name="external-link" size={12} color={theme.primary} />
-            <ThemedText style={[mapStyles.dipulLinkText, { color: theme.primary }]}>{selectedRestriction.kind === "mil_low_flight_day" ? "Karte und Details auf dipul.de" : "Details auf dipul.de"}</ThemedText>
+            <ThemedText style={[mapStyles.dipulLinkText, { color: theme.primary }]}>{selectedRestriction.kind === "mil_low_flight_day" ? (isAdmin ? "Karte und Details auf dipul.de" : "Karte und Details ansehen") : (isAdmin ? "Details auf dipul.de" : "Details ansehen")}</ThemedText>
           </Pressable>
-          {wmsZones.length > 0 ? (
-            <View style={{ marginTop: 10, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border }}>
-              <ThemedText style={[mapStyles.infoPanelLabel, { color: theme.textSec, marginBottom: 6 }]}>Weitere Geozonen an dieser Position</ThemedText>
-              {wmsZones.map((z, i) => {
-                const details = z.details.split("\n").filter((d: string) => d.trim().length > 0);
-                return (
-                  <View key={`wms-sel-${i}`} style={{ marginTop: i === 0 ? 0 : 10, paddingTop: i === 0 ? 0 : 8, borderTopWidth: i === 0 ? 0 : StyleSheet.hairlineWidth, borderTopColor: theme.border }}>
-                    <View style={[mapStyles.infoPanelBadge, { backgroundColor: "#4A90D920", alignSelf: "flex-start", marginBottom: 4 }]}>
-                      <ThemedText style={[mapStyles.infoPanelBadgeText, { color: "#4A90D9" }]}>{z.layerLabel}</ThemedText>
+          {totalAdditional > 0 ? (
+              <View style={{ marginTop: 10, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                  <Feather name="layers" size={12} color={theme.textSec} />
+                  <ThemedText style={[mapStyles.infoPanelLabel, { color: theme.textSec }]}>
+                    Weitere Zonen an dieser Position ({totalAdditional})
+                  </ThemedText>
+                </View>
+                {otherRestrictions.map((r, i) => {
+                  const isMil = r.kind === "mil_low_flight_day";
+                  const milS = isMil ? milStatusMap[r.id] : null;
+                  const badgeColor = milS
+                    ? getStatusColor(milS.status)
+                    : r.status === "active" ? "#FF9500" : "#5856D6";
+                  const badgeLabel = milS
+                    ? `Mil. Tiefflug — ${getStatusLabel(milS.status)}`
+                    : r.status === "active" ? "Aktiv" : "Zukünftig";
+                  return (
+                    <Pressable
+                      key={`other-${r.id}`}
+                      onPress={() => { setSelectedRestriction(r); setOtherRestrictions(otherRestrictions.filter((x) => x.id !== r.id).concat(selectedRestriction!)); }}
+                      style={{ marginTop: i === 0 ? 0 : 10, paddingTop: i === 0 ? 0 : 8, borderTopWidth: i === 0 ? 0 : StyleSheet.hairlineWidth, borderTopColor: theme.border }}
+                    >
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 4 }}>
+                        <View style={[mapStyles.infoPanelBadge, { backgroundColor: badgeColor + "18" }]}>
+                          <ThemedText style={[mapStyles.infoPanelBadgeText, { color: badgeColor }]}>{badgeLabel}</ThemedText>
+                        </View>
+                        {r.type ? (
+                          <View style={[mapStyles.infoPanelBadge, { backgroundColor: theme.border + "60" }]}>
+                            <ThemedText style={[mapStyles.infoPanelBadgeText, { color: theme.textSec }]}>{r.type}</ThemedText>
+                          </View>
+                        ) : null}
+                      </View>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                        <ThemedText style={[mapStyles.infoPanelDetails, { color: theme.text, fontWeight: "600", flex: 1 }]} numberOfLines={2}>{r.name}</ThemedText>
+                        <Feather name="chevron-right" size={14} color={theme.textSec} />
+                      </View>
+                      <ThemedText style={[mapStyles.infoPanelDetails, { color: theme.textSec, marginTop: 2, fontSize: 10 }]} numberOfLines={1}>
+                        {r.lowerAlt === 0 && r.lowerAltRef === "AGL" ? "GND" : `${Math.round(r.lowerAlt)} ${r.lowerAltUnit} ${r.lowerAltRef}`}
+                        {" — "}
+                        {Math.round(r.upperAlt)} {r.upperAltUnit} {r.upperAltRef}
+                      </ThemedText>
+                    </Pressable>
+                  );
+                })}
+                {extraWmsZones.map((z, i) => {
+                  const idx = otherRestrictions.length + i;
+                  const details = filterGeozoneDetailLines(z.details, isAdmin);
+                  const wmsBadgeLabel = geozoneBadgeLabel(z.layerLabel, isAdmin, Object.values(ED269_SOURCE_LABELS));
+                  return (
+                    <View key={`wms-sel-${i}`} style={{ marginTop: idx === 0 ? 0 : 10, paddingTop: idx === 0 ? 0 : 8, borderTopWidth: idx === 0 ? 0 : StyleSheet.hairlineWidth, borderTopColor: theme.border }}>
+                      <View style={[mapStyles.infoPanelBadge, { backgroundColor: "#4A90D920", alignSelf: "flex-start", marginBottom: 4 }]}>
+                        <ThemedText style={[mapStyles.infoPanelBadgeText, { color: "#4A90D9" }]}>{wmsBadgeLabel}</ThemedText>
+                      </View>
+                      <ThemedText style={[mapStyles.infoPanelDetails, { color: theme.text, fontWeight: "600" }]} numberOfLines={2}>{z.name}</ThemedText>
+                      {details.slice(0, 3).map((line: string, li: number) => (
+                        <ThemedText key={li} style={[mapStyles.infoPanelDetails, { color: theme.textSec, marginTop: 2, fontSize: 10 }]} numberOfLines={1}>{line}</ThemedText>
+                      ))}
                     </View>
-                    <ThemedText style={[mapStyles.infoPanelDetails, { color: theme.text, fontWeight: "600" }]} numberOfLines={2}>{z.name}</ThemedText>
-                    {details.slice(0, 3).map((line: string, li: number) => (
-                      <ThemedText key={li} style={[mapStyles.infoPanelDetails, { color: theme.textSec, marginTop: 2, fontSize: 10 }]} numberOfLines={1}>{line}</ThemedText>
-                    ))}
-                  </View>
-                );
-              })}
-            </View>
+                  );
+                })}
+              </View>
           ) : null}
         </ScrollView>
-      ) : null}
+        );
+      })() : null}
     </View>
   );
 }
@@ -1037,9 +1182,9 @@ const mapStyles = StyleSheet.create({
     fontWeight: "600",
   },
 });
-
 export default function NotamsScreen() {
   const { theme } = useTheme();
+  const isAdmin = useShowDataSources();
   const headerHeight = useHeaderHeight();
   const tabBarHeight = useBottomTabBarHeight();
   const route = useRoute<RouteParams>();
@@ -1068,7 +1213,8 @@ export default function NotamsScreen() {
     }, [])
   );
   const [result, setResult] = useState<DipulTempRestrictionsResult>({ active: [], upcoming: [] });
-  const [luTsaZones, setLuTsaZones] = useState<{ nomZone: string; description: string; status: string; nature: string; dateRange: string; altitude: string; remarks: string; durPrev: string; resp: string }[]>([]);
+  const [luTsaZones, setLuTsaZones] = useState<{ id: string; nomZone: string; description: string; status: string; nature: string; dateRange: string; altitude: string; remarks: string; durPrev: string; resp: string; polygonRings?: [number, number][][]; centerLat?: number; centerLon?: number }[]>([]);
+  const [ed269Notams, setEd269Notams] = useState<DipulTempRestriction[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | undefined>();
@@ -1076,35 +1222,76 @@ export default function NotamsScreen() {
   const [mapFocusLat, setMapFocusLat] = useState<number | undefined>();
   const [mapFocusLon, setMapFocusLon] = useState<number | undefined>();
   const [mapFocusId, setMapFocusId] = useState<string | undefined>();
+  const [countryPickerOpen, setCountryPickerOpen] = useState(false);
+
+  const handleSelectCountry = useCallback(async (iso: string) => {
+    setCountryPickerOpen(false);
+    try {
+      const s = await getSettings();
+      await saveSettings({ ...s, preferredCountryIso: iso });
+    } catch {
+      // Settings konnten nicht gespeichert werden — UI-State trotzdem aktualisieren
+    }
+    setDetectedCountry(iso.toUpperCase());
+    // Standort & Fokus zurücksetzen, damit Karte aufs neue Land zentriert
+    const c = getCountryDefaultCenter(iso);
+    setCurrentLat(c.lat);
+    setCurrentLon(c.lon);
+    setMapFocusLat(undefined);
+    setMapFocusLon(undefined);
+    setMapFocusId(undefined);
+  }, []);
 
   useEffect(() => {
-    if (currentLat != null && currentLon != null) return;
     if (!detectedCountry) return; // warte bis preferredCountryIso geladen ist
     const c = getCountryDefaultCenter(detectedCountry);
     const fallbackLat = c.lat;
     const fallbackLon = c.lon;
+
+    // Wenn bereits Koordinaten vorhanden sind, nur überschreiben, falls
+    // sie außerhalb des aktuell gewählten Landes liegen (User hat Land gewechselt).
+    if (currentLat != null && currentLon != null) {
+      if (!isPointInCountry(currentLat, currentLon, detectedCountry)) {
+        setCurrentLat(fallbackLat);
+        setCurrentLon(fallbackLon);
+      }
+      return;
+    }
+
+    let active = true;
     (async () => {
       try {
         const { status } = await Location.requestForegroundPermissionsAsync();
+        if (!active) return;
         if (status === "granted") {
           const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-          setCurrentLat(loc.coords.latitude);
-          setCurrentLon(loc.coords.longitude);
+          if (!active) return;
+          // GPS nur übernehmen, wenn sie im gewählten Land liegt — sonst Land-Center.
+          if (isPointInCountry(loc.coords.latitude, loc.coords.longitude, detectedCountry)) {
+            setCurrentLat(loc.coords.latitude);
+            setCurrentLon(loc.coords.longitude);
+          } else {
+            setCurrentLat(fallbackLat);
+            setCurrentLon(fallbackLon);
+          }
         } else {
           setCurrentLat(fallbackLat);
           setCurrentLon(fallbackLon);
         }
       } catch {
+        if (!active) return;
         setCurrentLat(fallbackLat);
         setCurrentLon(fallbackLon);
       }
     })();
+    return () => { active = false; };
   }, [detectedCountry]);
 
   const parseLuRaw = useCallback((raw: any[]) => raw.map((r: any) => {
     const lines = (r.iteme || "").split("\n");
     const get = (prefix: string) => lines.find((l: string) => l.startsWith(prefix))?.replace(prefix, "").trim() || "";
     return {
+      id: r.nom_zone || (r.itema?.[0]) || "",
       nomZone: (r.itema?.[0]) || "",
       description: lines[0] || "",
       status: get("Status: "),
@@ -1114,6 +1301,9 @@ export default function NotamsScreen() {
       remarks: get("Hinweis: "),
       durPrev: get("Vorankündigung: "),
       resp: get("Zuständigkeit: "),
+      polygonRings: r.polygonRings,
+      centerLat: r.centerLat,
+      centerLon: r.centerLon,
     };
   }), []);
 
@@ -1155,6 +1345,39 @@ export default function NotamsScreen() {
     })();
   }, [loadRestrictions, parseLuRaw]);
 
+  // Temporäre ED-269-Zonen (BE/AT/DK) mit Gültigkeit < 30 Tagen zusätzlich als
+  // NOTAM listen. DE (dipul) und LU (TSA) führen ihre temporären Zonen bereits
+  // vollständig über die regulären Listen — daher hier ausgeschlossen. Der
+  // Server filtert nach maxValidityDays, sodass die Übertragung klein bleibt.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const isos =
+        detectedCountry == null
+          ? ["BE", "AT", "DK"]
+          : ["BE", "AT", "DK"].includes(detectedCountry)
+            ? [detectedCountry]
+            : [];
+      if (isos.length === 0) {
+        setEd269Notams([]);
+        return;
+      }
+      try {
+        const collected: GeozoneFeatureInfo[] = [];
+        for (const iso of isos) {
+          const feats = await queryEd269CachedFeatures(0, 0, 1, iso, undefined, true, 30);
+          collected.push(...feats);
+        }
+        if (!cancelled) setEd269Notams(ed269ZonesToNotamRestrictions(collected));
+      } catch {
+        if (!cancelled) setEd269Notams([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [detectedCountry]);
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await loadRestrictions();
@@ -1163,6 +1386,8 @@ export default function NotamsScreen() {
 
   const showDe = detectedCountry === "DE" || detectedCountry == null;
   const showLu = detectedCountry === "LU" || detectedCountry == null;
+  const showEd269 = detectedCountry == null || ["BE", "AT", "DK"].includes(detectedCountry);
+  const filteredEd269 = showEd269 ? ed269Notams : [];
   const filteredActive = showDe ? result.active : [];
   const filteredUpcoming = showDe ? result.upcoming : [];
   const milLowFlightStatuses = useMemo(
@@ -1174,6 +1399,46 @@ export default function NotamsScreen() {
   const filteredLuTsa = showLu ? luTsaZones : [];
 
   const allRestrictions = useMemo(() => (showDe ? [...result.active, ...result.upcoming] : []), [result, showDe]);
+
+  // LU-Zonen aus der Liste als Karten-Restriktionen (mit reprojizierter Geometrie).
+  // Dadurch zeichnet die Karte genau die gelisteten Zonen — das vollflächige
+  // WMS-Overlay für LU entfällt (siehe NOTAM_ONLY_LAYERS).
+  const luMapRestrictions = useMemo<DipulTempRestriction[]>(() => {
+    return filteredLuTsa
+      .filter((z) => (z.polygonRings && z.polygonRings.length > 0) || (z.centerLat != null && z.centerLon != null))
+      .map((z) => ({
+        id: `lu-${z.id}`,
+        extRef: z.id,
+        name: z.nomZone || z.description || "UAS-Zone",
+        names: [z.nomZone].filter(Boolean) as string[],
+        genNames: [],
+        type: "N",
+        legalRef: "",
+        legalExplanation: "",
+        category: "notam",
+        lowerAlt: 0,
+        lowerAltRef: "",
+        lowerAltUnit: "m",
+        upperAlt: 0,
+        upperAltRef: "",
+        upperAltUnit: "m",
+        status: z.status === "Aktiv" ? "active" : "upcoming",
+        startTs: null,
+        endTs: null,
+        endTsIndefinite: false,
+        recurRules: null,
+        centerLat: z.centerLat ?? null,
+        centerLon: z.centerLon ?? null,
+        radiusM: null,
+        polygonRings: z.polygonRings ?? null,
+      }));
+  }, [filteredLuTsa]);
+
+  const mapRestrictions = useMemo(
+    () => [...allRestrictions, ...luMapRestrictions, ...filteredEd269],
+    [allRestrictions, luMapRestrictions, filteredEd269]
+  );
+
   const milStatusMap = useMemo(() => buildMilLowFlightStatusMap(milLowFlightStatuses), [milLowFlightStatuses]);
 
   const handleShowOnMap = useCallback((lat: number, lon: number, id?: string) => {
@@ -1183,9 +1448,12 @@ export default function NotamsScreen() {
     setViewMode("karte");
   }, []);
 
-  const totalCount = filteredActive.length + filteredUpcoming.length + filteredLuTsa.length;
-  const activeCount = filteredActive.length + filteredLuTsa.filter((z) => z.status === "Aktiv").length;
-  const upcomingCount = filteredUpcoming.length;
+  const totalCount = filteredActive.length + filteredUpcoming.length + filteredLuTsa.length + filteredEd269.length;
+  const activeCount =
+    filteredActive.length +
+    filteredLuTsa.filter((z) => z.status === "Aktiv").length +
+    filteredEd269.filter((r) => r.status === "active").length;
+  const upcomingCount = filteredUpcoming.length + filteredEd269.filter((r) => r.status === "upcoming").length;
   const luCount = filteredLuTsa.length;
 
   // Aktive NOTAM-Anzahl in den globalen Store schreiben, damit der NOTAM-Tab
@@ -1221,7 +1489,40 @@ export default function NotamsScreen() {
             </ThemedText>
           </Pressable>
         </View>
+        {detectedCountry ? (
+          <Pressable
+            onPress={() => setCountryPickerOpen(true)}
+            hitSlop={8}
+            testID="button-notam-country-picker"
+            style={({ pressed }) => ({
+              flexDirection: "row",
+              alignItems: "center",
+              alignSelf: "center",
+              marginTop: Spacing.xs,
+              paddingHorizontal: Spacing.md,
+              paddingVertical: 4,
+              borderRadius: 999,
+              backgroundColor: theme.backgroundSecondary,
+              gap: 6,
+              opacity: pressed ? 0.6 : 1,
+            })}
+          >
+            <ThemedText style={{ fontSize: 14 }}>{getCountryFlag(detectedCountry)}</ThemedText>
+            <ThemedText style={{ ...Typography.small, color: theme.textSecondary, fontWeight: "600" }}>
+              {getCountryMapConfig(detectedCountry)?.nameDE || detectedCountry}
+            </ThemedText>
+            <Feather name="chevron-down" size={12} color={theme.textSecondary} />
+          </Pressable>
+        ) : null}
       </View>
+
+      <CountryPickerModal
+        visible={countryPickerOpen}
+        currentIso={detectedCountry}
+        onClose={() => setCountryPickerOpen(false)}
+        onSelect={(iso) => handleSelectCountry(iso)}
+        testIDPrefix="notam-country"
+      />
 
       {viewMode === "liste" ? (
         <ScrollView
@@ -1275,12 +1576,12 @@ export default function NotamsScreen() {
               <View style={[styles.scopeBanner, { backgroundColor: "rgba(0,122,255,0.08)" }]}>
                 <Feather name="globe" size={14} color={theme.primary} />
                 <ThemedText style={[styles.scopeBannerText, { color: theme.primary }]}>
-                  {detectedCountry === "LU" ? "Luxemburg — UAS-Beschränkungen" : detectedCountry === "CH" ? "Schweiz — Drohnenbeschränkungen" : detectedCountry === "NL" ? "Niederlande — Drohnenbeschränkungen" : "Deutschland — dipul (temp. Beschränkungen)"}
+                  {detectedCountry === "LU" ? "Luxemburg — UAS-Beschränkungen" : detectedCountry === "CH" ? "Schweiz — Drohnenbeschränkungen" : detectedCountry === "NL" ? "Niederlande — Drohnenbeschränkungen" : detectedCountry === "BE" ? "Belgien — temporäre Geozonen" : detectedCountry === "AT" ? "Österreich — temporäre Geozonen" : detectedCountry === "DK" ? "Dänemark — temporäre Geozonen" : "Deutschland — dipul (temp. Beschränkungen)"}
                 </ThemedText>
               </View>
 
               {totalCount === 0 ? (
-                !showDe && !showLu ? (
+                !showDe && !showLu && !showEd269 ? (
                   <Card style={styles.emptyCard}>
                     <Feather name="info" size={32} color="#FF9500" />
                     <ThemedText style={[styles.emptyTitle, { color: theme.text }]}>Keine NOTAM-Quelle für {detectedCountry}</ThemedText>
@@ -1392,13 +1693,42 @@ export default function NotamsScreen() {
                       </Card>
                     );
                   })}
-                  <ThemedText style={[styles.sourceInfo, { color: theme.textTertiary }]}>
-                    Quelle: Geoportail.lu WMS — ANA Luxemburg
-                  </ThemedText>
+                  {isAdmin ? (
+                    <ThemedText style={[styles.sourceInfo, { color: theme.textTertiary }]}>
+                      Quelle: Geoportail.lu WMS — ANA Luxemburg
+                    </ThemedText>
+                  ) : null}
                 </>
               ) : null}
 
-              {result.active.length + result.upcoming.length > 0 ? (
+              {filteredEd269.length > 0 ? (
+                <>
+                  <View style={[styles.scopeBanner, { backgroundColor: "rgba(255,149,0,0.08)", marginTop: Spacing.lg }]}>
+                    <Feather name="clock" size={14} color="#FF9500" />
+                    <ThemedText style={[styles.scopeBannerText, { color: "#FF9500" }]}>
+                      Temporäre Geozonen (Gültigkeit unter 30 Tagen)
+                    </ThemedText>
+                  </View>
+                  {filteredEd269.filter((r) => r.status === "active").length > 0 ? (
+                    <>
+                      <SectionHeader title="Aktuell aktiv" count={filteredEd269.filter((r) => r.status === "active").length} color="#FF9500" icon="zap" theme={theme} />
+                      {filteredEd269.filter((r) => r.status === "active").map((r) => (
+                        <RestrictionCard key={r.id} restriction={r} theme={theme} onShowOnMap={handleShowOnMap} />
+                      ))}
+                    </>
+                  ) : null}
+                  {filteredEd269.filter((r) => r.status === "upcoming").length > 0 ? (
+                    <>
+                      <SectionHeader title="Zukünftig geplant" count={filteredEd269.filter((r) => r.status === "upcoming").length} color="#5856D6" icon="clock" theme={theme} />
+                      {filteredEd269.filter((r) => r.status === "upcoming").map((r) => (
+                        <RestrictionCard key={r.id} restriction={r} theme={theme} onShowOnMap={handleShowOnMap} />
+                      ))}
+                    </>
+                  ) : null}
+                </>
+              ) : null}
+
+              {filteredActive.length + filteredUpcoming.length > 0 && isAdmin ? (
                 <ThemedText style={[styles.sourceInfo, { color: theme.textTertiary }]}>
                   Quelle: dipul Geoapi v4 — DFS / UAS-Betrieb
                 </ThemedText>
@@ -1408,27 +1738,21 @@ export default function NotamsScreen() {
         </ScrollView>
       ) : (
         <View style={{ flex: 1, marginBottom: tabBarHeight }}>
-          {loading ? (
-            <View style={[styles.loadingContainer, { flex: 1, justifyContent: "center" }]}>
-              <ActivityIndicator size="large" color={theme.primary} />
-              <ThemedText style={[styles.loadingText, { color: theme.textSecondary }]}>Karte wird geladen...</ThemedText>
-            </View>
-          ) : (
-            <NotamMapView
-              restrictions={allRestrictions}
+          <NotamMapView
+              restrictions={mapRestrictions}
               milStatusMap={milStatusMap}
               centerLat={currentLat ?? getCountryDefaultCenter(detectedCountry || "DE").lat}
               centerLon={currentLon ?? getCountryDefaultCenter(detectedCountry || "DE").lon}
               focusLat={mapFocusLat}
               focusLon={mapFocusLon}
               focusId={mapFocusId}
-            />
-          )}
+              countryIso={detectedCountry}
+          />
           {mapFocusId ? (
             <View style={[styles.mapFocusBanner, { backgroundColor: theme.background + "F0" }]}>
               <View style={{ flex: 1 }}>
                 <ThemedText style={[styles.mapFocusName, { color: theme.text }]} numberOfLines={1}>
-                  {allRestrictions.find((r) => r.id === mapFocusId)?.name || "Beschränkung"}
+                  {mapRestrictions.find((r) => r.id === mapFocusId)?.name || "Beschränkung"}
                 </ThemedText>
               </View>
               <Pressable

@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from "react";
-import { View, StyleSheet, Platform, ActivityIndicator } from "react-native";
+import { View, StyleSheet, Platform, ActivityIndicator, Modal, ScrollView, Pressable } from "react-native";
 import { useRoute, useNavigation } from "@react-navigation/native";
 import type { RouteProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -9,16 +9,20 @@ import { WebView } from "react-native-webview";
 import { ThemedView } from "@/components/ThemedView";
 import { ThemedText } from "@/components/ThemedText";
 import { Button } from "@/components/Button";
+import { GermanEnergyInfrastructurePanel } from "@/components/GermanEnergyInfrastructurePanel";
+import { useAuth } from "@/lib/auth";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, Shadows, Colors, Typography } from "@/constants/theme";
 import type { FlightCheckParamList } from "@/navigation/FlightCheckNavigator";
 import {
   getCountryMapConfig,
-  getDefaultMapConfig,
+  getMapConfigOrFallback,
   buildMapUrl,
   detectCountryFromCoordinates,
   type CountryMapConfig,
 } from "@/lib/countryMaps";
+import { getEnergyInfrastructureCountry } from "../../shared/germanEnergyInfrastructure";
+import { entitlementHasCountry } from "@/lib/subscription";
 
 type RouteParams = RouteProp<FlightCheckParamList, "Map">;
 type NavigationProp = NativeStackNavigationProp<FlightCheckParamList, "Map">;
@@ -29,10 +33,12 @@ export default function MapScreen() {
   const { theme } = useTheme();
   const headerHeight = useHeaderHeight();
   const insets = useSafeAreaInsets();
+  const { entitlement } = useAuth();
   const [loading, setLoading] = useState(true);
   const [detectingCountry, setDetectingCountry] = useState(true);
   const [countryConfig, setCountryConfig] = useState<CountryMapConfig | null>(null);
   const [countryName, setCountryName] = useState<string>("");
+  const [infrastructureVisible, setInfrastructureVisible] = useState(false);
   const webViewRef = useRef<WebView>(null);
 
   const { latitude, longitude, droneId, sessionId, countryIso } = route.params;
@@ -52,17 +58,13 @@ export default function MapScreen() {
       const detectedIso = detectCountryFromCoordinates(latitude, longitude);
       
       if (detectedIso) {
-        const config = getCountryMapConfig(detectedIso);
-        if (config) {
-          setCountryConfig(config);
-          setCountryName(config.nameDE);
-        } else {
-          setCountryConfig(getDefaultMapConfig());
-          setCountryName("Deutschland");
-        }
+        const config = getMapConfigOrFallback(detectedIso);
+        setCountryConfig(config);
+        setCountryName(config.nameDE);
       } else {
-        setCountryConfig(getDefaultMapConfig());
-        setCountryName("Unbekanntes Land");
+        const fallback = getMapConfigOrFallback(null);
+        setCountryConfig(fallback);
+        setCountryName(fallback.nameDE);
       }
       setDetectingCountry(false);
     }
@@ -70,6 +72,9 @@ export default function MapScreen() {
   }, [latitude, longitude, countryIso]);
 
   const mapUrl = countryConfig ? buildMapUrl(countryConfig, latitude, longitude) : "";
+  const infrastructureCountryIso = countryConfig?.iso?.toUpperCase() ?? "";
+  const hasInfrastructureData = !!getEnergyInfrastructureCountry(infrastructureCountryIso);
+  const hasInfrastructureAccess = entitlementHasCountry(entitlement, infrastructureCountryIso);
 
   const handleDone = () => {
     navigation.navigate("Restrictions", { latitude, longitude, droneId, sessionId });
@@ -141,6 +146,54 @@ export default function MapScreen() {
               style={[styles.doneButton, Shadows.fab]}
             />
           </View>
+          {hasInfrastructureData ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ disabled: !hasInfrastructureAccess }}
+              disabled={!hasInfrastructureAccess}
+              onPress={() => setInfrastructureVisible(true)}
+              style={[
+                styles.infrastructureButton,
+                { bottom: insets.bottom + Spacing.xl, backgroundColor: theme.background },
+                !hasInfrastructureAccess && styles.disabledInfrastructureButton,
+              ]}
+            >
+              <ThemedText style={[styles.infrastructureButtonText, { color: hasInfrastructureAccess ? theme.primary : theme.textSecondary }]}>
+                {hasInfrastructureAccess ? "Zusatzanlagen" : "Land nicht freigeschaltet"}
+              </ThemedText>
+            </Pressable>
+          ) : null}
+          <Modal
+            visible={infrastructureVisible && hasInfrastructureAccess}
+            animationType="slide"
+            onRequestClose={() => setInfrastructureVisible(false)}
+          >
+            <ThemedView style={[styles.infrastructureModal, { paddingTop: insets.top + Spacing.md }]}>
+              <View style={styles.infrastructureModalHeader}>
+                <ThemedText style={[styles.infrastructureModalTitle, { color: theme.text }]}>
+                  Zusatzanlagen in {countryName}
+                </ThemedText>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Zusatzanlagen schließen"
+                  onPress={() => setInfrastructureVisible(false)}
+                  style={styles.closeInfrastructure}
+                >
+                  <ThemedText style={{ color: theme.primary }}>Schließen</ThemedText>
+                </Pressable>
+              </View>
+              <ScrollView contentContainerStyle={styles.infrastructureModalContent}>
+                {infrastructureVisible && hasInfrastructureAccess ? (
+                  <GermanEnergyInfrastructurePanel
+                    countryIso={infrastructureCountryIso}
+                    latitude={latitude}
+                    longitude={longitude}
+                    radiusKm={5}
+                  />
+                ) : null}
+              </ScrollView>
+            </ThemedView>
+          </Modal>
         </>
       )}
     </ThemedView>
@@ -155,7 +208,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   loadingContainer: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     justifyContent: "center",
     alignItems: "center",
     backgroundColor: Colors.light.backgroundRoot,
@@ -169,6 +222,43 @@ const styles = StyleSheet.create({
   },
   doneButton: {
     paddingHorizontal: Spacing["2xl"],
+  },
+  infrastructureButton: {
+    position: "absolute",
+    left: Spacing.xl,
+    borderRadius: 20,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+    ...Shadows.fab,
+  },
+  disabledInfrastructureButton: {
+    opacity: 0.75,
+  },
+  infrastructureButtonText: {
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  infrastructureModal: {
+    flex: 1,
+  },
+  infrastructureModalHeader: {
+    minHeight: 48,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.sm,
+  },
+  infrastructureModalTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+  },
+  closeInfrastructure: {
+    padding: Spacing.sm,
+  },
+  infrastructureModalContent: {
+    padding: Spacing.md,
+    paddingBottom: Spacing["2xl"],
   },
   webFallback: {
     flex: 1,

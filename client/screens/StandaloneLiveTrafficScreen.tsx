@@ -1,33 +1,56 @@
 import { openLink } from "@/lib/webBrowser";
-import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo, useContext } from "react";
 import { View, StyleSheet, FlatList, Pressable, ActivityIndicator, ScrollView, Platform, Text, Modal, Animated, Dimensions, AppState, Linking, Alert } from "react-native";
-import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
+import { BottomTabBarHeightContext } from "@react-navigation/bottom-tabs";
+import { useRoute, type RouteProp } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import * as Location from "@/lib/location";
 import { captureRef } from "react-native-view-shot";
 import TrafficMapView, { TrafficMarker, AircraftTrail, WindData } from "@/components/TrafficMapView";
+import type { ViewportBbox } from "@/lib/opensky";
 import { fetchDipulWind, fetchWeather, ForecastData } from "@/lib/weather";
 import { fetchNotams, NotamData, getNotamSeverity, getNotamCountryLabel, getCountryLabel } from "@/lib/notams";
-import { fetchKpIndex, KpIndexData, fetchKpTimeline, getKpForHour, KpTimeEntry } from "@/lib/kpindex";
-import { fetchElevation, enrichAircraftWithElevation } from "@/lib/elevation";
-import { calculateSolarTimes, isTimeDuringDaylight, isTimeDuringCivilTwilight } from "@/lib/solar";
+import { fetchKpIndex, KpIndexData, fetchKpTimeline, getKpForHour, KpTimeEntry, getKpAssessment } from "@/lib/kpindex";
+import { fetchElevation } from "@/lib/elevation";
+import { calculateSolarTimes } from "@/lib/solar";
+import SunArcChart from "@/components/SunArcChart";
 
 import ProximityAlarmBanner, { ProximityAlarmGlow, AlarmPulseProvider, bearingTo } from "@/components/ProximityAlarmBanner";
+import SourceHealthIndicator from "@/components/SourceHealthIndicator";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { Card } from "@/components/Card";
 import { useTheme } from "@/hooks/useTheme";
+import { FeatureLockCard, useFeatureAccess } from "@/components/FeatureGate";
+import { useShowDataSources } from "@/lib/dataSource";
+import { ED269_SOURCE_LABELS } from "@/lib/ed269";
+import { geozoneBadgeLabel, filterGeozoneDetailLines, adminSourceSuffix } from "@/lib/sourceAttribution";
 import { useProximityAlarm } from "@/hooks/useProximityAlarm";
 import { useAircraftTrails } from "@/hooks/useAircraftTrails";
 import { isRecording, setMapSnapshot } from "@/lib/trafficRecorder";
 import Slider from "@react-native-community/slider";
 import { Spacing, Typography, BorderRadius } from "@/constants/theme";
-import { GEOZONE_LAYERS, GEOZONE_REGULATORY_INFO, GeozoneRegulatoryInfo, GeozoneContact, getContactsForZone, loadGeozoneSettings, saveGeozoneSettings, getActiveLayerNames, MAP_STYLES, MapStyleOption, loadMapStyle, saveMapStyle, loadRadarSettings, saveRadarSettings, queryGeozonesInArea, GeozoneFeatureInfo, separateTempRestrictions, TEMP_RESTRICTION_LAYER_LABEL, buildDipulLink, fetchNearbyTempRestrictions, DipulTempRestriction, getCountryGeozoneLayers, getCountryGeozoneConfig, fetchLuTsaAsNotams } from "@/lib/geozones";
-import { detectCountryFromCoordinates, getCountryDefaultCenter } from "@/lib/countryMaps";
+import { useGermanEnergyInfrastructure } from "@/lib/useGermanEnergyInfrastructure";
+import { windFacilitiesAsGeozones, supplementalLinesAsGeozones, supplementalInfrastructureAsGeozones } from "@/lib/energyInfrastructureZones";
+import {
+  getEnergyInfrastructureCenterForViewport,
+  getGermanWindFacility100mPoints,
+  getRadarEnergyInfrastructureItems,
+  distanceMetersBetween,
+  getEnergyInfrastructureCountry,
+} from "../../shared/germanEnergyInfrastructure";
+import { detectCountryFromCoordinates } from "../../shared/countryDetection";
+import { GEOZONE_LAYERS, GEOZONE_REGULATORY_INFO, GeozoneRegulatoryInfo, GeozoneContact, getContactsForZone, loadGeozoneSettings, saveGeozoneSettings, getActiveLayerNames, MAP_STYLES, MapStyleOption, loadMapStyle, saveMapStyle, loadRadarSettings, saveRadarSettings, queryGeozonesInArea, GeozoneFeatureInfo, separateTempRestrictions, TEMP_RESTRICTION_LAYER_LABEL, buildDipulLink, fetchNearbyTempRestrictionsRaw, DipulTempRestriction, getCountryGeozoneLayers, fetchLuTsaAsNotams } from "@/lib/geozones";
+import { GEOZONE_CATEGORIES, COMBINED_COUNTRY_TOGGLES } from "../../shared/geozoneCategories";
+import { getActiveOrUpcomingNearbyMilLowFlight } from "@/lib/milLowFlight";
 import { useFocusEffect } from "@react-navigation/native";
-import { getSettings } from "@/lib/storage";
+import { getSettings, saveSettings, getSelectedDrone, getDroneMaxAltitudeM, getPilotProfile, PilotProfile, find21hRuleForLayer, is21hLayerAvEligible, isErlaubnisExpired, Bundesland } from "@/lib/storage";
+import { detectBundeslandFromCoordinates } from "@/lib/countryMaps";
+import { computeGeozoneTabSeverity, GeozoneTabSeverity, isProhibitionZone, isGeozoneActiveFromDetails } from "@/lib/geozoneSeverity";
+import { Geozone21hRules } from "@/components/Geozone21hRules";
+import { InfrastructureFlightGuidance } from "@/components/InfrastructureFlightGuidance";
 import { getCached, setCache, makeCacheKey } from "@/lib/dataCache";
 import { findNearbyCtrAirports, CtrAirport, getCtrCategoryLabel, getCtrProviderName } from "@/lib/ctrData";
 import * as WebBrowser from "@/lib/webBrowser";
@@ -45,20 +68,39 @@ import {
   DataSource,
 } from "@/lib/opensky";
 import { getMarkerPinColor } from "@/lib/markerColors";
+import { getAgencyTag, agencyTagColor } from "@/lib/agencyTag";
+
+type StandaloneRouteParams = {
+  latitude?: number;
+  longitude?: number;
+  locationName?: string;
+  countryIso?: string;
+};
 
 export default function StandaloneLiveTrafficScreen() {
   const { theme, isDark } = useTheme();
-  const tabBarHeight = useBottomTabBarHeight();
+  const hasLiveTraffic = useFeatureAccess("live_traffic");
+  const isAdmin = useShowDataSources();
+  // Safe tab-bar height: falls back to 0 outside of a bottom-tabs context (e.g. Briefing stack)
+  const tabBarHeight = useContext(BottomTabBarHeightContext) ?? 0;
   const insets = useSafeAreaInsets();
   const safeTop = insets.top;
 
+  // Optional route params let the briefing flow re-use this screen with a planned location.
+  const route = useRoute<RouteProp<{ params?: StandaloneRouteParams }, "params">>();
+  const overrideLat = route.params?.latitude;
+  const overrideLon = route.params?.longitude;
+  const overrideName = route.params?.locationName;
+  const overrideCountry = route.params?.countryIso;
+  const hasOverrideLocation = overrideLat != null && overrideLon != null;
+
   const [gpsLatitude, setGpsLatitude] = useState<number | null>(null);
   const [gpsLongitude, setGpsLongitude] = useState<number | null>(null);
-  const [customLat, setCustomLat] = useState<number | null>(null);
-  const [customLon, setCustomLon] = useState<number | null>(null);
-  const [locationName, setLocationName] = useState<string>("");
-  const [isCustomLocation, setIsCustomLocation] = useState(false);
-  const [locationLoading, setLocationLoading] = useState(true);
+  const [customLat, setCustomLat] = useState<number | null>(hasOverrideLocation ? overrideLat! : null);
+  const [customLon, setCustomLon] = useState<number | null>(hasOverrideLocation ? overrideLon! : null);
+  const [locationName, setLocationName] = useState<string>(overrideName || "");
+  const [isCustomLocation, setIsCustomLocation] = useState(hasOverrideLocation);
+  const [locationLoading, setLocationLoading] = useState(!hasOverrideLocation);
   const [locationError, setLocationError] = useState<string | null>(null);
   const [permission, requestPermission] = Location.useForegroundPermissions();
 
@@ -68,6 +110,9 @@ export default function StandaloneLiveTrafficScreen() {
   const handleHeadingChange = useCallback((h: number | null) => { setDeviceHeading(h); }, []);
 
   const [aircraft, setAircraft] = useState<AircraftState[]>([]);
+  const [pilotElevation, setPilotElevation] = useState<number | null>(null);
+  const { activeAlerts, approachingAircraft, alarmActive, alarmLevel, alarmSettings, clearOfConflict, dismissAlarm } = useProximityAlarm(aircraft, latitude, longitude, undefined, pilotElevation);
+  const raRadiusKm = alarmSettings.ra?.radiusKm ?? 1;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
@@ -77,7 +122,7 @@ export default function StandaloneLiveTrafficScreen() {
   const isLoadingAircraft = useRef(false);
   const appActiveRef = useRef(true);
   const [trails, setTrails] = useState<AircraftTrail[]>([]);
-  const [sourceStatus, setSourceStatus] = useState<Record<DataSource, "ok" | "error" | "timeout">>({ opensky: "ok", adsbfi: "ok", adsbone: "ok", airplaneslive: "ok", adsblol: "ok", ogn: "ok" });
+  const [sourceStatus, setSourceStatus] = useState<Record<DataSource, "ok" | "error" | "timeout">>({ opensky: "ok", adsbfi: "ok", adsbone: "ok", airplaneslive: "ok", adsblol: "ok", ogn: "ok", fr24: "ok" });
   const [wind, setWind] = useState<WindData | null>(null);
   const mapContainerRef = useRef<View>(null);
   const [geozoneSettings, setGeozoneSettings] = useState<Record<string, boolean>>({});
@@ -87,12 +132,81 @@ export default function StandaloneLiveTrafficScreen() {
   const [showTraffic, setShowTraffic] = useState(true);
   const [showWindsock, setShowWindsock] = useState(true);
   const [showGeozones, setShowGeozones] = useState(true);
+  const [showEnergyInfrastructure, setShowEnergyInfrastructure] = useState(true);
   const [showWeatherOverlay, setShowWeatherOverlay] = useState(false);
-  const [detectedCountryIso, setDetectedCountryIso] = useState<string | undefined>(undefined);
+  // Höhen-Filter für Vektor-Geozonen: erreichbare Höhe = max. Flughöhe der
+  // gewählten Drohne (Standard 120 m); showAllGeozones hebt den Filter auf.
+  const [showAllGeozones, setShowAllGeozones] = useState(false);
+  const [maxReachableAltitudeM, setMaxReachableAltitudeM] = useState(120);
+  const [detectedCountryIso, setDetectedCountryIso] = useState<string | undefined>(overrideCountry);
+  const [energyMapCenter, setEnergyMapCenter] = useState<{ latitude: number; longitude: number } | null>(null);
+  const energyQueryLatitude = energyMapCenter?.latitude ?? latitude ?? 0;
+  const energyQueryLongitude = energyMapCenter?.longitude ?? longitude ?? 0;
+  const energyCountryIso = energyMapCenter
+    ? detectCountryFromCoordinates(energyQueryLatitude, energyQueryLongitude) ?? undefined
+    : detectedCountryIso;
+  const energyCountry = getEnergyInfrastructureCountry(energyCountryIso);
+  const energyInfrastructureQuery = useGermanEnergyInfrastructure(
+    energyQueryLatitude,
+    energyQueryLongitude,
+    5,
+    energyCountryIso ?? "",
+    (showEnergyInfrastructure || (showGeozones && energyCountry?.iso === "DE")) &&
+      (energyMapCenter != null || (latitude != null && longitude != null)) &&
+      !!energyCountry?.hasComparableOfficialAssetLayers,
+  );
+  const windFacility100mPoints = getGermanWindFacility100mPoints(
+    energyCountry?.iso,
+    energyInfrastructureQuery.data?.features,
+  );
+  const nearbyWindFacilityWarnings = useMemo(() => {
+    if (latitude == null || longitude == null) return [];
+    return windFacility100mPoints
+      .map((point) => ({
+        ...point,
+        distanceMeters: distanceMetersBetween(latitude, longitude, point.latitude, point.longitude),
+      }))
+      .filter((point) => point.distanceMeters <= raRadiusKm * 1000 + 100)
+      .sort((a, b) => a.distanceMeters - b.distanceMeters);
+  }, [latitude, longitude, raRadiusKm, windFacility100mPoints]);
+  const radarEnergyInfrastructure = getRadarEnergyInfrastructureItems(
+    showEnergyInfrastructure,
+    energyInfrastructureQuery.data?.features,
+    energyInfrastructureQuery.data?.sources,
+    energyCountry?.assetComparisonStatusKeyByKind,
+  );
+  const requiredComparisonStatusKeys = [
+    ...new Set(Object.values(energyCountry?.assetComparisonStatusKeyByKind ?? {})),
+  ];
+  const officialComparisonReady =
+    requiredComparisonStatusKeys.length > 0 &&
+    requiredComparisonStatusKeys.every((key) =>
+      energyInfrastructureQuery.data?.sources[key].status === "available",
+    );
+  const energyInfrastructureStatus = !showEnergyInfrastructure
+    ? "Ebene ausgeschaltet."
+    : !energyCountry?.hasComparableOfficialAssetLayers
+      ? "Kein vergleichbarer amtlicher Anlagenlayer; OSM bleibt zur Vermeidung von Duplikaten ausgeblendet."
+      : energyInfrastructureQuery.isLoading
+        ? "Amtlicher Anlagenabgleich wird geladen …"
+        : energyInfrastructureQuery.isError && !energyInfrastructureQuery.data
+          ? "Abgleich nicht erreichbar; es werden keine unbestätigten Treffer gezeichnet."
+          : !officialComparisonReady
+            ? `Amtlicher Abgleich unvollständig; ${radarEnergyInfrastructure.length} bestätigte Lücken angezeigt, übrige Treffer verborgen.${energyCountry?.iso === "FR" ? " Nur Leitungen über 50 kV sind vergleichbar." : ""}`
+            : `${radarEnergyInfrastructure.length} Treffer, die im amtlichen Anlagenlayer nicht gefunden wurden.${energyCountry?.iso === "FR" ? " Windanlagen, Masten und Leitungen bis 50 kV oder ohne Spannungsangabe bleiben ausgeblendet." : ""}`;
   const activeGeozoneLayers = useMemo(() => getActiveLayerNames(geozoneSettings, detectedCountryIso), [geozoneSettings, detectedCountryIso]);
-  const [mapStyle, setMapStyle] = useState<MapStyleOption>("standard");
+  const [mapStyle, setMapStyle] = useState<MapStyleOption>("grayscale");
   const [sidePanel, setSidePanel] = useState<"geozone" | "notam" | "wetter" | "radar" | null>(null);
   const [sidePanelGeozones, setSidePanelGeozones] = useState<GeozoneFeatureInfo[]>([]);
+  const supplementalWindZones = useMemo(() => [
+    ...windFacilitiesAsGeozones(nearbyWindFacilityWarnings, energyInfrastructureQuery.data?.features),
+    ...(energyCountry?.iso === "DE" ? supplementalLinesAsGeozones(radarEnergyInfrastructure.filter((item) => item.distanceMeters <= raRadiusKm * 1000 + 100)) : []),
+    ...(energyCountry?.iso !== "DE" ? supplementalInfrastructureAsGeozones(energyCountry?.iso,
+      radarEnergyInfrastructure.filter((item) => item.distanceMeters <= raRadiusKm * 1000)) : []),
+  ], [nearbyWindFacilityWarnings, energyInfrastructureQuery.data?.features, energyCountry?.iso, radarEnergyInfrastructure, raRadiusKm]);
+  const displayedGeozones = useMemo(() => [...sidePanelGeozones, ...supplementalWindZones],
+    [sidePanelGeozones, supplementalWindZones]);
+  const [geozoneDataStatus, setGeozoneDataStatus] = useState<"loading" | "loaded" | "error">("loading");
   const [sidePanelTempRestrictions, setSidePanelTempRestrictions] = useState<GeozoneFeatureInfo[]>([]);
   const [sidePanelDipulRestrictions, setSidePanelDipulRestrictions] = useState<DipulTempRestriction[]>([]);
   const [sidePanelNotams, setSidePanelNotams] = useState<NotamData[]>([]);
@@ -103,13 +217,117 @@ export default function StandaloneLiveTrafficScreen() {
   const [sidePanelLoading, setSidePanelLoading] = useState(false);
   const [alertFlags, setAlertFlags] = useState<{ wetter: boolean; notam: boolean; geozone: boolean }>({ wetter: false, notam: false, geozone: false });
   const [weatherStatus, setWeatherStatus] = useState<"unknown" | "ok" | "caution" | "critical">("unknown");
-  const [pilotElevation, setPilotElevation] = useState<number | null>(null);
   const [nearbyCtr, setNearbyCtr] = useState<CtrAirport[]>([]);
   const [showCtrEmergency, setShowCtrEmergency] = useState(false);
+  // Pilotenprofil für die AV-/§21h-Abdeckungsprüfung des Geozonen-Reiters.
+  const [pilotProfile, setPilotProfile] = useState<PilotProfile | null>(null);
+  useEffect(() => {
+    getPilotProfile().then(setPilotProfile).catch(() => {});
+  }, []);
+  const geozonePrefetchLatitude = latitude == null ? null : Math.round(latitude * 200) / 200;
+  const geozonePrefetchLongitude = longitude == null ? null : Math.round(longitude * 200) / 200;
+  useEffect(() => {
+    if (geozonePrefetchLatitude == null || geozonePrefetchLongitude == null || !detectedCountryIso) return;
+    let cancelled = false;
+    setGeozoneDataStatus("loading");
+    setSidePanelGeozones([]);
+    setSidePanelTempRestrictions([]);
+    queryGeozonesInArea(
+      geozonePrefetchLatitude,
+      geozonePrefetchLongitude,
+      raRadiusKm + 0.5,
+      detectedCountryIso,
+    ).then((zones) => {
+      if (cancelled) return;
+      const { geozones: permanentZones, tempRestrictions } = separateTempRestrictions(zones);
+      setSidePanelGeozones(permanentZones);
+      setSidePanelTempRestrictions(tempRestrictions);
+      setGeozoneDataStatus("loaded");
+    }).catch((error) => {
+      if (cancelled) return;
+      console.warn("[radar] geozone prefetch failed:", error?.message || error);
+      setGeozoneDataStatus("error");
+    });
+    return () => { cancelled = true; };
+  }, [geozonePrefetchLatitude, geozonePrefetchLongitude, detectedCountryIso, raRadiusKm]);
 
+  // Schweregrad des Geozonen-Reiters: rot (aktives Flugverbot ohne passende AV),
+  // orange (Höhenbeschränkung oder AV-gedecktes Verbot), blau (Zone vorhanden,
+  // nicht aktiv), grün (geprüft und keine Zone), neutral (noch ungeprüft/Quelle
+  // nicht verfügbar). Die AV-Abdeckung nutzt dieselbe Logik wie
+  // der PreCheckOverviewScreen (§21h-Regel + gültige Bundesland-Allgemeinverfügung).
+  const geozoneSeverity = useMemo<GeozoneTabSeverity>(() => {
+    const windCoverageNotConfirmed =
+      showGeozones &&
+      energyCountry?.iso === "DE" &&
+      (!energyInfrastructureQuery.data ||
+        energyInfrastructureQuery.data.sources.officialWind.status !== "available");
+    if (geozoneDataStatus !== "loaded" || windCoverageNotConfirmed) {
+      return nearbyWindFacilityWarnings.length > 0 ? "orange" : "unknown";
+    }
+    const erlaubnisse = pilotProfile?.allgemeinverfuegung || [];
+    const hasA2 = pilotProfile?.licenseA2 || false;
+    const detectedBundesland =
+      latitude != null && longitude != null
+        ? detectBundeslandFromCoordinates(latitude, longitude)
+        : null;
+    const erlaubnisForBundesland = detectedBundesland
+      ? erlaubnisse.find((e) => e.bundesland === (detectedBundesland as Bundesland))
+      : undefined;
+    const hasValidBundeslandErlaubnis =
+      hasA2 && !!erlaubnisForBundesland && !isErlaubnisExpired(erlaubnisForBundesland);
+    // §21h-Zone zählt als Flugverbot NUR wenn `prohibitionCategory !== false`.
+    // Kontrollzonen/CTR und Flugplätze haben prohibitionCategory=false, weil die
+    // FVK-Freigabe einholbar ist → „bedingt zulässig" (orange), NICHT rot.
+    const mapsToAvRule = (z: GeozoneFeatureInfo) => {
+      if (z.informationalOnly || (z.country && z.country !== "DE")) return false;
+      const rule = find21hRuleForLayer(z.layerLabel);
+      return rule !== null && (rule.prohibitionCategory ?? true);
+    };
+    const severity = computeGeozoneTabSeverity(displayedGeozones, {
+      // §21h-Zone ist genau dann durch die Landes-AV abgedeckt, wenn der Pilot
+      // eine gültige A2- + Bundesland-AV hat UND die Zonenkategorie überhaupt
+      // AV-fähig ist (Wohngrundstücke, Bundesfern-/Wasserstraßen, Bahn). Luft-
+      // sicherheits-/zustimmungspflichtige Zonen (Flugplätze/HEMS, CTR, Industrie/
+      // Energie, Behörden) sind NIE AV-gedeckt -> bleiben "bedingt zulässig".
+      isCoveredByAV: (z) => hasValidBundeslandErlaubnis && is21hLayerAvEligible(z.layerLabel),
+      // Deutsche §21h-„untersagt"-Zonen zählen zusätzlich als Flugverbot —
+      // außer Kontrollzonen/CTR + Flugplätze (prohibitionCategory: false).
+      mapsToAvRule,
+    });
+    return nearbyWindFacilityWarnings.length > 0 && (severity === "green" || severity === "blue")
+      ? "orange"
+      : severity;
+  }, [displayedGeozones, pilotProfile, latitude, longitude, nearbyWindFacilityWarnings, geozoneDataStatus, showGeozones, energyCountry?.iso, energyInfrastructureQuery.data]);
+  // Pro-Zone-Prädikat: aktive Flugverbots-/Sperrzone, die NICHT durch eine
+  // gültige AV/§21h-Abdeckung des Piloten gedeckt ist. Nutzt exakt dieselbe
+  // Abdeckungslogik wie der Reiter-Schweregrad oben, damit Karten-Hervorhebung
+  // und Tab-Farbe konsistent bleiben.
+  const isZoneSeriousProhibition = useMemo(() => {
+    const erlaubnisse = pilotProfile?.allgemeinverfuegung || [];
+    const hasA2 = pilotProfile?.licenseA2 || false;
+    const detectedBundesland =
+      latitude != null && longitude != null
+        ? detectBundeslandFromCoordinates(latitude, longitude)
+        : null;
+    const erlaubnisForBundesland = detectedBundesland
+      ? erlaubnisse.find((e) => e.bundesland === (detectedBundesland as Bundesland))
+      : undefined;
+    const hasValidBundeslandErlaubnis =
+      hasA2 && !!erlaubnisForBundesland && !isErlaubnisExpired(erlaubnisForBundesland);
+    const mapsToAvRule = (z: GeozoneFeatureInfo) => find21hRuleForLayer(z.layerLabel) !== null;
+    return (z: GeozoneFeatureInfo): boolean => {
+      if (z.informationalOnly) return false;
+      if (!isGeozoneActiveFromDetails(z.details)) return false;
+      const prohibition = isProhibitionZone(z) || mapsToAvRule(z);
+      // Nur AV-fähige §21h-Kategorien gelten als von der Landes-AV gedeckt.
+      const coveredByAV = hasValidBundeslandErlaubnis && is21hLayerAvEligible(z.layerLabel);
+      return prohibition && !coveredByAV;
+    };
+  }, [pilotProfile, latitude, longitude]);
   useEffect(() => {
     (async () => {
-      const cached = await getCached<{ notams: NotamData[]; tempRestrictions: GeozoneFeatureInfo[]; dipul: DipulTempRestriction[]; geozones: GeozoneFeatureInfo[] }>(makeCacheKey("radar_alerts", latitude, longitude));
+      const cached = await getCached<{ notams: NotamData[]; tempRestrictions: GeozoneFeatureInfo[]; dipul: DipulTempRestriction[]; geozones: GeozoneFeatureInfo[] }>(makeCacheKey("radar_alerts_v3", latitude, longitude));
       if (cached) {
         setSidePanelNotams(cached.data.notams || []);
         setSidePanelTempRestrictions(cached.data.tempRestrictions || []);
@@ -156,18 +374,27 @@ export default function StandaloneLiveTrafficScreen() {
 
   useEffect(() => {
     loadGeozoneSettings(detectedCountryIso).then(setGeozoneSettings);
-    loadMapStyle().then((saved) => {
-      setMapStyle(saved);
-    });
-    loadRadarSettings().then((rs) => {
-      setRadiusKm(Math.max(3, Math.min(30, rs.radiusKm)));
-      setShowRadar(rs.showRadar);
-      setShowTraffic(rs.showTraffic);
-      setShowWindsock(rs.showWindsock);
-      setShowGeozones(rs.showGeozones);
-      setShowWeatherOverlay(rs.showWeatherOverlay);
-    });
+    getSelectedDrone().then((d) => setMaxReachableAltitudeM(getDroneMaxAltitudeM(d))).catch(() => {});
   }, [detectedCountryIso]);
+
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      Promise.all([loadMapStyle(), loadRadarSettings()]).then(([saved, rs]) => {
+        if (!active) return;
+        setMapStyle(saved);
+        setRadiusKm(Math.max(3, Math.min(30, rs.radiusKm)));
+        setShowRadar(rs.showRadar);
+        setShowTraffic(rs.showTraffic);
+        setShowWindsock(rs.showWindsock);
+        setShowGeozones(rs.showGeozones);
+        setShowEnergyInfrastructure(rs.showEnergyInfrastructure);
+        setShowWeatherOverlay(rs.showWeatherOverlay);
+        setShowAllGeozones(rs.showAllGeozones);
+      }).catch(() => {});
+      return () => { active = false; };
+    }, []),
+  );
 
   useEffect(() => {
     if (latitude == null || longitude == null) {
@@ -180,7 +407,6 @@ export default function StandaloneLiveTrafficScreen() {
     });
   }, [latitude, longitude]);
 
-  const { activeAlerts, approachingAircraft, alarmActive, alarmLevel, alarmSettings, clearOfConflict, dismissAlarm } = useProximityAlarm(aircraft, latitude, longitude, undefined, pilotElevation);
   const activeAlertsRef = useRef(activeAlerts);
   activeAlertsRef.current = activeAlerts;
   const approachingRef = useRef(approachingAircraft);
@@ -223,7 +449,9 @@ export default function StandaloneLiveTrafficScreen() {
     const loadWind = async () => {
       if (!appActiveRef.current) return;
       const w = await fetchDipulWind(latitude, longitude);
-      if (!cancelled && w) setWind({ direction: w.direction, speed: w.speed, directionLabel: w.directionLabel });
+      if (!cancelled && w && Number.isFinite(w.speed) && Number.isFinite(w.direction)) {
+        setWind({ direction: w.direction, speed: w.speed, directionLabel: w.directionLabel });
+      }
     };
     loadWind();
     const iv = setInterval(loadWind, 300000);
@@ -231,21 +459,10 @@ export default function StandaloneLiveTrafficScreen() {
   }, [latitude, longitude]);
 
   useEffect(() => {
+    // Skip GPS entirely when a planned location was passed via route params.
+    if (hasOverrideLocation) return;
     if (!permission) return;
-
-    const fallbackToCountryCenter = () => {
-      const iso = (detectedCountryIso || "DE").toUpperCase();
-      const c = getCountryDefaultCenter(iso);
-      setGpsLatitude(c.lat);
-      setGpsLongitude(c.lon);
-      setLocationName(`${iso} (Standardposition)`);
-      setLocationLoading(false);
-    };
-
-    if (!permission.granted) {
-      fallbackToCountryCenter();
-      return;
-    }
+    if (!permission.granted) return;
 
     (async () => {
       try {
@@ -268,11 +485,23 @@ export default function StandaloneLiveTrafficScreen() {
 
         setLocationLoading(false);
       } catch (err: any) {
-        fallbackToCountryCenter();
+        setLocationError("GPS-Standort konnte nicht ermittelt werden");
+        setLocationLoading(false);
       }
     })();
-  }, [permission, detectedCountryIso]);
+  }, [permission, hasOverrideLocation]);
 
+  const viewportBboxRef = useRef<ViewportBbox | null>(null);
+  useEffect(() => {
+    if (latitude != null && longitude != null) {
+      setEnergyMapCenter({ latitude, longitude });
+    }
+  }, [latitude, longitude]);
+
+  const handleViewportChange = useCallback((bbox: ViewportBbox) => {
+    viewportBboxRef.current = bbox;
+    setEnergyMapCenter((current) => getEnergyInfrastructureCenterForViewport(current, bbox));
+  }, []);
   const loadAircraft = useCallback(async () => {
     if (latitude == null || longitude == null) return;
     if (isLoadingAircraft.current) return;
@@ -280,29 +509,23 @@ export default function StandaloneLiveTrafficScreen() {
     isLoadingAircraft.current = true;
     try {
       setError(null);
-      const result = await fetchNearbyAircraft(latitude, longitude, radiusKm);
-      const enriched = await enrichAircraftWithElevation(result.states);
+      // Bewusst KEINE Viewport-Bbox mitschicken: der Radar-Radius ist die
+      // verbindliche Grenze. Beim Rauszoomen sollen keine Flieger außerhalb
+      // des Radius auftauchen. Server-Bbox-Support bleibt für künftige
+      // Use-Cases erhalten.
+      const result = await fetchNearbyAircraft(latitude, longitude, radiusKm, 60);
 
-      const allAcForTrails: AircraftState[] = [...(enriched as AircraftState[])];
-      const enrichedIds = new Set(enriched.map((a) => a.icao24));
+      const allAcForTrails: AircraftState[] = [...result.states];
+      const stateIds = new Set(result.states.map((a) => a.icao24));
       for (const al of activeAlertsRef.current) {
-        if (!enrichedIds.has(al.aircraft.icao24)) allAcForTrails.push(al.aircraft);
+        if (!stateIds.has(al.aircraft.icao24)) allAcForTrails.push(al.aircraft);
       }
       for (const ap of approachingRef.current) {
-        if (!enrichedIds.has(ap.aircraft.icao24) && !allAcForTrails.some((a) => a.icao24 === ap.aircraft.icao24)) allAcForTrails.push(ap.aircraft);
+        if (!stateIds.has(ap.aircraft.icao24) && !allAcForTrails.some((a) => a.icao24 === ap.aircraft.icao24)) allAcForTrails.push(ap.aircraft);
       }
-      const trailResult = updateTrails(allAcForTrails, latitude, longitude, radiusKm, alarmSettings.maxAltitudeM ?? 500);
+      const trailResult = updateTrails(allAcForTrails, result.trails, latitude, longitude, radiusKm, alarmSettings.maxAltitudeM ?? 500);
       setTrails(trailResult.trails);
-      const buffered = trailResult.bufferedAircraft;
-      const mergedIds = new Set(enriched.map((a) => a.icao24));
-      const merged: AircraftState[] = [...(enriched as AircraftState[])];
-      for (const bac of buffered) {
-        if (!mergedIds.has(bac.icao24)) {
-          merged.push(bac);
-          mergedIds.add(bac.icao24);
-        }
-      }
-      setAircraft(merged);
+      setAircraft(result.states);
       setSourceStatus(result.sourceStatus);
       setLastUpdate(new Date());
       setLoading(false);
@@ -317,7 +540,7 @@ export default function StandaloneLiveTrafficScreen() {
   useEffect(() => {
     if (latitude == null || longitude == null) return;
     loadAircraft();
-    refreshInterval.current = setInterval(loadAircraft, 5000);
+    refreshInterval.current = setInterval(loadAircraft, 2000);
     return () => {
       if (refreshInterval.current) clearInterval(refreshInterval.current);
     };
@@ -344,8 +567,6 @@ export default function StandaloneLiveTrafficScreen() {
     loadAircraft();
   };
 
-  const raRadiusKm = alarmSettings.ra?.radiusKm ?? 1;
-
   const stableAlertLat = latitude != null ? Math.round(latitude * 1000) / 1000 : null;
   const stableAlertLon = longitude != null ? Math.round(longitude * 1000) / 1000 : null;
 
@@ -363,10 +584,13 @@ export default function StandaloneLiveTrafficScreen() {
           fetchKpTimeline().catch(() => [] as KpTimeEntry[]),
           fetchNotams(qLat, qLon).catch(() => ({ notams: [] as NotamData[], total: 0, queriedCodes: [] as string[] })),
           queryGeozonesInArea(qLat, qLon, raRadiusKm, detectedCountryIso).catch((e) => { console.warn("[checkAlerts] geozone query failed:", e?.message || e); return [] as GeozoneFeatureInfo[]; }),
-          fetchNearbyTempRestrictions(qLat, qLon, raRadiusKm).catch(() => ({ active: [] as DipulTempRestriction[], upcoming: [] as DipulTempRestriction[] })),
+          fetchNearbyTempRestrictionsRaw(qLat, qLon, raRadiusKm).catch(() => ({ active: [] as DipulTempRestriction[], upcoming: [] as DipulTempRestriction[] })),
           detectedCountryIso === "LU" ? fetchLuTsaAsNotams(qLat, qLon, raRadiusKm).catch(() => []) : Promise.resolve([]),
         ]);
         if (cancelled) return;
+        const milNearby = getActiveOrUpcomingNearbyMilLowFlight(dipulResult, qLat, qLon, raRadiusKm);
+        dipulResult.active = [...dipulResult.active, ...milNearby.active];
+        dipulResult.upcoming = [...dipulResult.upcoming, ...milNearby.upcoming];
         const combinedNotams = [...notamResult.notams, ...luTsaNotams as unknown as NotamData[]];
         const { geozones: permZones, tempRestrictions } = separateTempRestrictions(zones);
         const allDipul = [...dipulResult.active, ...dipulResult.upcoming];
@@ -388,7 +612,7 @@ export default function StandaloneLiveTrafficScreen() {
           f.temperature < 0 ||
           f.cloudCover > 80 ||
           (f.visibility != null && f.visibility < 1000)
-        )) || (!isCritical && !!(currentKpValue != null && currentKpValue >= 4));
+        )) || (!isCritical && !!(currentKpValue != null && currentKpValue >= 3));
         const wStatus: "ok" | "caution" | "critical" | "unknown" = !f ? "unknown" : isCritical ? "critical" : isCaution ? "caution" : "ok";
         setWeatherStatus(wStatus);
         const weatherCritical = isCritical;
@@ -403,7 +627,7 @@ export default function StandaloneLiveTrafficScreen() {
         setSidePanelTempRestrictions(tempRestrictions);
         setSidePanelDipulRestrictions(allDipul);
         setSidePanelGeozones(permZones);
-        const ck = makeCacheKey("radar_alerts", qLat, qLon);
+        const ck = makeCacheKey("radar_alerts_v3", qLat, qLon);
         setCache(ck, { notams: combinedNotams, tempRestrictions, dipul: allDipul, geozones: permZones }).catch(() => {});
       } catch (e: any) {
         console.warn("[checkAlerts] error:", e?.message || e);
@@ -427,22 +651,35 @@ export default function StandaloneLiveTrafficScreen() {
     setSidePanelLoading(true);
     try {
       if (panel === "geozone") {
-        const zones = await queryGeozonesInArea(latitude, longitude, raRadiusKm, detectedCountryIso).catch((e) => { console.warn("[openSidePanel] geozone query failed:", e?.message || e); return [] as GeozoneFeatureInfo[]; });
+        let geozonesLoaded = true;
+        const zones = await queryGeozonesInArea(latitude, longitude, raRadiusKm, detectedCountryIso).catch((e) => {
+          geozonesLoaded = false;
+          setGeozoneDataStatus("error");
+          console.warn("[openSidePanel] geozone query failed:", e?.message || e);
+          return [] as GeozoneFeatureInfo[];
+        });
         const { geozones: permZones, tempRestrictions } = separateTempRestrictions(zones);
         setSidePanelGeozones(permZones);
         setSidePanelTempRestrictions(tempRestrictions);
+        setGeozoneDataStatus(geozonesLoaded ? "loaded" : "error");
       } else if (panel === "notam") {
         const [result, zones, dipulResult, luTsaNotams] = await Promise.all([
           fetchNotams(latitude, longitude),
           queryGeozonesInArea(latitude, longitude, raRadiusKm, detectedCountryIso).catch(() => [] as GeozoneFeatureInfo[]),
-          fetchNearbyTempRestrictions(latitude, longitude, raRadiusKm).catch(() => ({ active: [] as DipulTempRestriction[], upcoming: [] as DipulTempRestriction[] })),
+          fetchNearbyTempRestrictionsRaw(latitude, longitude, raRadiusKm).catch(() => ({ active: [] as DipulTempRestriction[], upcoming: [] as DipulTempRestriction[] })),
           detectedCountryIso === "LU" ? fetchLuTsaAsNotams(latitude, longitude, raRadiusKm).catch(() => []) : Promise.resolve([]),
         ]);
         const { tempRestrictions } = separateTempRestrictions(zones);
         const combinedNotams = [...result.notams, ...luTsaNotams as unknown as NotamData[]];
+        const milNearby = getActiveOrUpcomingNearbyMilLowFlight(dipulResult, latitude, longitude, raRadiusKm);
         setSidePanelNotams(combinedNotams);
         setSidePanelTempRestrictions(tempRestrictions);
-        setSidePanelDipulRestrictions([...dipulResult.active, ...dipulResult.upcoming]);
+        setSidePanelDipulRestrictions([
+          ...dipulResult.active,
+          ...milNearby.active,
+          ...dipulResult.upcoming,
+          ...milNearby.upcoming,
+        ]);
       } else if (panel === "wetter") {
         const [data, kpTl] = await Promise.all([
           fetchWeather(latitude, longitude, 1440),
@@ -451,7 +688,7 @@ export default function StandaloneLiveTrafficScreen() {
         if (data.forecasts.length > 0) setSidePanelWeather(data.forecasts[0]);
         setSidePanelForecasts(data.forecasts);
         const currentKpVal = kpTl.length > 0 ? getKpForHour(kpTl, new Date()) : null;
-        setSidePanelKp(currentKpVal != null ? { value: currentKpVal, timestamp: new Date().toISOString(), level: currentKpVal >= 6 ? "Sturm" : currentKpVal >= 4 ? "unruhig" : "ruhig", color: currentKpVal >= 6 ? "#FF3B30" : currentKpVal >= 4 ? "#FF9500" : "#34C759", description: currentKpVal >= 6 ? "Geomagnetischer Sturm" : currentKpVal >= 4 ? "Erhöhte Aktivität" : "Ruhig" } : null);
+        setSidePanelKp(currentKpVal != null ? { value: currentKpVal, timestamp: new Date().toISOString(), ...getKpAssessment(currentKpVal) } : null);
       }
     } catch {}
     setSidePanelLoading(false);
@@ -579,23 +816,35 @@ export default function StandaloneLiveTrafficScreen() {
       const bPri = criticalIcaos.has(b.icao24) ? 0 : warningIcaos.has(b.icao24) || approachIcaos.has(b.icao24) ? 1 : 2;
       return aPri - bPri;
     });
-    return alertFirst.slice(0, MAX_MAP_MARKERS).map((ac) => ({
-      id: ac.icao24,
-      latitude: ac.latitude,
-      longitude: ac.longitude,
-      pinColor: getMarkerPinColor(ac.aglAltitude ?? getRelativeAltitude(ac, pilotElevation)),
-      title: ac.callsign || ac.icao24,
-      description: formatAltitudeDual(getAltitudeDualDisplay(ac)),
-      heading: ac.trueTrack ?? 0,
-      altitude: getAltitudeDisplay(ac),
-      altitudeDual: formatAltitudeDual(getAltitudeDualDisplay(ac)),
-      speed: getSpeedDisplay(ac),
-      category: ac.category,
-      sources: ac.sources,
-      isAlert: criticalIcaos.has(ac.icao24),
-      isApproaching: warningIcaos.has(ac.icao24) || approachIcaos.has(ac.icao24),
-      isStale: ac.isStale,
-    }));
+    return alertFirst.slice(0, MAX_MAP_MARKERS).map((ac) => {
+      const agencyTag = getAgencyTag(ac);
+      return {
+        id: ac.icao24,
+        latitude: ac.latitude,
+        longitude: ac.longitude,
+        pinColor: getMarkerPinColor(ac.aglAltitude ?? getRelativeAltitude(ac, pilotElevation)),
+        title: ac.callsign || ac.icao24,
+        description: formatAltitudeDual(getAltitudeDualDisplay(ac)),
+        heading: ac.trueTrack ?? 0,
+        altitude: getAltitudeDisplay(ac),
+        altitudeDual: formatAltitudeDual(getAltitudeDualDisplay(ac)),
+        speed: getSpeedDisplay(ac),
+        category: ac.category,
+        sources: ac.sources,
+        isAlert: criticalIcaos.has(ac.icao24),
+        isApproaching: warningIcaos.has(ac.icao24) || approachIcaos.has(ac.icao24),
+        isStale: ac.isStale,
+        registration: ac.registration,
+        aircraftType: ac.aircraftType,
+        aircraftDesc: ac.aircraftDesc,
+        operator: ac.operator,
+        cn: ac.cn,
+        originIata: ac.originIata,
+        destIata: ac.destIata,
+        flightNumber: ac.flightNumber,
+        agencyTag,
+      };
+    });
   }, [sortedAircraft, activeAlerts, approachingAircraft, criticalIcaos, warningIcaos, approachIcaos, pilotElevation]);
 
   const coloredTrails = useMemo(() => trails.map((trail) => {
@@ -625,13 +874,20 @@ export default function StandaloneLiveTrafficScreen() {
     else if (f.temperature < 0) alerts.push({ label: "Temp", value: f.temperature.toFixed(1) + "°", color: orange });
     if (f.rain > 0.5) alerts.push({ label: "Regen", value: f.rain.toFixed(1) + " mm", color: red });
     else if (f.rain > 0.1) alerts.push({ label: "Regen", value: f.rain.toFixed(1) + " mm", color: orange });
-    if (f.cloudCover > 90) alerts.push({ label: "Wolken", value: Math.round(f.cloudCover) + "%", color: orange });
+    // Vereisungs-Kombi: kalte Temperatur + hohe Feuchte
+    if (f.temperature != null && f.humidity != null) {
+      if (f.temperature < 0 && f.humidity >= 80) {
+        alerts.push({ label: "Vereisung", value: `${f.temperature.toFixed(0)}°/${Math.round(f.humidity)}%`, color: red });
+      } else if (f.temperature <= 5 && f.humidity >= 90) {
+        alerts.push({ label: "Beschlag", value: `${f.temperature.toFixed(0)}°/${Math.round(f.humidity)}%`, color: orange });
+      }
+    }
     if (f.visibility != null && f.visibility < 500) alerts.push({ label: "Sicht", value: Math.round(f.visibility) + "m", color: red });
     else if (f.visibility != null && f.visibility < 1000) alerts.push({ label: "Sicht", value: Math.round(f.visibility) + "m", color: orange });
-    if (f.humidity > 95) alerts.push({ label: "Feuchte", value: Math.round(f.humidity) + "%", color: orange });
     const kpVal = sidePanelKpTimeline.length > 0 ? getKpForHour(sidePanelKpTimeline, new Date()) : sidePanelKp?.value ?? null;
-    if (kpVal != null && kpVal >= 6) alerts.push({ label: "KP", value: kpVal.toFixed(1), color: red });
-    else if (kpVal != null && kpVal >= 4) alerts.push({ label: "KP", value: kpVal.toFixed(1), color: orange });
+    if (kpVal != null && kpVal >= 3) {
+      alerts.push({ label: "KP", value: kpVal.toFixed(1), color: getKpAssessment(kpVal).color });
+    }
     return alerts;
   }, [sidePanelWeather, sidePanelKp, sidePanelKpTimeline]);
 
@@ -642,10 +898,11 @@ export default function StandaloneLiveTrafficScreen() {
     return theme.statusGo;
   };
 
-  const showLoading = !permission;
-  const showPermRequest = !!permission && !permission.granted;
-  const showLocLoading = !!permission && permission.granted && locationLoading;
-  const showLocError = !!permission && permission.granted && !locationLoading && (!!locationError || latitude == null || longitude == null);
+  // Bei Override-Location aus dem Briefing wird die Geräte-Permission nicht benötigt — alle Permission-Gates überspringen.
+  const showLoading = !hasOverrideLocation && !permission;
+  const showPermRequest = !hasOverrideLocation && !!permission && !permission.granted;
+  const showLocLoading = !hasOverrideLocation && !!permission && permission.granted && locationLoading;
+  const showLocError = !hasOverrideLocation && !!permission && permission.granted && !locationLoading && (!!locationError || latitude == null || longitude == null);
 
   const renderAircraft = ({ item }: { item: AircraftState }) => {
     const alt = getEffectiveAlt(item);
@@ -674,16 +931,26 @@ export default function StandaloneLiveTrafficScreen() {
           <View style={[styles.categoryBadge, { backgroundColor: theme.primary + "15" }]}>
             <ThemedText style={[styles.categoryText, { color: theme.primary }]}>{getCategoryLabel(item.category)}</ThemedText>
           </View>
-          <View style={styles.sourceIndicators}>
-            {item.sources.map((s) => (
-              <View key={s} style={[styles.sourceChip, { backgroundColor: theme.backgroundSecondary }]}>
-                <View style={[styles.sourceChipDot, { backgroundColor: s === "opensky" ? "#4CAF50" : s === "adsbfi" ? "#2196F3" : s === "airplaneslive" ? "#9C27B0" : s === "adsblol" ? "#E91E63" : s === "ogn" ? "#FF5722" : "#FF9800" }]} />
-                <ThemedText style={[styles.sourceChipText, { color: theme.textTertiary }]}>
-                  {s === "opensky" ? "OpenSky" : s === "adsbfi" ? "adsb.fi" : s === "airplaneslive" ? "apl" : s === "adsblol" ? "lol" : s === "ogn" ? "OGN" : "adsb.one"}
-                </ThemedText>
+          {(() => {
+            const agencyTag = getAgencyTag(item);
+            return agencyTag ? (
+              <View style={[styles.agencyBadge, { backgroundColor: agencyTagColor(agencyTag) }]} testID={`badge-agency-${item.icao24}`}>
+                <ThemedText style={styles.agencyBadgeText}>{agencyTag}</ThemedText>
               </View>
-            ))}
-          </View>
+            ) : null;
+          })()}
+          {isAdmin ? (
+            <View style={styles.sourceIndicators}>
+              {item.sources.map((s) => (
+                <View key={s} style={[styles.sourceChip, { backgroundColor: theme.backgroundSecondary }]}>
+                  <View style={[styles.sourceChipDot, { backgroundColor: s === "opensky" ? "#4CAF50" : s === "adsbfi" ? "#2196F3" : s === "airplaneslive" ? "#9C27B0" : s === "adsblol" ? "#E91E63" : s === "ogn" ? "#FF5722" : "#FF9800" }]} />
+                  <ThemedText style={[styles.sourceChipText, { color: theme.textTertiary }]}>
+                    {s === "opensky" ? "OpenSky" : s === "adsbfi" ? "adsb.fi" : s === "airplaneslive" ? "apl" : s === "adsblol" ? "lol" : s === "ogn" ? "OGN" : "adsb.one"}
+                  </ThemedText>
+                </View>
+              ))}
+            </View>
+          ) : null}
         </View>
         <View style={styles.detailsGrid}>
           <View style={styles.detailItem}>
@@ -730,6 +997,9 @@ export default function StandaloneLiveTrafficScreen() {
   const listHeaderContent = (
     <View style={styles.headerSection}>
       <ProximityAlarmBanner alerts={activeAlerts} alarmActive={alarmActive} alarmLevel={alarmLevel} clearOfConflict={clearOfConflict} maxAltitudeM={alarmSettings.maxAltitudeM} onDismiss={dismissAlarm} />
+      <View style={{ alignItems: "center", marginTop: Spacing.sm }}>
+        <SourceHealthIndicator isDark={isDark} testID="radar-source-health-list" />
+      </View>
     </View>
   );
 
@@ -758,18 +1028,39 @@ export default function StandaloneLiveTrafficScreen() {
     </View>
   );
 
-  const countryLayers = useMemo(() => getCountryGeozoneLayers(detectedCountryIso), [detectedCountryIso]);
-
-  const toggleGeozoneLayer = (layerId: string) => {
-    const config = getCountryGeozoneConfig(detectedCountryIso);
-    if (config.forceEnabledLayerIds.includes(layerId) && geozoneSettings[layerId]) return;
-    const updated = { ...geozoneSettings, [layerId]: !geozoneSettings[layerId] };
+  const toggleGeozoneSetting = (key: string) => {
+    const updated = { ...geozoneSettings, [key]: !geozoneSettings[key] };
     setGeozoneSettings(updated);
-    saveGeozoneSettings(updated, detectedCountryIso);
+    saveGeozoneSettings(updated);
   };
+
+  const allGeozoneToggleKeys = useMemo(
+    () => [...GEOZONE_CATEGORIES.map((c) => c.id), ...COMBINED_COUNTRY_TOGGLES.map((t) => t.id)],
+    [],
+  );
 
   const [layerInfoId, setLayerInfoId] = useState<string | null>(null);
   const layerInfoData = layerInfoId ? GEOZONE_REGULATORY_INFO[layerInfoId] : null;
+
+  const renderGeozoneToggleRow = (key: string, label: string, infoId?: string) => (
+    <View key={key} style={[styles.geozoneLayerRow, { borderBottomColor: theme.border }]}>
+      <Pressable onPress={() => toggleGeozoneSetting(key)} style={{ flexDirection: "row", alignItems: "center", gap: Spacing.md, flex: 1 }}>
+        <View style={[styles.geozoneCheck, { backgroundColor: geozoneSettings[key] ? theme.primary : theme.backgroundSecondary, borderColor: geozoneSettings[key] ? theme.primary : theme.textTertiary }]}>
+          {geozoneSettings[key] ? <Feather name="check" size={14} color="#FFFFFF" /> : null}
+        </View>
+        <ThemedText style={styles.geozoneLayerLabel}>{label}</ThemedText>
+      </Pressable>
+      {infoId && GEOZONE_REGULATORY_INFO[infoId] ? (
+        <Pressable
+          onPress={() => { setLayerInfoId(infoId); try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch (_e) {} }}
+          hitSlop={10}
+          style={[styles.geozoneLayerInfoBtn, { borderColor: theme.primary }]}
+        >
+          <Feather name="info" size={12} color={theme.primary} />
+        </Pressable>
+      ) : null}
+    </View>
+  );
 
   const geozoneModal = (
     <Modal visible={showGeozoneModal} transparent={false} animationType="slide" onRequestClose={() => { setShowGeozoneModal(false); setLayerInfoId(null); }}>
@@ -786,49 +1077,34 @@ export default function StandaloneLiveTrafficScreen() {
         <View style={styles.geozoneToggleAllRow}>
           <Pressable
             onPress={() => {
-              const config = getCountryGeozoneConfig(detectedCountryIso);
-              const allOn = countryLayers.every((l) => geozoneSettings[l.id]);
-              const next: Record<string, boolean> = {};
-              countryLayers.forEach((l) => {
-                const forced = config.forceEnabledLayerIds.includes(l.id);
-                next[l.id] = forced ? true : !allOn;
-              });
+              const allOn = allGeozoneToggleKeys.every((k) => geozoneSettings[k]);
+              const next = { ...geozoneSettings };
+              allGeozoneToggleKeys.forEach((k) => { next[k] = !allOn; });
               setGeozoneSettings(next);
-              saveGeozoneSettings(next, detectedCountryIso);
+              saveGeozoneSettings(next);
               try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); } catch (_e) {}
             }}
             style={[styles.geozoneToggleAllBtn, { backgroundColor: theme.primary + "18" }]}
           >
             <Feather
-              name={countryLayers.every((l) => geozoneSettings[l.id]) ? "x-square" : "check-square"}
+              name={allGeozoneToggleKeys.every((k) => geozoneSettings[k]) ? "x-square" : "check-square"}
               size={16}
               color={theme.primary}
             />
             <Text style={[styles.geozoneToggleAllText, { color: theme.primary }]}>
-              {countryLayers.every((l) => geozoneSettings[l.id]) ? "Alle ausschalten" : "Alle einschalten"}
+              {allGeozoneToggleKeys.every((k) => geozoneSettings[k]) ? "Alle ausschalten" : "Alle einschalten"}
             </Text>
           </Pressable>
         </View>
         <ScrollView style={styles.geozoneModalList}>
-          {countryLayers.map((layer) => (
-            <View key={layer.id} style={[styles.geozoneLayerRow, { borderBottomColor: theme.border }]}>
-              <Pressable onPress={() => toggleGeozoneLayer(layer.id)} style={{ flexDirection: "row", alignItems: "center", gap: Spacing.md, flex: 1 }}>
-                <View style={[styles.geozoneCheck, { backgroundColor: geozoneSettings[layer.id] ? theme.primary : theme.backgroundSecondary, borderColor: geozoneSettings[layer.id] ? theme.primary : theme.textTertiary }]}>
-                  {geozoneSettings[layer.id] ? <Feather name="check" size={14} color="#FFFFFF" /> : null}
-                </View>
-                <ThemedText style={styles.geozoneLayerLabel}>{layer.label}</ThemedText>
-              </Pressable>
-              {GEOZONE_REGULATORY_INFO[layer.id] ? (
-                <Pressable
-                  onPress={() => { setLayerInfoId(layer.id); try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch (_e) {} }}
-                  hitSlop={10}
-                  style={[styles.geozoneLayerInfoBtn, { borderColor: theme.primary }]}
-                >
-                  <Feather name="info" size={12} color={theme.primary} />
-                </Pressable>
-              ) : null}
-            </View>
-          ))}
+          <Text style={{ fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5, marginTop: Spacing.sm, marginBottom: Spacing.xs, color: theme.textTertiary }}>
+            Kategorien (länderübergreifend)
+          </Text>
+          {GEOZONE_CATEGORIES.map((cat) => renderGeozoneToggleRow(cat.id, cat.label, cat.infoId))}
+          <Text style={{ fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5, marginTop: Spacing.lg, marginBottom: Spacing.xs, color: theme.textTertiary }}>
+            Länder-Gesamtanzeige
+          </Text>
+          {COMBINED_COUNTRY_TOGGLES.map((t) => renderGeozoneToggleRow(t.id, t.label, t.infoId))}
         </ScrollView>
       </View>
       <Modal visible={layerInfoData != null} transparent animationType="fade" onRequestClose={() => setLayerInfoId(null)}>
@@ -874,7 +1150,7 @@ export default function StandaloneLiveTrafficScreen() {
                 ) : null}
 
                 {(() => {
-                  const modalContacts = layerInfoId ? getContactsForZone(layerInfoId) : (layerInfoData.contacts || []);
+                  const modalContacts = layerInfoId ? getContactsForZone(layerInfoId, undefined, detectedCountryIso) : (layerInfoData.contacts || []);
                   return modalContacts.length > 0 ? (
                   <View style={{ marginTop: 16 }}>
                     <Text style={[styles.layerInfoSectionLabel, { color: theme.primary }]}>Kontakte</Text>
@@ -905,11 +1181,43 @@ export default function StandaloneLiveTrafficScreen() {
     </Modal>
   );
 
+  if (!hasLiveTraffic) {
+    return (
+      <ThemedView style={styles.container}>
+        <View style={{ paddingTop: safeTop + Spacing.xl }}>
+          <FeatureLockCard featureKey="live_traffic" />
+        </View>
+      </ThemedView>
+    );
+  }
+
   if (showLoading) {
     return (
       <ThemedView style={styles.container}>
         <View style={[styles.centerState, { paddingTop: insets.top + Spacing.xl }]}>
           <ActivityIndicator size="large" color={theme.primary} />
+        </View>
+      </ThemedView>
+    );
+  }
+
+  if (showPermRequest) {
+    return (
+      <ThemedView style={styles.container}>
+        <View style={[styles.centerState, { paddingTop: safeTop + Spacing.xl }]}>
+          <View style={[styles.permIcon, { backgroundColor: theme.primary + "15" }]}>
+            <Feather name="map-pin" size={48} color={theme.primary} />
+          </View>
+          <ThemedText style={styles.permTitle}>Standort erforderlich</ThemedText>
+          <ThemedText style={[styles.permText, { color: theme.textSecondary }]}>
+            Um Flugzeuge in deiner Nähe anzuzeigen, wird der GPS-Standort benötigt.
+          </ThemedText>
+          <Pressable
+            onPress={requestPermission}
+            style={[styles.permButton, { backgroundColor: theme.primary }]}
+          >
+            <ThemedText style={styles.permButtonText}>Standort freigeben</ThemedText>
+          </Pressable>
         </View>
       </ThemedView>
     );
@@ -962,19 +1270,49 @@ export default function StandaloneLiveTrafficScreen() {
               sourceStatus={sourceStatus}
               geozoneLayers={showGeozones ? activeGeozoneLayers : []}
               countryIso={detectedCountryIso}
+              highlightedZones={showGeozones ? sidePanelGeozones : []}
+              additionalGeozones={showGeozones ? supplementalWindZones : []}
+              energyInfrastructure={radarEnergyInfrastructure}
+              windRestrictionPoints={windFacility100mPoints}
+              energyTilesEnabled={showEnergyInfrastructure || (showGeozones && energyCountry?.iso === "DE")}
+              energyTilesShowSupplemental={showEnergyInfrastructure}
+              maxReachableAltitudeM={maxReachableAltitudeM}
+              showAllGeozones={showAllGeozones}
               mapStyle={mapStyle}
               onCenterGps={handleCenterOnGps}
               onSettingsPress={() => { setShowMapConfig(!showMapConfig); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
               settingsActive={showMapConfig}
               bottomPadding={showWeatherOverlay && sidePanelForecasts.length > 0 ? 290 : 0}
+              infoBubbleBottomInset={(activeAlerts.length > 0 || clearOfConflict) ? 96 : 0}
               topInset={safeTop}
               weatherAlerts={mapWeatherAlerts}
               onHeadingChange={handleHeadingChange}
+              onViewportChange={handleViewportChange}
               disableGeozoneQuery
             />
           </View>
+          <View pointerEvents="box-none" style={{
+            position: "absolute",
+            top: safeTop + 8,
+            alignSelf: "center",
+            left: 0, right: 0,
+            alignItems: "center",
+            zIndex: 110,
+          }}>
+            <SourceHealthIndicator isDark={isDark} testID="radar-source-health" />
+          </View>
           {nearbyCtr.length > 0 ? (
-            <View style={{ position: "absolute", top: safeTop + 60, right: 12, zIndex: 105 }}>
+            <View style={{ position: "absolute", bottom: tabBarHeight + 16, right: 12, zIndex: 105, alignItems: "flex-end" }}>
+              <View style={{
+                marginBottom: 6,
+                backgroundColor: isDark ? "rgba(30,10,10,0.92)" : "rgba(255,240,240,0.96)",
+                paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8,
+                borderWidth: StyleSheet.hairlineWidth, borderColor: "rgba(255,59,48,0.5)",
+              }}>
+                <Text style={{ fontSize: 9, fontWeight: "700", color: "#FF3B30", textAlign: "center" }}>
+                  TOWER {nearbyCtr[0].icao}
+                </Text>
+              </View>
               <Pressable
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -989,24 +1327,16 @@ export default function StandaloneLiveTrafficScreen() {
                   setShowCtrEmergency(true);
                 }}
                 style={{
-                  width: 48, height: 48, borderRadius: 24,
+                  width: 56, height: 56, borderRadius: 28,
                   backgroundColor: "#FF3B30",
                   alignItems: "center", justifyContent: "center",
-                  shadowColor: "#FF3B30", shadowOpacity: 0.5, shadowRadius: 8, shadowOffset: { width: 0, height: 2 },
-                  elevation: 6,
+                  shadowColor: "#FF3B30", shadowOpacity: 0.6, shadowRadius: 10, shadowOffset: { width: 0, height: 3 },
+                  elevation: 8,
                 }}
                 testID="radar-ctr-emergency-btn"
               >
-                <Feather name="phone" size={22} color="#fff" />
+                <Feather name="phone" size={24} color="#fff" />
               </Pressable>
-              <View style={{
-                marginTop: 4, alignItems: "center",
-                backgroundColor: isDark ? "rgba(30,10,10,0.85)" : "rgba(255,240,240,0.95)",
-                paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6,
-              }}>
-                <Text style={{ fontSize: 8, fontWeight: "700", color: "#FF3B30", textAlign: "center" }}>TOWER</Text>
-                <Text style={{ fontSize: 7, color: isDark ? "rgba(255,180,180,0.9)" : "#FF3B30", textAlign: "center" }}>{nearbyCtr[0].icao}</Text>
-              </View>
             </View>
           ) : null}
           {showCtrEmergency ? (
@@ -1120,12 +1450,14 @@ export default function StandaloneLiveTrafficScreen() {
             <ProximityAlarmGlow alarmActive={alarmActive} alarmLevel={alarmLevel} clearOfConflict={clearOfConflict} bearingToThreat={activeAlerts.length > 0 && latitude != null && longitude != null ? ((bearingTo(latitude, longitude, activeAlerts[0].aircraft.latitude, activeAlerts[0].aircraft.longitude) - (deviceHeading ?? 0) + 360) % 360) : undefined} />
             <ProximityAlarmBanner alerts={activeAlerts} alarmActive={alarmActive} alarmLevel={alarmLevel} clearOfConflict={clearOfConflict} maxAltitudeM={alarmSettings.maxAltitudeM} onDismiss={dismissAlarm} />
           </AlarmPulseProvider>
-          <SideTabs activePanel={sidePanel} onPress={openSidePanel} isDark={isDark} safeTop={safeTop} alertFlags={alertFlags} weatherStatus={weatherStatus} hideWetter={showWeatherOverlay} hasGeozones={sidePanelGeozones.length > 0} hasActiveGeozones={sidePanelGeozones.some((z) => { const lines = z.details.split("\n"); const st = lines.find((l) => l.startsWith("Status:")); if (!st || !/Inaktiv/i.test(st)) return true; const vl = lines.find((l) => l.startsWith("Von:")); if (!vl) return true; const vm = vl.replace("Von:", "").trim().match(/^(\d{2})\.(\d{2})\.(\d{4}),?\s*(\d{2}):(\d{2})/); if (!vm) return true; return new Date(parseInt(vm[3]), parseInt(vm[2]) - 1, parseInt(vm[1]), parseInt(vm[4]), parseInt(vm[5])).getTime() <= Date.now(); })} hasNotams={sidePanelNotams.length > 0 || sidePanelTempRestrictions.length > 0 || sidePanelDipulRestrictions.length > 0} radarAlarmLevel={alarmLevel} hasLowAltTraffic={lowAltitudeCount > 0} hideRadar={!showRadar} />
+          <SideTabs activePanel={sidePanel} onPress={openSidePanel} isDark={isDark} safeTop={safeTop} alertFlags={alertFlags} weatherStatus={weatherStatus} hideWetter={showWeatherOverlay} geozoneSeverity={geozoneSeverity} hasNotams={sidePanelNotams.length > 0 || sidePanelTempRestrictions.length > 0 || sidePanelDipulRestrictions.length > 0} radarAlarmLevel={alarmLevel} hasLowAltTraffic={lowAltitudeCount > 0} hideRadar={!showRadar} />
           {sidePanel ? (
             <SidePanelView
               panel={sidePanel}
               loading={sidePanel === "radar" ? false : sidePanelLoading}
-              geozones={sidePanelGeozones}
+              geozones={displayedGeozones}
+              geozoneDataStatus={geozoneDataStatus}
+              isZoneSerious={isZoneSeriousProhibition}
               tempRestrictions={sidePanelTempRestrictions}
               dipulRestrictions={sidePanelDipulRestrictions}
               notams={sidePanelNotams}
@@ -1140,6 +1472,7 @@ export default function StandaloneLiveTrafficScreen() {
               weatherStatus={weatherStatus}
               latitude={latitude}
               longitude={longitude}
+              countryIso={detectedCountryIso}
               radarData={{
                 locationName: locationName,
                 isCustomLocation: isCustomLocation,
@@ -1169,12 +1502,18 @@ export default function StandaloneLiveTrafficScreen() {
               showWindsock={showWindsock}
               showGeozones={showGeozones}
               showTraffic={showTraffic}
+              showEnergyInfrastructure={showEnergyInfrastructure}
+              energyComparisonAvailable={!!energyCountry?.hasComparableOfficialAssetLayers}
+              energyInfrastructureStatus={energyInfrastructureStatus}
               onToggleRadar={() => setShowRadar((v) => { const n = !v; saveRadarSettings({ showRadar: n }); return n; })}
               onToggleWindsock={() => setShowWindsock((v) => { const n = !v; saveRadarSettings({ showWindsock: n }); return n; })}
               onToggleGeozones={() => setShowGeozones((v) => { const n = !v; saveRadarSettings({ showGeozones: n }); return n; })}
               onToggleTraffic={() => setShowTraffic((v) => { const n = !v; saveRadarSettings({ showTraffic: n }); return n; })}
+              onToggleEnergyInfrastructure={() => setShowEnergyInfrastructure((v) => { const n = !v; saveRadarSettings({ showEnergyInfrastructure: n }); return n; })}
               showWeatherOverlay={showWeatherOverlay}
               onToggleWeatherOverlay={() => setShowWeatherOverlay((v) => { const n = !v; saveRadarSettings({ showWeatherOverlay: n }); return n; })}
+              showAllGeozones={showAllGeozones}
+              onToggleShowAllGeozones={() => setShowAllGeozones((v) => { const n = !v; saveRadarSettings({ showAllGeozones: n }); return n; })}
               onOpenGeozoneDetail={() => { setShowGeozoneModal(true); setShowMapConfig(false); }}
               onMapStyleChange={(s) => { setMapStyle(s); saveMapStyle(s); }}
               weatherOverlayVisible={showWeatherOverlay && sidePanelForecasts.length > 0}
@@ -1249,6 +1588,8 @@ const styles = StyleSheet.create({
   categorySourceRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: Spacing.sm },
   categoryBadge: { paddingHorizontal: Spacing.sm, paddingVertical: 2, borderRadius: BorderRadius.sm },
   categoryText: { ...Typography.caption, fontSize: 10, fontWeight: "600" },
+  agencyBadge: { paddingHorizontal: Spacing.sm, paddingVertical: 2, borderRadius: BorderRadius.sm },
+  agencyBadgeText: { ...Typography.caption, fontSize: 10, fontWeight: "700", color: "#FFFFFF" },
   sourceIndicators: { flexDirection: "row", gap: 4 },
   sourceChip: { flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 5, paddingVertical: 2, borderRadius: BorderRadius.xs },
   sourceChipDot: { width: 5, height: 5, borderRadius: 2.5 },
@@ -1504,7 +1845,7 @@ function windDirectionArrow(deg: number): string {
   return arrows[Math.round(deg / 45) % 8] || "\u2193";
 }
 
-function SideTabs({ activePanel, onPress, isDark, safeTop, alertFlags, weatherStatus, hideWetter, hasGeozones, hasActiveGeozones, hasNotams, radarAlarmLevel, hasLowAltTraffic, hideRadar }: {
+function SideTabs({ activePanel, onPress, isDark, safeTop, alertFlags, weatherStatus, hideWetter, geozoneSeverity, hasNotams, radarAlarmLevel, hasLowAltTraffic, hideRadar }: {
   activePanel: "geozone" | "notam" | "wetter" | "radar" | null;
   onPress: (p: "geozone" | "notam" | "wetter" | "radar") => void;
   isDark: boolean;
@@ -1512,8 +1853,7 @@ function SideTabs({ activePanel, onPress, isDark, safeTop, alertFlags, weatherSt
   alertFlags: { wetter: boolean; notam: boolean; geozone: boolean };
   weatherStatus: "unknown" | "ok" | "caution" | "critical";
   hideWetter?: boolean;
-  hasGeozones?: boolean;
-  hasActiveGeozones?: boolean;
+  geozoneSeverity?: GeozoneTabSeverity;
   hasNotams?: boolean;
   radarAlarmLevel?: "none" | "warning" | "critical";
   hasLowAltTraffic?: boolean;
@@ -1535,8 +1875,12 @@ function SideTabs({ activePanel, onPress, isDark, safeTop, alertFlags, weatherSt
     const defaultBg = isDark ? "rgba(20, 30, 55, 0.88)" : "rgba(255, 255, 255, 0.92)";
 
     if (id === "geozone") {
-      if (hasActiveGeozones) return { bg: orangeColor, shouldPulse: false, textWhite: true };
-      if (hasGeozones) return { bg: "#4A90D9", shouldPulse: false, textWhite: true };
+      // Schweregrad: rot (Flugverbot ohne AV) > orange (Höhenlimit / AV-gedeckt)
+      // > blau (Zone vorhanden, nicht aktiv) > grün (keine Zone).
+      if (geozoneSeverity === "red") return { bg: redColor, shouldPulse: false, textWhite: true };
+      if (geozoneSeverity === "orange") return { bg: orangeColor, shouldPulse: false, textWhite: true };
+      if (geozoneSeverity === "blue") return { bg: "#4A90D9", shouldPulse: false, textWhite: true };
+      if (geozoneSeverity === "unknown") return { bg: defaultBg, shouldPulse: false, textWhite: false };
       return { bg: greenColor, shouldPulse: false, textWhite: true };
     }
     if (id === "notam") {
@@ -1607,27 +1951,31 @@ function PulsingTabBg({ color }: { color: string }) {
   return <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: color, opacity: pulseAnim, borderTopLeftRadius: 8, borderBottomLeftRadius: 8 }]} />;
 }
 
-const PANEL_INFO: Record<string, { title: string; text: string }> = {
+const PANEL_INFO: Record<string, { title: string; text: string; sourceText?: string }> = {
   geozone: {
     title: "Geozonen und Lufträume",
-    text: "Geozonen sind geografische Gebiete, in denen Vorschriften und Einschränkungen für den Betrieb von Drohnen gelten.\n\nIn dieser Ansicht werden Geozonen angezeigt, die Ihren Flugbereich (RA-Radius) berühren. Die Daten stammen vom dipul WMS-Dienst des DFS.\n\nBitte informieren Sie sich über die geltenden Rechtsvorschriften und holen Sie gegebenenfalls erforderliche Genehmigungen ein, wenn Sie innerhalb einer Geozone oder eines beschränkten Luftraums fliegen möchten.\n\nWeitere Informationen unter dipul.de",
+    text: "Geozonen sind geografische Gebiete, in denen Vorschriften und Einschränkungen für den Betrieb von Drohnen gelten.\n\nIn dieser Ansicht werden Geozonen angezeigt, die Ihren Flugbereich (RA-Radius) berühren.\n\nBitte informieren Sie sich über die geltenden Rechtsvorschriften und holen Sie gegebenenfalls erforderliche Genehmigungen ein, wenn Sie innerhalb einer Geozone oder eines beschränkten Luftraums fliegen möchten.\n\nWeitere Informationen unter dipul.de",
+    sourceText: "Die Daten stammen vom dipul WMS-Dienst des DFS.",
   },
   notam: {
     title: "NOTAMs & Temporäre Einschränkungen",
-    text: "NOTAMs (Notice to Airmen) sind offizielle Mitteilungen über besondere Änderungen, Einschränkungen oder Gefahren im Luftraum.\n\nAls Luftverkehrsteilnehmer sind Sie verpflichtet, sich vor jedem Flug über die für Ihr Gebiet relevanten NOTAMs zu informieren.\n\nDie Daten stammen von autorouter.aero (Eurocontrol EAD).\n\nZusätzlich werden temporäre Betriebseinschränkungen vom dipul WMS-Dienst des DFS angezeigt (z.B. bei Großveranstaltungen, Staatsbesuchen oder besonderen Sicherheitslagen). Diese werden mit dem Badge \"dipul\" gekennzeichnet.\n\nWichtig: Zeitangaben in NOTAMs basieren auf der koordinierten Weltzeit (UTC).\n\nHäufige Begriffe:\n- AGL: Above Ground Level — Höhe über Grund\n- AMSL: Above Mean Sea Level — Höhe über dem mittleren Meeresspiegel\n- SFC: Surface — Ab der Erdoberfläche\n- FL: Flight Level — Standardisierte Höhenangabe (1013,25 hPa)",
+    text: "NOTAMs (Notice to Airmen) sind offizielle Mitteilungen über besondere Änderungen, Einschränkungen oder Gefahren im Luftraum.\n\nAls Luftverkehrsteilnehmer sind Sie verpflichtet, sich vor jedem Flug über die für Ihr Gebiet relevanten NOTAMs zu informieren.\n\nZusätzlich werden temporäre Betriebseinschränkungen angezeigt (z.B. bei Großveranstaltungen, Staatsbesuchen oder besonderen Sicherheitslagen).\n\nWichtig: Zeitangaben in NOTAMs basieren auf der koordinierten Weltzeit (UTC).\n\nHäufige Begriffe:\n- AGL: Above Ground Level — Höhe über Grund\n- AMSL: Above Mean Sea Level — Höhe über dem mittleren Meeresspiegel\n- SFC: Surface — Ab der Erdoberfläche\n- FL: Flight Level — Standardisierte Höhenangabe (1013,25 hPa)",
+    sourceText: "Die NOTAM-Daten stammen von autorouter.aero (Eurocontrol EAD). Temporäre Betriebseinschränkungen stammen vom dipul WMS-Dienst des DFS.",
   },
   wetter: {
     title: "Wetterdaten",
-    text: "Die Wetterdaten stammen vom DFS dipul Weather Service (ICON-D2 Modell, 2km Raster).\n\nAngezeigt werden Temperatur in 6 Höhen (2/50/100/150/200/250m AGL), Wind in 6 Höhen (10/50/100/150/200/250m AGL), Böen, Windrichtung, Wolkenbedeckung, Niederschlag, Luftfeuchtigkeit, QNH und Sichtweite.\n\nDer KP-Index zeigt die geomagnetische Aktivität (NOAA SWPC). Bei KP >= 5 können GPS-Störungen auftreten, die den Drohnenflug beeinträchtigen.\n\nRot markierte Werte überschreiten die Grenzwerte für sicheres Fliegen:\n- Bodenwind > 10 m/s\n- Böen > 12 m/s\n- Höhenwind > 12 m/s\n- Regen > 0.5 mm/h\n- Temperatur < -5°C\n- Sicht < 1000m\n- KP-Index >= 5",
+    text: "Angezeigt werden Temperatur in 6 Höhen (2/50/100/150/200/250m AGL), Wind in 6 Höhen (10/50/100/150/200/250m AGL), Böen, Windrichtung, Wolkenbedeckung, Niederschlag, Luftfeuchtigkeit, QNH und Sichtweite.\n\nDer Kp-Index zeigt die geomagnetische Aktivität: 0–2 grün, 3–4 gelb, 5 orange, ab 6 rot. Ab Kp 5 können GNSS- und Kompassstörungen auftreten, müssen am Standort aber nicht. Der globale Index sagt nicht sicher voraus, wie sich die Signale am einzelnen Gerät auswirken.\n\nRot/Orange markierte Wetterwerte überschreiten Grenzwerte oder bilden gefährliche Kombinationen:\n- Bodenwind > 10 m/s (rot) / > 7 m/s (orange)\n- Böen > 12 m/s (rot) / > 9 m/s (orange)\n- Höhenwind > 12 m/s (rot) / > 8 m/s (orange)\n- Regen > 0.5 mm/h (rot) / > 0.1 mm/h (orange)\n- Temperatur < -5°C (rot) / < 0°C (orange)\n- Vereisungs-Kombi: T<0°C + rF>=80% (rot) / T<=5°C + rF>=90% (orange)\n- Sicht < 500m (rot) / < 1000m (orange)\n\nBewölkung & Feuchte allein werden nicht mehr highlightet — nur in der Vereisungs-/Beschlagskombination mit der Temperatur.",
+    sourceText: "Die Wetterdaten stammen vom DFS dipul Weather Service (ICON-D2 Modell, 2km Raster). Der KP-Index stammt von NOAA SWPC.",
   },
   radar: {
     title: "Live Radar",
-    text: "Der Live Radar zeigt Flugzeuge in Ihrer Nähe in Echtzeit an.\n\nDie Daten werden aus 6 Quellen zusammengeführt:\n- OpenSky Network\n- adsb.fi\n- adsb.one\n- airplanes.live\n- adsb.lol\n- OGN (Open Glider Network)\n\nOGN liefert Positionen von Segelflugzeugen, Ultraleichtflugzeugen, Ballonen und anderen Luftfahrzeugen mit FLARM-Transponder.\n\nDie Farbpunkte zeigen den Status jeder Quelle (grün = aktiv).\n\nTiefflüge (< 500m) werden orange hervorgehoben.\n\nLange auf die Karte drücken, um den Radar-Standort manuell zu setzen.",
+    text: "Der Live Radar zeigt Flugzeuge in Ihrer Nähe in Echtzeit an.\n\nTiefflüge (< 500m) werden orange hervorgehoben.\n\nLange auf die Karte drücken, um den Radar-Standort manuell zu setzen.",
+    sourceText: "Die Daten werden aus 6 Quellen zusammengeführt:\n- OpenSky Network\n- adsb.fi\n- adsb.one\n- airplanes.live\n- adsb.lol\n- OGN (Open Glider Network)\n\nOGN liefert Positionen von Segelflugzeugen, Ultraleichtflugzeugen, Ballonen und anderen Luftfahrzeugen mit FLARM-Transponder.\n\nDie Farbpunkte zeigen den Status jeder Quelle (grün = aktiv).",
   },
 };
 
 function getRegInfoForLayer(layerLabel: string): GeozoneRegulatoryInfo | null {
-  const allLayers = [...GEOZONE_LAYERS, ...getCountryGeozoneLayers("CH"), ...getCountryGeozoneLayers("LU"), ...getCountryGeozoneLayers("NL")];
+  const allLayers = [...GEOZONE_LAYERS, ...getCountryGeozoneLayers("CH"), ...getCountryGeozoneLayers("LU"), ...getCountryGeozoneLayers("NL"), ...getCountryGeozoneLayers("FR")];
   const layer = allLayers.find((l) => l.label === layerLabel);
   if (layer && GEOZONE_REGULATORY_INFO[layer.id]) return GEOZONE_REGULATORY_INFO[layer.id];
   return null;
@@ -1656,10 +2004,13 @@ function openGeozoneContact(c: GeozoneContact) {
   }).catch(() => {});
 }
 
-function SidePanelView({ panel, loading, geozones, tempRestrictions, dipulRestrictions, notams, weather, forecasts, kpIndex, kpTimeline = [], wind, isDark, safeTop, onClose, radarData, weatherStatus = "unknown", latitude: propLat, longitude: propLon }: {
+function SidePanelView({ panel, loading, geozones, windFacilityWarnings = [], geozoneDataStatus = "loading", isZoneSerious, tempRestrictions, dipulRestrictions, notams, weather, forecasts, kpIndex, kpTimeline = [], wind, isDark, safeTop, onClose, radarData, weatherStatus = "unknown", latitude: propLat, longitude: propLon, countryIso }: {
   panel: "geozone" | "notam" | "wetter" | "radar";
   loading: boolean;
   geozones: GeozoneFeatureInfo[];
+  windFacilityWarnings?: Array<{ id: string; name: string; distanceMeters: number }>;
+  geozoneDataStatus?: "loading" | "loaded" | "error";
+  isZoneSerious?: (z: GeozoneFeatureInfo) => boolean;
   tempRestrictions: GeozoneFeatureInfo[];
   dipulRestrictions: DipulTempRestriction[];
   notams: NotamData[];
@@ -1674,6 +2025,7 @@ function SidePanelView({ panel, loading, geozones, tempRestrictions, dipulRestri
   weatherStatus?: "unknown" | "ok" | "caution" | "critical";
   latitude?: number | null;
   longitude?: number | null;
+  countryIso?: string;
   radarData?: {
     locationName: string | null;
     isCustomLocation: boolean;
@@ -1689,8 +2041,10 @@ function SidePanelView({ panel, loading, geozones, tempRestrictions, dipulRestri
     onResetLocation: () => void;
   };
 }) {
+  const isAdmin = useShowDataSources();
   const [showInfo, setShowInfo] = useState(false);
   const [expandedRegInfo, setExpandedRegInfo] = useState<number | null>(null);
+  const [wetterScrollX, setWetterScrollX] = useState(0);
   const panelBg = isDark ? "rgba(12, 18, 38, 0.94)" : "rgba(255, 255, 255, 0.96)";
   const textColor = isDark ? "#D0DDF0" : "#1A1A2E";
   const mutedColor = isDark ? "rgba(160,180,210,0.7)" : "rgba(80,80,100,0.6)";
@@ -1698,6 +2052,12 @@ function SidePanelView({ panel, loading, geozones, tempRestrictions, dipulRestri
   const wetterAccent = weatherStatus === "critical" ? "#FF3B30" : weatherStatus === "caution" ? "#FF9500" : "#22C55E";
   const accentColor = panel === "geozone" ? "#4A90D9" : panel === "notam" ? "#F59E0B" : panel === "radar" ? "#AF52DE" : wetterAccent;
   const info = PANEL_INFO[panel];
+  // Verfügbare Höhe der Panel-Liste dynamisch berechnen: vom Panel-Oberrand
+  // (safeTop + 8) bis knapp über die untere Tab-Leiste. Ersetzt den festen
+  // maxHeight 500, durch den die Wetter-Tabelle (Sonnenstand-Diagramm + 19
+  // Zeilen) zuvor abgeschnitten wurde und gescrollt werden musste.
+  const windowH = Dimensions.get("window").height;
+  const scrollMaxHeight = Math.max(320, windowH - (safeTop + 8) - 56 - 110);
 
   return (
     <View style={[sidePanelStyles.container, { top: safeTop + 8, backgroundColor: panelBg }]}>
@@ -1719,7 +2079,7 @@ function SidePanelView({ panel, loading, geozones, tempRestrictions, dipulRestri
           <View style={[sidePanelStyles.infoModal, { backgroundColor: isDark ? "rgba(15, 22, 45, 0.97)" : "rgba(255,255,255,0.98)" }]}>
             <Text style={[sidePanelStyles.infoModalTitle, { color: accentColor }]}>{info.title}</Text>
             <ScrollView style={{ maxHeight: 400 }} showsVerticalScrollIndicator={false}>
-              <Text style={[sidePanelStyles.infoModalText, { color: textColor }]}>{info.text}</Text>
+              <Text style={[sidePanelStyles.infoModalText, { color: textColor }]}>{info.text}{adminSourceSuffix(info.sourceText, isAdmin)}</Text>
             </ScrollView>
             <Pressable onPress={() => setShowInfo(false)} style={[sidePanelStyles.infoModalOk, { backgroundColor: accentColor }]}>
               <Text style={sidePanelStyles.infoModalOkText}>OK</Text>
@@ -1733,10 +2093,18 @@ function SidePanelView({ panel, loading, geozones, tempRestrictions, dipulRestri
           <ActivityIndicator size="small" color={accentColor} />
         </View>
       ) : (
-        <ScrollView style={sidePanelStyles.scrollArea} showsVerticalScrollIndicator={false}>
+        <ScrollView style={[sidePanelStyles.scrollArea, { maxHeight: scrollMaxHeight }]} showsVerticalScrollIndicator={false}>
           {panel === "geozone" ? (
             geozones.length > 0 ? (
               <View style={{ gap: 6 }}>
+                {windFacilityWarnings.map((facility) => (
+                  <View key={`wind-buffer-${facility.id}`} style={[sidePanelStyles.infoBox, { backgroundColor: isDark ? "rgba(255,149,0,0.2)" : "rgba(255,149,0,0.12)", borderLeftColor: "#FF9500" }]}>
+                    <Feather name="alert-triangle" size={14} color={isDark ? "#FFCC80" : "#CC7A00"} />
+                    <Text style={[sidePanelStyles.infoBoxText, { color: isDark ? "#FFCC80" : "#CC7A00" }]}>
+                      {facility.name}: {Math.round(facility.distanceMeters)} m entfernt. Der 100-m-Prüfkreis liegt im Radarbereich. Innerhalb dieses Abstands ist, sofern § 21h Abs. 3 Nr. 3 LuftVO gilt, ausdrückliche Zustimmung erforderlich.
+                    </Text>
+                  </View>
+                ))}
                 {(() => {
                   const isZoneFutureOnly = (z: GeozoneFeatureInfo) => {
                     const lines = z.details.split("\n");
@@ -1751,7 +2119,7 @@ function SidePanelView({ panel, loading, geozones, tempRestrictions, dipulRestri
                     const vonDate = new Date(parseInt(m[3]), parseInt(m[2]) - 1, parseInt(m[1]), parseInt(m[4]), parseInt(m[5]));
                     return vonDate.getTime() > Date.now();
                   };
-                  const activeZones = geozones.filter((z) => !isZoneFutureOnly(z));
+                  const activeZones = geozones.filter((z) => !z.informationalOnly && !isZoneFutureOnly(z));
                   const futureZones = geozones.filter((z) => isZoneFutureOnly(z));
                   return (
                     <>
@@ -1774,9 +2142,24 @@ function SidePanelView({ panel, loading, geozones, tempRestrictions, dipulRestri
                     </>
                   );
                 })()}
-                {geozones.map((z, i) => {
-                  const details = z.details.split("\n").filter((d) => d.trim().length > 0);
-                  const regInfo = getRegInfoForLayer(z.layerLabel);
+                {(() => {
+                  // Schwerwiegende (aktive, nicht AV-gedeckte) Flugverbots-/
+                  // Sperrzonen nach oben sortieren. Partitionierung statt sort()
+                  // erhält die relative Reihenfolge beider Gruppen (stabil).
+                  const sortedGeozones = isZoneSerious
+                    ? [
+                        ...geozones.filter((z) => isZoneSerious(z)),
+                        ...geozones.filter((z) => !isZoneSerious(z)),
+                      ]
+                    : geozones;
+                  const detectedBl =
+                    propLat != null && propLon != null
+                      ? detectBundeslandFromCoordinates(propLat, propLon)
+                      : null;
+                  return sortedGeozones.map((z, i) => {
+                  const details = filterGeozoneDetailLines(z.details, isAdmin || z.featureId?.startsWith("energy-zone:") === true);
+                  const badgeLabel = geozoneBadgeLabel(z.layerLabel, isAdmin, Object.values(ED269_SOURCE_LABELS));
+                  const regInfo = z.informationalOnly ? null : getRegInfoForLayer(z.layerLabel);
                   const isExpanded = expandedRegInfo === i;
                   const zoneLines = z.details.split("\n");
                   const zStatusLine = zoneLines.find((l) => l.startsWith("Status:"));
@@ -1788,16 +2171,65 @@ function SidePanelView({ panel, loading, geozones, tempRestrictions, dipulRestri
                     if (!vm) return false;
                     return new Date(parseInt(vm[3]), parseInt(vm[2]) - 1, parseInt(vm[1]), parseInt(vm[4]), parseInt(vm[5])).getTime() > Date.now();
                   })();
-                  const cardBorderColor = zIsFuture
+                  // Rote Hervorhebung für schwerwiegende Zonen (Flugverbot ohne
+                  // AV-Abdeckung). Geplante/inaktive Zonen sind nie schwerwiegend.
+                  const zIsSerious = !zIsFuture && (isZoneSerious?.(z) ?? false);
+                  // § 21h-Zone mit dokumentierten Auflagen ist BEDINGT zulässig
+                  // (kein absolutes Flugverbot). Absolute Sperren (ED-R, Militär
+                  // etc.) haben keine §21h-Auflagen-Regel und bleiben rot/„Flugverbot".
+                  const z21hRule = !z.informationalOnly && (!z.country || z.country === "DE") ? find21hRuleForLayer(z.layerLabel) : null;
+                  const zIsConditional = zIsSerious && z21hRule !== null;
+                  const zIsHardBan = zIsSerious && z21hRule === null;
+                  // Aktive §21h-Zone, die NICHT schwerwiegend ist -> durch eine
+                  // gültige Allgemeinverfügung des Piloten gedeckt.
+                  const zAvCovered =
+                    !zIsFuture && !zIsSerious && z21hRule !== null && isGeozoneActiveFromDetails(z.details);
+                  const cardBorderColor = zIsHardBan
+                    ? (isDark ? "rgba(255,69,58,0.85)" : "rgba(255,59,48,0.7)")
+                    : zIsConditional
+                    ? (isDark ? "rgba(255,159,10,0.7)" : "rgba(255,149,0,0.6)")
+                    : zIsFuture
                     ? (isDark ? "rgba(142,142,147,0.3)" : "rgba(142,142,147,0.25)")
                     : (isDark ? "rgba(74,144,217,0.4)" : "rgba(74,144,217,0.3)");
-                  const badgeColor = zIsFuture ? (isDark ? "#8E8E93" : "#8E8E93") : "#4A90D9";
+                  const badgeColor = zIsHardBan
+                    ? (isDark ? "#FF453A" : "#FF3B30")
+                    : zIsConditional
+                    ? (isDark ? "#FF9F0A" : "#FF9500")
+                    : zIsFuture ? "#8E8E93" : "#4A90D9";
+                  const cardBg = zIsHardBan
+                    ? (isDark ? "rgba(255,59,48,0.08)" : "rgba(255,59,48,0.05)")
+                    : zIsConditional
+                    ? (isDark ? "rgba(255,149,0,0.08)" : "rgba(255,149,0,0.06)")
+                    : undefined;
                   return (
-                    <View key={`${z.layerLabel}-${z.name}-${i}`} style={[sidePanelStyles.geozoneCard, { borderColor: cardBorderColor, opacity: zIsFuture ? 0.75 : 1 }]}>
+                    <View key={`${z.layerLabel}-${z.name}-${i}`} style={[sidePanelStyles.geozoneCard, { borderColor: cardBorderColor, borderWidth: zIsSerious ? 1.5 : StyleSheet.hairlineWidth, backgroundColor: cardBg, opacity: zIsFuture ? 0.75 : 1 }]}>
                       <View style={sidePanelStyles.geozoneHeader}>
                         <View style={[sidePanelStyles.geozoneBadge, { backgroundColor: badgeColor }]}>
-                          <Text style={sidePanelStyles.geozoneBadgeText}>{z.layerLabel}</Text>
+                          <Text style={sidePanelStyles.geozoneBadgeText}>{badgeLabel}</Text>
                         </View>
+                        {z.informationalOnly ? (
+                          <View style={[sidePanelStyles.geozoneBadge, { backgroundColor: badgeColor, marginLeft: 4 }]}>
+                            <Text style={sidePanelStyles.geozoneBadgeText}>Infrastrukturhinweis</Text>
+                          </View>
+                        ) : null}
+                        {zIsHardBan ? (
+                          <View style={[sidePanelStyles.geozoneBadge, { backgroundColor: isDark ? "#FF453A" : "#FF3B30", marginLeft: 4, flexDirection: "row", alignItems: "center", gap: 3 }]}>
+                            <Feather name="slash" size={9} color="#FFFFFF" />
+                            <Text style={sidePanelStyles.geozoneBadgeText}>Flugverbot</Text>
+                          </View>
+                        ) : null}
+                        {zIsConditional ? (
+                          <View style={[sidePanelStyles.geozoneBadge, { backgroundColor: isDark ? "#FF9F0A" : "#FF9500", marginLeft: 4, flexDirection: "row", alignItems: "center", gap: 3 }]}>
+                            <Feather name="alert-triangle" size={9} color="#FFFFFF" />
+                            <Text style={sidePanelStyles.geozoneBadgeText}>Bedingt zulässig</Text>
+                          </View>
+                        ) : null}
+                        {zAvCovered ? (
+                          <View style={[sidePanelStyles.geozoneBadge, { backgroundColor: isDark ? "#30D158" : "#34C759", marginLeft: 4, flexDirection: "row", alignItems: "center", gap: 3 }]}>
+                            <Feather name="check" size={9} color="#FFFFFF" />
+                            <Text style={sidePanelStyles.geozoneBadgeText}>AV-gedeckt</Text>
+                          </View>
+                        ) : null}
                         {zIsFuture ? (
                           <View style={[sidePanelStyles.geozoneBadge, { backgroundColor: isDark ? "rgba(142,142,147,0.25)" : "rgba(142,142,147,0.15)", marginLeft: 4 }]}>
                             <Text style={[sidePanelStyles.geozoneBadgeText, { color: isDark ? "#AEAEB2" : "#8E8E93" }]}>geplant</Text>
@@ -1815,16 +2247,50 @@ function SidePanelView({ panel, loading, geozones, tempRestrictions, dipulRestri
                       </View>
                       <Text style={[sidePanelStyles.geozoneTitle, { color: textColor }]}>{z.name}</Text>
                       {details.length > 0 ? details.map((line, li) => {
-                        const parts = line.split(":");
-                        return parts.length >= 2 ? (
-                          <View key={li} style={sidePanelStyles.geozoneDetailRow}>
-                            <Text style={[sidePanelStyles.geozoneDetailKey, { color: mutedColor }]}>{parts[0].trim()}</Text>
-                            <Text style={[sidePanelStyles.geozoneDetailVal, { color: textColor }]}>{parts.slice(1).join(":").trim()}</Text>
-                          </View>
+                        const separatorIndex = line.indexOf(":");
+                        const key = separatorIndex > 0 ? line.slice(0, separatorIndex).trim() : "";
+                        // Some source descriptions contain colons inside a long
+                        // legal text. Treat only compact prefixes as field labels;
+                        // otherwise keep the whole description full-width.
+                        const hasKey = separatorIndex > 0 && key.length <= 40;
+                        const value = hasKey ? line.slice(separatorIndex + 1).trim() : line;
+                        const urlMatch = value.match(/https?:\/\/[^\s)]+/);
+                        const url = urlMatch ? urlMatch[0] : null;
+                        const onPress = url ? () => { WebBrowser.openBrowserAsync(url).catch(() => { openLink(url).catch(() => {}); }); } : undefined;
+                        const valStyle = [sidePanelStyles.geozoneDetailVal, { color: url ? "#4A90D9" : (hasKey ? textColor : mutedColor) }, url ? { textDecorationLine: "underline" as const } : null];
+                        if (hasKey) {
+                          return (
+                            <View key={li} style={sidePanelStyles.geozoneDetailRow}>
+                              <Text style={[sidePanelStyles.geozoneDetailKey, { color: mutedColor }]}>{key}</Text>
+                              {url ? (
+                                <Pressable onPress={onPress} style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 4 }} hitSlop={6}>
+                                  <Feather name="external-link" size={10} color="#4A90D9" />
+                                  <Text style={valStyle} numberOfLines={2}>{value}</Text>
+                                </Pressable>
+                              ) : (
+                                <Text style={valStyle}>{value}</Text>
+                              )}
+                            </View>
+                          );
+                        }
+                        return url ? (
+                          <Pressable key={li} onPress={onPress} style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 2 }} hitSlop={6}>
+                            <Feather name="external-link" size={10} color="#4A90D9" />
+                            <Text style={valStyle} numberOfLines={2}>{value}</Text>
+                          </Pressable>
                         ) : (
-                          <Text key={li} style={[sidePanelStyles.geozoneDetailVal, { color: mutedColor }]}>{line}</Text>
+                          <Text key={li} style={valStyle}>{line}</Text>
                         );
                       }) : null}
+                      <InfrastructureFlightGuidance zone={z} textColor={textColor} linkColor="#4A90D9" />
+                      {z21hRule ? (
+                        <Geozone21hRules
+                          layerLabel={z.layerLabel}
+                          isDark={isDark}
+                          covered={zAvCovered}
+                          bundesland={detectedBl}
+                        />
+                      ) : null}
                       {isExpanded && regInfo ? (
                         <View style={[sidePanelStyles.regInfoExpanded, { borderTopColor: divColor }]}>
                           <Text style={[sidePanelStyles.regInfoLabel, { color: "#4A90D9" }]}>Referenz</Text>
@@ -1851,7 +2317,7 @@ function SidePanelView({ panel, loading, geozones, tempRestrictions, dipulRestri
                             </View>
                           ) : null}
                           {(() => {
-                            const zoneContacts = getContactsForZone(z.layerLabel, z.name);
+                            const zoneContacts = getContactsForZone(z.layerLabel, z.name, countryIso);
                             return zoneContacts.length > 0 ? (
                             <View style={{ marginTop: 8 }}>
                               <Text style={[sidePanelStyles.regInfoLabel, { color: "#4A90D9", marginBottom: 4 }]}>Kontakte</Text>
@@ -1875,14 +2341,75 @@ function SidePanelView({ panel, loading, geozones, tempRestrictions, dipulRestri
                       ) : null}
                     </View>
                   );
-                })}
+                  });
+                })()}
               </View>
             ) : (
               <View style={{ gap: 6 }}>
-                <View style={[sidePanelStyles.infoBoxOk, { backgroundColor: isDark ? "rgba(52,199,89,0.15)" : "rgba(52,199,89,0.12)" }]}>
-                  <Feather name="check-circle" size={14} color={isDark ? "#FFFFFF" : "#248A3D"} />
-                  <Text style={[sidePanelStyles.infoBoxText, { color: isDark ? "#FFFFFF" : "#248A3D" }]}>Keine Geozonen im Flugbereich</Text>
-                </View>
+                {(() => {
+                  // Das grüne "frei"-Banner darf nur erscheinen, wenn weder
+                  // dauerhafte Geozonen NOCH befristete Sperrungen (NOTAM-Gebiete /
+                  // aktivierbare UAS-Zonen / aktive dipul-Beschränkungen) im
+                  // Flugbereich liegen. Andernfalls verweisen wir auf den NOTAM-Tab,
+                  // damit kein "alles frei" über einer Verbotszone steht.
+                  const activeDipulCount = dipulRestrictions.filter((d) => d.status === "active").length;
+                  const restrictionCount = tempRestrictions.length + activeDipulCount;
+                  if (geozoneDataStatus !== "loaded") {
+                    return (
+                      <View style={{ gap: 6 }}>
+                        {windFacilityWarnings.map((facility) => (
+                          <View key={`wind-buffer-unverified-${facility.id}`} style={[sidePanelStyles.infoBox, { backgroundColor: isDark ? "rgba(255,149,0,0.2)" : "rgba(255,149,0,0.12)", borderLeftColor: "#FF9500" }]}>
+                            <Feather name="alert-triangle" size={14} color={isDark ? "#FFCC80" : "#CC7A00"} />
+                            <Text style={[sidePanelStyles.infoBoxText, { color: isDark ? "#FFCC80" : "#CC7A00" }]}>
+                              {facility.name}: {Math.round(facility.distanceMeters)} m entfernt. Der 100-m-Prüfkreis liegt im Radarbereich; innerhalb dieses Abstands ist, sofern § 21h Abs. 3 Nr. 3 LuftVO gilt, ausdrückliche Zustimmung erforderlich.
+                            </Text>
+                          </View>
+                        ))}
+                        <View style={[sidePanelStyles.infoBox, { backgroundColor: isDark ? "rgba(255,149,0,0.2)" : "rgba(255,149,0,0.12)", borderLeftColor: "#FF9500" }]}>
+                          <Feather name="alert-triangle" size={14} color={isDark ? "#FFCC80" : "#CC7A00"} />
+                          <Text style={[sidePanelStyles.infoBoxText, { color: isDark ? "#FFCC80" : "#CC7A00" }]}>
+                            {geozoneDataStatus === "error" ? "Geozonen konnten nicht geprüft werden. Grün bedeutet hier nicht „frei“." : "Geozonen werden noch geprüft. Grün bedeutet hier nicht „frei“."}
+                          </Text>
+                        </View>
+                      </View>
+                    );
+                  }
+                  if (windFacilityWarnings.length > 0) {
+                    return (
+                      <View style={{ gap: 6 }}>
+                        {windFacilityWarnings.map((facility) => (
+                          <View key={`wind-buffer-empty-${facility.id}`} style={[sidePanelStyles.infoBox, { backgroundColor: isDark ? "rgba(255,149,0,0.2)" : "rgba(255,149,0,0.12)", borderLeftColor: "#FF9500" }]}>
+                            <Feather name="alert-triangle" size={14} color={isDark ? "#FFCC80" : "#CC7A00"} />
+                            <Text style={[sidePanelStyles.infoBoxText, { color: isDark ? "#FFCC80" : "#CC7A00" }]}>
+                              {facility.name}: {Math.round(facility.distanceMeters)} m entfernt. Der 100-m-Prüfkreis liegt im Radarbereich. Innerhalb dieses Abstands ist, sofern § 21h Abs. 3 Nr. 3 LuftVO gilt, ausdrückliche Zustimmung erforderlich.
+                            </Text>
+                          </View>
+                        ))}
+                        {restrictionCount > 0 ? (
+                          <Text style={[sidePanelStyles.infoBoxText, { color: isDark ? "#FFCC80" : "#CC7A00" }]}>
+                            Zusätzlich liegen {restrictionCount} temporäre Sperrung{restrictionCount !== 1 ? "en" : ""} im Flugbereich — Details im Tab „NOTAMs / Temporär“.
+                          </Text>
+                        ) : null}
+                      </View>
+                    );
+                  }
+                  if (restrictionCount > 0) {
+                    return (
+                      <View style={[sidePanelStyles.infoBox, { backgroundColor: isDark ? "rgba(255,149,0,0.2)" : "rgba(255,149,0,0.12)", borderLeftColor: "#FF9500" }]}>
+                        <Feather name="alert-triangle" size={14} color={isDark ? "#FFCC80" : "#CC7A00"} />
+                        <Text style={[sidePanelStyles.infoBoxText, { color: isDark ? "#FFCC80" : "#CC7A00" }]}>
+                          Keine dauerhaften Geozonen, aber {restrictionCount} temporäre Sperrung{restrictionCount !== 1 ? "en" : ""} (NOTAM-Gebiet{restrictionCount !== 1 ? "e" : ""}) im Flugbereich — Details im Tab „NOTAMs / Temporär"
+                        </Text>
+                      </View>
+                    );
+                  }
+                  return (
+                    <View style={[sidePanelStyles.infoBoxOk, { backgroundColor: isDark ? "rgba(52,199,89,0.15)" : "rgba(52,199,89,0.12)" }]}>
+                      <Feather name="check-circle" size={14} color={isDark ? "#FFFFFF" : "#248A3D"} />
+                      <Text style={[sidePanelStyles.infoBoxText, { color: isDark ? "#FFFFFF" : "#248A3D" }]}>Keine Geozonen oder Sperrungen im Flugbereich</Text>
+                    </View>
+                  );
+                })()}
               </View>
             )
           ) : null}
@@ -1979,7 +2506,7 @@ function SidePanelView({ panel, loading, geozones, tempRestrictions, dipulRestri
                           style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 5, paddingVertical: 2 }}
                         >
                           <Feather name="external-link" size={12} color={borderColor} />
-                          <Text style={{ color: borderColor, fontSize: 12, fontWeight: "600" }}>{dipulUrl ? "Details auf dipul.de" : "Alle Einschränkungen auf dipul.de"}</Text>
+                          <Text style={{ color: borderColor, fontSize: 12, fontWeight: "600" }}>{isAdmin ? (dipulUrl ? "Details auf dipul.de" : "Alle Einschränkungen auf dipul.de") : (dipulUrl ? "Details ansehen" : "Alle Einschränkungen ansehen")}</Text>
                         </Pressable>
                       </View>
                     );
@@ -2069,8 +2596,8 @@ function SidePanelView({ panel, loading, geozones, tempRestrictions, dipulRestri
           {panel === "wetter" ? (
             forecasts.length > 0 ? (
               (() => {
-                const P_ROW_H = 22;
-                const P_HEADER_H = 26;
+                const P_ROW_H = 19;
+                const P_HEADER_H = 24;
                 const P_LABEL_W = 86;
                 const P_COL_W = 64;
                 const wBorderColor = isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)";
@@ -2101,14 +2628,15 @@ function SidePanelView({ panel, loading, geozones, tempRestrictions, dipulRestri
                   { key: "rain", label: "Regen", icon: "cloud-rain", iconColor: "#5AC8FA" },
                   { key: "humidity", label: "Feuchte", icon: "droplet", iconColor: "#64D2FF" },
                   { key: "qnh", label: "QNH", icon: "activity", iconColor: "#A78BFA" },
-                  { key: "kp", label: "KP", icon: "zap", iconColor: "#FFD60A" },
+                  { key: "kp", label: "KP", icon: "zap", iconColor: "#8E8E93" },
                 ];
 
                 const pSlots: ForecastData[] = [];
-                const usedH = new Set<number>();
-                for (let i = 0; i < forecasts.length && pSlots.length < 24; i++) {
-                  const h = new Date(forecasts[i].timestamp).getHours();
-                  if (!usedH.has(h)) { usedH.add(h); pSlots.push(forecasts[i]); }
+                const usedH = new Set<string>();
+                for (let i = 0; i < forecasts.length && pSlots.length < 48; i++) {
+                  const d = new Date(forecasts[i].timestamp);
+                  const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}-${d.getHours()}`;
+                  if (!usedH.has(key)) { usedH.add(key); pSlots.push(forecasts[i]); }
                 }
 
                 function getKpForFc(fc: ForecastData): number | null {
@@ -2121,41 +2649,65 @@ function SidePanelView({ panel, loading, geozones, tempRestrictions, dipulRestri
                   return w ? { speed: w.speed, gust: w.gust, direction: w.direction } : null;
                 }
 
-                function getTempAtHeight(fc: ForecastData, height: number): number | null {
+                function getTempAtHeight(fc: ForecastData, height: number): { value: number; estimated: boolean } | null {
                   const t = fc.temperatureAtAltitude?.find((a) => a.height === height);
-                  return t ? t.value : null;
+                  return t ? { value: t.value, estimated: t.estimated === true } : null;
+                }
+
+                function pCellIsEstimated(fc: ForecastData, key: PRowKey): boolean {
+                  const heights: Partial<Record<PRowKey, number>> = { temp50: 50, temp100: 100, temp150: 150, temp200: 200, temp250: 250 };
+                  const h = heights[key];
+                  if (h == null) return false;
+                  const t = fc.temperatureAtAltitude?.find((a) => a.height === h);
+                  return t?.estimated === true;
                 }
 
                 function pCellVal(fc: ForecastData, key: PRowKey): string {
                   switch (key) {
-                    case "temp": return fc.temperature.toFixed(1) + "°";
-                    case "temp50": { const v = getTempAtHeight(fc, 50); return v != null ? v.toFixed(1) + "°" : "-"; }
-                    case "temp100": { const v = getTempAtHeight(fc, 100); return v != null ? v.toFixed(1) + "°" : "-"; }
-                    case "temp150": { const v = getTempAtHeight(fc, 150); return v != null ? v.toFixed(1) + "°" : "-"; }
-                    case "temp200": { const v = getTempAtHeight(fc, 200); return v != null ? v.toFixed(1) + "°" : "-"; }
-                    case "temp250": { const v = getTempAtHeight(fc, 250); return v != null ? v.toFixed(1) + "°" : "-"; }
-                    case "wind": return fc.windSpeed.toFixed(1);
+                    case "temp": return fc.temperature != null ? fc.temperature.toFixed(1) + "°" : "-";
+                    case "temp50": { const t = getTempAtHeight(fc, 50); return t != null ? (t.estimated ? "~" : "") + t.value.toFixed(1) + "°" : "-"; }
+                    case "temp100": { const t = getTempAtHeight(fc, 100); return t != null ? (t.estimated ? "~" : "") + t.value.toFixed(1) + "°" : "-"; }
+                    case "temp150": { const t = getTempAtHeight(fc, 150); return t != null ? (t.estimated ? "~" : "") + t.value.toFixed(1) + "°" : "-"; }
+                    case "temp200": { const t = getTempAtHeight(fc, 200); return t != null ? (t.estimated ? "~" : "") + t.value.toFixed(1) + "°" : "-"; }
+                    case "temp250": { const t = getTempAtHeight(fc, 250); return t != null ? (t.estimated ? "~" : "") + t.value.toFixed(1) + "°" : "-"; }
+                    case "wind": return fc.windSpeed != null ? fc.windSpeed.toFixed(1) : "-";
                     case "gust": return (fc.windGust ?? 0) > 0 ? (fc.windGust!).toFixed(1) : "-";
-                    case "dir": { const dirs=["N","NO","O","SO","S","SW","W","NW"]; return Math.round(fc.windDirection)+"°"+(dirs[Math.round(fc.windDirection/45)%8]||""); }
+                    case "dir": { const dirs=["N","NO","O","SO","S","SW","W","NW"]; const wd = fc.windDirection ?? 0; return Math.round(wd)+"°"+(dirs[Math.round(wd/45)%8]||""); }
                     case "wind50": { const w = getWindAtHeight(fc, 50); return w ? w.speed.toFixed(1) : "-"; }
                     case "wind100": { const w = getWindAtHeight(fc, 100); return w ? w.speed.toFixed(1) : "-"; }
                     case "wind150": { const w = getWindAtHeight(fc, 150); return w ? w.speed.toFixed(1) : "-"; }
                     case "wind200": { const w = getWindAtHeight(fc, 200); return w ? w.speed.toFixed(1) : "-"; }
                     case "wind250": { const w = getWindAtHeight(fc, 250); return w ? w.speed.toFixed(1) : "-"; }
-                    case "cloud": return Math.round(fc.cloudCover)+"%";
-                    case "rain": return fc.rain.toFixed(1);
-                    case "humidity": return Math.round(fc.humidity)+"%";
-                    case "qnh": return fc.pressure > 0 ? (fc.pressure/100).toFixed(1) : "-";
+                    case "cloud": return Math.round(fc.cloudCover ?? 0)+"%";
+                    case "rain": return fc.rain != null ? fc.rain.toFixed(1) : "-";
+                    case "humidity": return Math.round(fc.humidity ?? 0)+"%";
+                    case "qnh": return (fc.pressure ?? 0) > 0 ? (fc.pressure!/100).toFixed(1) : "-";
                     case "kp": { const v = getKpForFc(fc); return v != null ? v.toFixed(1) : "-"; }
                     default: return "-";
                   }
                 }
 
+                // Vereisungs-Kombination: kalte Temperatur + hohe Feuchte.
+                // < 0 deg C + >= 80% rF -> kritisch (Klareis/Raueis moeglich).
+                // <= 5 deg C + >= 90% rF -> caution (Beschlag/Kondensation).
+                function icingStatus(fc: ForecastData): "critical"|"caution"|"ok" {
+                  const t = fc.temperature;
+                  const h = fc.humidity;
+                  if (t == null || h == null) return "ok";
+                  if (t < 0 && h >= 80) return "critical";
+                  if (t <= 5 && h >= 90) return "caution";
+                  return "ok";
+                }
                 function pCellStatus(fc: ForecastData, key: PRowKey): "critical"|"caution"|"ok" {
                   switch (key) {
                     case "wind": return fc.windSpeed > 10 ? "critical" : fc.windSpeed > 7 ? "caution" : "ok";
                     case "gust": { const g=fc.windGust??0; return g>12?"critical":g>9?"caution":"ok"; }
-                    case "temp": return fc.temperature < -5 ? "critical" : fc.temperature < 0 ? "caution" : "ok";
+                    case "temp": {
+                      if (fc.temperature < -5) return "critical";
+                      if (fc.temperature < 0) return "caution";
+                      // Bei Plustemperaturen nur bei Vereisungs-Kombi mit Feuchte highlighten
+                      return icingStatus(fc);
+                    }
                     case "temp50":
                     case "temp100":
                     case "temp150":
@@ -2164,7 +2716,7 @@ function SidePanelView({ panel, loading, geozones, tempRestrictions, dipulRestri
                       const hMap: Record<string, number> = { temp50: 50, temp100: 100, temp150: 150, temp200: 200, temp250: 250 };
                       const v = getTempAtHeight(fc, hMap[key]);
                       if (v == null) return "ok";
-                      return v < -5 ? "critical" : v < 0 ? "caution" : "ok";
+                      return v.value < -5 ? "critical" : v.value < 0 ? "caution" : "ok";
                     }
                     case "wind50":
                     case "wind100":
@@ -2176,10 +2728,11 @@ function SidePanelView({ panel, loading, geozones, tempRestrictions, dipulRestri
                       if (!w) return "ok";
                       return w.speed > 12 ? "critical" : w.speed > 8 ? "caution" : "ok";
                     }
-                    case "cloud": return fc.cloudCover > 90 ? "caution" : "ok";
+                    // Wolken & Feuchte solo nicht mehr highlighten - nur in Kombi
+                    case "cloud": return "ok";
                     case "rain": return fc.rain > 0.5 ? "critical" : fc.rain > 0.1 ? "caution" : "ok";
-                    case "humidity": return fc.humidity > 95 ? "caution" : "ok";
-                    case "kp": { const v=getKpForFc(fc)??0; return v>=6?"critical":v>=4?"caution":"ok"; }
+                    case "humidity": return icingStatus(fc);
+                    case "kp": { const v=getKpForFc(fc); return v == null ? "ok" : v>=6?"critical":v>=3?"caution":"ok"; }
                     default: return "ok";
                   }
                 }
@@ -2190,39 +2743,56 @@ function SidePanelView({ panel, loading, geozones, tempRestrictions, dipulRestri
                   return caution ? "caution" : "ok";
                 }
 
-                const allRows = [
-                  { key: "__header__", label: "Uhrzeit", icon: "", iconColor: "" },
-                  ...pRows,
-                ];
-
-                const SOLAR_ROW_H = 48;
-                const fmtSolarTime = (d: Date | null) => d ? d.getHours().toString().padStart(2,"0") + ":" + d.getMinutes().toString().padStart(2,"0") : "--:--";
+                const wViewedTime: Date = (() => {
+                  if (pSlots.length === 0) return new Date();
+                  const maxIdx = pSlots.length - 1;
+                  const colF = Math.max(0, Math.min(maxIdx, wetterScrollX / P_COL_W));
+                  const i0 = Math.floor(colF);
+                  const i1 = Math.min(maxIdx, i0 + 1);
+                  const f = colF - i0;
+                  const tNow = Date.now();
+                  const t0 = i0 === 0 ? tNow : new Date(pSlots[i0].timestamp).getTime();
+                  const t1 = i1 === 0 ? tNow : new Date(pSlots[i1].timestamp).getTime();
+                  return new Date(t0 + (t1 - t0) * f);
+                })();
+                const wDaySolar = (propLat != null && propLon != null)
+                  ? calculateSolarTimes(propLat, propLon, wViewedTime) : null;
 
                 return (
-                  <View style={{ flex: 1, flexDirection: "row" }}>
+                  <View style={{ flex: 1 }}>
+                    {propLat != null && propLon != null ? (
+                      <View style={{
+                        backgroundColor: isDark ? "rgba(20,20,30,0.6)" : "rgba(245,245,250,0.6)",
+                        borderRadius: 12,
+                        paddingHorizontal: 10,
+                        paddingTop: 4,
+                        paddingBottom: 4,
+                        marginBottom: 6,
+                        borderWidth: StyleSheet.hairlineWidth,
+                        borderColor: wBorderColor,
+                      }}>
+                        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 2 }}>
+                          <Text style={{ fontSize: 10, fontWeight: "700", letterSpacing: 0.6, color: mutedColor }}>
+                            TAGESGANG SONNENSTAND
+                          </Text>
+                        </View>
+                        <SunArcChart
+                          lat={propLat}
+                          lon={propLon}
+                          date={wViewedTime}
+                          highlightTime={wViewedTime}
+                          height={115}
+                          sunrise={wDaySolar?.sunrise ?? null}
+                          sunset={wDaySolar?.sunset ?? null}
+                          dayLengthMinutes={wDaySolar?.dayLengthMinutes ?? null}
+                        />
+                      </View>
+                    ) : null}
+                    <View style={{ flex: 1, flexDirection: "row" }}>
                     <View style={{ width: P_LABEL_W, backgroundColor: wLabelBg, borderRightWidth: 1, borderRightColor: wBorderColor }}>
                       <View style={{ height: P_HEADER_H, justifyContent: "center", paddingLeft: 6, borderBottomWidth: 1, borderBottomColor: wBorderColor }}>
                         <Text style={{ fontSize: 11, fontWeight: "700", color: mutedColor }}>Uhrzeit</Text>
                       </View>
-                      {(propLat != null && propLon != null) ? (() => {
-                        const nowSolar = calculateSolarTimes(propLat, propLon, new Date());
-                        return (
-                          <View style={{ height: SOLAR_ROW_H, justifyContent: "center", paddingLeft: 5, gap: 2, borderBottomWidth: 1, borderBottomColor: wBorderColor }}>
-                            <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
-                              <Feather name="sun" size={10} color="#FFB820" />
-                              <Text style={{ fontSize: 10, fontWeight: "700", color: mutedColor }} numberOfLines={1}>Sonnenverlauf</Text>
-                            </View>
-                            <View style={{ flexDirection: "row", alignItems: "center", gap: 3, paddingLeft: 1 }}>
-                              <Feather name="sunrise" size={9} color="#FF8C00" />
-                              <Text style={{ fontSize: 9, fontWeight: "600", color: mutedColor }}>{fmtSolarTime(nowSolar.sunrise)}</Text>
-                            </View>
-                            <View style={{ flexDirection: "row", alignItems: "center", gap: 3, paddingLeft: 1 }}>
-                              <Feather name="sunset" size={9} color="#FF8C00" />
-                              <Text style={{ fontSize: 9, fontWeight: "600", color: mutedColor }}>{fmtSolarTime(nowSolar.sunset)}</Text>
-                            </View>
-                          </View>
-                        );
-                      })() : null}
                       <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} bounces={false} scrollEnabled={false}>
                         {pRows.map((r) => (
                           <View key={r.key} style={{ height: P_ROW_H, flexDirection: "row", alignItems: "center", paddingLeft: 5, gap: 4, borderBottomWidth: 0.5, borderBottomColor: wBorderColor }}>
@@ -2232,7 +2802,18 @@ function SidePanelView({ panel, loading, geozones, tempRestrictions, dipulRestri
                         ))}
                       </ScrollView>
                     </View>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingRight: 8 }} style={{ flex: 1 }} bounces={true}>
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={{ paddingRight: 8 }}
+                      style={{ flex: 1 }}
+                      bounces={true}
+                      scrollEventThrottle={32}
+                      onScroll={(e) => {
+                        const x = Math.round(e.nativeEvent.contentOffset.x / 8) * 8;
+                        setWetterScrollX((prev) => (prev !== x ? x : prev));
+                      }}
+                    >
                       <View>
                         <View style={{ flexDirection: "row", height: P_HEADER_H, borderBottomWidth: 1, borderBottomColor: wBorderColor }}>
                           {pSlots.map((fc, idx) => {
@@ -2250,78 +2831,19 @@ function SidePanelView({ panel, loading, geozones, tempRestrictions, dipulRestri
                             );
                           })}
                         </View>
-                        {(propLat != null && propLon != null) ? (
-                          <View style={{ flexDirection: "row", height: SOLAR_ROW_H, borderBottomWidth: 1, borderBottomColor: wBorderColor }}>
-                            {pSlots.map((fc, idx) => {
-                              const fcTime = new Date(fc.timestamp);
-                              const solar = calculateSolarTimes(propLat, propLon, fcTime);
-                              const isDay = isTimeDuringDaylight(fcTime, solar);
-                              const isTwi = isTimeDuringCivilTwilight(fcTime, solar);
-                              const isMorningTwi = isTwi && solar.sunrise && fcTime < solar.sunrise;
-
-                              const hourStart = fcTime.getTime();
-                              const hourEnd = hourStart + 3600000;
-                              const hasSunrise = solar.sunrise && solar.sunrise.getTime() >= hourStart && solar.sunrise.getTime() < hourEnd;
-                              const hasSunset = solar.sunset && solar.sunset.getTime() >= hourStart && solar.sunset.getTime() < hourEnd;
-
-                              const stripDay = "#FFB820";
-                              const stripTwi = "#FF8C00";
-                              const stripNight = isDark ? "#2A3A5C" : "#8E9AB0";
-
-                              const bgDay = "rgba(255,184,32,0.12)";
-                              const bgTwi = "rgba(255,140,0,0.12)";
-                              const bgNight = "rgba(107,127,160,0.08)";
-                              const bg = isDay ? bgDay : isTwi ? bgTwi : bgNight;
-
-                              const stripColor = isDay ? stripDay : isTwi ? stripTwi : stripNight;
-
-                              const icon = hasSunset ? "sunset" : hasSunrise ? "sunrise" : isDay ? "sun" : isTwi ? (isMorningTwi ? "sunrise" : "sunset") : "moon";
-                              const iconColor = (hasSunset || hasSunrise) ? "#FF8C00" : isDay ? "#FFB820" : isTwi ? "#FF8C00" : "#6B7FA0";
-                              const iconSize = (hasSunset || hasSunrise) ? 16 : 13;
-
-                              const sunsetFrac = hasSunset ? solar.sunset!.getMinutes() / 60 : 0;
-                              const sunriseFrac = hasSunrise ? solar.sunrise!.getMinutes() / 60 : 0;
-
-                              return (
-                                <View key={idx} style={{ width: P_COL_W, height: SOLAR_ROW_H, borderRightWidth: 0.5, borderRightColor: wBorderColor, overflow: "hidden" }}>
-                                  <View style={{ height: 5, flexDirection: "row" }}>
-                                    {hasSunset ? (
-                                      <>
-                                        <View style={{ width: sunsetFrac * P_COL_W, height: 5, backgroundColor: stripDay }} />
-                                        <View style={{ flex: 1, height: 5, backgroundColor: stripTwi }} />
-                                      </>
-                                    ) : hasSunrise ? (
-                                      <>
-                                        <View style={{ width: sunriseFrac * P_COL_W, height: 5, backgroundColor: stripNight }} />
-                                        <View style={{ flex: 1, height: 5, backgroundColor: stripDay }} />
-                                      </>
-                                    ) : (
-                                      <View style={{ flex: 1, height: 5, backgroundColor: stripColor }} />
-                                    )}
-                                  </View>
-                                  <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: bg }}>
-                                    <Feather name={icon as any} size={iconSize} color={iconColor} />
-                                    {(hasSunset || hasSunrise) ? (
-                                      <Text style={{ fontSize: 9, fontWeight: "800", color: iconColor, marginTop: 1 }}>
-                                        {hasSunset ? fmtSolarTime(solar.sunset!) : fmtSolarTime(solar.sunrise!)}
-                                      </Text>
-                                    ) : null}
-                                  </View>
-                                </View>
-                              );
-                            })}
-                          </View>
-                        ) : null}
                         <View>
                           {pRows.map((r) => (
                             <View key={r.key} style={{ flexDirection: "row" }}>
                               {pSlots.map((fc, idx) => {
                                 const cs = pCellStatus(fc, r.key);
-                                const bg = cs==="critical" ? wWarnBg : cs==="caution" ? wCautionBg : "transparent";
-                                const cl = cs==="critical" ? wWarnColor : cs==="caution" ? wCautionColor : textColor;
+                                const est = cs === "ok" && pCellIsEstimated(fc, r.key);
+                                const kpValue = r.key === "kp" ? getKpForFc(fc) : null;
+                                const kpColor = kpValue == null ? null : getKpAssessment(kpValue).color;
+                                const bg = kpColor ? `${kpColor}26` : cs==="critical" ? wWarnBg : cs==="caution" ? wCautionBg : "transparent";
+                                const cl = kpColor ?? (cs==="critical" ? wWarnColor : cs==="caution" ? wCautionColor : est ? mutedColor : textColor);
                                 return (
                                   <View key={idx} style={{ width: P_COL_W, height: P_ROW_H, justifyContent: "center", alignItems: "center", backgroundColor: bg, borderBottomWidth: 0.5, borderBottomColor: wBorderColor, borderRightWidth: 0.5, borderRightColor: wBorderColor, paddingHorizontal: 2 }}>
-                                    <Text style={{ fontSize: 12, fontWeight: cs!=="ok"?"800":"600", color: cl }} numberOfLines={1}>{pCellVal(fc, r.key)}</Text>
+                                    <Text style={{ fontSize: 12, fontWeight: cs!=="ok"?"800":"600", color: cl, fontStyle: est ? "italic" : "normal" }} numberOfLines={1}>{pCellVal(fc, r.key)}</Text>
                                   </View>
                                 );
                               })}
@@ -2330,6 +2852,7 @@ function SidePanelView({ panel, loading, geozones, tempRestrictions, dipulRestri
                         </View>
                       </View>
                     </ScrollView>
+                    </View>
                   </View>
                 );
               })()
@@ -2402,23 +2925,24 @@ function SidePanelView({ panel, loading, geozones, tempRestrictions, dipulRestri
                   Aktualisiert: {radarData.lastUpdate.toLocaleTimeString("de-DE")} (alle 3s)
                 </Text>
               ) : null}
-              <View style={[sidePanelStyles.divider, { backgroundColor: divColor }]} />
-              <Text style={[{ fontSize: 12, fontWeight: "600", color: mutedColor }]}>Quellen</Text>
-              <View style={sidePanelStyles.radarSourceRow}>
-                {[
-                  { label: "OpenSky", status: radarData.sourceStatus.opensky },
-                  { label: "adsb.fi", status: radarData.sourceStatus.adsbfi },
-                  { label: "adsb.one", status: radarData.sourceStatus.adsbone },
-                  { label: "apl", status: radarData.sourceStatus.airplaneslive },
-                  { label: "lol", status: radarData.sourceStatus.adsblol },
-                  { label: "OGN", status: radarData.sourceStatus.ogn },
-                ].map((s) => (
-                  <View key={s.label} style={sidePanelStyles.radarSourceItem}>
-                    <View style={[sidePanelStyles.radarSourceDot, { backgroundColor: s.status === "ok" ? "#34C759" : s.status === "error" ? "#FF3B30" : "#8E8E93" }]} />
-                    <Text style={[{ fontSize: 11, color: mutedColor }]}>{s.label}</Text>
+              {isAdmin ? (
+                <>
+                  <View style={[sidePanelStyles.divider, { backgroundColor: divColor }]} />
+                  <Text style={[{ fontSize: 12, fontWeight: "600", color: mutedColor }]}>Quellen</Text>
+                  <View style={sidePanelStyles.radarSourceRow}>
+                    {[
+                      { label: "OGN", status: radarData.sourceStatus.ogn },
+                      { label: "apl", status: radarData.sourceStatus.airplaneslive },
+                      { label: "lol", status: radarData.sourceStatus.adsblol },
+                    ].map((s) => (
+                      <View key={s.label} style={sidePanelStyles.radarSourceItem}>
+                        <View style={[sidePanelStyles.radarSourceDot, { backgroundColor: s.status === "ok" ? "#34C759" : s.status === "error" ? "#FF3B30" : "#8E8E93" }]} />
+                        <Text style={[{ fontSize: 11, color: mutedColor }]}>{s.label}</Text>
+                      </View>
+                    ))}
                   </View>
-                ))}
-              </View>
+                </>
+              ) : null}
               {radarData.isCustomLocation ? (
                 <Pressable onPress={radarData.onResetLocation} style={[sidePanelStyles.radarActionBtn, { backgroundColor: "rgba(255,149,0,0.15)", marginTop: 4 }]}>
                   <Feather name="navigation" size={14} color="#FF9500" />
@@ -2487,8 +3011,11 @@ const sidePanelStyles = StyleSheet.create({
     left: 0,
     right: 0,
     zIndex: 125,
-    height: "65%",
-    maxHeight: "65%",
+    // Bewusst KEIN festes height — der Container soll sich auf seine
+    // Inhaltsgröße zusammenziehen (Header + Divider + ScrollView). Sonst
+    // entsteht auf großen iPads ein riesiger blauer Block, weil die innere
+    // ScrollView nur bis maxHeight 500 wächst und der Rest leer bleibt.
+    maxHeight: "96%",
     borderTopLeftRadius: 14,
     borderBottomLeftRadius: 14,
     borderTopRightRadius: 14,
@@ -2570,7 +3097,8 @@ const sidePanelStyles = StyleSheet.create({
   scrollArea: {
     paddingHorizontal: 14,
     paddingTop: 8,
-    maxHeight: 500,
+    // maxHeight wird zur Laufzeit dynamisch gesetzt (scrollMaxHeight), damit die
+    // Wetter-Tabelle ohne Scrollen passt; siehe Render der ScrollView.
   },
   loadingWrap: {
     padding: 24,
@@ -2678,11 +3206,14 @@ const sidePanelStyles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "600",
     minWidth: 75,
+    maxWidth: "38%",
+    flexShrink: 1,
   },
   geozoneDetailVal: {
     fontSize: 12,
     fontWeight: "500",
     flex: 1,
+    minWidth: 0,
   },
   regInfoExpanded: {
     marginTop: 8,
@@ -2855,7 +3386,7 @@ function BottomWeatherOverlay({ forecasts, kpIndex, isDark, latitude, longitude,
     const refresh = async () => {
       try {
         const [wd, kp, kpTl] = await Promise.all([
-          fetchWeather(latitude, longitude, 1440).catch(() => null),
+          fetchWeather(latitude, longitude, 2880).catch(() => null),
           fetchKpIndex().catch(() => null),
           fetchKpTimeline().catch(() => [] as KpTimeEntry[]),
         ]);
@@ -2871,11 +3402,12 @@ function BottomWeatherOverlay({ forecasts, kpIndex, isDark, latitude, longitude,
 
   const slots = useMemo(() => {
     const result: ForecastData[] = [];
-    const usedHours = new Set<number>();
-    for (let i = 0; i < forecasts.length && result.length < 24; i++) {
-      const h = new Date(forecasts[i].timestamp).getHours();
-      if (!usedHours.has(h)) {
-        usedHours.add(h);
+    const usedHours = new Set<string>();
+    for (let i = 0; i < forecasts.length && result.length < 48; i++) {
+      const d = new Date(forecasts[i].timestamp);
+      const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}-${d.getHours()}`;
+      if (!usedHours.has(key)) {
+        usedHours.add(key);
         result.push(forecasts[i]);
       }
     }
@@ -2901,7 +3433,7 @@ function BottomWeatherOverlay({ forecasts, kpIndex, isDark, latitude, longitude,
     { key: "rain", label: "Regen", icon: "cloud-rain", iconColor: "#5AC8FA" },
     { key: "humidity", label: "Feuchte", icon: "droplet", iconColor: "#64D2FF" },
     { key: "qnh", label: "QNH", icon: "activity", iconColor: "#A78BFA" },
-    { key: "kp", label: "KP", icon: "zap", iconColor: "#FFD60A" },
+    { key: "kp", label: "KP", icon: "zap", iconColor: "#8E8E93" },
   ];
 
   function getKpForForecast(fc: ForecastData): number | null {
@@ -2916,18 +3448,19 @@ function BottomWeatherOverlay({ forecasts, kpIndex, isDark, latitude, longitude,
 
   function getCellValue(fc: ForecastData, key: RowKey): string {
     switch (key) {
-      case "wind": return fc.windSpeed.toFixed(1);
+      case "wind": return fc.windSpeed != null ? fc.windSpeed.toFixed(1) : "-";
       case "gust": return (fc.windGust ?? 0) > 0 ? (fc.windGust!).toFixed(1) : "-";
-      case "temp": return fc.temperature.toFixed(1) + "°";
-      case "cloud": return Math.round(fc.cloudCover) + "%";
-      case "rain": return fc.rain.toFixed(1);
-      case "humidity": return Math.round(fc.humidity) + "%";
+      case "temp": return fc.temperature != null ? fc.temperature.toFixed(1) + "°" : "-";
+      case "cloud": return Math.round(fc.cloudCover ?? 0) + "%";
+      case "rain": return fc.rain != null ? fc.rain.toFixed(1) : "-";
+      case "humidity": return Math.round(fc.humidity ?? 0) + "%";
       case "vis": return fc.visibility != null ? (fc.visibility < 1000 ? Math.round(fc.visibility) + "m" : (fc.visibility / 1000).toFixed(1) + "k") : "n/a";
-      case "qnh": return fc.pressure > 0 ? (fc.pressure / 100).toFixed(1) : "-";
+      case "qnh": return (fc.pressure ?? 0) > 0 ? (fc.pressure! / 100).toFixed(1) : "-";
       case "dir": {
         const dirs = ["N","NO","O","SO","S","SW","W","NW"];
-        const dirIdx = Math.round(fc.windDirection / 45) % 8;
-        return Math.round(fc.windDirection) + "°" + (dirs[dirIdx] || "");
+        const wd = fc.windDirection ?? 0;
+        const dirIdx = Math.round(wd / 45) % 8;
+        return Math.round(wd) + "°" + (dirs[dirIdx] || "");
       }
       case "wind50": { const w = getWindAtHeight(fc, 50); return w ? w.speed.toFixed(1) : "-"; }
       case "wind100": { const w = getWindAtHeight(fc, 100); return w ? w.speed.toFixed(1) : "-"; }
@@ -2984,7 +3517,7 @@ function BottomWeatherOverlay({ forecasts, kpIndex, isDark, latitude, longitude,
       case "kp": {
         const v = getKpForForecast(fc);
         if (v != null && v >= 6) return "critical";
-        if (v != null && v >= 4) return "caution";
+        if (v != null && v >= 3) return "caution";
         return "ok";
       }
       default: return "ok";
@@ -3053,8 +3586,10 @@ function BottomWeatherOverlay({ forecasts, kpIndex, isDark, latitude, longitude,
                 </View>
                 {rows.map((r) => {
                   const cellStatus = getCellStatus(fc, r.key);
-                  const cellBg = cellStatus === "critical" ? warnBg : cellStatus === "caution" ? cautionBg : "transparent";
-                  const cellColor = cellStatus === "critical" ? warnColor : cellStatus === "caution" ? cautionColor : textColor;
+                  const kpValue = r.key === "kp" ? getKpForForecast(fc) : null;
+                  const kpColor = kpValue == null ? null : getKpAssessment(kpValue).color;
+                  const cellBg = kpColor ? `${kpColor}26` : cellStatus === "critical" ? warnBg : cellStatus === "caution" ? cautionBg : "transparent";
+                  const cellColor = kpColor ?? (cellStatus === "critical" ? warnColor : cellStatus === "caution" ? cautionColor : textColor);
                   const cellWeight: "800" | "600" = cellStatus !== "ok" ? "800" : "600";
                   return (
                     <View key={r.key} style={{ height: ROW_H, justifyContent: "center", alignItems: "center", backgroundColor: cellBg, borderBottomWidth: 0.5, borderBottomColor: borderColor, paddingHorizontal: 2 }}>
@@ -3079,12 +3614,18 @@ interface MapConfigPopupProps {
   showWindsock: boolean;
   showGeozones: boolean;
   showTraffic: boolean;
+  showEnergyInfrastructure: boolean;
+  energyComparisonAvailable: boolean;
+  energyInfrastructureStatus: string;
   showWeatherOverlay: boolean;
+  showAllGeozones: boolean;
   onToggleRadar: () => void;
   onToggleWindsock: () => void;
   onToggleGeozones: () => void;
   onToggleTraffic: () => void;
+  onToggleEnergyInfrastructure: () => void;
   onToggleWeatherOverlay: () => void;
+  onToggleShowAllGeozones: () => void;
   onOpenGeozoneDetail: () => void;
 }
 
@@ -3104,9 +3645,9 @@ function MapConfigToggle({ label, active, onPress, labelColor, checkBorder }: { 
 }
 
 function MapConfigPopup({
-  mapStyle, showRadar, showWindsock, showGeozones, showTraffic, showWeatherOverlay,
+  mapStyle, showRadar, showWindsock, showGeozones, showTraffic, showEnergyInfrastructure, energyComparisonAvailable, energyInfrastructureStatus, showWeatherOverlay, showAllGeozones,
   onToggleRadar, onToggleWindsock,
-  onToggleGeozones, onToggleTraffic, onToggleWeatherOverlay, onOpenGeozoneDetail, onMapStyleChange,
+  onToggleGeozones, onToggleTraffic, onToggleEnergyInfrastructure, onToggleWeatherOverlay, onToggleShowAllGeozones, onOpenGeozoneDetail, onMapStyleChange,
   weatherOverlayVisible,
 }: MapConfigPopupProps & { onMapStyleChange: (s: MapStyleOption) => void; weatherOverlayVisible?: boolean }) {
   const { theme, isDark } = useTheme();
@@ -3125,6 +3666,7 @@ function MapConfigPopup({
           { id: "standard" as MapStyleOption, label: "Normal" },
           { id: "satellite" as MapStyleOption, label: "Satellit" },
           { id: "osm" as MapStyleOption, label: "OSM" },
+          { id: "grayscale" as MapStyleOption, label: "Graustufen" },
         ]).map((opt) => {
           const isActive = mapStyle === opt.id;
           return (
@@ -3143,6 +3685,15 @@ function MapConfigPopup({
       <MapConfigToggle label="Radar" active={showRadar} onPress={onToggleRadar} labelColor={labelColor} checkBorder={checkBorder} />
       <MapConfigToggle label="Windsack" active={showWindsock} onPress={onToggleWindsock} labelColor={labelColor} checkBorder={checkBorder} />
       <MapConfigToggle label="Verkehr" active={showTraffic} onPress={onToggleTraffic} labelColor={labelColor} checkBorder={checkBorder} />
+      <MapConfigToggle label="Ergänzende Anlagen" active={showEnergyInfrastructure} onPress={onToggleEnergyInfrastructure} labelColor={labelColor} checkBorder={checkBorder} />
+      <Text style={[panelStyles.configLabel, { color: sectionColor, fontSize: 10, marginLeft: 30 }]}>
+        {energyComparisonAvailable ? "Nur amtlich nicht gefundene Anlagen." : energyInfrastructureStatus}
+      </Text>
+      {energyComparisonAvailable && showEnergyInfrastructure ? (
+        <Text style={[panelStyles.configLabel, { color: sectionColor, fontSize: 10, marginLeft: 30 }]}>
+          {energyInfrastructureStatus}
+        </Text>
+      ) : null}
       <MapConfigToggle label="Wetter-Tabelle" active={showWeatherOverlay} onPress={onToggleWeatherOverlay} labelColor={labelColor} checkBorder={checkBorder} />
       <View style={panelStyles.geozoneRow}>
         <Pressable
@@ -3161,6 +3712,13 @@ function MapConfigPopup({
           <Feather name="chevron-right" size={18} color={isDark ? "#8CB4E0" : "#4A90D9"} />
         </Pressable>
       </View>
+      <MapConfigToggle
+        label="Alle Geozonen anzeigen"
+        active={showAllGeozones}
+        onPress={onToggleShowAllGeozones}
+        labelColor={labelColor}
+        checkBorder={checkBorder}
+      />
     </View>
   );
 }

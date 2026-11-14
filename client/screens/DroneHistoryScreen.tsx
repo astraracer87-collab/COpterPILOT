@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from "react";
 import { View, StyleSheet, FlatList, Pressable, TextInput, Modal, RefreshControl, Alert } from "react-native";
-import { useRoute, RouteProp, useFocusEffect } from "@react-navigation/native";
+import { useRoute, RouteProp, useFocusEffect, useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
@@ -12,30 +13,45 @@ import { Card } from "@/components/Card";
 import { Button } from "@/components/Button";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, Typography } from "@/constants/theme";
-import { getDroneHistory, addDroneHistoryEntry, deleteDroneHistoryEntry, getDrone, getFlightCountForDrone, DroneHistoryEntry } from "@/lib/storage";
+import { getDroneHistory, addDroneHistoryEntry, deleteDroneHistoryEntry, getDrone, getFlightCountForDrone, getLogbook, DroneHistoryEntry, LogbookEntry } from "@/lib/storage";
+import type { SettingsStackParamList } from "@/navigation/SettingsStackNavigator";
 
-type EventType = "repair" | "inspection" | "cleaning" | "rotor_change" | "damage" | "replacement" | "other";
+type NavProp = NativeStackNavigationProp<SettingsStackParamList>;
 
-const EVENT_TYPES: { type: EventType; label: string; icon: keyof typeof Feather.glyphMap }[] = [
+type EventType = "repair" | "inspection" | "cleaning" | "rotor_change" | "damage" | "replacement" | "hard_landing" | "crash_landing" | "other";
+
+const EVENT_TYPES: { type: EventType; label: string; icon: keyof typeof Feather.glyphMap; auto?: boolean }[] = [
   { type: "repair", label: "Reparatur", icon: "tool" },
   { type: "inspection", label: "Inspektion", icon: "search" },
   { type: "cleaning", label: "Reinigung", icon: "droplet" },
   { type: "rotor_change", label: "Rotorwechsel", icon: "refresh-cw" },
   { type: "damage", label: "Beschädigung", icon: "alert-triangle" },
   { type: "replacement", label: "Austausch", icon: "repeat" },
+  { type: "hard_landing", label: "Hard Landing", icon: "alert-triangle", auto: true },
+  { type: "crash_landing", label: "Crash Landing", icon: "alert-octagon", auto: true },
   { type: "other", label: "Sonstiges", icon: "edit-3" },
 ];
+
+// Manuelle Auswahl im "Neuer Eintrag"-Modal — Hard/Crash Landing werden
+// automatisch beim Debriefing eingetragen und sollen nicht manuell wählbar sein.
+const MANUAL_EVENT_TYPES = EVENT_TYPES.filter((t) => !t.auto);
 
 interface DroneHistoryParams {
   droneId: string;
 }
 
+type TimelineItem =
+  | { kind: "event"; date: string; entry: DroneHistoryEntry }
+  | { kind: "flight"; date: string; flight: LogbookEntry };
+
 export default function DroneHistoryScreen() {
   const route = useRoute<RouteProp<{ params: DroneHistoryParams }, "params">>();
+  const navigation = useNavigation<NavProp>();
   const { theme } = useTheme();
   const headerHeight = useHeaderHeight();
   const insets = useSafeAreaInsets();
   const [entries, setEntries] = useState<DroneHistoryEntry[]>([]);
+  const [flights, setFlights] = useState<LogbookEntry[]>([]);
   const [droneName, setDroneName] = useState("");
   const [flightCount, setFlightCount] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -49,12 +65,14 @@ export default function DroneHistoryScreen() {
 
   const loadData = useCallback(async () => {
     try {
-      const [history, drone, count] = await Promise.all([
+      const [history, drone, count, allLogbook] = await Promise.all([
         getDroneHistory(droneId),
         getDrone(droneId),
         getFlightCountForDrone(droneId),
+        getLogbook(),
       ]);
       setEntries(history);
+      setFlights(allLogbook.filter((e) => e.droneId === droneId));
       setDroneName(drone?.name || "Drohne");
       setFlightCount(count);
     } catch (error) {
@@ -129,44 +147,184 @@ export default function DroneHistoryScreen() {
     });
   };
 
-  const getEventConfig = (type: EventType) => {
-    return EVENT_TYPES.find(e => e.type === type) || EVENT_TYPES[6];
+  const formatTime = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleTimeString("de-DE", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
   };
 
-  const renderItem = useCallback(
-    ({ item, index }: { item: DroneHistoryEntry; index: number }) => {
-      const config = getEventConfig(item.eventType as EventType);
-      
-      return (
-        <Animated.View entering={FadeInDown.delay(index * 50).duration(300)}>
-          <Card style={styles.entryCard}>
-            <View style={styles.entryHeader}>
-              <View style={[styles.iconContainer, { backgroundColor: theme.primary + "15" }]}>
-                <Feather name={config.icon} size={18} color={theme.primary} />
+  const isLandingEvent = (type: EventType) => type === "hard_landing" || type === "crash_landing";
+
+  const getEventConfig = (type: EventType) => {
+    return EVENT_TYPES.find(e => e.type === type) || EVENT_TYPES[EVENT_TYPES.length - 1];
+  };
+
+  const getEventColor = (type: EventType): string => {
+    if (type === "crash_landing") return theme.statusNoGo;
+    if (type === "hard_landing" || type === "damage") return theme.statusCaution;
+    return theme.primary;
+  };
+
+  const handleOpenProtocol = (item: DroneHistoryEntry) => {
+    if (!item.sessionId) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    navigation.navigate("LogbookEntryDetail", { sessionId: item.sessionId });
+  };
+
+  const handleOpenFlight = (entry: LogbookEntry) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    navigation.navigate("LogbookEntryDetail", { logbookEntryId: entry.id });
+  };
+
+  const timeline: TimelineItem[] = React.useMemo(() => {
+    const items: TimelineItem[] = [
+      ...flights.map<TimelineItem>((f) => ({ kind: "flight", date: f.flightDate || f.createdAt, flight: f })),
+      ...entries.map<TimelineItem>((e) => ({ kind: "event", date: e.date, entry: e })),
+    ];
+    items.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    return items;
+  }, [flights, entries]);
+
+  const renderFlightItem = (flight: LogbookEntry, index: number) => {
+    const flightStatusColor =
+      flight.status === "nogo" ? theme.statusNoGo : flight.status === "caution" ? theme.statusCaution : theme.statusGo;
+    const incident = flight.incidentOccurred;
+    const accent = incident ? theme.statusCaution : flightStatusColor;
+    const duration = flight.flightDurationMinutes;
+    const tt = flight.takeoffTime;
+    const lt = flight.landingTime;
+
+    return (
+      <Animated.View entering={FadeInDown.delay(index * 50).duration(300)}>
+        <Card style={styles.entryCard} onPress={() => handleOpenFlight(flight)}>
+          <View style={styles.entryHeader}>
+            <View style={[styles.iconContainer, { backgroundColor: accent + "15" }]}>
+              <Feather name={incident ? "alert-triangle" : "navigation"} size={18} color={accent} />
+            </View>
+            <View style={styles.entryInfo}>
+              <ThemedText style={[styles.entryType, { color: accent }]}>
+                Flug{flight.status ? ` · ${flight.status === "nogo" ? "NO-GO" : flight.status === "caution" ? "CAUTION" : "GO"}` : ""}
+              </ThemedText>
+              <View style={styles.metaRow}>
+                <Feather name="calendar" size={11} color={theme.textTertiary} />
+                <ThemedText style={[styles.metaText, { color: theme.textTertiary }]}>
+                  {formatDate(flight.flightDate || flight.createdAt)}
+                </ThemedText>
+                {tt ? (
+                  <>
+                    <Feather name="clock" size={11} color={theme.textTertiary} style={{ marginLeft: 4 }} />
+                    <ThemedText style={[styles.metaText, { color: theme.textTertiary }]}>
+                      {tt}{lt ? `–${lt}` : ""}{duration ? ` (${duration}min)` : ""}
+                    </ThemedText>
+                  </>
+                ) : null}
               </View>
-              <View style={styles.entryInfo}>
-                <ThemedText style={styles.entryType}>{config.label}</ThemedText>
-                <ThemedText style={[styles.entryDate, { color: theme.textSecondary }]}>
+            </View>
+            <Feather name="chevron-right" size={18} color={theme.textTertiary} />
+          </View>
+
+          {flight.locationName ? (
+            <View style={styles.locationRow}>
+              <Feather name="map-pin" size={12} color={theme.textSecondary} />
+              <ThemedText style={[styles.locationText, { color: theme.textSecondary }]} numberOfLines={1}>
+                {flight.locationName}
+              </ThemedText>
+            </View>
+          ) : null}
+
+          {incident && flight.incidentDescription ? (
+            <ThemedText style={[styles.entryDescription, { color: theme.statusCaution }]} numberOfLines={2}>
+              Vorfall: {flight.incidentDescription}
+            </ThemedText>
+          ) : null}
+        </Card>
+      </Animated.View>
+    );
+  };
+
+  const renderEventItem = ({ item, index }: { item: DroneHistoryEntry; index: number }) => {
+      const eventType = item.eventType as EventType;
+      const config = getEventConfig(eventType);
+      const accent = getEventColor(eventType);
+      const tappable = isLandingEvent(eventType) && !!item.sessionId;
+
+      const inner = (
+        <>
+          <View style={styles.entryHeader}>
+            <View style={[styles.iconContainer, { backgroundColor: accent + "15" }]}>
+              <Feather name={config.icon} size={18} color={accent} />
+            </View>
+            <View style={styles.entryInfo}>
+              <ThemedText style={[styles.entryType, { color: accent }]}>{config.label}</ThemedText>
+              <View style={styles.metaRow}>
+                <Feather name="calendar" size={11} color={theme.textTertiary} />
+                <ThemedText style={[styles.metaText, { color: theme.textTertiary }]}>
                   {formatDate(item.date)}
                 </ThemedText>
+                <Feather name="clock" size={11} color={theme.textTertiary} style={{ marginLeft: 4 }} />
+                <ThemedText style={[styles.metaText, { color: theme.textTertiary }]}>
+                  {formatTime(item.date)}
+                </ThemedText>
               </View>
-              <Pressable
-                onPress={() => handleDeleteEntry(item.id)}
-                hitSlop={8}
-                style={({ pressed }) => pressed && { opacity: 0.7 }}
-              >
-                <Feather name="trash-2" size={18} color={theme.textTertiary} />
-              </Pressable>
             </View>
+            <Pressable
+              onPress={() => handleDeleteEntry(item.id)}
+              hitSlop={8}
+              style={({ pressed }) => pressed && { opacity: 0.7 }}
+            >
+              <Feather name="trash-2" size={18} color={theme.textTertiary} />
+            </Pressable>
+          </View>
+
+          {item.locationName ? (
+            <View style={styles.locationRow}>
+              <Feather name="map-pin" size={12} color={theme.textSecondary} />
+              <ThemedText style={[styles.locationText, { color: theme.textSecondary }]} numberOfLines={1}>
+                {item.locationName}
+              </ThemedText>
+            </View>
+          ) : null}
+
+          {item.description ? (
             <ThemedText style={[styles.entryDescription, { color: theme.textSecondary }]}>
               {item.description}
             </ThemedText>
-          </Card>
+          ) : null}
+
+          {tappable ? (
+            <View style={[styles.protocolHint, { borderTopColor: theme.border }]}>
+              <Feather name="file-text" size={13} color={theme.primary} />
+              <ThemedText style={[styles.protocolHintText, { color: theme.primary }]}>
+                Vollständiges Flugprotokoll öffnen
+              </ThemedText>
+              <Feather name="chevron-right" size={16} color={theme.primary} />
+            </View>
+          ) : null}
+        </>
+      );
+
+      return (
+        <Animated.View entering={FadeInDown.delay(index * 50).duration(300)}>
+          {tappable ? (
+            <Card style={styles.entryCard} onPress={() => handleOpenProtocol(item)}>
+              {inner}
+            </Card>
+          ) : (
+            <Card style={styles.entryCard}>{inner}</Card>
+          )}
         </Animated.View>
       );
-    },
-    [theme]
-  );
+  };
+
+  const renderTimelineItem = ({ item, index }: { item: TimelineItem; index: number }) => {
+    if (item.kind === "flight") return renderFlightItem(item.flight, index);
+    return renderEventItem({ item: item.entry, index });
+  };
+
+  const timelineKey = (item: TimelineItem) =>
+    item.kind === "flight" ? `f-${item.flight.id}` : `e-${item.entry.id}`;
 
   const renderEmpty = () => (
     <View style={styles.emptyContainer}>
@@ -175,7 +333,7 @@ export default function DroneHistoryScreen() {
       </View>
       <ThemedText style={styles.emptyTitle}>Keine Einträge</ThemedText>
       <ThemedText style={[styles.emptySubtitle, { color: theme.textSecondary }]}>
-        Dokumentiere Wartungen und Ereignisse für {droneName}
+        Noch keine Flüge oder Wartungen für {droneName} dokumentiert.
       </ThemedText>
     </View>
   );
@@ -183,16 +341,16 @@ export default function DroneHistoryScreen() {
   return (
     <ThemedView style={styles.container}>
       <FlatList
-        data={entries}
-        keyExtractor={(item) => item.id}
-        renderItem={renderItem}
+        data={timeline}
+        keyExtractor={timelineKey}
+        renderItem={renderTimelineItem}
         contentContainerStyle={[
           styles.listContent,
           {
             paddingTop: headerHeight + Spacing.xl,
             paddingBottom: insets.bottom + Spacing.xl + 80,
           },
-          entries.length === 0 && styles.emptyList,
+          timeline.length === 0 && styles.emptyList,
         ]}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
@@ -202,7 +360,7 @@ export default function DroneHistoryScreen() {
             <View style={styles.flightCountRow}>
               <Feather name="navigation" size={18} color={theme.primary} />
               <ThemedText style={styles.flightCountText}>
-                {flightCount} {flightCount === 1 ? "Flug" : "Flüge"} absolviert
+                {flightCount} {flightCount === 1 ? "Flug" : "Flüge"} · {entries.length} {entries.length === 1 ? "Wartung" : "Wartungen"}
               </ThemedText>
             </View>
           </Card>
@@ -241,7 +399,7 @@ export default function DroneHistoryScreen() {
             Ereignistyp
           </ThemedText>
           <View style={styles.typeGrid}>
-            {EVENT_TYPES.map((eventType) => (
+            {MANUAL_EVENT_TYPES.map((eventType) => (
               <Pressable
                 key={eventType.type}
                 onPress={() => {
@@ -347,14 +505,47 @@ const styles = StyleSheet.create({
   },
   entryType: {
     ...Typography.body,
-    fontWeight: "600",
+    fontWeight: "700",
   },
-  entryDate: {
+  metaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 2,
+  },
+  metaText: {
     ...Typography.caption,
+    fontSize: 11,
+  },
+  locationRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginLeft: 52,
+    marginTop: -4,
+    marginBottom: Spacing.xs,
+  },
+  locationText: {
+    ...Typography.caption,
+    flex: 1,
   },
   entryDescription: {
     ...Typography.body,
     marginLeft: 52,
+    lineHeight: 20,
+  },
+  protocolHint: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    marginTop: Spacing.md,
+    paddingTop: Spacing.sm,
+    borderTopWidth: 1,
+  },
+  protocolHintText: {
+    ...Typography.caption,
+    fontWeight: "600",
+    flex: 1,
   },
   emptyContainer: {
     alignItems: "center",

@@ -4,6 +4,10 @@ import { ThemedText } from "@/components/ThemedText";
 import { Feather } from "@expo/vector-icons";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, Typography } from "@/constants/theme";
+import type {
+  EnergyFacility100mPoint,
+  GermanEnergyInfrastructureItem,
+} from "../../../shared/germanEnergyInfrastructure";
 
 interface MapLocation {
   latitude: number;
@@ -20,6 +24,8 @@ interface MapPickerProps {
   selectedLocation?: MapLocation | null;
   locationName?: string;
   onMapPress?: (latitude: number, longitude: number) => void;
+  windFacilityPoints?: EnergyFacility100mPoint[];
+  energyInfrastructureItems?: GermanEnergyInfrastructureItem[];
   style?: any;
 }
 

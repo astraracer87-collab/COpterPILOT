@@ -124,6 +124,50 @@ export function isTimeDuringDaylight(time: Date, solar: SolarTimes): boolean {
   return time >= solar.sunrise && time <= solar.sunset;
 }
 
+export interface SunArcSample {
+  /** Lokale Uhrzeit dieses Samples. */
+  time: Date;
+  /** Sonnenhöhe in Grad über dem Horizont (negativ = unter Horizont). */
+  elevationDeg: number;
+}
+
+/**
+ * Samples des Sonnenstands über den gewählten Tag, ein Wert pro `stepMinutes`.
+ * Erlaubt eine ehrliche Bogendarstellung (statt einer linearen Zeitleiste)
+ * — Sonnenhöhe variiert tatsächlich sinusähnlich, der Bogen wird dadurch
+ * im Winter flach und im Sommer hoch.
+ */
+export function hourlySunArc(lat: number, lng: number, date?: Date, stepMinutes = 15): SunArcSample[] {
+  const baseDate = date || new Date();
+  const day = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), 0, 0, 0, 0);
+  const samples: SunArcSample[] = [];
+  for (let mins = 0; mins <= 24 * 60; mins += stepMinutes) {
+    const t = new Date(day.getTime() + mins * 60 * 1000);
+    samples.push({ time: t, elevationDeg: computeSunElevation(lat, lng, t) });
+  }
+  return samples;
+}
+
+/** Sonnenhöhe in Grad über dem Horizont (vereinfacht, ±0.5°). */
+export function computeSunElevation(latDeg: number, lonDeg: number, date: Date): number {
+  const jd = julianDay(date);
+  const n = jd - 2451545.0;
+  const L = ((280.460 + 0.9856474 * n) % 360 + 360) % 360;
+  const g = (((357.528 + 0.9856003 * n) % 360 + 360) % 360) * DEG;
+  const lambda = (L + 1.915 * Math.sin(g) + 0.020 * Math.sin(2 * g)) * DEG;
+  const eps = (23.439 - 0.0000004 * n) * DEG;
+  const decl = Math.asin(Math.sin(eps) * Math.sin(lambda));
+  const gmst = (18.697374558 + 24.06570982441908 * n) % 24;
+  const lst = (gmst + lonDeg / 15) % 24;
+  const ra = Math.atan2(Math.cos(eps) * Math.sin(lambda), Math.cos(lambda));
+  const raHours = ((ra * 12 / Math.PI) + 24) % 24;
+  const haHours = lst - raHours;
+  const ha = haHours * 15 * DEG;
+  const latRad = latDeg * DEG;
+  const sinAlt = Math.sin(latRad) * Math.sin(decl) + Math.cos(latRad) * Math.cos(decl) * Math.cos(ha);
+  return Math.asin(Math.max(-1, Math.min(1, sinAlt))) * RAD;
+}
+
 export function isTimeDuringCivilTwilight(time: Date, solar: SolarTimes): boolean {
   if (isTimeDuringDaylight(time, solar)) return false;
   const inMorning = solar.civilDawnStart && solar.sunrise
@@ -133,4 +177,44 @@ export function isTimeDuringCivilTwilight(time: Date, solar: SolarTimes): boolea
     ? time > solar.sunset && time <= solar.civilDuskEnd
     : false;
   return inMorning || inEvening;
+}
+
+export interface NightWindowResult {
+  /** True, wenn mindestens ein Teil des Flugfensters in der gesetzlichen Nacht liegt. */
+  anyNight: boolean;
+  /** True, wenn das gesamte Flugfenster in der gesetzlichen Nacht liegt. */
+  allNight: boolean;
+}
+
+/**
+ * Prüft, ob ein geplantes Flugfenster (Start- bis Endzeit in Minuten ab
+ * Mitternacht des `date`) ganz oder teilweise in der gesetzlichen Nacht liegt.
+ * "Gesetzliche Nacht" = Sonne tiefer als -6° (Ende der bürgerlichen Dämmerung),
+ * am konkreten Standort/Datum per Sonnenstand berechnet.
+ *
+ * Über-Mitternacht-Fenster (endMin <= startMin) werden auf den Folgetag
+ * verlängert. Sampling in `stepMinutes`-Schritten inkl. Start und Ende.
+ */
+export function isFlightWindowDuringNight(
+  lat: number,
+  lng: number,
+  date: Date,
+  startMin: number,
+  endMin: number,
+  stepMinutes = 10,
+): NightWindowResult {
+  const base = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
+  const effectiveEnd = endMin <= startMin ? endMin + 1440 : endMin;
+  let anyNight = false;
+  let allNight = true;
+  let samples = 0;
+  for (let m = startMin; m <= effectiveEnd; m += stepMinutes) {
+    const t = new Date(base.getTime() + m * 60000);
+    const isNight = computeSunElevation(lat, lng, t) < -6;
+    if (isNight) anyNight = true;
+    else allNight = false;
+    samples++;
+  }
+  if (samples === 0) allNight = false;
+  return { anyNight, allNight };
 }

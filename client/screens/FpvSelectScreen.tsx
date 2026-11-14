@@ -1,5 +1,5 @@
-import React from "react";
-import { View, StyleSheet, Text } from "react-native";
+import React, { useEffect, useState } from "react";
+import { View, ScrollView, StyleSheet, Text } from "react-native";
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Feather } from "@expo/vector-icons";
@@ -10,6 +10,7 @@ import { ThemedText } from "@/components/ThemedText";
 import { Card } from "@/components/Card";
 import { Button } from "@/components/Button";
 import { Colors, Spacing, Typography } from "@/constants/theme";
+import { getPilotProfile } from "@/lib/storage";
 import type { FlightCheckParamList } from "@/navigation/FlightCheckNavigator";
 
 type RouteProps = RouteProp<FlightCheckParamList, "FpvSelect">;
@@ -20,10 +21,15 @@ export default function FpvSelectScreen() {
   const route = useRoute<RouteProps>();
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
+  const [hasVerbandsregel, setHasVerbandsregel] = useState(false);
 
   const { latitude, longitude, hasRestrictions, restrictionStatus, restrictionNotes, weatherData, droneId, limits, sessionId, kpIndex } = route.params;
 
-  const handleSelect = (isFpv: boolean) => {
+  useEffect(() => {
+    getPilotProfile().then((p) => setHasVerbandsregel(p.insuranceVerbandsregelDE === true));
+  }, []);
+
+  const handleSelect = (isFpv: boolean, fpvMode?: "spotter" | "verband30m") => {
     navigation.navigate("Checklist", {
       latitude,
       longitude,
@@ -35,13 +41,19 @@ export default function FpvSelectScreen() {
       limits,
       sessionId,
       isFpvFlight: isFpv,
+      fpvMode: isFpv ? (fpvMode ?? "spotter") : undefined,
       kpIndex,
     });
   };
 
   return (
     <ThemedView style={styles.container}>
-      <View style={[styles.content, { paddingTop: headerHeight + Spacing.xl }]}>
+      <ScrollView
+        contentContainerStyle={[
+          styles.content,
+          { paddingTop: headerHeight + Spacing.xl, paddingBottom: insets.bottom + Spacing.xl },
+        ]}
+      >
         <View style={styles.iconContainer}>
           <View style={styles.iconCircle}>
             <Feather name="eye" size={48} color={Colors.light.primary} />
@@ -59,24 +71,46 @@ export default function FpvSelectScreen() {
               <View style={[styles.optionIcon, { backgroundColor: Colors.light.statusCaution + "20" }]}>
                 <Feather name="eye-off" size={28} color={Colors.light.statusCaution} />
               </View>
-              <ThemedText style={styles.optionTitle}>FPV-Flug</ThemedText>
+              <ThemedText style={styles.optionTitle}>FPV mit Spotter</ThemedText>
             </View>
             <ThemedText style={styles.optionDescription}>
-              First Person View mit Videobrille. Ein Spotter wird für die Sichtprüfung benötigt.
+              Standard-FPV nach EU-Open-Kategorie: Videobrille + zweiter Luftraum­beobachter (Spotter) Pflicht. Bis 120 m AGL erlaubt.
             </ThemedText>
             <Button
-              title="FPV"
-              onPress={() => handleSelect(true)}
+              title="FPV mit Spotter"
+              onPress={() => handleSelect(true, "spotter")}
               style={styles.optionButton}
+              testID="button-fpv-spotter"
             />
           </Card>
+
+          {hasVerbandsregel ? (
+            <Card style={styles.optionCard}>
+              <View style={styles.optionHeader}>
+                <View style={[styles.optionIcon, { backgroundColor: Colors.light.primary + "20" }]}>
+                  <Feather name="shield" size={28} color={Colors.light.primary} />
+                </View>
+                <ThemedText style={styles.optionTitle}>FPV nach Verbandsregel</ThemedText>
+              </View>
+              <ThemedText style={styles.optionDescription}>
+                DMFV-/DMO-Verbandsbetriebserlaubnis (Art. 16 EU-VO 2019/947):
+                FPV-Flug ohne Spotter zulässig, aber Höhe MUSS auf max. 30 m AGL begrenzt sein.
+              </ThemedText>
+              <Button
+                title="FPV ohne Spotter (max. 30 m)"
+                onPress={() => handleSelect(true, "verband30m")}
+                style={styles.optionButton}
+                testID="button-fpv-verband30m"
+              />
+            </Card>
+          ) : null}
 
           <Card style={styles.optionCard}>
             <View style={styles.optionHeader}>
               <View style={[styles.optionIcon, { backgroundColor: Colors.light.statusGo + "20" }]}>
                 <Feather name="eye" size={28} color={Colors.light.statusGo} />
               </View>
-              <ThemedText style={styles.optionTitle}>Normal</ThemedText>
+              <ThemedText style={styles.optionTitle}>Normal (VLOS)</ThemedText>
             </View>
             <ThemedText style={styles.optionDescription}>
               Line of Sight Flug mit direkter Sicht auf die Drohne. Kein Spotter erforderlich.
@@ -86,19 +120,20 @@ export default function FpvSelectScreen() {
               onPress={() => handleSelect(false)}
               variant="secondary"
               style={styles.optionButton}
+              testID="button-fpv-normal"
             />
           </Card>
         </View>
-      </View>
 
-      <View style={[styles.footer, { paddingBottom: insets.bottom + Spacing.lg }]}>
         <View style={styles.infoRow}>
           <Feather name="info" size={16} color={Colors.light.textSecondary} />
           <Text style={styles.infoText}>
-            Bei FPV-Flügen werden zusätzliche Spotter-Checkpunkte angezeigt
+            {hasVerbandsregel
+              ? "Bei „FPV nach Verbandsregel“ wird in der Checkliste die 30-m-Höhenbegrenzung als Pflicht-Punkt eingeblendet."
+              : "Bei FPV-Flügen werden zusätzliche Spotter-Checkpunkte angezeigt."}
           </Text>
         </View>
-      </View>
+      </ScrollView>
     </ThemedView>
   );
 }
@@ -108,8 +143,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
-    flex: 1,
     paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.xl,
   },
   iconContainer: {
     alignItems: "center",
@@ -164,15 +199,12 @@ const styles = StyleSheet.create({
   optionButton: {
     marginTop: Spacing.xs,
   },
-  footer: {
-    paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing.md,
-  },
   infoRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: Spacing.sm,
     justifyContent: "center",
+    marginTop: Spacing.xl,
   },
   infoText: {
     ...Typography.small,

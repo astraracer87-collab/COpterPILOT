@@ -1,11 +1,14 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { Pressable, Text, StyleSheet } from "react-native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { useScreenOptions } from "@/hooks/useScreenOptions";
+import { setFlightPlanningMode } from "@/lib/flightPlanningMode";
+import { decidePlanningBackAction } from "@/lib/manualRestrictionFlow";
 import { WeatherSnapshot, WeatherLimits } from "@/lib/storage";
 import PlanningDroneSelectScreen from "@/screens/PlanningDroneSelectScreen";
 import PlanningCountrySelectScreen from "@/screens/PlanningCountrySelectScreen";
 import PlanningLocationScreen from "@/screens/PlanningLocationScreen";
+import PlanningCrossCheckScreen from "@/screens/PlanningCrossCheckScreen";
 import PlanningMapScreen from "@/screens/PlanningMapScreen";
 import PlanningDateTimeScreen from "@/screens/PlanningDateTimeScreen";
 import PlanningRestrictionsScreen from "@/screens/PlanningRestrictionsScreen";
@@ -14,9 +17,13 @@ import PlanningFpvSelectScreen from "@/screens/PlanningFpvSelectScreen";
 import PlanningChecklistScreen from "@/screens/PlanningChecklistScreen";
 import PlanningResultScreen from "@/screens/PlanningResultScreen";
 import PlanningNotamsScreen from "@/screens/PlanningNotamsScreen";
-import PlanningLiveTrafficScreen from "@/screens/PlanningLiveTrafficScreen";
+import StandaloneLiveTrafficScreen from "@/screens/StandaloneLiveTrafficScreen";
 import PlanningNotamMapScreen from "@/screens/PlanningNotamMapScreen";
+import PlanningZoneFocusScreen from "@/screens/PlanningZoneFocusScreen";
 import NaturschutzMapScreen from "@/screens/NaturschutzMapScreen";
+import GoDroneMapScreen from "@/screens/GoDroneMapScreen";
+import PlanningExternalMapScreen from "@/screens/PlanningExternalMapScreen";
+import DflightItalyGuideScreen from "@/screens/DflightItalyGuideScreen";
 
 export type FlightPlanningParamList = {
   PlanningDroneSelect: undefined;
@@ -34,6 +41,28 @@ export type FlightPlanningParamList = {
     locationName?: string;
     countryIso?: string;
   };
+  /** Eigener Gegenprüfungs-Schritt (offizielle Staatskarte) zwischen Standort
+   *  und Datum/Zeit — nur für Länder MIT eigenen Geozonen-Daten, wenn die
+   *  Einstellung officialMapCrossCheck aktiv ist. */
+  PlanningCrossCheck: {
+    droneId: string;
+    latitude: number;
+    longitude: number;
+    locationName?: string;
+    countryIso?: string;
+    radiusKm: number;
+    recommendedVlosM?: number;
+    vlosExceeded?: boolean;
+    vlosCharDimensionM?: number;
+    vlosAltitudeCorrection?: boolean;
+    vlosHorizontalLimitM?: number;
+    /** Geplante Flughöhe (AGL, m) – bereits im Standort-Schritt gewählt. */
+    maxAltitude?: number;
+    /** Durchgereichte manuelle Einschränkungs-Bewertung (i.d.R. leer für
+     *  Länder mit eigenen Daten, aber defensiv weitergegeben). */
+    restrictionStatus?: "approved" | "limited";
+    restrictionNotes?: string;
+  };
   PlanningDateTime: {
     droneId: string;
     latitude: number;
@@ -41,7 +70,26 @@ export type FlightPlanningParamList = {
     locationName?: string;
     countryIso?: string;
     radiusKm: number;
+    recommendedVlosM?: number;
+    vlosExceeded?: boolean;
+    vlosCharDimensionM?: number;
+    vlosAltitudeCorrection?: boolean;
+    vlosHorizontalLimitM?: number;
     routeWaypoints?: { latitude: number; longitude: number }[];
+    sessionId?: string;
+    /** Geplante Flughöhe (AGL, m) – bereits im Standort-Schritt gewählt. */
+    maxAltitude?: number;
+    /** Manuell im Standort-Schritt erfasste Einschränkungs-Bewertung für
+     *  Länder ohne eigene Geozonen-Daten (Pilot prüft offizielle Karte selbst). */
+    restrictionStatus?: "approved" | "limited";
+    restrictionNotes?: string;
+    /** Gegenprüfung der offiziellen Staatskarte für Länder MIT eigenen Daten
+     *  (separat von restrictionStatus; beeinflusst die Auto-Erkennung nicht). */
+    officialMapCrossCheck?: { blocking: boolean; note?: string };
+    /** Direkteinstieg (Fortsetzen/Bearbeiten aus den Briefings): "Zurück"
+     *  verlässt dann das ganze Modal statt auf einen nie gesehenen Schritt zu
+     *  springen. Siehe decidePlanningBackAction. */
+    directEntry?: boolean;
   };
   PlanningRestrictions: {
     droneId: string;
@@ -51,10 +99,25 @@ export type FlightPlanningParamList = {
     countryIso?: string;
     mapUrl?: string;
     radiusKm?: number;
+    recommendedVlosM?: number;
+    vlosExceeded?: boolean;
+    vlosCharDimensionM?: number;
+    vlosAltitudeCorrection?: boolean;
+    vlosHorizontalLimitM?: number;
     plannedDate?: string;
     plannedTime?: string;
     endTime?: string;
     routeWaypoints?: { latitude: number; longitude: number }[];
+    sessionId?: string;
+    /** Geplante Flughöhe (AGL, m) – bereits im Standort-Schritt gewählt. */
+    maxAltitude?: number;
+    /** Manuell im Standort-Schritt erfasste Einschränkungs-Bewertung für
+     *  Länder ohne eigene Geozonen-Daten — die Einschränkungs-Stufe fragt
+     *  dann nicht erneut nach. */
+    restrictionStatus?: "approved" | "limited";
+    restrictionNotes?: string;
+    /** Gegenprüfung der offiziellen Staatskarte (Länder mit eigenen Daten). */
+    officialMapCrossCheck?: { blocking: boolean; note?: string };
   };
   PlanningDetails: {
     droneId: string;
@@ -66,12 +129,27 @@ export type FlightPlanningParamList = {
     hasRestrictions?: boolean;
     restrictionStatus?: "approved" | "limited";
     restrictionNotes?: string;
+    /** Gegenprüfung der offiziellen Staatskarte (Länder mit eigenen Daten). */
+    officialMapCrossCheck?: { blocking: boolean; note?: string };
+    /** Pilot hat in FR mit MTOM >= 800 g bestätigt fortzufahren OBWOHL
+     *  keine AlphaTango-ID an der Drohne hinterlegt war. */
+    alphaTangoMissingAcknowledged?: boolean;
     sessionId?: string;
     radiusKm?: number;
+    recommendedVlosM?: number;
+    vlosExceeded?: boolean;
+    vlosCharDimensionM?: number;
+    vlosAltitudeCorrection?: boolean;
+    vlosHorizontalLimitM?: number;
     plannedDate?: string;
     plannedTime?: string;
     endTime?: string;
     routeWaypoints?: { latitude: number; longitude: number }[];
+    /** Geplante Flughöhe (AGL, m) – bereits im Standort-Schritt gewählt. */
+    maxAltitude?: number;
+    /** Direkteinstieg (Fortsetzen/Bearbeiten aus den Briefings): "Zurück"
+     *  verlässt dann das ganze Modal. Siehe decidePlanningBackAction. */
+    directEntry?: boolean;
   };
   PlanningFpvSelect: {
     droneId: string;
@@ -100,9 +178,14 @@ export type FlightPlanningParamList = {
     limits: WeatherLimits;
     maxAltitude?: number;
     isFpvFlight: boolean;
+    /** FPV-Modus: "spotter" (Standard, bis 120 m) oder "verband30m" (DMFV/DMO Art.16, max. 30 m, ohne Spotter). */
+    fpvMode?: "spotter" | "verband30m";
     sessionId: string;
     editMode?: boolean;
     existingChecked?: string[];
+    /** Direkteinstieg (Fortsetzen/Bearbeiten aus den Briefings): "Zurück"
+     *  verlässt dann das ganze Modal. Siehe decidePlanningBackAction. */
+    directEntry?: boolean;
   };
   PlanningResult: {
     droneId: string;
@@ -119,6 +202,7 @@ export type FlightPlanningParamList = {
     checklistCompleted: string[];
     checklistPresented?: string[];
     isFpvFlight: boolean;
+    fpvMode?: "spotter" | "verband30m";
     sessionId: string;
   };
   PlanningNotams: {
@@ -143,13 +227,68 @@ export type FlightPlanningParamList = {
     routeWaypoints?: { latitude: number; longitude: number }[];
     milStatuses?: import("@/lib/milLowFlight").MilLowFlightAreaStatus[];
   };
+  PlanningZoneFocus: {
+    zone: import("@/lib/geozones").GeozoneFeatureInfo;
+    latitude: number;
+    longitude: number;
+    radiusKm?: number;
+    countryIso?: string;
+  };
   PlanningNaturschutz: undefined;
+  PlanningGoDrone: {
+    latitude?: number;
+    longitude?: number;
+  };
+  PlanningExternalMap: {
+    url: string;
+    title: string;
+    latitude?: number;
+    longitude?: number;
+  };
+  PlanningDflightItalyGuide: { droneId?: string } | undefined;
 };
 
 const Stack = createNativeStackNavigator<FlightPlanningParamList>();
 
+// "Zurück" für Screens, die auch per Direkteinstieg (Fortsetzen/Bearbeiten aus
+// den Briefings) angesprungen werden können. Beim Direkteinstieg verlässt
+// "Zurück" das ganze Modal statt auf einen nie gesehenen Schritt zu springen.
+function PlanningHeaderBackButton({
+  navigation,
+  directEntry,
+}: {
+  navigation: any;
+  directEntry?: boolean;
+}) {
+  const onPress = () => {
+    const parent = navigation.getParent?.();
+    const action = decidePlanningBackAction({
+      directEntry: directEntry === true,
+      hasParent: !!parent,
+      parentCanGoBack: parent?.canGoBack?.() ?? false,
+      selfCanGoBack: navigation.canGoBack?.() ?? false,
+    });
+    if (action === "parentGoBack") {
+      parent?.goBack();
+    } else if (action === "selfGoBack") {
+      navigation.goBack();
+    }
+  };
+  return (
+    <Pressable onPress={onPress} style={navStyles.backButton} hitSlop={8}>
+      <Text style={navStyles.backText}>Zurück</Text>
+    </Pressable>
+  );
+}
+
 export default function FlightPlanningNavigator() {
   const screenOptions = useScreenOptions();
+
+  useEffect(() => {
+    return () => {
+      setFlightPlanningMode("planning");
+    };
+  }, []);
 
   return (
     <Stack.Navigator screenOptions={screenOptions}>
@@ -202,10 +341,10 @@ export default function FlightPlanningNavigator() {
         })}
       />
       <Stack.Screen
-        name="PlanningDateTime"
-        component={PlanningDateTimeScreen}
+        name="PlanningCrossCheck"
+        component={PlanningCrossCheckScreen}
         options={({ navigation }) => ({
-          headerTitle: "Datum & Zeit",
+          headerTitle: "Gegenprüfung",
           headerLeft: () => (
             <Pressable
               onPress={() => navigation.goBack()}
@@ -214,6 +353,19 @@ export default function FlightPlanningNavigator() {
             >
               <Text style={navStyles.backText}>Zurück</Text>
             </Pressable>
+          ),
+        })}
+      />
+      <Stack.Screen
+        name="PlanningDateTime"
+        component={PlanningDateTimeScreen}
+        options={({ navigation, route }) => ({
+          headerTitle: "Datum & Zeit",
+          headerLeft: () => (
+            <PlanningHeaderBackButton
+              navigation={navigation}
+              directEntry={route.params?.directEntry}
+            />
           ),
         })}
       />
@@ -252,16 +404,13 @@ export default function FlightPlanningNavigator() {
       <Stack.Screen
         name="PlanningDetails"
         component={PlanningDetailsScreen}
-        options={({ navigation }) => ({
+        options={({ navigation, route }) => ({
           headerTitle: "Flugdetails",
           headerLeft: () => (
-            <Pressable
-              onPress={() => navigation.goBack()}
-              style={navStyles.backButton}
-              hitSlop={8}
-            >
-              <Text style={navStyles.backText}>Zurück</Text>
-            </Pressable>
+            <PlanningHeaderBackButton
+              navigation={navigation}
+              directEntry={route.params?.directEntry}
+            />
           ),
         })}
       />
@@ -284,16 +433,13 @@ export default function FlightPlanningNavigator() {
       <Stack.Screen
         name="PlanningChecklist"
         component={PlanningChecklistScreen}
-        options={({ navigation }) => ({
+        options={({ navigation, route }) => ({
           headerTitle: "Vorab-Checkliste",
           headerLeft: () => (
-            <Pressable
-              onPress={() => navigation.goBack()}
-              style={navStyles.backButton}
-              hitSlop={8}
-            >
-              <Text style={navStyles.backText}>Zurück</Text>
-            </Pressable>
+            <PlanningHeaderBackButton
+              navigation={navigation}
+              directEntry={route.params?.directEntry}
+            />
           ),
         })}
       />
@@ -323,7 +469,7 @@ export default function FlightPlanningNavigator() {
       />
       <Stack.Screen
         name="PlanningLiveTraffic"
-        component={PlanningLiveTrafficScreen}
+        component={StandaloneLiveTrafficScreen}
         options={({ navigation }) => ({
           headerTitle: "Live Flugverkehr",
           headerLeft: () => (
@@ -345,11 +491,58 @@ export default function FlightPlanningNavigator() {
         }}
       />
       <Stack.Screen
+        name="PlanningZoneFocus"
+        component={PlanningZoneFocusScreen}
+        options={({ navigation }) => ({
+          headerTitle: "Zone auf Karte",
+          headerTransparent: true,
+          headerLeft: () => (
+            <Pressable
+              onPress={() => navigation.goBack()}
+              style={navStyles.backButton}
+              hitSlop={8}
+            >
+              <Text style={navStyles.backText}>Zurück</Text>
+            </Pressable>
+          ),
+        })}
+      />
+      <Stack.Screen
         name="PlanningNaturschutz"
         component={NaturschutzMapScreen}
         options={{
           headerTitle: "Naturschutzgebiete",
         }}
+      />
+      <Stack.Screen
+        name="PlanningGoDrone"
+        component={GoDroneMapScreen}
+        options={{
+          headerTitle: "GoDrone",
+        }}
+      />
+      <Stack.Screen
+        name="PlanningExternalMap"
+        component={PlanningExternalMapScreen}
+        options={{
+          headerTitle: "Karte",
+        }}
+      />
+      <Stack.Screen
+        name="PlanningDflightItalyGuide"
+        component={DflightItalyGuideScreen}
+        options={({ navigation }) => ({
+          headerTitle: "D-Flight Italien",
+          headerLeft: () => (
+            <Pressable
+              onPress={() => navigation.goBack()}
+              style={navStyles.backButton}
+              hitSlop={8}
+            >
+              <Text style={navStyles.backText}>Zurück</Text>
+            </Pressable>
+          ),
+        })}
       />
     </Stack.Navigator>
   );

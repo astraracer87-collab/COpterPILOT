@@ -1,7 +1,14 @@
 import React, { useMemo, useState, useCallback, useRef } from "react";
-import { StyleSheet, Platform, useColorScheme } from "react-native";
+import { View, Text, StyleSheet, Platform, useColorScheme } from "react-native";
 import MapView, { Marker, UrlTile, WMSTile, Region } from "@/components/maps";
-import { buildCombinedWmsTileUrl, getAllLayerNames } from "@/lib/geozones";
+import { Feather } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useMapBasemapStyle } from "@/hooks/useMapBasemapStyle";
+import { buildCombinedWmsTileUrl, getAllLayerNames, GEOZONE_TILE_MIN_ZOOM } from "@/lib/geozones";
+import { GRAYSCALE_BASEMAP_TILE_URL, nativeMapBasemapProps } from "@/lib/mapBasemap";
+import { detectCountryFromCoordinates } from "@/lib/countryMaps";
+import { splitCountriesByAccess, countryName } from "../../shared/countryEntitlements";
+import { useAuth } from "@/lib/auth";
 
 interface NativeMapPickerProps {
   initialLatitude: number;
@@ -25,13 +32,12 @@ export default function NativeMapPicker({
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
   const [currentRegion, setCurrentRegion] = useState<Region | null>(null);
+  const [mapStyle] = useMapBasemapStyle();
 
-  const osmTileUrl = isDark
-    ? "https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png"
-    : "https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png";
+  const osmTileUrl = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
 
   const layers = useMemo(() => getAllLayerNames(), []);
-  const combinedWmsUrl = useMemo(() => buildCombinedWmsTileUrl(layers), [layers]);
+  const combinedWmsUrls = useMemo(() => buildCombinedWmsTileUrl(layers), [layers]);
 
   const currentZoom = useMemo(() => {
     const delta = currentRegion?.latitudeDelta ?? 0.5;
@@ -40,6 +46,25 @@ export default function NativeMapPicker({
   }, [currentRegion?.latitudeDelta]);
 
   const geozonesVisible = currentZoom >= 11;
+
+  // Länder-Berechtigung: react-native-maps WMSTile sendet KEIN Session-Cookie,
+  // daher kann das Server-Gate gesperrte Länder dort nicht leeren. Die Geozonen
+  // des sichtbaren Landes dürfen nur erscheinen, wenn es freigeschaltet ist.
+  const { entitlement } = useAuth();
+  const viewportCountry = useMemo(() => {
+    const lat = currentRegion?.latitude ?? initialLatitude;
+    const lon = currentRegion?.longitude ?? initialLongitude;
+    return detectCountryFromCoordinates(lat, lon) || "DE";
+  }, [currentRegion?.latitude, currentRegion?.longitude, initialLatitude, initialLongitude]);
+  const { geozonesUnlocked, lockedName } = useMemo(() => {
+    const { unlocked, locked } = splitCountriesByAccess([viewportCountry], entitlement);
+    return {
+      geozonesUnlocked: unlocked.length > 0,
+      lockedName: locked.length > 0 ? countryName(locked[0]) : null,
+    };
+  }, [viewportCountry, entitlement]);
+
+  const insets = useSafeAreaInsets();
 
   const regionThrottle = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleRegionChangeComplete = useCallback((region: Region) => {
@@ -51,6 +76,7 @@ export default function NativeMapPicker({
   }, []);
 
   return (
+    <View style={styles.container}>
     <MapView
       style={[styles.map, { marginTop }]}
       initialRegion={{
@@ -67,16 +93,26 @@ export default function NativeMapPicker({
       showsUserLocation
       showsMyLocationButton
       rotateEnabled={false}
-      mapType={Platform.OS === "ios" ? "mutedStandard" : "standard"}
+      {...nativeMapBasemapProps(mapStyle, Platform.OS)}
     >
-      {combinedWmsUrl ? (
+      <UrlTile
+        urlTemplate={mapStyle === "grayscale" ? GRAYSCALE_BASEMAP_TILE_URL : osmTileUrl}
+        maximumZ={19}
+        zIndex={-3}
+        tileSize={256}
+        opacity={1}
+        shouldReplaceMapContent={true}
+      />
+      {geozonesVisible && geozonesUnlocked ? combinedWmsUrls.map((url, i) => url ? (
         <WMSTile
-          urlTemplate={combinedWmsUrl}
+          key={`wms-combined-${i}-${url}`}
+          urlTemplate={url}
           zIndex={-1}
-          opacity={geozonesVisible ? (isDark ? 0.55 : 0.85) : 0}
+          minimumZ={GEOZONE_TILE_MIN_ZOOM}
+          opacity={isDark ? 0.55 : 0.85}
           tileSize={256}
         />
-      ) : null}
+      ) : null) : null}
       <Marker
         coordinate={{ latitude: markerLatitude, longitude: markerLongitude }}
         draggable
@@ -88,11 +124,46 @@ export default function NativeMapPicker({
         description="Ziehe den Marker zum gewünschten Standort"
       />
     </MapView>
+    {lockedName ? (
+      <View
+        style={[styles.lockedHint, { top: insets.top + marginTop + 12 }]}
+        pointerEvents="none"
+        testID="hint-locked-countries"
+      >
+        <Feather name="lock" size={13} color="#FFFFFF" />
+        <Text style={styles.lockedHintText}>{`${lockedName}: Land freischalten`}</Text>
+      </View>
+    ) : null}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
   map: {
     flex: 1,
+  },
+  lockedHint: {
+    position: "absolute",
+    alignSelf: "center",
+    maxWidth: "80%",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    backgroundColor: "rgba(120, 53, 15, 0.9)",
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(251, 191, 36, 0.5)",
+    zIndex: 16,
+  },
+  lockedHintText: {
+    color: "rgba(255, 255, 255, 0.95)",
+    fontSize: 12,
+    fontWeight: "600",
+    flexShrink: 1,
   },
 });

@@ -1,5 +1,5 @@
 import React, { useCallback, useState, useMemo } from "react";
-import { View, StyleSheet, FlatList, RefreshControl, Pressable, Alert, ScrollView } from "react-native";
+import { View, StyleSheet, FlatList, RefreshControl, Pressable, Alert, ScrollView, Image, GestureResponderEvent } from "react-native";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
@@ -16,6 +16,9 @@ import { Spacing, Typography, BorderRadius } from "@/constants/theme";
 import { getLogbook, LogbookEntry, getBriefings, Briefing, getDrone, deleteLogbookEntry, deleteBriefing } from "@/lib/storage";
 import { getCheckItemLabel } from "@/lib/checklists";
 import { exportLogbookPdf, exportSingleEntryPdf, exportFlightProtocolPdf } from "@/lib/pdfExport";
+import { useAuth } from "@/lib/auth";
+import { promptFeatureUpgrade } from "@/components/FeatureGate";
+import { ShareControls } from "@/components/ShareControls";
 import type { HistoryStackParamList } from "@/navigation/HistoryStackNavigator";
 
 type NavigationProp = NativeStackNavigationProp<HistoryStackParamList>;
@@ -41,6 +44,12 @@ const CHECKLIST_LABELS: Record<string, string> = {
   motors_temp: "Motoren Temperatur",
   battery_final: "Akkustand",
   landing_clean: "Saubere Landung",
+  landing_soft: "Sanft gelandet",
+  landing_hard: "Hart / unsanft gelandet",
+  smooth_landing: "Smooth Landing",
+  firm_landing: "Smooth Landing",
+  hard_landing: "Hard Landing",
+  crash_landing: "Crash Landing",
   flight_log: "Flug dokumentiert",
   issues_noted: "Probleme notiert",
   footage_backup: "Aufnahmen gesichert",
@@ -64,9 +73,10 @@ const DEPRECATED_CHECKLIST_IDS = ["registration", "insurance", "permissions"];
 
 function LogbookCard({ item, index, onDelete }: { item: LogbookDisplayItem; index: number; onDelete: () => void }) {
   const { theme } = useTheme();
+  const { entitlement } = useAuth();
   const navigation = useNavigation<NavigationProp>();
   const [expanded, setExpanded] = useState(false);
-  const entry = item.entry;
+  const [entry, setEntry] = useState(item.entry);
 
   const toggleExpanded = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -100,10 +110,12 @@ function LogbookCard({ item, index, onDelete }: { item: LogbookDisplayItem; inde
   const handleOpenMap = () => {
     if (item.latitude && item.longitude) {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      navigation.navigate("DipulMap", {
+      const radiusKm = entry?.planning?.radiusKm;
+      navigation.navigate("LocationMap", {
         latitude: item.latitude,
         longitude: item.longitude,
         title: item.locationName || "Flugort",
+        radiusM: typeof radiusKm === "number" && radiusKm > 0 ? radiusKm * 1000 : undefined,
       });
     }
   };
@@ -119,26 +131,60 @@ function LogbookCard({ item, index, onDelete }: { item: LogbookDisplayItem; inde
 
   const renderPhaseIcons = () => {
     const completedPhases = new Set(getCompletedPhases());
-    const allPhases = [
-      { id: "planning", icon: "calendar" as keyof typeof Feather.glyphMap },
-      { id: "preflight", icon: "clipboard" as keyof typeof Feather.glyphMap },
-      { id: "hover", icon: "navigation" as keyof typeof Feather.glyphMap },
-      { id: "debriefing", icon: "book" as keyof typeof Feather.glyphMap },
+    const hasFluglog = !!(entry && ((entry.djiLogs?.length ?? 0) > 0 || entry.djiLog));
+    type PhasePoint = {
+      id: string;
+      icon: keyof typeof Feather.glyphMap;
+      focus: "planning" | "preflight" | "hover" | "debriefing" | "fluglog";
+    };
+    const allPhases: PhasePoint[] = [
+      { id: "planning", icon: "calendar", focus: "planning" },
+      { id: "preflight", icon: "clipboard", focus: "preflight" },
+      { id: "hover", icon: "navigation", focus: "hover" },
+      { id: "debriefing", icon: "book", focus: "debriefing" },
     ];
-    
+    if (hasFluglog) {
+      allPhases.push({ id: "fluglog", icon: "file-text", focus: "fluglog" });
+    }
+
+    const handlePhasePress = (
+      focus: PhasePoint["focus"],
+      e?: GestureResponderEvent,
+    ) => {
+      e?.stopPropagation?.();
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      if (entry) {
+        navigation.navigate("LogbookEntryDetail", {
+          logbookEntryId: entry.id,
+          focusSection: focus,
+        });
+      } else {
+        toggleExpanded();
+      }
+    };
+
     return (
       <View style={styles.phasesRow}>
         {allPhases.map((phase, idx) => {
-          const isComplete = completedPhases.has(phase.id);
+          const isComplete = phase.id === "fluglog" ? hasFluglog : completedPhases.has(phase.id);
           return (
             <React.Fragment key={phase.id}>
-              <View style={[styles.phaseIconContainer, isComplete && styles.phaseIconComplete]}>
+              <Pressable
+                testID={`phase-icon-${phase.id}`}
+                onPress={(e) => handlePhasePress(phase.focus, e)}
+                hitSlop={6}
+                style={({ pressed }) => [
+                  styles.phaseIconContainer,
+                  isComplete && styles.phaseIconComplete,
+                  pressed && { opacity: 0.6 },
+                ]}
+              >
                 <Feather 
                   name={phase.icon} 
                   size={14} 
                   color={isComplete ? theme.statusGo : theme.textTertiary} 
                 />
-              </View>
+              </Pressable>
               {idx < allPhases.length - 1 ? (
                 <View style={[styles.phaseConnector, { backgroundColor: isComplete ? theme.statusGo : theme.border }]} />
               ) : null}
@@ -279,6 +325,20 @@ function LogbookCard({ item, index, onDelete }: { item: LogbookDisplayItem; inde
             </ThemedText>
             <Feather name="external-link" size={14} color={theme.primary} />
           </Pressable>
+        ) : null}
+
+        {entry?.mapSnapshotBase64 ? (
+          <View style={[styles.mapSnapshotWrapper, { borderColor: theme.border }]}>
+            <Image
+              source={{ uri: `data:image/jpeg;base64,${entry.mapSnapshotBase64}` }}
+              style={styles.mapSnapshotImage}
+              resizeMode="cover"
+            />
+            <View style={styles.mapSnapshotCaption}>
+              <Feather name="map" size={11} color="#fff" />
+              <ThemedText style={styles.mapSnapshotCaptionText}>Geplantes Fluggebiet</ThemedText>
+            </View>
+          </View>
         ) : null}
 
         {renderPhaseSection(
@@ -496,9 +556,25 @@ function LogbookCard({ item, index, onDelete }: { item: LogbookDisplayItem; inde
           </View>
         ) : null}
 
+        <Pressable
+          testID={`button-open-flight-detail-${entry.id}`}
+          onPress={() => navigation.navigate("LogbookEntryDetail", { logbookEntryId: entry.id })}
+          style={({ pressed }) => [
+            styles.pdfButton,
+            { backgroundColor: theme.primary + "15", marginBottom: Spacing.sm },
+            pressed && { opacity: 0.7 },
+          ]}
+        >
+          <Feather name="file-text" size={16} color={theme.primary} />
+          <ThemedText style={[styles.pdfButtonText, { color: theme.primary }]}>
+            Flugdetails & Fluglog
+          </ThemedText>
+        </Pressable>
+
         <View style={styles.exportButtons}>
           <Pressable
             onPress={async () => {
+              if (!promptFeatureUpgrade(entitlement, "pdf_export")) return;
               try {
                 await exportFlightProtocolPdf(entry);
                 Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -519,6 +595,7 @@ function LogbookCard({ item, index, onDelete }: { item: LogbookDisplayItem; inde
           </Pressable>
           <Pressable
             onPress={async () => {
+              if (!promptFeatureUpgrade(entitlement, "pdf_export")) return;
               try {
                 await exportSingleEntryPdf(entry);
                 Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -538,6 +615,8 @@ function LogbookCard({ item, index, onDelete }: { item: LogbookDisplayItem; inde
             </ThemedText>
           </Pressable>
         </View>
+
+        <ShareControls entry={entry} onEntryChange={setEntry} style={{ marginTop: Spacing.sm, marginBottom: 0 }} />
       </View>
     );
   };
@@ -571,7 +650,15 @@ function LogbookCard({ item, index, onDelete }: { item: LogbookDisplayItem; inde
   return (
     <Animated.View entering={FadeInDown.delay(index * 50).duration(300)}>
       <Card style={styles.card}>
-        <Pressable onPress={toggleExpanded} onLongPress={onDelete} delayLongPress={500}>
+        <Pressable
+          onPress={() =>
+            entry
+              ? navigation.navigate("LogbookEntryDetail", { logbookEntryId: entry.id })
+              : toggleExpanded()
+          }
+          onLongPress={onDelete}
+          delayLongPress={500}
+        >
           <View style={styles.cardHeader}>
             <View style={styles.cardInfo}>
               <View style={styles.topRow}>
@@ -627,13 +714,22 @@ function LogbookCard({ item, index, onDelete }: { item: LogbookDisplayItem; inde
                     </View>
                   ) : null}
                   <Feather 
-                    name={expanded ? "chevron-up" : "chevron-down"} 
+                    name="chevron-right" 
                     size={18} 
                     color={theme.textTertiary} 
                   />
                 </View>
               </View>
             </View>
+            {entry?.routeMapSnapshotBase64 || entry?.mapSnapshotBase64 ? (
+              <Image
+                source={{
+                  uri: `data:image/jpeg;base64,${entry.routeMapSnapshotBase64 || entry.mapSnapshotBase64}`,
+                }}
+                style={[styles.cardThumb, { borderColor: theme.border }]}
+                resizeMode="cover"
+              />
+            ) : null}
           </View>
         </Pressable>
 
@@ -645,6 +741,8 @@ function LogbookCard({ item, index, onDelete }: { item: LogbookDisplayItem; inde
 
 export default function HistoryScreen() {
   const { theme } = useTheme();
+  const { entitlement } = useAuth();
+  const navigation = useNavigation<NavigationProp>();
   const headerHeight = useHeaderHeight();
   const tabBarHeight = useBottomTabBarHeight();
   const [items, setItems] = useState<LogbookDisplayItem[]>([]);
@@ -735,6 +833,7 @@ export default function HistoryScreen() {
   };
 
   const handleExportAll = useCallback(async () => {
+    if (!promptFeatureUpgrade(entitlement, "pdf_export")) return;
     const logbookEntries = items
       .filter((i) => i.type === "logbook" && i.entry)
       .map((i) => i.entry as LogbookEntry);
@@ -778,6 +877,45 @@ export default function HistoryScreen() {
     );
   }, [loadData]);
 
+  const renderDjiEntry = () => (
+    <View style={styles.djiEntryRow}>
+      <Pressable
+        testID="button-dji-analyze-entry"
+        onPress={() => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          navigation.navigate("DjiAnalyze");
+        }}
+        style={({ pressed }) => [
+          styles.djiEntryButton,
+          { backgroundColor: theme.primary + "15", borderColor: theme.primary + "30" },
+          pressed && { opacity: 0.7 },
+        ]}
+      >
+        <Feather name="file-text" size={18} color={theme.primary} />
+        <ThemedText style={[styles.djiEntryText, { color: theme.primary }]}>
+          Fluglog auswerten
+        </ThemedText>
+      </Pressable>
+      <Pressable
+        testID="button-dji-bulk-entry"
+        onPress={() => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          navigation.navigate("DjiBulkImport");
+        }}
+        style={({ pressed }) => [
+          styles.djiEntryButton,
+          { backgroundColor: theme.primary + "15", borderColor: theme.primary + "30" },
+          pressed && { opacity: 0.7 },
+        ]}
+      >
+        <Feather name="layers" size={18} color={theme.primary} />
+        <ThemedText style={[styles.djiEntryText, { color: theme.primary }]}>
+          Mehrere Logs
+        </ThemedText>
+      </Pressable>
+    </View>
+  );
+
   const renderEmpty = () => (
     <View style={styles.emptyContainer}>
       <View style={[styles.emptyIconContainer, { backgroundColor: theme.primary + "15" }]}>
@@ -787,6 +925,7 @@ export default function HistoryScreen() {
       <ThemedText style={[styles.emptySubtitle, { color: theme.textSecondary }]}>
         Abgeschlossene Flüge erscheinen hier nach dem Debriefing
       </ThemedText>
+      <View style={styles.emptyDjiWrapper}>{renderDjiEntry()}</View>
     </View>
   );
 
@@ -889,6 +1028,7 @@ export default function HistoryScreen() {
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
+        ListHeaderComponent={<View style={styles.djiEntryHeader}>{renderDjiEntry()}</View>}
         ListFooterComponent={
           filteredItems.some((i) => i.type === "logbook") ? (
             <Pressable
@@ -933,6 +1073,14 @@ const styles = StyleSheet.create({
   },
   cardInfo: {
     flex: 1,
+  },
+  cardThumb: {
+    width: 60,
+    height: 60,
+    borderRadius: BorderRadius.md,
+    marginLeft: Spacing.sm,
+    borderWidth: StyleSheet.hairlineWidth,
+    backgroundColor: "#E5E7EB",
   },
   topRow: {
     flexDirection: "row",
@@ -1045,6 +1193,36 @@ const styles = StyleSheet.create({
     padding: Spacing.sm,
     borderRadius: BorderRadius.sm,
     marginBottom: Spacing.md,
+  },
+  mapSnapshotWrapper: {
+    height: 200,
+    borderRadius: BorderRadius.md,
+    overflow: "hidden",
+    borderWidth: StyleSheet.hairlineWidth,
+    marginBottom: Spacing.md,
+    position: "relative",
+    backgroundColor: "#E5E7EB",
+  },
+  mapSnapshotImage: {
+    width: "100%",
+    height: "100%",
+  },
+  mapSnapshotCaption: {
+    position: "absolute",
+    bottom: 8,
+    left: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    backgroundColor: "rgba(0, 0, 0, 0.55)",
+  },
+  mapSnapshotCaptionText: {
+    color: "#fff",
+    fontSize: 11,
+    fontWeight: "600",
   },
   locationLinkText: {
     ...Typography.small,
@@ -1215,6 +1393,31 @@ const styles = StyleSheet.create({
   exportAllText: {
     ...Typography.body,
     fontWeight: "600",
+  },
+  djiEntryRow: {
+    flexDirection: "row",
+    gap: Spacing.sm,
+  },
+  djiEntryButton: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: Spacing.sm,
+    padding: Spacing.md,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+  },
+  djiEntryText: {
+    ...Typography.body,
+    fontWeight: "600",
+  },
+  djiEntryHeader: {
+    marginBottom: Spacing.md,
+  },
+  emptyDjiWrapper: {
+    marginTop: Spacing.xl,
+    alignSelf: "stretch",
   },
   emptyStateContainer: {
     justifyContent: "center",

@@ -11,7 +11,7 @@ import { ThemedText } from "@/components/ThemedText";
 import { Card } from "@/components/Card";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, Typography } from "@/constants/theme";
-import { COUNTRY_MAPS, CountryMapConfig } from "@/lib/countryMaps";
+import { COUNTRY_MAPS, CountryMapConfig, getCountryFlag } from "@/lib/countryMaps";
 import { getSettings } from "@/lib/storage";
 import type { FlightCheckParamList } from "@/navigation/FlightCheckNavigator";
 
@@ -65,6 +65,7 @@ export default function CountrySelectScreen() {
       >
         <View style={styles.countryRow}>
           <View style={styles.countryInfo}>
+            <ThemedText style={{ fontSize: 26 }}>{getCountryFlag(item.iso)}</ThemedText>
             <ThemedText style={styles.countryName}>{item.nameDE}</ThemedText>
             <ThemedText style={[styles.countryCode, { color: theme.textSecondary }]}>
               {item.iso}

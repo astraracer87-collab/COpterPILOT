@@ -40,48 +40,54 @@ export async function fetchKpIndex(): Promise<KpIndexData> {
   };
 }
 
-function getKpAssessment(kp: number): { level: KpIndexData["level"]; color: string; description: string } {
+export function getKpAssessment(kp: number): { level: KpIndexData["level"]; color: string; description: string } {
   if (kp < 3) {
     return {
       level: "ruhig",
       color: "#34C759",
-      description: "Ruhige geomagnetische Bedingungen. Keine Auswirkungen auf GPS/Kompass erwartet.",
+      description: "Ruhige geomagnetische Aktivität. Der Kp-Index allein garantiert jedoch keinen störungsfreien GNSS- oder Kompass-Empfang.",
     };
   }
-  if (kp < 4) {
+  if (kp < 5) {
     return {
       level: "leicht_unruhig",
       color: "#FFD60A",
-      description: "Leicht unruhige Bedingungen. GPS/Kompass können minimal beeinträchtigt sein.",
+      description: "Erhöhte geomagnetische Aktivität. Mögliche Auswirkungen auf GNSS und Kompass sind nicht sicher und hängen auch von Standort und Gerät ab.",
     };
   }
   if (kp < 6) {
     return {
       level: "unruhig",
       color: "#FF9500",
-      description: "Unruhige geomagnetische Bedingungen. GPS-Genauigkeit und Kompass können beeinträchtigt sein.",
+      description: "Bei Kp 5 können GNSS- und Kompassstörungen auftreten, müssen am Standort aber nicht. Prüfe vor dem Flug die tatsächliche Signalqualität.",
     };
   }
   if (kp < 8) {
     return {
       level: "Sturm",
       color: "#FF3B30",
-      description: "Geomagnetischer Sturm! GPS und Kompass stark beeinträchtigt. Flug nicht empfohlen.",
+      description: "Ab Kp 6 sind GNSS- und Kompassstörungen möglich, aber nicht sicher. Die tatsächliche Auswirkung hängt von Standort und Gerät ab; prüfe die Signalqualität vor dem Flug.",
     };
   }
   return {
     level: "starker_Sturm",
-    color: "#AF52DE",
-    description: "Starker geomagnetischer Sturm! GPS-Ausfall möglich. Drohnenflug vermeiden!",
+    color: "#FF3B30",
+    description: "Bei Kp 8 oder höher sind stärkere GNSS- und Kompassstörungen möglich, aber nicht sicher. Prüfe vor dem Flug die tatsächliche Signalqualität direkt an der Drohne.",
   };
 }
 
 export function getKpLabel(kp: number): string {
   if (kp < 3) return "Ruhig";
-  if (kp < 4) return "Leicht unruhig";
-  if (kp < 6) return "Unruhig";
+  if (kp < 5) return "Erhöht";
+  if (kp < 6) return "Stark erhöht";
   if (kp < 8) return "Sturm";
   return "Starker Sturm";
+}
+
+export function getKpRiskLabel(kp: number): string {
+  if (kp < 3) return "Ruhig";
+  if (kp < 5) return "Erhöht";
+  return "Störungen möglich";
 }
 
 export interface KpTimeEntry {
@@ -114,11 +120,16 @@ export async function fetchKpTimeline(): Promise<KpTimeEntry[]> {
   return results;
 }
 
-export function getKpForHour(timeline: KpTimeEntry[], targetDate: Date): number | null {
+export function getKpForHour(
+  timeline: KpTimeEntry[],
+  targetDate: Date,
+  maxDistanceMs = Infinity,
+): number | null {
   if (timeline.length === 0) return null;
   let best: KpTimeEntry | null = null;
   let bestDiff = Infinity;
   const targetMs = targetDate.getTime();
+  if (!Number.isFinite(targetMs)) return null;
   for (const entry of timeline) {
     const entryMs = new Date(entry.timestamp).getTime();
     if (isNaN(entryMs)) continue;
@@ -128,5 +139,5 @@ export function getKpForHour(timeline: KpTimeEntry[], targetDate: Date): number 
       best = entry;
     }
   }
-  return best?.value ?? null;
+  return best && bestDiff <= maxDistanceMs ? best.value : null;
 }

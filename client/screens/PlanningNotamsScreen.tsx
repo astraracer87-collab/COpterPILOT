@@ -19,13 +19,21 @@ import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { Card } from "@/components/Card";
 import { useTheme } from "@/hooks/useTheme";
+import { useShowDataSources } from "@/lib/dataSource";
+import { attributionLabel, adminSourceSuffix } from "@/lib/sourceAttribution";
 import { Spacing, Typography, BorderRadius } from "@/constants/theme";
 import type { FlightPlanningParamList } from "@/navigation/FlightPlanningNavigator";
 import {
   fetchNearbyTempRestrictions,
+  getCountriesInRadius,
+  queryEd269CachedFeatures,
   DipulTempRestriction,
   DipulTempRestrictionsResult,
 } from "@/lib/geozones";
+import {
+  ed269ZonesToNotamRestrictions,
+  formatBelgianNotamValidityRange,
+} from "@/lib/ed269Notams";
 import {
   deriveNearbyMilLowFlightStatuses,
   formatActivationWindow,
@@ -50,6 +58,9 @@ function formatAltitude(r: DipulTempRestriction): string {
 }
 
 function formatDateRange(r: DipulTempRestriction): string {
+  const belgianRange = formatBelgianNotamValidityRange(r);
+  if (belgianRange != null) return belgianRange;
+  if (r.validityUnknown) return "Gültigkeit im Quelldatensatz nicht angegeben";
   if (!r.startTs) return "";
   const opts: Intl.DateTimeFormatOptions = { day: "2-digit", month: "2-digit", year: "numeric" };
   const startStr = new Date(r.startTs).toLocaleDateString("de-DE", opts);
@@ -60,6 +71,7 @@ function formatDateRange(r: DipulTempRestriction): string {
 }
 
 function daysRemaining(r: DipulTempRestriction): string | null {
+  if (r.validityUnknown) return "Gültigkeit prüfen";
   if (!r.endTs || r.endTsIndefinite) return "Dauerhaft";
   const now = new Date();
   const end = new Date(r.endTs);
@@ -90,6 +102,7 @@ function daysUntilStart(r: DipulTempRestriction): string | null {
 }
 
 function RestrictionCard({ restriction, theme }: { restriction: DipulTempRestriction; theme: any }) {
+  const isAdmin = useShowDataSources();
   const [expanded, setExpanded] = useState(false);
   const isMilLowFlight = restriction.kind === "mil_low_flight_day";
   const isEDR = restriction.name.startsWith("ED-R");
@@ -163,7 +176,7 @@ function RestrictionCard({ restriction, theme }: { restriction: DipulTempRestric
               >
                 <Feather name="external-link" size={12} color="#7B8B3A" />
                 <ThemedText style={[styles.detailText, { color: "#7B8B3A", fontWeight: "600" }]}>
-                  Karte und Details auf dipul.de (Stand {MIL_LOW_FLIGHT_DATA_STAND})
+                  {attributionLabel(isAdmin, `Karte und Details auf dipul.de (Stand ${MIL_LOW_FLIGHT_DATA_STAND})`, `Karte und Details ansehen (Stand ${MIL_LOW_FLIGHT_DATA_STAND})`)}
                 </ThemedText>
               </Pressable>
             ) : null}
@@ -281,6 +294,7 @@ function SectionHeader({ title, count, color, icon, theme }: { title: string; co
 
 export default function PlanningNotamsScreen() {
   const { theme } = useTheme();
+  const isAdmin = useShowDataSources();
   const headerHeight = useHeaderHeight();
   const insets = useSafeAreaInsets();
   const route = useRoute<RouteParams>();
@@ -297,8 +311,24 @@ export default function PlanningNotamsScreen() {
     setLoading(true);
     setError(undefined);
     try {
-      const data = await fetchNearbyTempRestrictions(latitude, longitude, radiusKm || 50);
-      setResult(data);
+      const radius = radiusKm ?? 1;
+      const [data, belgianFeatures] = await Promise.all([
+        fetchNearbyTempRestrictions(latitude, longitude, radius),
+        getCountriesInRadius(latitude, longitude, radius).includes("BE")
+          ? queryEd269CachedFeatures(latitude, longitude, radius, "BE", undefined, false, 30)
+          : Promise.resolve([]),
+      ]);
+      const belgianNotams = ed269ZonesToNotamRestrictions(belgianFeatures);
+      setResult({
+        active: [
+          ...data.active,
+          ...belgianNotams.filter((restriction) => restriction.status === "active"),
+        ],
+        upcoming: [
+          ...data.upcoming,
+          ...belgianNotams.filter((restriction) => restriction.status === "upcoming"),
+        ],
+      });
     } catch {
       setError("Fehler beim Laden der temporären Beschränkungen");
     } finally {
@@ -322,8 +352,14 @@ export default function PlanningNotamsScreen() {
 
   const totalCount = result.active.length + result.upcoming.length;
   const edrCount = [...result.active, ...result.upcoming].filter((r) => r.name.startsWith("ED-R")).length;
+  const hasBelgianNotams = [...result.active, ...result.upcoming].some((r) =>
+    r.id.toLowerCase().startsWith("ed269-be-"),
+  );
+  const sourceLabel = hasBelgianNotams
+    ? "dipul Geoapi v4 + skeyes / Droneguide"
+    : "dipul Geoapi v4";
   const milLowFlightStatuses = React.useMemo(
-    () => deriveNearbyMilLowFlightStatuses(result, latitude, longitude, radiusKm || 50),
+    () => deriveNearbyMilLowFlightStatuses(result, latitude, longitude, radiusKm ?? 1),
     [result, latitude, longitude, radiusKm]
   );
   const milActiveCount = milLowFlightStatuses.filter((s) => s.status === "active").length;
@@ -394,7 +430,15 @@ export default function PlanningNotamsScreen() {
 
             <View style={[styles.scopeBanner, { backgroundColor: "rgba(0,122,255,0.08)" }]}>
               <Feather name="map-pin" size={14} color={theme.primary} />
-              <ThemedText style={[styles.scopeBannerText, { color: theme.primary }]}>Standortbezogen ({radiusKm ? (radiusKm < 1 ? `${Math.round(radiusKm * 1000)} m` : `${radiusKm.toFixed(1)} km`) : "50 km"} Radius) — dipul Geoapi v4</ThemedText>
+              <ThemedText style={[styles.scopeBannerText, { color: theme.primary }]}>
+                Standortbezogen (
+                {radiusKm
+                  ? radiusKm < 1
+                    ? `${Math.round(radiusKm * 1000)} m`
+                    : `${radiusKm.toFixed(1)} km`
+                  : "1 km"}{" "}
+                Radius){adminSourceSuffix(sourceLabel, isAdmin, " — ")}
+              </ThemedText>
             </View>
 
             {totalCount === 0 ? (
@@ -440,9 +484,12 @@ export default function PlanningNotamsScreen() {
               </>
             ) : null}
 
-            {totalCount > 0 ? (
+            {totalCount > 0 && isAdmin ? (
               <ThemedText style={[styles.sourceInfo, { color: theme.textTertiary }]}>
                 Quelle: dipul Geoapi v4 — DFS / UAS-Betrieb
+                {hasBelgianNotams
+                  ? " · skeyes / Droneguide (belgische NOTAM-Zeiten)"
+                  : ""}
               </ThemedText>
             ) : null}
           </>

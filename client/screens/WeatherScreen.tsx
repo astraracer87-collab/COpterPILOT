@@ -9,12 +9,25 @@ import { Feather } from "@expo/vector-icons";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { Card } from "@/components/Card";
+import KpLocalSignalCheckModal from "@/components/KpLocalSignalCheckModal";
 import { Button } from "@/components/Button";
 import { useTheme } from "@/hooks/useTheme";
+import { useShowDataSources } from "@/lib/dataSource";
 import { Spacing, Typography, Colors } from "@/constants/theme";
-import { fetchWeather, WeatherData, WeatherFetchError, ForecastData } from "@/lib/weather";
-import { fetchKpIndex, KpIndexData, getKpLabel } from "@/lib/kpindex";
+import { fetchWeather, WeatherData, WeatherFetchError, ForecastData, fetchHourlyForecasts, HourlyForecastSlot } from "@/lib/weather";
+import HourlyForecastTable from "@/components/HourlyForecastTable";
+import {
+  fetchKpIndex,
+  fetchKpTimeline,
+  getKpAssessment,
+  getKpForHour,
+  getKpLabel,
+  getKpRiskLabel,
+  KpIndexData,
+} from "@/lib/kpindex";
+import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { calculateSolarTimes, formatSolarTime, getDaylightPhase, isTimeDuringDaylight, isTimeDuringCivilTwilight, SolarTimes } from "@/lib/solar";
+import SunArcChart from "@/components/SunArcChart";
 import { getSettings, Settings, getDrone, DroneProfile, WeatherLimits, DEFAULT_LIMITS, getFlightSession } from "@/lib/storage";
 import type { FlightCheckParamList } from "@/navigation/FlightCheckNavigator";
 
@@ -25,6 +38,7 @@ export default function WeatherScreen() {
   const route = useRoute<RouteParams>();
   const navigation = useNavigation<NavigationProp>();
   const { theme } = useTheme();
+  const isAdmin = useShowDataSources();
   const headerHeight = useHeaderHeight();
   const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState(true);
@@ -34,9 +48,57 @@ export default function WeatherScreen() {
   const [selectedDrone, setSelectedDrone] = useState<DroneProfile | null>(null);
   const [limits, setLimits] = useState<WeatherLimits>(DEFAULT_LIMITS);
   const [isFpvFlight, setIsFpvFlight] = useState(false);
-  const [altitudeExpanded, setAltitudeExpanded] = useState(false);
+  const [altitudeExpanded, setAltitudeExpanded] = useState(true);
   const [kpData, setKpData] = useState<KpIndexData | null>(null);
+  const [kpForecastForFlight, setKpForecastForFlight] = useState<number | null>(null);
+  const [kpLocalSignalCheckVisible, setKpLocalSignalCheckVisible] = useState(false);
   const [solarTimes, setSolarTimes] = useState<SolarTimes | null>(null);
+  const [maxAltitude, setMaxAltitude] = useState<number | null>(null);
+  const [hourlySlots, setHourlySlots] = useState<HourlyForecastSlot[]>([]);
+  const [hourlySource, setHourlySource] = useState<"dipul" | "brightsky" | "openmeteo" | null>(null);
+  const [hourlyHighlight, setHourlyHighlight] = useState<{ start: Date; end: Date }>(() => {
+    const now = new Date();
+    const start = new Date(now);
+    start.setMinutes(0, 0, 0);
+    return { start, end: new Date(start.getTime() + 3600000) };
+  });
+
+  const { latitude, longitude, hasRestrictions, restrictionStatus, restrictionNotes, droneId, sessionId } = route.params;
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const now = new Date();
+        const start = new Date(now);
+        start.setMinutes(0, 0, 0);
+        start.setHours(start.getHours() - 1);
+        const end = new Date(now);
+        end.setHours(23, 0, 0, 0);
+        if (end <= start) end.setTime(start.getTime() + 6 * 3600000);
+        const result = await fetchHourlyForecasts(latitude, longitude, start.toISOString(), end.toISOString());
+        if (cancelled) return;
+        setHourlySlots(result.slots);
+        setHourlySource(result.source);
+      } catch {
+        if (cancelled) return;
+        setHourlySlots([]);
+        setHourlySource(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [latitude, longitude, droneId]);
+
+  useEffect(() => {
+    const update = () => {
+      const now = new Date();
+      const s = new Date(now);
+      s.setMinutes(0, 0, 0);
+      setHourlyHighlight((prev) => (prev.start.getTime() === s.getTime() ? prev : { start: s, end: new Date(s.getTime() + 3600000) }));
+    };
+    const id = setInterval(update, 60000);
+    return () => clearInterval(id);
+  }, []);
 
   const altHeights = useMemo(() => {
     if (!weather) return [];
@@ -45,24 +107,35 @@ export default function WeatherScreen() {
     const tempH = (c.temperatureAtAltitude || []).map((t) => t.height);
     const humH = (c.humidityAtAltitude || []).map((h) => h.height);
     const cloudH = (c.cloudCoverAtAltitude || []).map((cl) => cl.height);
-    const all = new Set([...windH, ...tempH, ...humH, ...cloudH]);
-    return Array.from(all).sort((a, b) => b - a);
-  }, [weather]);
-
-  const { latitude, longitude, hasRestrictions, restrictionStatus, restrictionNotes, droneId, sessionId } = route.params;
+    const all = Array.from(new Set([...windH, ...tempH, ...humH, ...cloudH])).sort((a, b) => a - b);
+    if (maxAltitude == null || maxAltitude <= 0) {
+      return all.slice().sort((a, b) => b - a);
+    }
+    const ceiling = all.find((h) => h >= maxAltitude) ?? all[all.length - 1];
+    return all.filter((h) => h <= ceiling).sort((a, b) => b - a);
+  }, [weather, maxAltitude]);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setKpForecastForFlight(null);
     try {
       const session = sessionId ? await getFlightSession(sessionId) : null;
       const flightDuration = session?.planning?.estimatedDuration;
 
-      const [weatherData, settingsData, kpResult] = await Promise.all([
+      const [weatherData, settingsData, kpResult, kpTimeline] = await Promise.all([
         fetchWeather(latitude, longitude, flightDuration),
         getSettings(),
         fetchKpIndex().catch(() => null),
+        fetchKpTimeline().catch(() => []),
       ]);
+
+      const plannedDateTime = session?.planning?.plannedDate && session?.planning?.plannedTime
+        ? new Date(`${session.planning.plannedDate}T${session.planning.plannedTime}`)
+        : new Date();
+      setKpForecastForFlight(
+        getKpForHour(kpTimeline, plannedDateTime, 3 * 60 * 60 * 1000),
+      );
       
       const drone = droneId ? await getDrone(droneId) : null;
       
@@ -72,6 +145,10 @@ export default function WeatherScreen() {
       if (kpResult) setKpData(kpResult);
       setSolarTimes(calculateSolarTimes(latitude, longitude));
       
+      if (session?.planning?.maxAltitude != null && session.planning.maxAltitude > 0) {
+        setMaxAltitude(session.planning.maxAltitude);
+      }
+
       if (session?.planning?.isFpvFlight) {
         setIsFpvFlight(true);
       } else if (drone?.droneType === "fpv_only") {
@@ -100,6 +177,26 @@ export default function WeatherScreen() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  const handleOpenNdFilter = () => {
+    if (!weather) return;
+    const current = weather.forecasts[0];
+    const rootNav = navigation.getParent<NativeStackNavigationProp<RootStackParamList>>();
+    if (!rootNav) return;
+    rootNav.navigate("Main", {
+      screen: "NdFilterTab",
+      params: {
+        screen: "NdFilterFinder",
+        params: {
+          latitude,
+          longitude,
+          cloudCoverPercent: current.cloudCover,
+          rainMmPerH: current.rain,
+          droneId: droneId,
+        },
+      },
+    } as any);
+  };
 
   const handleContinue = () => {
     if (!weather) return;
@@ -208,37 +305,10 @@ export default function WeatherScreen() {
         ]}
       >
         <ThemedText style={[styles.sectionTitle, { color: theme.textSecondary }]}>
-          AKTUELL
+          AKTUELL (BODEN)
         </ThemedText>
         <Card style={styles.currentCard}>
           <View style={styles.currentGrid}>
-            <View style={styles.currentItem}>
-              <Feather name="thermometer" size={24} color={theme.primary} />
-              <ThemedText style={styles.currentValue}>
-                {convertTemp(current.temperature)}{getTempUnit()}
-              </ThemedText>
-              <ThemedText style={[styles.currentLabel, { color: theme.textSecondary }]}>
-                Temperatur
-              </ThemedText>
-            </View>
-            <View style={styles.currentItem}>
-              <Feather name="wind" size={24} color={theme.primary} />
-              <ThemedText style={styles.currentValue}>
-                {convertWind(current.windSpeed)} {getWindUnit()}
-              </ThemedText>
-              <ThemedText style={[styles.currentLabel, { color: theme.textSecondary }]}>
-                Wind
-              </ThemedText>
-            </View>
-            <View style={styles.currentItem}>
-              <Feather name="zap" size={24} color={theme.primary} />
-              <ThemedText style={styles.currentValue}>
-                {current.windGust ? convertWind(current.windGust) : "-"} {getWindUnit()}
-              </ThemedText>
-              <ThemedText style={[styles.currentLabel, { color: theme.textSecondary }]}>
-                Böen
-              </ThemedText>
-            </View>
             <View style={styles.currentItem}>
               <Feather name="cloud-rain" size={24} color={theme.primary} />
               <ThemedText style={styles.currentValue}>
@@ -246,33 +316,6 @@ export default function WeatherScreen() {
               </ThemedText>
               <ThemedText style={[styles.currentLabel, { color: theme.textSecondary }]}>
                 Regen
-              </ThemedText>
-            </View>
-            <View style={styles.currentItem}>
-              <Feather name="cloud" size={24} color={theme.primary} />
-              <ThemedText style={styles.currentValue}>
-                {current.cloudCover.toFixed(0)}%
-              </ThemedText>
-              <ThemedText style={[styles.currentLabel, { color: theme.textSecondary }]}>
-                Wolken
-              </ThemedText>
-            </View>
-            <View style={styles.currentItem}>
-              <Feather name="droplet" size={24} color={theme.primary} />
-              <ThemedText style={styles.currentValue}>
-                {current.humidity.toFixed(0)}%
-              </ThemedText>
-              <ThemedText style={[styles.currentLabel, { color: theme.textSecondary }]}>
-                Luftfeuchte
-              </ThemedText>
-            </View>
-            <View style={styles.currentItem}>
-              <Feather name="bar-chart-2" size={24} color={theme.primary} />
-              <ThemedText style={styles.currentValue}>
-                {current.pressure > 0 ? (current.pressure / 100).toFixed(0) : "-"} hPa
-              </ThemedText>
-              <ThemedText style={[styles.currentLabel, { color: theme.textSecondary }]}>
-                QNH
               </ThemedText>
             </View>
             <View style={styles.currentItem}>
@@ -284,7 +327,19 @@ export default function WeatherScreen() {
                 Schnee
               </ThemedText>
             </View>
+            <View style={styles.currentItem}>
+              <Feather name="bar-chart-2" size={24} color={theme.primary} />
+              <ThemedText style={styles.currentValue}>
+                {current.pressure > 0 ? (current.pressure / 100).toFixed(0) : "-"} hPa
+              </ThemedText>
+              <ThemedText style={[styles.currentLabel, { color: theme.textSecondary }]}>
+                QNH
+              </ThemedText>
+            </View>
           </View>
+          <ThemedText style={[styles.currentHint, { color: theme.textTertiary }]}>
+            Wind, Temperatur, Böen und Wolken siehe Höhenprofil unten.
+          </ThemedText>
         </Card>
 
         {solarTimes ? (
@@ -315,32 +370,11 @@ export default function WeatherScreen() {
                 ) : null}
               </View>
 
-              <View style={styles.solarTimeline}>
-                <View style={[styles.solarTimelineTrack, { backgroundColor: theme.backgroundSecondary }]}>
-                  {solarTimes.civilDawnStart && solarTimes.civilDuskEnd ? (
-                    <View style={[styles.solarTwilightBar, {
-                      left: `${timeToPercent(solarTimes.civilDawnStart)}%`,
-                      right: `${100 - timeToPercent(solarTimes.civilDuskEnd)}%`,
-                      backgroundColor: "#FF8C0030",
-                    }]} />
-                  ) : null}
-                  {solarTimes.sunrise && solarTimes.sunset ? (
-                    <View style={[styles.solarDayBar, {
-                      left: `${timeToPercent(solarTimes.sunrise)}%`,
-                      right: `${100 - timeToPercent(solarTimes.sunset)}%`,
-                      backgroundColor: "#FFB82060",
-                    }]} />
-                  ) : null}
-                  <View style={[styles.solarNowMarker, {
-                    left: `${timeToPercent(new Date())}%`,
-                    backgroundColor: theme.primary,
-                  }]} />
-                </View>
-                <View style={styles.solarTimelineLabels}>
-                  <ThemedText style={[styles.solarTimelineEdge, { color: theme.textTertiary }]}>00:00</ThemedText>
-                  <ThemedText style={[styles.solarTimelineEdge, { color: theme.textTertiary }]}>12:00</ThemedText>
-                  <ThemedText style={[styles.solarTimelineEdge, { color: theme.textTertiary }]}>24:00</ThemedText>
-                </View>
+              <View style={styles.solarArcWrap}>
+                <ThemedText style={[styles.solarArcTitle, { color: theme.textSecondary }]}>
+                  TAGESGANG SONNENSTAND
+                </ThemedText>
+                <SunArcChart lat={latitude} lon={longitude} height={220} />
               </View>
 
               <View style={styles.solarTimesGrid}>
@@ -405,7 +439,7 @@ export default function WeatherScreen() {
                 <View style={[styles.kpBadge, { backgroundColor: kpData.color + "20" }]}>
                   <View style={[styles.kpDot, { backgroundColor: kpData.color }]} />
                   <ThemedText style={[styles.kpBadgeText, { color: kpData.color }]}>
-                    {kpData.value < 4 ? "GPS OK" : kpData.value < 6 ? "GPS Einschränkung" : "GPS Warnung"}
+                    {getKpRiskLabel(kpData.value)}
                   </ThemedText>
                 </View>
               </View>
@@ -414,6 +448,53 @@ export default function WeatherScreen() {
               </ThemedText>
             </Card>
           </>
+        ) : null}
+
+        {kpForecastForFlight != null && kpForecastForFlight >= 5 ? (
+          <Card
+            style={[
+              styles.kpCard,
+              {
+                marginTop: Spacing.md,
+                borderWidth: 1,
+                borderColor: getKpAssessment(kpForecastForFlight).color,
+              },
+            ]}
+          >
+            <View style={styles.kpLeft}>
+              <Feather
+                name="activity"
+                size={20}
+                color={getKpAssessment(kpForecastForFlight).color}
+              />
+              <View style={styles.kpValueContainer}>
+                <ThemedText style={[styles.kpValue, { color: getKpAssessment(kpForecastForFlight).color }]}>
+                  Kp {kpForecastForFlight.toFixed(1)} vorhergesagt
+                </ThemedText>
+                <ThemedText style={[styles.kpLevel, { color: theme.textSecondary }]}>
+                  Für den geplanten Flugzeitpunkt
+                </ThemedText>
+              </View>
+            </View>
+            <ThemedText style={[styles.kpDescription, { color: theme.textSecondary }]}>
+              GNSS- und Kompassstörungen können auftreten, müssen am Startplatz aber nicht.
+              Prüfe auf Wunsch die aktuellen Messwerte deines Smartphones.
+            </ThemedText>
+            <Pressable
+              onPress={() => setKpLocalSignalCheckVisible(true)}
+              accessibilityRole="button"
+              testID="button-kp-local-signal-check"
+              style={[
+                styles.kpCheckButton,
+                { backgroundColor: getKpAssessment(kpForecastForFlight).color },
+              ]}
+            >
+              <Feather name="crosshair" size={17} color={theme.buttonText} />
+              <ThemedText style={[styles.kpCheckButtonText, { color: theme.buttonText }]}>
+                Vor-Ort-Signalcheck öffnen
+              </ThemedText>
+            </Pressable>
+          </Card>
         ) : null}
 
         <Pressable
@@ -457,15 +538,20 @@ export default function WeatherScreen() {
                 <ThemedText style={[styles.altColHeader, { color: theme.textSecondary }]}>Richt.</ThemedText>
               </View>
             </View>
-            {altHeights.map((h, idx) => {
+            {(() => {
+              const plannedRow = maxAltitude != null && maxAltitude > 0
+                ? altHeights.slice().sort((a, b) => a - b).find((x) => x >= maxAltitude) ?? null
+                : null;
+              return altHeights.map((h, idx) => {
               const wind = current.windAtAltitude.find((w) => w.height === h);
               const temp = getValAtHeight(current.temperatureAtAltitude, h);
               const hum = getValAtHeight(current.humidityAtAltitude, h);
               const cloud = getValAtHeight(current.cloudCoverAtAltitude, h);
+              const highlight = plannedRow != null && h === plannedRow;
               return (
-                <View key={h} style={[styles.altDataRow, idx > 0 ? { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border } : undefined]}>
+                <View key={h} style={[styles.altDataRow, idx > 0 ? { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border } : undefined, highlight ? { backgroundColor: theme.primary + "12" } : undefined]}>
                   <View style={styles.altHeightCol}>
-                    <ThemedText style={[styles.altHeightLabel, { color: theme.primary }]}>{h}m</ThemedText>
+                    <ThemedText style={[styles.altHeightLabel, { color: theme.primary, fontWeight: highlight ? "800" : "600" }]}>{h}m{highlight ? " ✈" : ""}</ThemedText>
                   </View>
                   <View style={styles.altDataCol}>
                     <ThemedText style={styles.altVal}>{wind ? `${convertWind(wind.speed)}` : "-"}</ThemedText>
@@ -487,7 +573,8 @@ export default function WeatherScreen() {
                   </View>
                 </View>
               );
-            })}
+            });
+            })()}
           </Card>
         ) : null}
 
@@ -561,10 +648,52 @@ export default function WeatherScreen() {
           </View>
         </Card>
 
-        <ThemedText style={[styles.sourceText, { color: theme.textTertiary }]}>
-          Datenquelle: DFS dipul Weather Service (DWD ICON-D2, 2km Raster)
+        {isAdmin ? (
+          <ThemedText style={[styles.sourceText, { color: theme.textTertiary }]}>
+            Datenquelle: DFS dipul Weather Service (DWD ICON-D2, 2km Raster)
+          </ThemedText>
+        ) : null}
+        <ThemedText style={[styles.sectionTitle, { color: theme.textSecondary, marginTop: Spacing["2xl"] }]}>
+          WERKZEUGE
         </ThemedText>
+        <Card style={styles.ndFilterCard}>
+          <View style={styles.ndFilterRow}>
+            <Feather name="aperture" size={22} color={theme.primary} />
+            <View style={styles.ndFilterTextCol}>
+              <ThemedText style={styles.ndFilterTitle}>ND-Filter berechnen</ThemedText>
+              <ThemedText style={[styles.ndFilterSubtitle, { color: theme.textSecondary }]}>
+                Bewölkung {current.cloudCover.toFixed(0)}%, Regen {current.rain.toFixed(1)} mm/h werden übernommen
+              </ThemedText>
+            </View>
+          </View>
+          <Button
+            title="ND-Filter Finder öffnen"
+            variant="secondary"
+            onPress={handleOpenNdFilter}
+            style={{ marginTop: Spacing.md }}
+          />
+        </Card>
+
+        {hourlySlots.length > 0 ? (
+          <HourlyForecastTable
+            hourlySlots={hourlySlots}
+            hourlySource={hourlySource}
+            latitude={latitude}
+            longitude={longitude}
+            maxAltitude={maxAltitude ?? 120}
+            drone={selectedDrone}
+            subtitle="Wetter heute (Pre-Check)"
+            highlightStart={hourlyHighlight.start}
+            highlightEnd={hourlyHighlight.end}
+          />
+        ) : null}
       </ScrollView>
+
+      <KpLocalSignalCheckModal
+        visible={kpLocalSignalCheckVisible}
+        forecastKp={kpForecastForFlight ?? 5}
+        onClose={() => setKpLocalSignalCheckVisible(false)}
+      />
 
       <View style={[styles.footer, { paddingBottom: insets.bottom + Spacing.lg, backgroundColor: theme.backgroundDefault }]}>
         <Button
@@ -631,6 +760,31 @@ const styles = StyleSheet.create({
   currentLabel: {
     ...Typography.caption,
     marginTop: Spacing.xs,
+  },
+  currentHint: {
+    ...Typography.caption,
+    marginTop: Spacing.sm,
+    textAlign: "center",
+    fontStyle: "italic",
+  },
+  ndFilterCard: {
+    padding: Spacing.lg,
+  },
+  ndFilterRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.md,
+  },
+  ndFilterTextCol: {
+    flex: 1,
+  },
+  ndFilterTitle: {
+    ...Typography.body,
+    fontWeight: "700",
+  },
+  ndFilterSubtitle: {
+    ...Typography.caption,
+    marginTop: 2,
   },
   forecastTableCard: {
     padding: 0,
@@ -721,6 +875,20 @@ const styles = StyleSheet.create({
   kpCard: {
     padding: Spacing.lg,
   },
+  kpCheckButton: {
+    minHeight: 46,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    marginTop: Spacing.md,
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: Spacing.sm,
+  },
+  kpCheckButtonText: {
+    fontSize: 14,
+    fontWeight: "700",
+  },
   kpRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -788,43 +956,15 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "500",
   },
-  solarTimeline: {
+  solarArcWrap: {
+    alignSelf: "stretch",
     marginBottom: Spacing.lg,
   },
-  solarTimelineTrack: {
-    height: 12,
-    borderRadius: 6,
-    overflow: "hidden",
-    position: "relative",
-  },
-  solarTwilightBar: {
-    position: "absolute",
-    top: 0,
-    bottom: 0,
-    borderRadius: 6,
-  },
-  solarDayBar: {
-    position: "absolute",
-    top: 0,
-    bottom: 0,
-    borderRadius: 6,
-  },
-  solarNowMarker: {
-    position: "absolute",
-    top: -2,
-    width: 3,
-    height: 16,
-    borderRadius: 1.5,
-    marginLeft: -1.5,
-  },
-  solarTimelineLabels: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginTop: 4,
-  },
-  solarTimelineEdge: {
-    fontSize: 9,
-    fontWeight: "500",
+  solarArcTitle: {
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 0.6,
+    marginBottom: Spacing.xs,
   },
   solarTimesGrid: {
     flexDirection: "row",

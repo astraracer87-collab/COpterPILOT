@@ -18,6 +18,7 @@ interface ButtonProps {
   disabled?: boolean;
   loading?: boolean;
   variant?: "primary" | "secondary";
+  testID?: string;
 }
 
 const springConfig: WithSpringConfig = {
@@ -37,6 +38,7 @@ export function Button({
   disabled = false,
   loading = false,
   variant = "primary",
+  testID,
 }: ButtonProps) {
   const { theme } = useTheme();
   const scale = useSharedValue(1);
@@ -61,6 +63,7 @@ export function Button({
 
   return (
     <AnimatedPressable
+      testID={testID}
       onPress={disabled || loading ? undefined : onPress}
       onPressIn={handlePressIn}
       onPressOut={handlePressOut}

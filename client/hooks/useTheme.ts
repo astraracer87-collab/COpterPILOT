@@ -4,7 +4,7 @@ import { useColorScheme } from "@/hooks/useColorScheme";
 export function useTheme() {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
-  const base = Colors[colorScheme ?? "light"];
+  const base = Colors[colorScheme === "dark" ? "dark" : "light"];
 
   // Aliases für historische Property-Namen (`card`, `background`),
   // die in einigen Screens noch verwendet werden. Mappen auf existierende

@@ -9,17 +9,20 @@ import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import TrafficMapView, { TrafficMarker, AircraftTrail, WindData } from "@/components/TrafficMapView";
 import { fetchDipulWind } from "@/lib/weather";
-import { fetchElevation, enrichAircraftWithElevation } from "@/lib/elevation";
+import { fetchElevation } from "@/lib/elevation";
 import ProximityAlarmBanner from "@/components/ProximityAlarmBanner";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { Card } from "@/components/Card";
 import { useTheme } from "@/hooks/useTheme";
+import { useShowDataSources } from "@/lib/dataSource";
 import { useProximityAlarm } from "@/hooks/useProximityAlarm";
 import { useAircraftTrails } from "@/hooks/useAircraftTrails";
 import { Spacing, Typography, BorderRadius } from "@/constants/theme";
-import { GEOZONE_REGULATORY_INFO, GeozoneContact, getContactsForZone, loadGeozoneSettings, saveGeozoneSettings, getActiveLayerNames, MAP_STYLES, MapStyleOption, loadMapStyle, saveMapStyle, loadRadarSettings, saveRadarSettings, getCountryGeozoneLayers, getCountryGeozoneConfig } from "@/lib/geozones";
+import { GEOZONE_REGULATORY_INFO, GeozoneContact, getContactsForZone, loadGeozoneSettings, saveGeozoneSettings, getActiveLayerNames, MAP_STYLES, MapStyleOption, loadMapStyle, saveMapStyle, loadRadarSettings, saveRadarSettings } from "@/lib/geozones";
+import { GEOZONE_CATEGORIES, COMBINED_COUNTRY_TOGGLES } from "../../shared/geozoneCategories";
 import { getMarkerPinColor } from "@/lib/markerColors";
+import { getAgencyTag, agencyTagColor } from "@/lib/agencyTag";
 import * as WebBrowser from "@/lib/webBrowser";
 import {
   fetchNearbyAircraft,
@@ -63,6 +66,7 @@ function openGeozoneContact(c: GeozoneContact) {
 }
 
 export default function PlanningLiveTrafficScreen() {
+  const isAdmin = useShowDataSources();
   const route = useRoute<RouteParams>();
   const { theme, isDark } = useTheme();
   const headerHeight = useHeaderHeight();
@@ -79,12 +83,12 @@ export default function PlanningLiveTrafficScreen() {
   const refreshInterval = useRef<ReturnType<typeof setInterval> | null>(null);
   const isLoadingAircraft = useRef(false);
   const [trails, setTrails] = useState<AircraftTrail[]>([]);
-  const [sourceStatus, setSourceStatus] = useState<Record<DataSource, "ok" | "error" | "timeout">>({ opensky: "ok", adsbfi: "ok", adsbone: "ok", airplaneslive: "ok", adsblol: "ok", ogn: "ok" });
+  const [sourceStatus, setSourceStatus] = useState<Record<DataSource, "ok" | "error" | "timeout">>({ opensky: "ok", adsbfi: "ok", adsbone: "ok", airplaneslive: "ok", adsblol: "ok", ogn: "ok", fr24: "ok" });
   const [wind, setWind] = useState<WindData | null>(null);
   const [geozoneSettings, setGeozoneSettings] = useState<Record<string, boolean>>({});
   const [showGeozoneModal, setShowGeozoneModal] = useState(false);
   const activeGeozoneLayers = useMemo(() => getActiveLayerNames(geozoneSettings, countryIso), [geozoneSettings, countryIso]);
-  const [mapStyle, setMapStyle] = useState<MapStyleOption>("standard");
+  const [mapStyle, setMapStyle] = useState<MapStyleOption>("grayscale");
 
   useEffect(() => {
     loadGeozoneSettings(countryIso).then(setGeozoneSettings);
@@ -120,18 +124,9 @@ export default function PlanningLiveTrafficScreen() {
     try {
       setError(null);
       const result = await fetchNearbyAircraft(latitude, longitude, radiusKm);
-      const enriched = await enrichAircraftWithElevation(result.states);
-      const trailResult = updateTrails(enriched, latitude, longitude, radiusKm);
+      const trailResult = updateTrails(result.states, result.trails, latitude, longitude, radiusKm);
       setTrails(trailResult.trails);
-      const mergedIds = new Set(enriched.map((a) => a.icao24));
-      const merged: AircraftState[] = [...(enriched as AircraftState[])];
-      for (const bac of trailResult.bufferedAircraft) {
-        if (!mergedIds.has(bac.icao24)) {
-          merged.push(bac);
-          mergedIds.add(bac.icao24);
-        }
-      }
-      setAircraft(merged);
+      setAircraft(result.states);
       setSourceStatus(result.sourceStatus);
       setLastUpdate(new Date());
       setLoading(false);
@@ -145,7 +140,7 @@ export default function PlanningLiveTrafficScreen() {
 
   useEffect(() => {
     loadAircraft();
-    refreshInterval.current = setInterval(loadAircraft, 3000);
+    refreshInterval.current = setInterval(loadAircraft, 2000);
     return () => {
       if (refreshInterval.current) clearInterval(refreshInterval.current);
     };
@@ -215,16 +210,26 @@ export default function PlanningLiveTrafficScreen() {
           <View style={[styles.categoryBadge, { backgroundColor: theme.primary + "15" }]}>
             <ThemedText style={[styles.categoryText, { color: theme.primary }]}>{getCategoryLabel(item.category)}</ThemedText>
           </View>
-          <View style={styles.sourceIndicators}>
-            {item.sources.map((s) => (
-              <View key={s} style={[styles.sourceChip, { backgroundColor: theme.backgroundSecondary }]}>
-                <View style={[styles.sourceChipDot, { backgroundColor: s === "opensky" ? "#4CAF50" : s === "adsbfi" ? "#2196F3" : s === "airplaneslive" ? "#9C27B0" : s === "adsblol" ? "#E91E63" : "#FF9800" }]} />
-                <ThemedText style={[styles.sourceChipText, { color: theme.textTertiary }]}>
-                  {s === "opensky" ? "OpenSky" : s === "adsbfi" ? "adsb.fi" : s === "airplaneslive" ? "apl" : s === "adsblol" ? "lol" : "adsb.one"}
-                </ThemedText>
+          {(() => {
+            const agencyTag = getAgencyTag(item);
+            return agencyTag ? (
+              <View style={[styles.agencyBadge, { backgroundColor: agencyTagColor(agencyTag) }]} testID={`badge-agency-${item.icao24}`}>
+                <ThemedText style={styles.agencyBadgeText}>{agencyTag}</ThemedText>
               </View>
-            ))}
-          </View>
+            ) : null;
+          })()}
+          {isAdmin ? (
+            <View style={styles.sourceIndicators}>
+              {item.sources.map((s) => (
+                <View key={s} style={[styles.sourceChip, { backgroundColor: theme.backgroundSecondary }]}>
+                  <View style={[styles.sourceChipDot, { backgroundColor: s === "opensky" ? "#4CAF50" : s === "adsbfi" ? "#2196F3" : s === "airplaneslive" ? "#9C27B0" : s === "adsblol" ? "#E91E63" : "#FF9800" }]} />
+                  <ThemedText style={[styles.sourceChipText, { color: theme.textTertiary }]}>
+                    {s === "opensky" ? "OpenSky" : s === "adsbfi" ? "adsb.fi" : s === "airplaneslive" ? "apl" : s === "adsblol" ? "lol" : "adsb.one"}
+                  </ThemedText>
+                </View>
+              ))}
+            </View>
+          ) : null}
         </View>
         <View style={styles.detailsGrid}>
           <View style={styles.detailItem}>
@@ -391,28 +396,30 @@ export default function PlanningLiveTrafficScreen() {
           Letzte Aktualisierung: {lastUpdate.toLocaleTimeString("de-DE")} (alle 3 Sek.)
         </ThemedText>
       ) : null}
-      <View style={styles.sourceStatusRow}>
-        <View style={styles.sourceStatusItem}>
-          <View style={[styles.sourceStatusDot, { backgroundColor: sourceStatus.opensky === "ok" ? "#34C759" : sourceStatus.opensky === "timeout" ? "#FF9500" : "#FF3B30" }]} />
-          <ThemedText style={[styles.sourceStatusLabel, { color: theme.textTertiary }]}>OpenSky</ThemedText>
+      {isAdmin ? (
+        <View style={styles.sourceStatusRow}>
+          <View style={styles.sourceStatusItem}>
+            <View style={[styles.sourceStatusDot, { backgroundColor: sourceStatus.opensky === "ok" ? "#34C759" : sourceStatus.opensky === "timeout" ? "#FF9500" : "#FF3B30" }]} />
+            <ThemedText style={[styles.sourceStatusLabel, { color: theme.textTertiary }]}>OpenSky</ThemedText>
+          </View>
+          <View style={styles.sourceStatusItem}>
+            <View style={[styles.sourceStatusDot, { backgroundColor: sourceStatus.adsbfi === "ok" ? "#34C759" : sourceStatus.adsbfi === "timeout" ? "#FF9500" : "#FF3B30" }]} />
+            <ThemedText style={[styles.sourceStatusLabel, { color: theme.textTertiary }]}>adsb.fi</ThemedText>
+          </View>
+          <View style={styles.sourceStatusItem}>
+            <View style={[styles.sourceStatusDot, { backgroundColor: sourceStatus.adsbone === "ok" ? "#34C759" : sourceStatus.adsbone === "timeout" ? "#FF9500" : "#FF3B30" }]} />
+            <ThemedText style={[styles.sourceStatusLabel, { color: theme.textTertiary }]}>adsb.one</ThemedText>
+          </View>
+          <View style={styles.sourceStatusItem}>
+            <View style={[styles.sourceStatusDot, { backgroundColor: sourceStatus.airplaneslive === "ok" ? "#34C759" : sourceStatus.airplaneslive === "timeout" ? "#FF9500" : "#FF3B30" }]} />
+            <ThemedText style={[styles.sourceStatusLabel, { color: theme.textTertiary }]}>apl</ThemedText>
+          </View>
+          <View style={styles.sourceStatusItem}>
+            <View style={[styles.sourceStatusDot, { backgroundColor: sourceStatus.adsblol === "ok" ? "#34C759" : sourceStatus.adsblol === "timeout" ? "#FF9500" : "#FF3B30" }]} />
+            <ThemedText style={[styles.sourceStatusLabel, { color: theme.textTertiary }]}>lol</ThemedText>
+          </View>
         </View>
-        <View style={styles.sourceStatusItem}>
-          <View style={[styles.sourceStatusDot, { backgroundColor: sourceStatus.adsbfi === "ok" ? "#34C759" : sourceStatus.adsbfi === "timeout" ? "#FF9500" : "#FF3B30" }]} />
-          <ThemedText style={[styles.sourceStatusLabel, { color: theme.textTertiary }]}>adsb.fi</ThemedText>
-        </View>
-        <View style={styles.sourceStatusItem}>
-          <View style={[styles.sourceStatusDot, { backgroundColor: sourceStatus.adsbone === "ok" ? "#34C759" : sourceStatus.adsbone === "timeout" ? "#FF9500" : "#FF3B30" }]} />
-          <ThemedText style={[styles.sourceStatusLabel, { color: theme.textTertiary }]}>adsb.one</ThemedText>
-        </View>
-        <View style={styles.sourceStatusItem}>
-          <View style={[styles.sourceStatusDot, { backgroundColor: sourceStatus.airplaneslive === "ok" ? "#34C759" : sourceStatus.airplaneslive === "timeout" ? "#FF9500" : "#FF3B30" }]} />
-          <ThemedText style={[styles.sourceStatusLabel, { color: theme.textTertiary }]}>apl</ThemedText>
-        </View>
-        <View style={styles.sourceStatusItem}>
-          <View style={[styles.sourceStatusDot, { backgroundColor: sourceStatus.adsblol === "ok" ? "#34C759" : sourceStatus.adsblol === "timeout" ? "#FF9500" : "#FF3B30" }]} />
-          <ThemedText style={[styles.sourceStatusLabel, { color: theme.textTertiary }]}>lol</ThemedText>
-        </View>
-      </View>
+      ) : null}
     </View>
   );
 
@@ -444,6 +451,15 @@ export default function PlanningLiveTrafficScreen() {
       isAlert: criticalIcaos.has(ac.icao24),
       isApproaching: warningIcaos.has(ac.icao24) || approachIcaos.has(ac.icao24),
       isStale: ac.isStale,
+      registration: ac.registration,
+      aircraftType: ac.aircraftType,
+      aircraftDesc: ac.aircraftDesc,
+      operator: ac.operator,
+      cn: ac.cn,
+      originIata: ac.originIata,
+      destIata: ac.destIata,
+      flightNumber: ac.flightNumber,
+      agencyTag: getAgencyTag(ac),
     }));
   }, [sortedAircraft, criticalIcaos, warningIcaos, approachIcaos, pilotElevation]);
 
@@ -490,18 +506,39 @@ export default function PlanningLiveTrafficScreen() {
     </View>
   );
 
-  const countryLayers = useMemo(() => getCountryGeozoneLayers(countryIso), [countryIso]);
-
-  const toggleGeozoneLayer = (layerId: string) => {
-    const config = getCountryGeozoneConfig(countryIso);
-    if (config.forceEnabledLayerIds.includes(layerId) && geozoneSettings[layerId]) return;
-    const updated = { ...geozoneSettings, [layerId]: !geozoneSettings[layerId] };
+  const toggleGeozoneSetting = (key: string) => {
+    const updated = { ...geozoneSettings, [key]: !geozoneSettings[key] };
     setGeozoneSettings(updated);
-    saveGeozoneSettings(updated, countryIso);
+    saveGeozoneSettings(updated);
   };
+
+  const allGeozoneToggleKeys = useMemo(
+    () => [...GEOZONE_CATEGORIES.map((c) => c.id), ...COMBINED_COUNTRY_TOGGLES.map((t) => t.id)],
+    [],
+  );
 
   const [layerInfoId, setLayerInfoId] = useState<string | null>(null);
   const layerInfoData = layerInfoId ? GEOZONE_REGULATORY_INFO[layerInfoId] : null;
+
+  const renderGeozoneToggleRow = (key: string, label: string, infoId?: string) => (
+    <View key={key} style={[styles.geozoneLayerRow, { borderBottomColor: theme.border }]}>
+      <Pressable onPress={() => toggleGeozoneSetting(key)} style={{ flexDirection: "row", alignItems: "center", gap: Spacing.md, flex: 1 }}>
+        <View style={[styles.geozoneCheck, { backgroundColor: geozoneSettings[key] ? theme.primary : theme.backgroundSecondary, borderColor: geozoneSettings[key] ? theme.primary : theme.textTertiary }]}>
+          {geozoneSettings[key] ? <Feather name="check" size={14} color="#FFFFFF" /> : null}
+        </View>
+        <ThemedText style={styles.geozoneLayerLabel}>{label}</ThemedText>
+      </Pressable>
+      {infoId && GEOZONE_REGULATORY_INFO[infoId] ? (
+        <Pressable
+          onPress={() => { setLayerInfoId(infoId); try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch (_e) {} }}
+          hitSlop={10}
+          style={[styles.geozoneLayerInfoBtn, { borderColor: theme.primary }]}
+        >
+          <Feather name="info" size={12} color={theme.primary} />
+        </Pressable>
+      ) : null}
+    </View>
+  );
 
   const geozoneModal = (
     <Modal visible={showGeozoneModal} transparent={false} animationType="slide" onRequestClose={() => { setShowGeozoneModal(false); setLayerInfoId(null); }}>
@@ -515,26 +552,37 @@ export default function PlanningLiveTrafficScreen() {
         <ThemedText style={[styles.geozoneModalSubtitle, { color: theme.textTertiary }]}>
           Luftfahrt-Geozonen einblenden
         </ThemedText>
+        <View style={styles.geozoneToggleAllRow}>
+          <Pressable
+            onPress={() => {
+              const allOn = allGeozoneToggleKeys.every((k) => geozoneSettings[k]);
+              const next = { ...geozoneSettings };
+              allGeozoneToggleKeys.forEach((k) => { next[k] = !allOn; });
+              setGeozoneSettings(next);
+              saveGeozoneSettings(next);
+              try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); } catch (_e) {}
+            }}
+            style={[styles.geozoneToggleAllBtn, { backgroundColor: theme.primary + "18" }]}
+          >
+            <Feather
+              name={allGeozoneToggleKeys.every((k) => geozoneSettings[k]) ? "x-square" : "check-square"}
+              size={16}
+              color={theme.primary}
+            />
+            <Text style={[styles.geozoneToggleAllText, { color: theme.primary }]}>
+              {allGeozoneToggleKeys.every((k) => geozoneSettings[k]) ? "Alle ausschalten" : "Alle einschalten"}
+            </Text>
+          </Pressable>
+        </View>
         <ScrollView style={styles.geozoneModalList}>
-          {countryLayers.map((layer) => (
-            <View key={layer.id} style={[styles.geozoneLayerRow, { borderBottomColor: theme.border }]}>
-              <Pressable onPress={() => toggleGeozoneLayer(layer.id)} style={{ flexDirection: "row", alignItems: "center", gap: Spacing.md, flex: 1 }}>
-                <View style={[styles.geozoneCheck, { backgroundColor: geozoneSettings[layer.id] ? theme.primary : theme.backgroundSecondary, borderColor: geozoneSettings[layer.id] ? theme.primary : theme.textTertiary }]}>
-                  {geozoneSettings[layer.id] ? <Feather name="check" size={14} color="#FFFFFF" /> : null}
-                </View>
-                <ThemedText style={styles.geozoneLayerLabel}>{layer.label}</ThemedText>
-              </Pressable>
-              {GEOZONE_REGULATORY_INFO[layer.id] ? (
-                <Pressable
-                  onPress={() => { setLayerInfoId(layer.id); try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch (_e) {} }}
-                  hitSlop={10}
-                  style={[styles.geozoneLayerInfoBtn, { borderColor: theme.primary }]}
-                >
-                  <Feather name="info" size={12} color={theme.primary} />
-                </Pressable>
-              ) : null}
-            </View>
-          ))}
+          <Text style={{ fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5, marginTop: Spacing.sm, marginBottom: Spacing.xs, color: theme.textTertiary }}>
+            Kategorien (länderübergreifend)
+          </Text>
+          {GEOZONE_CATEGORIES.map((cat) => renderGeozoneToggleRow(cat.id, cat.label, cat.infoId))}
+          <Text style={{ fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5, marginTop: Spacing.lg, marginBottom: Spacing.xs, color: theme.textTertiary }}>
+            Länder-Gesamtanzeige
+          </Text>
+          {COMBINED_COUNTRY_TOGGLES.map((t) => renderGeozoneToggleRow(t.id, t.label, t.infoId))}
         </ScrollView>
       </View>
       <Modal visible={layerInfoData != null} transparent animationType="fade" onRequestClose={() => setLayerInfoId(null)}>
@@ -568,7 +616,7 @@ export default function PlanningLiveTrafficScreen() {
                 ) : null}
 
                 {(() => {
-                  const modalContacts = layerInfoId ? getContactsForZone(layerInfoId) : (layerInfoData.contacts || []);
+                  const modalContacts = layerInfoId ? getContactsForZone(layerInfoId, undefined, countryIso) : (layerInfoData.contacts || []);
                   return modalContacts.length > 0 ? (
                   <View style={{ marginTop: 16 }}>
                     <Text style={[styles.layerInfoSectionLabel, { color: theme.primary }]}>Kontakte</Text>
@@ -675,6 +723,8 @@ const styles = StyleSheet.create({
   categorySourceRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: Spacing.sm },
   categoryBadge: { paddingHorizontal: Spacing.sm, paddingVertical: 2, borderRadius: BorderRadius.sm },
   categoryText: { ...Typography.caption, fontSize: 10, fontWeight: "600" },
+  agencyBadge: { paddingHorizontal: Spacing.sm, paddingVertical: 2, borderRadius: BorderRadius.sm },
+  agencyBadgeText: { ...Typography.caption, fontSize: 10, fontWeight: "700", color: "#FFFFFF" },
   sourceIndicators: { flexDirection: "row", gap: 4 },
   sourceChip: { flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 5, paddingVertical: 2, borderRadius: BorderRadius.xs },
   sourceChipDot: { width: 5, height: 5, borderRadius: 2.5 },
@@ -719,4 +769,7 @@ const styles = StyleSheet.create({
   layerInfoContactValue: { fontSize: 13, fontWeight: "600", lineHeight: 18 },
   layerInfoOkBtn: { alignSelf: "flex-end", borderRadius: 8, paddingHorizontal: 24, paddingVertical: 8, marginTop: 16 },
   layerInfoOkText: { color: "#FFFFFF", fontSize: 14, fontWeight: "700" },
+  geozoneToggleAllRow: { paddingHorizontal: Spacing.lg, marginBottom: Spacing.sm },
+  geozoneToggleAllBtn: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 10, paddingHorizontal: 14, borderRadius: 10, alignSelf: "flex-start" },
+  geozoneToggleAllText: { fontSize: 14, fontWeight: "600" },
 });

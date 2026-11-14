@@ -1,198 +1,29 @@
-export interface CountryMapConfig {
-  iso: string;
-  name: string;
-  nameDE: string;
-  urlTemplate: string;
-  supportsCoordinates: boolean;
-  coordinateType?: "wgs84" | "epsg2169" | "epsg3857" | "lv95";
-}
+import { BUNDESLAND_POLYGONS } from "./bundeslandPolygons";
+import {
+  COUNTRY_BOUNDING_BOXES,
+  detectCountryFromCoordinates,
+  getCountryBoundingBox,
+  hasOwnMap,
+  OWN_MAP_DATA_COUNTRIES,
+  pointInPolygon,
+} from "../../shared/countryDetection";
+import type { BoundingBox, CountryBoundingBox } from "../../shared/countryDetection";
+// COUNTRY_MAPS + Karten-Hilfen stammen aus der geteilten Registry, damit Mobile
+// und Web (web/src/lib/planning/countryMaps.ts) garantiert identische Karten/
+// Deep-Links verwenden. Siehe shared/countryMaps.ts.
+import {
+  COUNTRY_MAPS,
+  EASA_FALLBACK_MAP,
+  buildMapUrl,
+  getCountryMapConfig,
+  getMapConfigOrFallback,
+} from "../../shared/countryMaps";
+import type { CountryMapConfig } from "../../shared/countryMaps";
 
-function wgs84ToEpsg3857(lat: number, lon: number): { x: number; y: number } {
-  const x = lon * 20037508.34 / 180;
-  let y = Math.log(Math.tan((90 + lat) * Math.PI / 360)) / (Math.PI / 180);
-  y = y * 20037508.34 / 180;
-  return { x: Math.round(x), y: Math.round(y) };
-}
-
-function wgs84ToEpsg2169(lat: number, lon: number): { x: number; y: number } {
-  const x = 699003 + (lon - 6.13) * 73000;
-  const y = 6414253 + (lat - 49.75) * 111000;
-  return { x: Math.round(x), y: Math.round(y) };
-}
-
-function wgs84ToLV95(lat: number, lon: number): { easting: number; northing: number } {
-  const phi = lat * Math.PI / 180;
-  const lambda = lon * Math.PI / 180;
-  const phi0 = 46.9524056 * Math.PI / 180;
-  const lambda0 = 7.4395833 * Math.PI / 180;
-  const phiDiff = (phi - phi0) * 10000;
-  const lambdaDiff = (lambda - lambda0) * 10000;
-  const easting = 2600000 + 211455.93 * lambdaDiff - 10938.51 * lambdaDiff * phiDiff - 0.36 * lambdaDiff * phiDiff * phiDiff - 44.54 * lambdaDiff * lambdaDiff * lambdaDiff;
-  const northing = 1200000 + 308807.95 * phiDiff + 3745.25 * lambdaDiff * lambdaDiff + 76.63 * phiDiff * phiDiff - 194.56 * lambdaDiff * lambdaDiff * phiDiff + 119.79 * phiDiff * phiDiff * phiDiff;
-  return { easting: Math.round(easting), northing: Math.round(northing) };
-}
-
-export const COUNTRY_MAPS: CountryMapConfig[] = [
-  {
-    iso: "DE",
-    name: "Germany",
-    nameDE: "Deutschland",
-    urlTemplate: "https://maptool-dipul.dfs.de/geozones/@{lon},{lat},1000r?language=de&zoom=11",
-    supportsCoordinates: true,
-    coordinateType: "wgs84",
-  },
-  {
-    iso: "AT",
-    name: "Austria",
-    nameDE: "Österreich",
-    urlTemplate: "https://utm.dronespace.at/avm/#p=12/{lat}/{lon}",
-    supportsCoordinates: true,
-    coordinateType: "wgs84",
-  },
-  {
-    iso: "BE",
-    name: "Belgium",
-    nameDE: "Belgien",
-    urlTemplate: "https://map.droneguide.be/",
-    supportsCoordinates: false,
-  },
-  {
-    iso: "CH",
-    name: "Switzerland",
-    nameDE: "Schweiz",
-    urlTemplate: "https://map.geo.admin.ch/#/map?lang=de&center={easting},{northing}&z=9",
-    supportsCoordinates: true,
-    coordinateType: "lv95",
-  },
-  {
-    iso: "DK",
-    name: "Denmark",
-    nameDE: "Dänemark",
-    urlTemplate: "https://www.en.droneregler.dk/uas-geographical-zones",
-    supportsCoordinates: false,
-  },
-  {
-    iso: "EE",
-    name: "Estonia",
-    nameDE: "Estland",
-    urlTemplate: "https://utm.eans.ee/avm/#p=12/{lat}/{lon}",
-    supportsCoordinates: true,
-    coordinateType: "wgs84",
-  },
-  {
-    iso: "ES",
-    name: "Spain",
-    nameDE: "Spanien",
-    urlTemplate: "https://drones.enaire.es/",
-    supportsCoordinates: false,
-  },
-  {
-    iso: "FR",
-    name: "France",
-    nameDE: "Frankreich",
-    urlTemplate: "https://www.geoportail.gouv.fr/",
-    supportsCoordinates: false,
-  },
-  {
-    iso: "GR",
-    name: "Greece",
-    nameDE: "Griechenland",
-    urlTemplate: "https://dagr.hasp.gov.gr/",
-    supportsCoordinates: false,
-  },
-  {
-    iso: "HR",
-    name: "Croatia",
-    nameDE: "Kroatien",
-    urlTemplate: "https://amc-en.crocontrol.hr/Current-situation-anonymous-users",
-    supportsCoordinates: false,
-  },
-  {
-    iso: "IT",
-    name: "Italy",
-    nameDE: "Italien",
-    urlTemplate: "https://www.d-flight.it/",
-    supportsCoordinates: false,
-  },
-  {
-    iso: "LI",
-    name: "Liechtenstein",
-    nameDE: "Liechtenstein",
-    urlTemplate: "https://map.geo.admin.ch/#/map?lang=de&center={easting},{northing}&z=9",
-    supportsCoordinates: true,
-    coordinateType: "lv95",
-  },
-  {
-    iso: "LU",
-    name: "Luxembourg",
-    nameDE: "Luxemburg",
-    urlTemplate: "https://map.geoportail.lu/theme/main?lang=de&version=3&zoom=12&X={x}&Y={y}",
-    supportsCoordinates: true,
-    coordinateType: "epsg2169",
-  },
-  {
-    iso: "LV",
-    name: "Latvia",
-    nameDE: "Lettland",
-    urlTemplate: "https://www.airspace.lv/",
-    supportsCoordinates: false,
-  },
-  {
-    iso: "NL",
-    name: "Netherlands",
-    nameDE: "Niederlande",
-    urlTemplate: "https://map.godrone.nl/#loc={lat},{lon},13",
-    supportsCoordinates: true,
-    coordinateType: "wgs84",
-  },
-  {
-    iso: "NO",
-    name: "Norway",
-    nameDE: "Norwegen",
-    urlTemplate: "https://nsm.geodataonline.no/",
-    supportsCoordinates: false,
-  },
-  {
-    iso: "PL",
-    name: "Poland",
-    nameDE: "Polen",
-    urlTemplate: "https://dronemap.pansa.pl/",
-    supportsCoordinates: false,
-  },
-  {
-    iso: "PT",
-    name: "Portugal",
-    nameDE: "Portugal",
-    urlTemplate: "https://dnt.anac.pt/mapa.html",
-    supportsCoordinates: false,
-  },
-  {
-    iso: "RO",
-    name: "Romania",
-    nameDE: "Rumänien",
-    urlTemplate: "https://flightplan.romatsa.ro/init/drones",
-    supportsCoordinates: false,
-  },
-  {
-    iso: "SE",
-    name: "Sweden",
-    nameDE: "Schweden",
-    urlTemplate: "https://daim.lfv.se/echarts/dronechart/?x={x}&y={y}&z=10",
-    supportsCoordinates: true,
-    coordinateType: "epsg3857",
-  },
-  {
-    iso: "SI",
-    name: "Slovenia",
-    nameDE: "Slowenien",
-    urlTemplate: "https://caa-slovenia.maps.arcgis.com/",
-    supportsCoordinates: false,
-  },
-];
-
-export function getCountryMapConfig(isoCode: string): CountryMapConfig | undefined {
-  return COUNTRY_MAPS.find((c) => c.iso === isoCode.toUpperCase());
-}
+export { detectCountryFromCoordinates, getCountryBoundingBox, hasOwnMap, OWN_MAP_DATA_COUNTRIES };
+export type { BoundingBox, CountryBoundingBox };
+export { COUNTRY_MAPS, EASA_FALLBACK_MAP, buildMapUrl, getCountryMapConfig, getMapConfigOrFallback };
+export type { CountryMapConfig };
 
 /**
  * Standard-Mittelpunkt eines Landes (WGS84) für Karten-Zentrierung,
@@ -223,6 +54,23 @@ const COUNTRY_DEFAULT_CENTER: Record<string, { lat: number; lon: number; latDelt
   RO: { lat: 45.9432, lon: 24.9668, latDelta: 4.5, lonDelta: 7.0 },
   SI: { lat: 46.1512, lon: 14.9955, latDelta: 1.5, lonDelta: 3.0 },
   LI: { lat: 47.166, lon: 9.5554, latDelta: 0.5, lonDelta: 0.8 },
+  BG: { lat: 42.7339, lon: 25.4858, latDelta: 3.0, lonDelta: 6.0 },
+  CY: { lat: 35.1264, lon: 33.4299, latDelta: 1.2, lonDelta: 2.2 },
+  HU: { lat: 47.1625, lon: 19.5033, latDelta: 2.8, lonDelta: 6.5 },
+  LT: { lat: 55.1694, lon: 23.8813, latDelta: 2.5, lonDelta: 5.5 },
+  MT: { lat: 35.9375, lon: 14.3754, latDelta: 0.4, lonDelta: 0.6 },
+  SK: { lat: 48.669, lon: 19.699, latDelta: 1.8, lonDelta: 5.5 },
+  AL: { lat: 41.15, lon: 20.17, latDelta: 1.6, lonDelta: 1.6 },
+  BA: { lat: 43.92, lon: 17.68, latDelta: 1.6, lonDelta: 2.2 },
+  IS: { lat: 64.96, lon: -19.02, latDelta: 2.0, lonDelta: 6.0 },
+  XK: { lat: 42.6, lon: 20.9, latDelta: 0.9, lonDelta: 1.2 },
+  MC: { lat: 43.7384, lon: 7.4246, latDelta: 0.05, lonDelta: 0.05 },
+  MK: { lat: 41.61, lon: 21.75, latDelta: 1.0, lonDelta: 1.6 },
+  ME: { lat: 42.71, lon: 19.37, latDelta: 1.0, lonDelta: 1.2 },
+  RS: { lat: 44.02, lon: 21.01, latDelta: 2.2, lonDelta: 2.5 },
+  UA: { lat: 48.38, lon: 31.17, latDelta: 4.5, lonDelta: 9.0 },
+  BY: { lat: 53.71, lon: 27.95, latDelta: 2.6, lonDelta: 5.0 },
+  RU: { lat: 55.75, lon: 37.62, latDelta: 10, lonDelta: 20 },
 };
 
 export function getCountryDefaultCenter(isoCode: string | null | undefined): { lat: number; lon: number; latDelta: number; lonDelta: number } {
@@ -230,125 +78,31 @@ export function getCountryDefaultCenter(isoCode: string | null | undefined): { l
   return COUNTRY_DEFAULT_CENTER[isoCode.toUpperCase()] ?? COUNTRY_DEFAULT_CENTER.DE;
 }
 
-export function buildMapUrl(config: CountryMapConfig, lat: number, lon: number): string {
-  if (!config.supportsCoordinates) {
-    return config.urlTemplate;
-  }
+/**
+ * Convert a 2-letter ISO country code into its emoji flag.
+ * Falls back to a globe emoji if the code is invalid.
+ */
+export function getCountryFlag(isoCode: string | null | undefined): string {
+  const c = (isoCode || "").toUpperCase();
+  if (!/^[A-Z]{2}$/.test(c)) return "\uD83C\uDF10"; // 🌐
+  const A = 0x1f1e6;
+  const a = "A".charCodeAt(0);
+  return String.fromCodePoint(A + (c.charCodeAt(0) - a)) + String.fromCodePoint(A + (c.charCodeAt(1) - a));
+}
 
-  let url = config.urlTemplate;
-
-  if (config.coordinateType === "epsg3857") {
-    const { x, y } = wgs84ToEpsg3857(lat, lon);
-    url = url.replace(/{x}/g, x.toString()).replace(/{y}/g, y.toString());
-  } else if (config.coordinateType === "epsg2169") {
-    const { x, y } = wgs84ToEpsg2169(lat, lon);
-    url = url.replace(/{x}/g, x.toString()).replace(/{y}/g, y.toString());
-  } else if (config.coordinateType === "lv95") {
-    const { easting, northing } = wgs84ToLV95(lat, lon);
-    url = url.replace(/{easting}/g, easting.toString()).replace(/{northing}/g, northing.toString());
-  } else {
-    url = url
-      .replace(/{lat}/g, lat.toFixed(6))
-      .replace(/{lon}/g, lon.toFixed(6))
-      .replace(/{lng}/g, lon.toFixed(6));
-  }
-
-  return url;
+/**
+ * True if (lat,lon) lies inside the bounding box / refined boundary
+ * of the given country. Uses detectCountryFromCoordinates for accuracy.
+ */
+export function isPointInCountry(lat: number, lon: number, isoCode: string | null | undefined): boolean {
+  if (!isoCode) return false;
+  const detected = detectCountryFromCoordinates(lat, lon);
+  if (!detected) return false;
+  return detected.toUpperCase() === isoCode.toUpperCase();
 }
 
 export function getDefaultMapConfig(): CountryMapConfig {
   return COUNTRY_MAPS[0];
-}
-
-interface CountryBoundingBox {
-  iso: string;
-  minLat: number;
-  maxLat: number;
-  minLon: number;
-  maxLon: number;
-}
-
-const COUNTRY_BOUNDING_BOXES: CountryBoundingBox[] = [
-  { iso: "AT", minLat: 46.37, maxLat: 49.02, minLon: 9.53, maxLon: 17.16 },
-  { iso: "BE", minLat: 49.49, maxLat: 51.51, minLon: 2.54, maxLon: 6.41 },
-  { iso: "CH", minLat: 45.82, maxLat: 47.81, minLon: 5.96, maxLon: 10.49 },
-  { iso: "DE", minLat: 47.27, maxLat: 55.06, minLon: 5.87, maxLon: 15.04 },
-  { iso: "DK", minLat: 54.56, maxLat: 57.75, minLon: 8.07, maxLon: 15.19 },
-  { iso: "EE", minLat: 57.52, maxLat: 59.68, minLon: 21.76, maxLon: 28.21 },
-  { iso: "ES", minLat: 35.95, maxLat: 43.79, minLon: -9.30, maxLon: 4.33 },
-  { iso: "FR", minLat: 41.33, maxLat: 51.12, minLon: -5.14, maxLon: 9.56 },
-  { iso: "GR", minLat: 34.80, maxLat: 41.75, minLon: 19.37, maxLon: 29.65 },
-  { iso: "HR", minLat: 42.39, maxLat: 46.55, minLon: 13.49, maxLon: 19.45 },
-  { iso: "IT", minLat: 35.49, maxLat: 47.09, minLon: 6.63, maxLon: 18.52 },
-  { iso: "LI", minLat: 47.05, maxLat: 47.27, minLon: 9.47, maxLon: 9.64 },
-  { iso: "LU", minLat: 49.45, maxLat: 50.18, minLon: 5.73, maxLon: 6.53 },
-  { iso: "LV", minLat: 55.67, maxLat: 58.08, minLon: 20.97, maxLon: 28.24 },
-  { iso: "NL", minLat: 50.75, maxLat: 53.47, minLon: 3.36, maxLon: 7.21 },
-  { iso: "NO", minLat: 57.96, maxLat: 71.19, minLon: 4.64, maxLon: 31.08 },
-  { iso: "PL", minLat: 49.00, maxLat: 54.84, minLon: 14.12, maxLon: 24.15 },
-  { iso: "PT", minLat: 36.96, maxLat: 42.15, minLon: -9.50, maxLon: -6.19 },
-  { iso: "RO", minLat: 43.62, maxLat: 48.27, minLon: 20.26, maxLon: 29.76 },
-  { iso: "SE", minLat: 55.34, maxLat: 69.06, minLon: 10.96, maxLon: 24.17 },
-  { iso: "SI", minLat: 45.42, maxLat: 46.88, minLon: 13.38, maxLon: 16.61 },
-];
-
-const PRIORITY_COUNTRIES = ["LU", "NL", "CH", "DE"];
-
-const REFINED_BOUNDARIES: { iso: string; check: (lat: number, lon: number) => boolean }[] = [
-  {
-    iso: "LU",
-    check: (lat, lon) => lat >= 49.45 && lat <= 50.18 && lon >= 5.73 && lon <= 6.53,
-  },
-  {
-    iso: "NL",
-    check: (lat, lon) => {
-      if (lat < 50.75 || lat > 53.47 || lon < 3.36 || lon > 7.21) return false;
-      if (lat >= 51.55) return true;
-      if (lat >= 51.0 && lon <= 6.25) return true;
-      if (lat >= 50.75 && lon <= 6.05) return true;
-      return false;
-    },
-  },
-  {
-    iso: "DE",
-    check: (lat, lon) => {
-      if (lat < 47.27 || lat > 55.06 || lon < 5.87 || lon > 15.04) return false;
-      if (lat >= 47.81) return true;
-      if (lat >= 47.55 && lon >= 7.5 && lon <= 13.9) return true;
-      if (lat >= 47.27 && lon >= 10.2 && lon <= 13.9) return true;
-      return false;
-    },
-  },
-  {
-    iso: "CH",
-    check: (lat, lon) => lat >= 45.82 && lat <= 47.81 && lon >= 5.96 && lon <= 10.49,
-  },
-];
-
-export function detectCountryFromCoordinates(lat: number, lon: number): string | null {
-  for (const refined of REFINED_BOUNDARIES) {
-    if (refined.check(lat, lon)) {
-      return refined.iso;
-    }
-  }
-
-  const matches: { iso: string; area: number }[] = [];
-  
-  for (const box of COUNTRY_BOUNDING_BOXES) {
-    if (lat >= box.minLat && lat <= box.maxLat && lon >= box.minLon && lon <= box.maxLon) {
-      const area = (box.maxLat - box.minLat) * (box.maxLon - box.minLon);
-      matches.push({ iso: box.iso, area });
-    }
-  }
-  
-  if (matches.length === 0) return null;
-
-  for (const prio of PRIORITY_COUNTRIES) {
-    if (matches.find(m => m.iso === prio)) return prio;
-  }
-  
-  matches.sort((a, b) => a.area - b.area);
-  return matches[0].iso;
 }
 
 export interface CountryCenter {
@@ -386,6 +140,33 @@ export async function reverseGeocodeCountry(lat: number, lon: number): Promise<s
     
     return null;
   } catch (error) {
+    return null;
+  }
+}
+
+export async function reverseGeocodePlace(lat: number, lon: number): Promise<string | null> {
+  try {
+    const response = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=14&accept-language=de`,
+      {
+        headers: {
+          "User-Agent": "DronePreFlightApp/1.0",
+        },
+      },
+    );
+    if (!response.ok) return null;
+    const data = await response.json();
+    const a = data?.address;
+    if (!a) return data?.display_name?.split(",").slice(0, 2).join(", ") || null;
+    const local =
+      a.village || a.hamlet || a.suburb || a.town || a.city || a.municipality || a.county;
+    const region = a.town || a.city || a.municipality || a.county || a.state;
+    const parts: string[] = [];
+    if (local) parts.push(local);
+    if (region && region !== local) parts.push(region);
+    if (parts.length === 0 && a.country) parts.push(a.country);
+    return parts.length > 0 ? parts.join(", ") : null;
+  } catch {
     return null;
   }
 }
@@ -438,7 +219,21 @@ const BUNDESLAND_BBOXES: BundeslandBBox[] = [
   { name: "Brandenburg", minLat: 51.36, maxLat: 53.56, minLon: 11.27, maxLon: 14.77, priority: 5 },
 ];
 
+/**
+ * Punktgenaue Bundesland-Erkennung über echte Grenzpolygone (Point-in-Polygon).
+ * Löst korrekt Grenzfälle auf, bei denen sich die groben Bounding-Boxen mehrerer
+ * Bundesländer überlappen (z. B. Limburg an der Lahn = Hessen, nicht RLP).
+ * Fällt nur dann auf die Bounding-Box-Heuristik zurück, wenn kein Polygon trifft.
+ */
 export function detectBundeslandFromCoordinates(lat: number, lon: number): string | null {
+  for (const bl of BUNDESLAND_POLYGONS) {
+    for (const polygon of bl.polygons) {
+      if (pointInPolygon(lon, lat, polygon)) return bl.name;
+    }
+  }
+
+  // Fallback: grobe Bounding-Box-Heuristik (z. B. wenn Punkt knapp außerhalb
+  // der vereinfachten Polygongrenze liegt).
   const matches = BUNDESLAND_BBOXES.filter(
     (b) => lat >= b.minLat && lat <= b.maxLat && lon >= b.minLon && lon <= b.maxLon,
   );

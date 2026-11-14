@@ -183,12 +183,14 @@ async function geozoneTemplates(iso: string): Promise<string[]> {
   for (const layers of combos) {
     if (!layers.length) continue;
     // dieselbe Umwandlung wie WMSTile in components/maps
-    urls.add(
-      buildCombinedWmsTileUrl(layers, iso)
-        .replace("{minX},{minY},{maxX},{maxY}", "{bbox-epsg-3857}")
-        .replace(/\{width\}/g, "256")
-        .replace(/\{height\}/g, "256"),
-    );
+    for (const u of buildCombinedWmsTileUrl(layers, iso)) {
+      urls.add(
+        u
+          .replace("{minX},{minY},{maxX},{maxY}", "{bbox-epsg-3857}")
+          .replace(/\{width\}/g, "256")
+          .replace(/\{height\}/g, "256"),
+      );
+    }
   }
   return [...urls];
 }

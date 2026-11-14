@@ -39,8 +39,73 @@ export const glossaryEntries: GlossaryEntry[] = [
     definition: 'Die Abk\u00FCrzung steht f\u00FCr "beyond visual line of sight operation" und beschreibt den UAS-Betrieb au\u00DFerhalb der Sichtweite. Dieser ist in der offenen Kategorie nicht erlaubt.',
   },
   {
+    term: "STS",
+    definition: 'Die Abk\u00FCrzung steht f\u00FCr "Standard Scenario" (Standardszenario) in der speziellen Kategorie. F\u00FCr vordefinierte Standardszenarien (STS-01 in Sichtweite, STS-02 au\u00DFerhalb der Sichtweite) gen\u00FCgt eine Betreibererkl\u00E4rung an die zust\u00E4ndige Beh\u00F6rde statt einer Einzelgenehmigung. Voraussetzung sind passende Drohnen (C5 f\u00FCr STS-01, C6 f\u00FCr STS-02) und der erforderliche Kompetenznachweis des Fernpiloten.',
+    link: { label: "EASA — Spezielle Kategorie", url: "https://www.easa.europa.eu/domains/drones-air-mobility/operating-drone/specific-category-civil-drones" },
+  },
+  {
+    term: "PDRA",
+    definition: 'Die Abk\u00FCrzung steht f\u00FCr "Predefined Risk Assessment" (vordefinierte Risikobewertung). Die Beh\u00F6rde stellt f\u00FCr h\u00E4ufige Einsatzarten eine vorab erstellte Risikobewertung bereit. Der Betreiber bezieht sich darauf und muss die SORA nicht vollst\u00E4ndig selbst durchf\u00FChren, was den Antrag auf Betriebsgenehmigung in der speziellen Kategorie vereinfacht.',
+    link: { label: "EASA — Spezielle Kategorie", url: "https://www.easa.europa.eu/domains/drones-air-mobility/operating-drone/specific-category-civil-drones" },
+  },
+  {
+    term: "SORA",
+    definition: 'Die Abk\u00FCrzung steht f\u00FCr "Specific Operations Risk Assessment". Es ist die vollst\u00E4ndige eigene Risikobewertung eines geplanten Betriebs in der speziellen Kategorie. Sie ist erforderlich, wenn kein Standardszenario (STS) und keine PDRA passt. Das Ergebnis ist die Grundlage f\u00FCr den Antrag auf Betriebsgenehmigung bei der Luftfahrtbeh\u00F6rde.',
+    link: { label: "EASA — Spezielle Kategorie", url: "https://www.easa.europa.eu/domains/drones-air-mobility/operating-drone/specific-category-civil-drones" },
+  },
+  {
+    term: "LUC",
+    definition: 'Die Abk\u00FCrzung steht f\u00FCr "Light UAS Operator Certificate" (Zeugnis f\u00FCr Betreiber von Leicht-UAS). Wird der LUC von der Beh\u00F6rde erteilt, darf der Betreiber bestimmte Betriebsarten in der speziellen Kategorie selbst genehmigen, ohne f\u00FCr jeden Flug eine Einzelgenehmigung beantragen zu m\u00FCssen.',
+    link: { label: "EASA — Spezielle Kategorie", url: "https://www.easa.europa.eu/domains/drones-air-mobility/operating-drone/specific-category-civil-drones" },
+  },
+  {
+    term: "U-Space",
+    definition: "Ein Teil des unteren Luftraums, in dem der Drohnenbetrieb digital verwaltet wird (z. B. Anmeldung, Verkehrsinformation, Geo-Awareness). U-Space-Luftr\u00E4ume werden in der EASA-Geo-Zonen-Farblegende blau dargestellt und erm\u00F6glichen viele Drohnen gleichzeitig sicher im selben Luftraum zu betreiben.",
+    link: { label: "EASA — Geo-Zonen", url: "https://www.easa.europa.eu/light/topics/geo-zones-know-where-fly-your-drone" },
+  },
+  {
+    term: "Geo-Zone (Farblegende)",
+    definition: "EASA-Farbcodierung f\u00FCr geografische UAS-Gebiete, die Mitgliedstaaten verwenden k\u00F6nnen: Rot = Excluded (Flug verboten), Gelb = Restricted (vorherige Genehmigung n\u00F6tig, z. B. nahe Flugh\u00E4fen/Krankenh\u00E4usern), Gr\u00FCn = Facilitated (Flug in der offenen Kategorie erlaubt), Blau = U-Space (verwalteter Luftraum). Es ist die Verantwortung des Fernpiloten, vor jedem Flug die aktuellen Geo-Zonen zu pr\u00FCfen.",
+    link: { label: "EASA — Geo-Zonen", url: "https://www.easa.europa.eu/light/topics/geo-zones-know-where-fly-your-drone" },
+  },
+  {
     term: "Charakteristische Dimension",
-    definition: "Die charakteristische Dimension (CD) beschreibt die Ausma\u00DFe des UAS einschlie\u00DFlich aller Rotoren oder anderer Anbauteile. CD beschreibt die gr\u00F6\u00DFtm\u00F6gliche Entfernung zwischen zwei Punkten am UAS. Beispiele: Flugzeuge \u2014 Fl\u00FCgelspannweite oder Rumpfl\u00E4nge; Hubschrauber \u2014 Rotordurchmesser; Multicopter \u2014 diagonaler Abstand der Rotorspitzen.",
+    definition: "Die charakteristische Dimension (CD) beschreibt die Ausma\u00DFe des UAS einschlie\u00DFlich aller Rotoren oder anderer Anbauteile. CD beschreibt die gr\u00F6\u00DFtm\u00F6gliche Entfernung zwischen zwei Punkten am UAS. Beispiele: Flugzeuge \u2014 Fl\u00FCgelspannweite oder Rumpfl\u00E4nge; Hubschrauber \u2014 Rotordurchmesser; Multicopter \u2014 diagonaler Abstand der Rotorspitzen.\n\nHinweis zu den App-Werten: Die in den Drohnen-Presets hinterlegten CD-Werte sind bewusst OHNE rotierende Propeller gerechnet (nur Frame/Tragarme; bei Cinewhoop-Modellen mit Propellerschutzk\u00E4fig z\u00E4hlt der Au\u00DFenring). Damit liegt der Wert ggf. unter dem LBA-Wert „inkl. Propeller“ \u2014 die berechneten Sichtweiten (ALOS) sind dadurch konservativer.",
+    link: { label: "LBA-Leitfaden FG/CV/GRB (PDF)", url: "https://www.lba.de/SharedDocs/Downloads/DE/B/B5_UAS/Leitfaden_FG_CV_GRB.pdf?__blob=publicationFile" },
+  },
+  {
+    term: "180\u00B0-Shutter-Regel",
+    definition: "Filmische Faustregel f\u00FCr Videoaufnahmen: Die Verschlusszeit der Kamera sollte etwa halb so lang sein wie ein Frame, also Shutter \u2248 1 / (2 \u00B7 fps). Bei 24 fps entspricht das 1/48 s, bei 25 fps 1/50 s, bei 30 fps 1/60 s, bei 60 fps 1/120 s usw. Damit entsteht eine nat\u00FCrliche Bewegungsunsch\u00E4rfe (Motion Blur), die das menschliche Auge als „filmisch“ empfindet \u2014 ohne diesen Effekt wirken Bewegungen ruckartig (z. B. bei zu kurzer Belichtung) oder verschwommen (bei zu langer). Da Drohnen-Kameras tags\u00FCber sonst stark \u00FCberbelichten, wird die Lichtmenge \u00FCber ND-Filter (Graufilter) reduziert. Der ND-Filter-Finder dieser App berechnet die passende ND-St\u00E4rke auf Basis von Ziel-fps, Drohnen-Blende und aktuellem Wetter.",
+  },
+  {
+    term: "ALOS",
+    definition: "Attitude Line of Sight \u2014 maximale Distanz, bis zu der ein Fernpilot Lage und Position des UAS optisch sicher erkennen kann. Praktisch ermittelte Grenzwerte (LBA-Leitfaden): Multirotor/Drehfl\u00FCgler ALOS = 327 \u00B7 CD + 20 m; Fl\u00E4chenflieger ALOS = 490 \u00B7 CD + 30 m.",
+    link: { label: "LBA-Leitfaden FG/CV/GRB (PDF)", url: "https://www.lba.de/SharedDocs/Downloads/DE/B/B5_UAS/Leitfaden_FG_CV_GRB.pdf?__blob=publicationFile" },
+  },
+  {
+    term: "DLOS",
+    definition: "Detection Line of Sight \u2014 Entfernung, in der andere Luftfahrzeuge noch rechtzeitig erkannt werden k\u00F6nnen, um auszuweichen. DLOS = 0,3 \u00B7 GV (Bodensicht), wobei f\u00FCr die VLOS-Berechnung maximal GV = 5 km angenommen werden darf (entspricht Sichtweite Luftraum G nach VFR). Daraus folgt DLOSmax = 1500 m.",
+    link: { label: "LBA-Leitfaden FG/CV/GRB (PDF)", url: "https://www.lba.de/SharedDocs/Downloads/DE/B/B5_UAS/Leitfaden_FG_CV_GRB.pdf?__blob=publicationFile" },
+  },
+  {
+    term: "VLOS-Grenze",
+    definition: "Die VLOS-Grenze ist der kleinere Wert aus ALOS und DLOS \u2014 alles dar\u00FCber hinaus gilt als BVLOS und ist in der offenen Kategorie nicht erlaubt. Ist die Entfernung zwischen Pilotenstandort und \u00E4u\u00DFerer Grenze des Contingency Volumes gr\u00F6\u00DFer als VLOS, kann der Betrieb nicht in VLOS durchgef\u00FChrt werden.",
+    link: { label: "LBA-Leitfaden FG/CV/GRB (PDF)", url: "https://www.lba.de/SharedDocs/Downloads/DE/B/B5_UAS/Leitfaden_FG_CV_GRB.pdf?__blob=publicationFile" },
+  },
+  {
+    term: "Flight Geography (FG)",
+    definition: "Das Volumen, in dem der Betreiber das UAS im Rahmen seines normalen Betriebs bewegt. Mindestma\u00DFe laut Leitfaden: Breite und H\u00F6he jeweils \u2265 3 \u00B7 CD.",
+    link: { label: "LBA-Leitfaden FG/CV/GRB (PDF)", url: "https://www.lba.de/SharedDocs/Downloads/DE/B/B5_UAS/Leitfaden_FG_CV_GRB.pdf?__blob=publicationFile" },
+  },
+  {
+    term: "Contingency Volume (CV)",
+    definition: "Volumen unmittelbar au\u00DFerhalb der Flight Geography, das diese vollst\u00E4ndig umschlie\u00DFt. Beim Eindringen sind Contingency Procedures auszul\u00F6sen. Laterale Breite SCV = SGPS + SPos + SK + SRZ + SCM (Fehlerquellen + Reaktionsweg + Contingency-Man\u00F6ver).",
+    link: { label: "LBA-Leitfaden FG/CV/GRB (PDF)", url: "https://www.lba.de/SharedDocs/Downloads/DE/B/B5_UAS/Leitfaden_FG_CV_GRB.pdf?__blob=publicationFile" },
+  },
+  {
+    term: "Ground Risk Buffer (GRB)",
+    definition: "Bodensicherheitsbereich, der am Contingency Volume angrenzt und das Aufschlagrisiko Dritter abf\u00E4ngt. Vereinfachte 1:1-Regel: SGRB = HCV + 0,5 \u00B7 CD. Ballistischer Ansatz (nur Drehfl\u00FCgler/Multicopter): SGRB = V0 \u00B7 \u221A(2HCV/g) + 0,5 \u00B7 CD.",
+    link: { label: "LBA-Leitfaden FG/CV/GRB (PDF)", url: "https://www.lba.de/SharedDocs/Downloads/DE/B/B5_UAS/Leitfaden_FG_CV_GRB.pdf?__blob=publicationFile" },
   },
   {
     term: "CTR",

@@ -196,7 +196,7 @@ const styles = StyleSheet.create({
   fill: { flex: 1 },
   hidden: { position: "absolute", width: 0, height: 0, opacity: 0 },
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12, padding: 24 },
-  overlay: { ...StyleSheet.absoluteFillObject },
+  overlay: { ...StyleSheet.absoluteFill },
   msg: { fontSize: 15, textAlign: "center" },
   retry: { paddingHorizontal: 18, paddingVertical: 10, borderRadius: 10 },
   retryText: { color: "#FFFFFF", fontWeight: "700" },

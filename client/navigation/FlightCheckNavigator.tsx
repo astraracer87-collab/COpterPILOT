@@ -17,7 +17,7 @@ import FpvSelectScreen from "@/screens/FpvSelectScreen";
 import PreCheckOverviewScreen from "@/screens/PreCheckOverviewScreen";
 import StandaloneLiveTrafficScreen from "@/screens/StandaloneLiveTrafficScreen";
 import { useScreenOptions } from "@/hooks/useScreenOptions";
-import type { WeatherLimits } from "@/lib/storage";
+import type { WeatherLimits, BatteryUsage } from "@/lib/storage";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
 export type FlightCheckParamList = {
@@ -58,6 +58,8 @@ export type FlightCheckParamList = {
     limits: WeatherLimits;
     sessionId?: string;
     isFpvFlight?: boolean;
+    /** FPV-Modus: "spotter" (Standard, bis 120 m) oder "verband30m" (DMFV/DMO Art.16, max. 30 m, ohne Spotter). */
+    fpvMode?: "spotter" | "verband30m";
     kpIndex?: number;
   };
   Results: { 
@@ -72,7 +74,9 @@ export type FlightCheckParamList = {
     sessionId?: string;
     checklistCompleted?: string[];
     checklistPresented?: string[];
+    batteryUsage?: BatteryUsage[];
     isFpvFlight?: boolean;
+    fpvMode?: "spotter" | "verband30m";
     kpIndex?: number;
   };
   DebriefingChecklist: {
@@ -288,9 +292,18 @@ export default function FlightCheckNavigator() {
       <Stack.Screen
         name="LiveRadar"
         component={StandaloneLiveTrafficScreen}
-        options={{
-          headerShown: false,
-        }}
+        options={({ navigation }) => ({
+          headerTitle: "Live Radar",
+          headerLeft: () => (
+            <Pressable
+              onPress={() => navigation.goBack()}
+              style={navStyles.backButton}
+              hitSlop={8}
+            >
+              <Text style={navStyles.backText}>Zurück</Text>
+            </Pressable>
+          ),
+        })}
       />
     </Stack.Navigator>
   );

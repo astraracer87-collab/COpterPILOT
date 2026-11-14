@@ -129,42 +129,57 @@ export default function PlanningChecklistScreen() {
     tip: "",
   });
 
-  const { droneId, latitude, longitude, locationName, countryIso, mapUrl, plannedDate, plannedTime, forecastWeather, limits, maxAltitude, isFpvFlight, sessionId, editMode, existingChecked } = route.params;
+  const { droneId, latitude, longitude, locationName, countryIso, mapUrl, plannedDate, plannedTime, forecastWeather, limits, maxAltitude, isFpvFlight, fpvMode, sessionId, editMode, existingChecked } = route.params;
+  const effectiveFpvMode: "spotter" | "verband30m" = fpvMode ?? "spotter";
 
   useEffect(() => {
-    const autoCheckItems: string[] = [];
     if (editMode && Array.isArray(existingChecked)) {
       setChecked(new Set(existingChecked));
       return;
     }
-    if (forecastWeather) {
-      autoCheckItems.push("weather");
-    }
-    autoCheckItems.push("route", "airspace", "notams");
+    // Wer hier landet, hat den Wetter-Screen + Standort/Restriktionen/NOTAM-Flow
+    // bereits durchlaufen — also alle vier Vorab-Items vorhaken.
+    const autoCheckItems = ["route", "airspace", "notams", "weather"];
+    setChecked(prev => new Set([...prev, ...autoCheckItems]));
+  }, [editMode, existingChecked]);
 
-    if (autoCheckItems.length > 0) {
-      setChecked(prev => new Set([...prev, ...autoCheckItems]));
-    }
-  }, [forecastWeather, editMode, existingChecked]);
-
-  const fpvSection: CheckSection = {
-    title: "FPV-Flug",
-    icon: "eye",
-    items: [
-      {
-        id: "spotter_confirmed",
-        label: "Spotter organisiert und bestätigt",
-        required: true,
-        tip: "Bei FPV-Flügen ist ein Spotter gesetzlich vorgeschrieben. Der Spotter muss die Drohne jederzeit im Blick haben und per Funk/Sprache erreichbar sein.",
-      },
-      {
-        id: "spotter_briefed",
-        label: "Spotter über Fluggebiet und Notfallprozeduren informiert",
-        required: true,
-        tip: "Besprich mit dem Spotter: Flugroute, Notfall-Signale, Übernahme bei Problemen, Hindernisse in der Umgebung.",
-      },
-    ],
-  };
+  const fpvSection: CheckSection = effectiveFpvMode === "verband30m"
+    ? {
+        title: "FPV nach Verbandsregel (DMFV/DMO)",
+        icon: "shield",
+        items: [
+          {
+            id: "verband_height_planning_30m",
+            label: "Flughöhe in der Planung auf max. 30 m AGL festgelegt",
+            required: true,
+            tip: "LBA-Verbandsbetriebserlaubnis nach Art. 16 EU-VO 2019/947: FPV ohne Spotter ist nur bis 30 m über Grund zulässig. Höhenlimit muss vor dem Flug in der Hersteller-App/Drohne gesetzt sein.",
+          },
+          {
+            id: "verband_member_card_planned",
+            label: "Verbandsausweis (DMFV/DMO) wird mitgeführt",
+            required: true,
+            tip: "Mitgliedschaft/Versicherungsbestätigung digital oder ausgedruckt mitnehmen — wird bei Polizeikontrolle verlangt.",
+          },
+        ],
+      }
+    : {
+        title: "FPV-Flug",
+        icon: "eye",
+        items: [
+          {
+            id: "spotter_confirmed",
+            label: "Spotter organisiert und bestätigt",
+            required: true,
+            tip: "Bei FPV-Flügen ist ein Spotter gesetzlich vorgeschrieben. Der Spotter muss die Drohne jederzeit im Blick haben und per Funk/Sprache erreichbar sein.",
+          },
+          {
+            id: "spotter_briefed",
+            label: "Spotter über Fluggebiet und Notfallprozeduren informiert",
+            required: true,
+            tip: "Besprich mit dem Spotter: Flugroute, Notfall-Signale, Übernahme bei Problemen, Hindernisse in der Umgebung.",
+          },
+        ],
+      };
 
   const activeChecklist = isFpvFlight 
     ? [...PLANNING_CHECKLIST, fpvSection] 
@@ -233,6 +248,7 @@ export default function PlanningChecklistScreen() {
       checklistCompleted: Array.from(checked),
       checklistPresented: presentedItemIds,
       isFpvFlight,
+      fpvMode: isFpvFlight ? effectiveFpvMode : undefined,
       sessionId,
     });
   };

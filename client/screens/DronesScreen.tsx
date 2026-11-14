@@ -1,6 +1,5 @@
-import { openLink } from "@/lib/webBrowser";
 import React, { useCallback, useState } from "react";
-import { View, StyleSheet, FlatList, Pressable, Alert, Linking, Platform } from "react-native";
+import { View, StyleSheet, FlatList, Pressable, Alert, ActivityIndicator } from "react-native";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useHeaderHeight } from "@react-navigation/elements";
@@ -14,28 +13,24 @@ import { useTheme } from "@/hooks/useTheme";
 import { Spacing, Typography, Colors } from "@/constants/theme";
 import {
   getDrones,
+  getArchivedDrones,
+  unarchiveDrone,
   deleteDrone,
   getSelectedDroneId,
   setSelectedDroneId,
-  getComplianceStatus,
   getActiveSessions,
   getFlightCountsForDrones,
   getPilotProfile,
   DroneProfile,
   PilotProfile,
 } from "@/lib/storage";
-import { findPresetForDrone, DronePreset, DRONE_TYPE_INFO, LICENSE_LEVEL_LABELS, CONSTRAINT_LABELS } from "@/lib/dronePresets";
 import * as Haptics from "expo-haptics";
-import * as WebBrowser from "@/lib/webBrowser";
 import type { SettingsStackParamList } from "@/navigation/SettingsStackNavigator";
+import { DocumentPreviewModal } from "@/components/DocumentPreviewModal";
+import { DroneCard } from "@/components/DroneCard";
+import type { DocumentRef } from "@/lib/documents";
 
 type NavigationProp = NativeStackNavigationProp<SettingsStackParamList>;
-
-const COMPLIANCE_COLORS = {
-  green: Colors.light.statusGo,
-  yellow: Colors.light.statusCaution,
-  red: Colors.light.statusNoGo,
-};
 
 export default function DronesScreen() {
   const navigation = useNavigation<NavigationProp>();
@@ -43,34 +38,36 @@ export default function DronesScreen() {
   const headerHeight = useHeaderHeight();
   const insets = useSafeAreaInsets();
   const [drones, setDrones] = useState<DroneProfile[]>([]);
+  const [archivedDrones, setArchivedDrones] = useState<DroneProfile[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showArchived, setShowArchived] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [activeDroneIds, setActiveDroneIds] = useState<Set<string>>(new Set());
   const [flightCounts, setFlightCounts] = useState<Record<string, number>>({});
   const [pilot, setPilot] = useState<PilotProfile | null>(null);
-  const [expandedSpecsId, setExpandedSpecsId] = useState<string | null>(null);
-
-  const openManualUrl = async (url: string) => {
-    if (Platform.OS === "web") {
-      openLink(url);
-    } else {
-      await WebBrowser.openBrowserAsync(url);
-    }
-  };
+  const [previewDoc, setPreviewDoc] = useState<{ doc: DocumentRef; label: string } | null>(null);
 
   const loadDrones = useCallback(async () => {
-    const [dronesList, selected, activeSessions, pilotProfile] = await Promise.all([
-      getDrones(),
-      getSelectedDroneId(),
-      getActiveSessions(),
-      getPilotProfile(),
-    ]);
-    setDrones(dronesList);
-    setSelectedId(selected);
-    setPilot(pilotProfile);
-    const activeIds = new Set(activeSessions.map(s => s.droneId));
-    setActiveDroneIds(activeIds);
-    const counts = await getFlightCountsForDrones(dronesList.map(d => d.id));
-    setFlightCounts(counts);
+    try {
+      const [dronesList, archivedList, selected, activeSessions, pilotProfile] = await Promise.all([
+        getDrones(),
+        getArchivedDrones(),
+        getSelectedDroneId(),
+        getActiveSessions(),
+        getPilotProfile(),
+      ]);
+      setDrones(dronesList);
+      setArchivedDrones(archivedList);
+      setSelectedId(selected);
+      setPilot(pilotProfile);
+      const activeIds = new Set(activeSessions.map(s => s.droneId));
+      setActiveDroneIds(activeIds);
+      const allIds = [...dronesList, ...archivedList].map(d => d.id);
+      const counts = await getFlightCountsForDrones(allIds);
+      setFlightCounts(counts);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useFocusEffect(
@@ -85,14 +82,20 @@ export default function DronesScreen() {
     setSelectedId(drone.id);
   };
 
-  const handleDelete = (drone: DroneProfile) => {
+  const handleUnarchive = async (drone: DroneProfile) => {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    await unarchiveDrone(drone.id);
+    await loadDrones();
+  };
+
+  const handleDeletePermanent = (drone: DroneProfile) => {
     Alert.alert(
-      "Drohne löschen",
-      `Möchten Sie "${drone.name}" wirklich löschen?`,
+      "Endgültig löschen",
+      `"${drone.name}" wird unwiderruflich gelöscht. Das Logbuch behält die historischen Einträge, aber die Drohne selbst kann nicht wiederhergestellt werden.\n\nFortfahren?`,
       [
         { text: "Abbrechen", style: "cancel" },
         {
-          text: "Löschen",
+          text: "Endgültig löschen",
           style: "destructive",
           onPress: async () => {
             await deleteDrone(drone.id);
@@ -103,192 +106,48 @@ export default function DronesScreen() {
     );
   };
 
-  const renderDrone = ({ item }: { item: DroneProfile }) => {
-    const isSelected = item.id === selectedId;
-    const hasActiveBriefing = activeDroneIds.has(item.id);
-    const complianceStatus = getComplianceStatus(item, pilot || undefined);
-    const complianceColor = COMPLIANCE_COLORS[complianceStatus];
-    const preset = findPresetForDrone(item.name, item.manufacturer, item.model);
-    const isSpecsExpanded = expandedSpecsId === item.id;
+  const renderDrone = ({ item }: { item: DroneProfile }) => (
+    <DroneCard
+      drone={item}
+      pilot={pilot}
+      isSelected={item.id === selectedId}
+      hasActiveBriefing={activeDroneIds.has(item.id)}
+      flightCount={flightCounts[item.id] || 0}
+      navigation={navigation}
+      onSelect={() => handleSelect(item)}
+      onChanged={loadDrones}
+      onPreviewDoc={(doc, label) => setPreviewDoc({ doc, label })}
+    />
+  );
 
-    const toggleSpecs = () => {
-      setExpandedSpecsId(isSpecsExpanded ? null : item.id);
-    };
-
-    return (
-      <Card
-        style={[
-          styles.droneCard,
-          isSelected && { borderColor: theme.primary, borderWidth: 2 },
-        ]}
-        onPress={() => handleSelect(item)}
-      >
-        <View style={styles.droneHeader}>
-          <View style={[styles.droneIconContainer, { backgroundColor: theme.backgroundSecondary }]}>
-            <MaterialCommunityIcons name="quadcopter" size={24} color={theme.primary} />
-          </View>
-          <View style={styles.droneInfo}>
-            <View style={styles.nameRow}>
-              <ThemedText style={styles.droneName}>{item.name}</ThemedText>
-              {hasActiveBriefing ? (
-                <View style={[styles.selectedBadge, { backgroundColor: theme.statusCaution }]}>
-                  <ThemedText style={styles.selectedText}>Aktiv</ThemedText>
-                </View>
-              ) : null}
-            </View>
-            <ThemedText style={[styles.droneDetails, { color: theme.textSecondary }]}>
-              {item.classMark} | {item.mtomGrams}g | {item.openCategory} | {flightCounts[item.id] || 0} {(flightCounts[item.id] || 0) === 1 ? "Flug" : "Flüge"}
-            </ThemedText>
-            {item.manufacturer || item.model ? (
-              <ThemedText style={[styles.droneModel, { color: theme.textTertiary }]}>
-                {[item.manufacturer, item.model].filter(Boolean).join(" ")}
-              </ThemedText>
-            ) : null}
-          </View>
-          <View style={styles.droneActions}>
-            <View
-              style={[styles.complianceDot, { backgroundColor: complianceColor }]}
-            />
-            {preset ? (
-              <Pressable
-                onPress={toggleSpecs}
-                style={({ pressed }) => [
-                  styles.actionButton,
-                  pressed && styles.pressed,
-                ]}
-                testID={`button-specs-${item.id}`}
-              >
-                <Feather name={isSpecsExpanded ? "chevron-up" : "info"} size={18} color={theme.primary} />
-              </Pressable>
-            ) : null}
-            <Pressable
-              onPress={() => navigation.navigate("DroneHistory", { droneId: item.id })}
-              style={({ pressed }) => [
-                styles.actionButton,
-                pressed && styles.pressed,
-              ]}
-            >
-              <Feather name="file-text" size={18} color={theme.textSecondary} />
-            </Pressable>
-            <Pressable
-              onPress={() => navigation.navigate("DroneSetup", { droneId: item.id })}
-              style={({ pressed }) => [
-                styles.actionButton,
-                pressed && styles.pressed,
-              ]}
-            >
-              <Feather name="edit-2" size={18} color={theme.textSecondary} />
-            </Pressable>
-            <Pressable
-              onPress={() => handleDelete(item)}
-              style={({ pressed }) => [
-                styles.actionButton,
-                pressed && styles.pressed,
-              ]}
-            >
-              <Feather name="trash-2" size={18} color={Colors.light.statusNoGo} />
-            </Pressable>
-          </View>
+  const renderEmpty = () => {
+    if (loading) {
+      return (
+        <View style={styles.emptyContainer} testID="loading-drones">
+          <ActivityIndicator size="large" color={theme.primary} />
+          <ThemedText style={[styles.emptyText, { color: theme.textSecondary, marginTop: Spacing.md }]}>
+            Drohnen werden geladen …
+          </ThemedText>
         </View>
-        {isSpecsExpanded && preset ? (
-          <View style={[styles.specsPanel, { borderTopColor: theme.border }]}>
-            <ThemedText style={[styles.specsSectionTitle, { color: theme.primary }]}>
-              Technische Daten
-            </ThemedText>
-            <View style={styles.specsGrid}>
-              <View style={styles.specRow}>
-                <ThemedText style={[styles.specLabel, { color: theme.textSecondary }]}>MTOM</ThemedText>
-                <ThemedText style={styles.specValue}>{preset.mtomGrams} g</ThemedText>
-              </View>
-              <View style={styles.specRow}>
-                <ThemedText style={[styles.specLabel, { color: theme.textSecondary }]}>EU-Klasse</ThemedText>
-                <ThemedText style={styles.specValue}>{preset.classMark === "legacy" ? "Bestandsdrohne" : preset.classMark}</ThemedText>
-              </View>
-              <View style={styles.specRow}>
-                <ThemedText style={[styles.specLabel, { color: theme.textSecondary }]}>Max. Wind</ThemedText>
-                <ThemedText style={styles.specValue}>{preset.maxWindMs} m/s</ThemedText>
-              </View>
-              <View style={styles.specRow}>
-                <ThemedText style={[styles.specLabel, { color: theme.textSecondary }]}>Min. Temp.</ThemedText>
-                <ThemedText style={styles.specValue}>{preset.minTemp} °C</ThemedText>
-              </View>
-              <View style={styles.specRow}>
-                <ThemedText style={[styles.specLabel, { color: theme.textSecondary }]}>Typ</ThemedText>
-                <ThemedText style={styles.specValue}>{DRONE_TYPE_INFO[preset.droneType]?.label || preset.droneType}</ThemedText>
-              </View>
-              <View style={styles.specRow}>
-                <ThemedText style={[styles.specLabel, { color: theme.textSecondary }]}>Remote ID</ThemedText>
-                <ThemedText style={[styles.specValue, { color: preset.hasRemoteId ? theme.statusGo : Colors.light.statusNoGo }]}>
-                  {preset.hasRemoteId ? "Ja" : "Nein"}
-                </ThemedText>
-              </View>
-              <View style={styles.specRow}>
-                <ThemedText style={[styles.specLabel, { color: theme.textSecondary }]}>Lidar</ThemedText>
-                <ThemedText style={styles.specValue}>{preset.hasLidar ? "Ja" : "Nein"}</ThemedText>
-              </View>
-              <View style={styles.specRow}>
-                <ThemedText style={[styles.specLabel, { color: theme.textSecondary }]}>120m-Sperre</ThemedText>
-                <ThemedText style={styles.specValue}>{preset.altitudeLocked120m ? "Ja" : "Nein"}</ThemedText>
-              </View>
-              <View style={styles.specRow}>
-                <ThemedText style={[styles.specLabel, { color: theme.textSecondary }]}>Baujahr</ThemedText>
-                <ThemedText style={styles.specValue}>{preset.year}</ThemedText>
-              </View>
-              <View style={styles.specRow}>
-                <ThemedText style={[styles.specLabel, { color: theme.textSecondary }]}>Min. Lizenz</ThemedText>
-                <ThemedText style={styles.specValue}>{LICENSE_LEVEL_LABELS[preset.minLicenseLevel]}</ThemedText>
-              </View>
-              {preset.notes ? (
-                <View style={styles.specRow}>
-                  <ThemedText style={[styles.specLabel, { color: theme.textSecondary }]}>Hinweis</ThemedText>
-                  <ThemedText style={styles.specValue}>{preset.notes}</ThemedText>
-                </View>
-              ) : null}
-            </View>
-            <View style={[styles.constraintBox, { backgroundColor: theme.backgroundSecondary }]}>
-              <Feather name="alert-circle" size={14} color={theme.textSecondary} />
-              <ThemedText style={[styles.constraintText, { color: theme.textSecondary }]}>
-                {CONSTRAINT_LABELS[preset.constraintId]}
-              </ThemedText>
-            </View>
-            {preset.manualUrl ? (
-              <Pressable
-                onPress={() => openManualUrl(preset.manualUrl!)}
-                style={({ pressed }) => [
-                  styles.manualButton,
-                  { backgroundColor: theme.backgroundSecondary },
-                  pressed && styles.pressed,
-                ]}
-                testID={`button-manual-${item.id}`}
-              >
-                <Feather name="external-link" size={16} color={theme.primary} />
-                <ThemedText style={[styles.manualButtonText, { color: theme.primary }]}>
-                  Handbuch & Downloads
-                </ThemedText>
-              </Pressable>
-            ) : null}
-          </View>
-        ) : null}
-      </Card>
+      );
+    }
+    return (
+      <View style={styles.emptyContainer}>
+        <Feather name="airplay" size={48} color={theme.textTertiary} />
+        <ThemedText style={[styles.emptyTitle, { marginTop: Spacing.lg }]}>
+          Keine Drohnen
+        </ThemedText>
+        <ThemedText style={[styles.emptyText, { color: theme.textSecondary }]}>
+          Fügen Sie Ihre erste Drohne hinzu, um drohnenspezifische Wettergrenzen und Compliance-Checks zu aktivieren.
+        </ThemedText>
+        <Button
+          title="Drohne hinzufügen"
+          onPress={() => navigation.navigate("DroneSetup", {})}
+          style={{ marginTop: Spacing.xl }}
+        />
+      </View>
     );
   };
-
-  const renderEmpty = () => (
-    <View style={styles.emptyContainer}>
-      <Feather name="airplay" size={48} color={theme.textTertiary} />
-      <ThemedText style={[styles.emptyTitle, { marginTop: Spacing.lg }]}>
-        Keine Drohnen
-      </ThemedText>
-      <ThemedText style={[styles.emptyText, { color: theme.textSecondary }]}>
-        Fügen Sie Ihre erste Drohne hinzu, um drohnenspezifische Wettergrenzen und Compliance-Checks zu aktivieren.
-      </ThemedText>
-      <Button
-        title="Drohne hinzufügen"
-        onPress={() => navigation.navigate("DroneSetup", {})}
-        style={{ marginTop: Spacing.xl }}
-      />
-    </View>
-  );
 
   return (
     <ThemedView style={styles.container}>
@@ -321,6 +180,74 @@ export default function DronesScreen() {
             </View>
           ) : null
         }
+        ListFooterComponent={
+          archivedDrones.length > 0 ? (
+            <View style={styles.archivedSection}>
+              <Pressable
+                onPress={() => setShowArchived((v) => !v)}
+                style={({ pressed }) => [
+                  styles.archivedToggle,
+                  pressed && styles.pressed,
+                ]}
+                testID="button-toggle-archived"
+              >
+                <Feather name="archive" size={16} color={theme.textSecondary} />
+                <ThemedText style={[styles.sectionTitle, { color: theme.textSecondary, marginLeft: Spacing.sm }]}>
+                  ARCHIVIERTE DROHNEN ({archivedDrones.length})
+                </ThemedText>
+                <View style={{ flex: 1 }} />
+                <Feather
+                  name={showArchived ? "chevron-up" : "chevron-down"}
+                  size={18}
+                  color={theme.textSecondary}
+                />
+              </Pressable>
+              {showArchived
+                ? archivedDrones.map((item) => (
+                    <Card key={item.id} style={[styles.droneCard, styles.archivedCard]}>
+                      <View style={styles.droneHeader}>
+                        <View style={[styles.droneIconContainer, { backgroundColor: theme.backgroundSecondary }]}>
+                          <MaterialCommunityIcons name="quadcopter" size={24} color={theme.textTertiary} />
+                        </View>
+                        <View style={styles.droneInfo}>
+                          <ThemedText style={[styles.droneName, { color: theme.textSecondary }]}>{item.name}</ThemedText>
+                          <ThemedText style={[styles.droneDetails, { color: theme.textTertiary }]}>
+                            {item.classMark} | {item.mtomGrams}g | {flightCounts[item.id] || 0} {(flightCounts[item.id] || 0) === 1 ? "Flug" : "Flüge"}
+                          </ThemedText>
+                          {item.archivedAt ? (
+                            <ThemedText style={[styles.droneModel, { color: theme.textTertiary }]}>
+                              Archiviert am {new Date(item.archivedAt).toLocaleDateString("de-DE")}
+                            </ThemedText>
+                          ) : null}
+                        </View>
+                        <View style={styles.droneActions}>
+                          <Pressable
+                            onPress={() => handleUnarchive(item)}
+                            style={({ pressed }) => [styles.actionButton, pressed && styles.pressed]}
+                            testID={`button-unarchive-${item.id}`}
+                          >
+                            <Feather name="rotate-ccw" size={18} color={theme.primary} />
+                          </Pressable>
+                          <Pressable
+                            onPress={() => handleDeletePermanent(item)}
+                            style={({ pressed }) => [styles.actionButton, pressed && styles.pressed]}
+                            testID={`button-delete-${item.id}`}
+                          >
+                            <Feather name="trash-2" size={18} color={Colors.light.statusNoGo} />
+                          </Pressable>
+                        </View>
+                      </View>
+                    </Card>
+                  ))
+                : null}
+            </View>
+          ) : null
+        }
+      />
+      <DocumentPreviewModal
+        visible={previewDoc !== null}
+        onClose={() => setPreviewDoc(null)}
+        document={previewDoc?.doc ?? null}
       />
     </ThemedView>
   );
@@ -356,6 +283,18 @@ const styles = StyleSheet.create({
     padding: Spacing.lg,
     marginBottom: Spacing.md,
   },
+  archivedSection: {
+    marginTop: Spacing.xl,
+  },
+  archivedToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: Spacing.sm,
+    marginBottom: Spacing.sm,
+  },
+  archivedCard: {
+    opacity: 0.75,
+  },
   droneHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -371,23 +310,8 @@ const styles = StyleSheet.create({
   droneInfo: {
     flex: 1,
   },
-  nameRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.sm,
-  },
   droneName: {
     ...Typography.h4,
-  },
-  selectedBadge: {
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  selectedText: {
-    ...Typography.caption,
-    color: "#FFF",
-    fontWeight: "600",
   },
   droneDetails: {
     ...Typography.body,
@@ -401,11 +325,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: Spacing.sm,
-  },
-  complianceDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
   },
   actionButton: {
     padding: Spacing.xs,
@@ -433,12 +352,6 @@ const styles = StyleSheet.create({
     marginTop: Spacing.md,
     paddingTop: Spacing.md,
     borderTopWidth: StyleSheet.hairlineWidth,
-  },
-  specsSectionTitle: {
-    ...Typography.caption,
-    fontWeight: "700",
-    marginBottom: Spacing.sm,
-    letterSpacing: 0.5,
   },
   specsGrid: {
     gap: Spacing.xs,

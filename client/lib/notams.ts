@@ -1,4 +1,16 @@
 import { getCached, setCache, makeCacheKey } from "@/lib/dataCache";
+import { getFirForPosition } from "@/lib/firDetection";
+import { isOfflineNow } from "@/lib/network";
+import { getOfflinePackNotams } from "@/lib/offlineStore";
+import { detectCountryFromCoordinates } from "../../shared/countryDetection";
+
+async function offlineNotamsFor(lat: number, lon: number): Promise<NotamData[] | null> {
+  const iso = detectCountryFromCoordinates(lat, lon);
+  if (!iso) return null;
+  const stored = await getOfflinePackNotams(iso);
+  if (stored && stored.length) return stored as NotamData[];
+  return null;
+}
 
 const AUTOROUTER_URL = "https://api.autorouter.aero/v1.0/notam";
 const GARMIN_SCALE = 90 / (1 << 30);
@@ -61,19 +73,6 @@ function isGarminCoord(val: number): boolean {
   return Math.abs(val) > 1000000;
 }
 
-function getFirForPosition(lat: number, lon: number): string {
-  if (lat >= 45.8 && lat <= 47.9 && lon >= 5.9 && lon <= 10.5) return "LSAS";
-  if (lat >= 49.45 && lat <= 50.18 && lon >= 5.73 && lon <= 6.53) return "ELLX";
-  if (lat >= 50.75 && lat <= 53.47 && lon >= 3.36 && lon <= 7.21) return "EHAA";
-  if (lat < 48.0) return "EDMM";
-  if (lat < 49.5 && lon > 10.0) return "EDMM";
-  if (lat < 49.0 && lon > 11.5) return "EDMM";
-  if (lat >= 52.0) return "EDWW";
-  if (lat >= 51.0 && lon > 10.5) return "EDWW";
-  if (lat >= 51.5 && lon > 9.0) return "EDWW";
-  return "EDGG";
-}
-
 export function getNotamCountryLabel(notam: NotamData): string {
   const fir = (notam.fir || "").toUpperCase().trim();
   const locations = (notam.itema || []).map((l: string) => l.toUpperCase().trim());
@@ -88,6 +87,15 @@ export function getNotamCountryLabel(notam: NotamData): string {
   if (fir === "EHAA" || fir.startsWith("EH")) return "NL";
   if (locations.some((l: string) => l.startsWith("EH"))) return "NL";
 
+  if (fir.startsWith("LF")) return "FR";
+  if (locations.some((l: string) => l.startsWith("LF"))) return "FR";
+
+  if (fir === "EBBU" || fir.startsWith("EB")) return "BE";
+  if (locations.some((l: string) => l.startsWith("EB"))) return "BE";
+
+  if (fir === "LOVV" || fir.startsWith("LO")) return "AT";
+  if (locations.some((l: string) => l.startsWith("LO"))) return "AT";
+
   if (fir.startsWith("ED") || firstLoc.startsWith("ED")) return "DE";
 
   return "DE";
@@ -98,6 +106,9 @@ const COUNTRY_LABELS: Record<string, string> = {
   CH: "Schweiz",
   LU: "Luxemburg",
   NL: "Niederlande",
+  FR: "Frankreich",
+  BE: "Belgien",
+  AT: "Österreich",
 };
 
 export function getCountryLabel(iso: string): string {
@@ -143,6 +154,19 @@ function getNearbyAirportCodes(lat: number, lon: number): string[] {
     { icao: "LSMD", lat: 46.8431, lon: 6.9228 },
     { icao: "LSME", lat: 47.0924, lon: 8.3049 },
     { icao: "ELLX", lat: 49.6233, lon: 6.2044 },
+    { icao: "LFAT", lat: 50.5173, lon: 1.6206 },
+    { icao: "LFQQ", lat: 50.5619, lon: 3.0894 },
+    { icao: "LFOB", lat: 49.4544, lon: 2.1128 },
+    { icao: "LFPG", lat: 49.0097, lon: 2.5479 },
+    { icao: "LFPO", lat: 48.7233, lon: 2.3794 },
+    { icao: "LFST", lat: 48.5383, lon: 7.6282 },
+    { icao: "LFRS", lat: 47.1532, lon: -1.6111 },
+    { icao: "LFRN", lat: 48.0695, lon: -1.7348 },
+    { icao: "LFLL", lat: 45.7256, lon: 5.0811 },
+    { icao: "LFBD", lat: 44.8283, lon: -0.7156 },
+    { icao: "LFBO", lat: 43.6294, lon: 1.3638 },
+    { icao: "LFML", lat: 43.4393, lon: 5.2214 },
+    { icao: "LFMN", lat: 43.6584, lon: 7.2159 },
     { icao: "EHAM", lat: 52.3086, lon: 4.7639 },
     { icao: "EHRD", lat: 51.9569, lon: 4.4372 },
     { icao: "EHEH", lat: 51.4501, lon: 5.3745 },
@@ -150,6 +174,18 @@ function getNearbyAirportCodes(lat: number, lon: number): string[] {
     { icao: "EHGG", lat: 53.1197, lon: 6.5794 },
     { icao: "EHBK", lat: 50.9117, lon: 5.7706 },
     { icao: "EHLW", lat: 53.2286, lon: 5.7606 },
+    { icao: "EBBR", lat: 50.9014, lon: 4.4844 },
+    { icao: "EBCI", lat: 50.4592, lon: 4.4538 },
+    { icao: "EBLG", lat: 50.6374, lon: 5.4432 },
+    { icao: "EBOS", lat: 51.1989, lon: 2.8622 },
+    { icao: "EBAW", lat: 51.1894, lon: 4.4603 },
+    { icao: "EBKT", lat: 50.8172, lon: 3.2044 },
+    { icao: "LOWW", lat: 48.1103, lon: 16.5697 },
+    { icao: "LOWG", lat: 46.9911, lon: 15.4396 },
+    { icao: "LOWL", lat: 48.2332, lon: 14.1875 },
+    { icao: "LOWS", lat: 47.7933, lon: 13.0043 },
+    { icao: "LOWI", lat: 47.2602, lon: 11.3439 },
+    { icao: "LOWK", lat: 46.6425, lon: 14.3377 },
   ];
 
   const degToRad = (d: number) => (d * Math.PI) / 180;
@@ -188,6 +224,12 @@ export async function fetchNotams(
   error?: string;
 }> {
   try {
+    if (isOfflineNow()) {
+      const offline = await offlineNotamsFor(lat, lon);
+      if (offline) {
+        return { notams: offline, total: offline.length, queriedCodes: [], error: "Offline (gespeichert)" };
+      }
+    }
     const fir = getFirForPosition(lat, lon);
     const nearbyAirports = getNearbyAirportCodes(lat, lon);
     const codes =
@@ -255,6 +297,10 @@ export async function fetchNotams(
     setCache(ck, result).catch(() => {});
     return result;
   } catch (err: any) {
+    const offline = await offlineNotamsFor(lat, lon);
+    if (offline) {
+      return { notams: offline, total: offline.length, queriedCodes: [], error: "Offline (gespeichert)" };
+    }
     const ck = makeCacheKey("notams", lat, lon);
     const cached = await getCached<{ notams: NotamData[]; total: number; queriedCodes: string[] }>(ck);
     if (cached) {

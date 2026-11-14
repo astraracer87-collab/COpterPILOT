@@ -24,7 +24,13 @@ export function useProximityAlarm(
   userLat: number | null,
   userLon: number | null,
   maxAltitudeOverrideM?: number,
-  pilotElevationMSL?: number | null
+  pilotElevationMSL?: number | null,
+  /** Optionaler Override für den RA-Alarmradius (rot). Wird genutzt, um den
+   *  Planungs-Umkreis + Vorwarn-Aura als effektiven RA-Trigger zu setzen, statt
+   *  des global eingestellten RA-Radius. TA wird automatisch auf
+   *  max(userSetting, RA + 0.5 km) angehoben, damit die Ringe sinnvoll sortiert
+   *  bleiben. */
+  raRadiusOverrideKm?: number
 ) {
   const [alarmSettings, setAlarmSettings] = useState<ProximityAlarmSettings>(DEFAULT_PROXIMITY_ALARM);
   const [activeAlerts, setActiveAlerts] = useState<ProximityAlert[]>([]);
@@ -33,6 +39,9 @@ export function useProximityAlarm(
   const [alarmLevel, setAlarmLevel] = useState<"none" | "warning" | "critical">("none");
   const [clearOfConflict, setClearOfConflict] = useState(false);
   const [dismissed, setDismissed] = useState(false);
+  // ICAOs, die der User aktiv weggedrückt hat. Bleiben unterdrückt,
+  // bis das jeweilige Flugzeug die Schutz-/Approach-Zone verlässt.
+  const dismissedIcaos = useRef<Set<string>>(new Set());
   const lastAlarmTime = useRef<number>(0);
   const currentLevel = useRef<"none" | "warning" | "critical">("none");
   const clearTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -66,9 +75,17 @@ export function useProximityAlarm(
     const loadSettings = () => {
       getSettings().then((s) => {
         const base = s.proximityAlarm ?? DEFAULT_PROXIMITY_ALARM;
-        const next: ProximityAlarmSettings = maxAltitudeOverrideM != null
+        let next: ProximityAlarmSettings = maxAltitudeOverrideM != null
           ? { ...base, maxAltitudeM: maxAltitudeOverrideM }
           : base;
+        if (raRadiusOverrideKm != null && raRadiusOverrideKm > 0) {
+          const baseRa = next.ra ?? DEFAULT_PROXIMITY_ALARM.ra!;
+          const baseTa = next.ta ?? DEFAULT_PROXIMITY_ALARM.ta!;
+          const overriddenRa = { ...baseRa, radiusKm: raRadiusOverrideKm };
+          const overriddenTaKm = Math.max(baseTa.radiusKm ?? 3, raRadiusOverrideKm + 0.5);
+          const overriddenTa = { ...baseTa, radiusKm: overriddenTaKm };
+          next = { ...next, ra: overriddenRa, ta: overriddenTa };
+        }
         const json = JSON.stringify(next);
         if (json !== settingsJson.current) {
           settingsJson.current = json;
@@ -79,7 +96,7 @@ export function useProximityAlarm(
     loadSettings();
     const interval = setInterval(loadSettings, SETTINGS_REFRESH_MS);
     return () => clearInterval(interval);
-  }, [maxAltitudeOverrideM]);
+  }, [maxAltitudeOverrideM, raRadiusOverrideKm]);
 
   useEffect(() => {
     if (userLat == null || userLon == null) return;
@@ -110,8 +127,28 @@ export function useProximityAlarm(
       return;
     }
 
-    const alerts = checkProximityAlerts(aircraft, userLat, userLon, alarmSettings, pilotElevationMSL);
-    const approaching = checkApproachingAircraft(aircraft, userLat, userLon, alarmSettings, pilotElevationMSL);
+    const rawAlerts = checkProximityAlerts(aircraft, userLat, userLon, alarmSettings, pilotElevationMSL);
+    const rawApproaching = checkApproachingAircraft(aircraft, userLat, userLon, alarmSettings, pilotElevationMSL);
+
+    // Auto-Rehabilitation: ICAOs aus dem Dismiss-Set entfernen, wenn das
+    // Flugzeug nicht mehr in irgendeiner Schutz-/Approach-Zone ist.
+    if (dismissedIcaos.current.size > 0) {
+      const stillThreat = new Set<string>();
+      for (const a of rawAlerts) stillThreat.add(a.aircraft.icao24);
+      for (const a of rawApproaching) stillThreat.add(a.aircraft.icao24);
+      for (const icao of Array.from(dismissedIcaos.current)) {
+        if (!stillThreat.has(icao)) dismissedIcaos.current.delete(icao);
+      }
+    }
+
+    // Bedrohungen, die der User explizit weggedrückt hat, herausfiltern.
+    const alerts = dismissedIcaos.current.size === 0
+      ? rawAlerts
+      : rawAlerts.filter((a) => !dismissedIcaos.current.has(a.aircraft.icao24));
+    const approaching = dismissedIcaos.current.size === 0
+      ? rawApproaching
+      : rawApproaching.filter((a) => !dismissedIcaos.current.has(a.aircraft.icao24));
+
     setActiveAlerts(alerts);
     setApproachingAircraft(approaching);
 
@@ -243,6 +280,17 @@ export function useProximityAlarm(
     setAlarmActive(false);
     setClearOfConflict(false);
     setDismissed(true);
+    // Aktuell gemeldete Bedrohungen ins Dismiss-Set legen,
+    // damit sie beim nächsten Poll nicht wieder auftauchen.
+    setActiveAlerts((prev) => {
+      for (const a of prev) dismissedIcaos.current.add(a.aircraft.icao24);
+      return [];
+    });
+    setApproachingAircraft((prev) => {
+      for (const a of prev) dismissedIcaos.current.add(a.aircraft.icao24);
+      return [];
+    });
+    setAlarmLevel("none");
     currentLevel.current = "none";
     lastAlarmTime.current = 0;
     pendingClear.current = false;
@@ -251,6 +299,8 @@ export function useProximityAlarm(
     if (clearDelayTimer.current) clearTimeout(clearDelayTimer.current);
     if (downgradeTimer.current) clearTimeout(downgradeTimer.current);
     if (dismissedTimer.current) clearTimeout(dismissedTimer.current);
+    // Globalen Dismiss-Flag nach 10 s wieder freigeben — das per-ICAO-Set
+    // bleibt weiter aktiv und schützt vor erneutem Pop-up desselben Flugzeugs.
     dismissedTimer.current = setTimeout(() => {
       setDismissed(false);
     }, 10000);

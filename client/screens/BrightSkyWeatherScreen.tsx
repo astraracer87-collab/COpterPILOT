@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { View, StyleSheet, ScrollView, ActivityIndicator, Pressable, Platform } from "react-native";
-import { useRoute } from "@react-navigation/native";
+import { useRoute, useNavigation } from "@react-navigation/native";
 import type { RouteProp } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
@@ -10,6 +12,7 @@ import { ThemedView } from "@/components/ThemedView";
 import { Card } from "@/components/Card";
 import { Button } from "@/components/Button";
 import { useTheme } from "@/hooks/useTheme";
+import { DataSource } from "@/lib/dataSource";
 import { Spacing, Typography, BorderRadius, Colors } from "@/constants/theme";
 import { fetchBrightSkyWeather, BrightSkyData } from "@/lib/brightsky";
 
@@ -23,6 +26,7 @@ type RouteParams = {
 
 export default function BrightSkyWeatherScreen() {
   const route = useRoute<RouteProp<RouteParams, "BrightSkyWeather">>();
+  const navigation = useNavigation<NativeStackNavigationProp<any>>();
   const { theme } = useTheme();
   const headerHeight = useHeaderHeight();
   const insets = useSafeAreaInsets();
@@ -49,6 +53,21 @@ export default function BrightSkyWeatherScreen() {
   useEffect(() => {
     loadWeather();
   }, [loadWeather]);
+
+  const handleOpenNdFilter = () => {
+    if (!weather) return;
+    const tabNav = navigation.getParent<NativeStackNavigationProp<any>>();
+    if (!tabNav) return;
+    tabNav.navigate("NdFilterTab", {
+      screen: "NdFilterFinder",
+      params: {
+        latitude,
+        longitude,
+        cloudCoverPercent: weather.cloudCover,
+        rainMmPerH: weather.precipitation,
+      },
+    });
+  };
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -323,9 +342,32 @@ export default function BrightSkyWeatherScreen() {
           </ThemedText>
         </Card>
 
-        <ThemedText style={[styles.sourceText, { color: theme.textTertiary }]}>
-          Quelle: Deutscher Wetterdienst (DWD) via BrightSky API
+        <ThemedText style={[styles.sectionTitle, { color: theme.textSecondary, marginTop: Spacing.xl }]}>
+          WERKZEUGE
         </ThemedText>
+        <Card style={styles.ndFilterCard}>
+          <View style={styles.ndFilterRow}>
+            <Feather name="aperture" size={22} color={theme.primary} />
+            <View style={styles.ndFilterTextCol}>
+              <ThemedText style={styles.ndFilterTitle}>ND-Filter berechnen</ThemedText>
+              <ThemedText style={[styles.ndFilterSubtitle, { color: theme.textSecondary }]}>
+                Bewölkung {Math.round(weather.cloudCover)}%, Regen {weather.precipitation.toFixed(1)} mm/h werden übernommen
+              </ThemedText>
+            </View>
+          </View>
+          <Button
+            title="ND-Filter Finder öffnen"
+            variant="secondary"
+            onPress={handleOpenNdFilter}
+            style={{ marginTop: Spacing.md }}
+          />
+        </Card>
+
+        <DataSource>
+          <ThemedText style={[styles.sourceText, { color: theme.textTertiary }]}>
+            Quelle: Deutscher Wetterdienst (DWD) via BrightSky API
+          </ThemedText>
+        </DataSource>
       </ScrollView>
     </ThemedView>
   );
@@ -432,6 +474,26 @@ const styles = StyleSheet.create({
   weatherLabel: {
     ...Typography.caption,
     marginTop: Spacing.xs,
+  },
+  ndFilterCard: {
+    padding: Spacing.lg,
+    marginBottom: Spacing.lg,
+  },
+  ndFilterRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.md,
+  },
+  ndFilterTextCol: {
+    flex: 1,
+  },
+  ndFilterTitle: {
+    ...Typography.body,
+    fontWeight: "700",
+  },
+  ndFilterSubtitle: {
+    ...Typography.caption,
+    marginTop: 2,
   },
   chartCard: {
     padding: Spacing.lg,

@@ -170,6 +170,25 @@ export const FPV_PLANNING_ITEMS: CheckItem[] = [
   { id: "spotter_briefed", label: "Spotter über Fluggebiet und Notfallprozeduren informiert", required: true },
 ];
 
+/**
+ * Zusätzliche FPV-Punkte, die in ChecklistScreen / PlanningChecklistScreen
+ * dynamisch eingeblendet werden (klassischer Spotter-Modus + DMFV/DMO
+ * Verbandsbetriebserlaubnis nach Art. 16 EU-VO 2019/947). Hier nur zentral
+ * registriert, damit `getCheckItemLabel(id)` (PDF-Export, Logbuch, History)
+ * die deutschen Labels statt humanisierter IDs auflösen kann.
+ */
+export const FPV_DYNAMIC_ITEMS: CheckItem[] = [
+  // Klassischer FPV-Modus (Pre-Flight)
+  { id: "spotter_present", label: "Spotter ist vor Ort und bereit", required: true },
+  { id: "spotter_communication", label: "Kommunikation mit Spotter getestet", required: true },
+  { id: "goggles_ready", label: "FPV-Brille/Bildschirm betriebsbereit", required: true },
+  // DMFV/DMO Verbandsbetriebserlaubnis nach Art. 16 EU-VO (max. 30 m, ohne Spotter)
+  { id: "verband_height_limited_30m", label: "Flughöhe in App/Drohne auf max. 30 m AGL begrenzt", required: true },
+  { id: "verband_member_card_ready", label: "Verbandsausweis (DMFV/DMO) griffbereit", required: true },
+  { id: "verband_height_planning_30m", label: "Flughöhe in der Planung auf max. 30 m AGL festgelegt", required: true },
+  { id: "verband_member_card_planned", label: "Verbandsausweis (DMFV/DMO) wird mitgeführt", required: true },
+];
+
 export function getAllPreflightItems(): CheckItem[] {
   return PREFLIGHT_CHECKLIST.flatMap(section => section.items);
 }
@@ -190,6 +209,7 @@ export function getCheckItemLabel(id: string): string | undefined {
   const allItems = [
     ...getAllPlanningItems(),
     ...FPV_PLANNING_ITEMS,
+    ...FPV_DYNAMIC_ITEMS,
     ...getAllPreflightItems(),
     ...HOVER_CHECK_ITEMS,
     ...POSTLANDING_CHECK_ITEMS,

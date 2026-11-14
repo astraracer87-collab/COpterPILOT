@@ -1,5 +1,5 @@
 import { openLink } from "@/lib/webBrowser";
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useLayoutEffect } from "react";
 import {
   View,
   Text,
@@ -13,7 +13,10 @@ import {
   Linking,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import { useHeaderHeight } from "@react-navigation/elements";
+import { useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import { useHeaderHeight, HeaderButton } from "@react-navigation/elements";
+import type { SettingsStackParamList } from "@/navigation/SettingsStackNavigator";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "@/hooks/useTheme";
@@ -39,6 +42,17 @@ export default function GlossaryScreen() {
   const headerHeight = useHeaderHeight();
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
+  const navigation = useNavigation<NativeStackNavigationProp<SettingsStackParamList>>();
+
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <HeaderButton onPress={() => navigation.navigate("VlosInfo")} testID="button-glossary-vlos">
+          <Feather name="eye" size={20} color={theme.primary} />
+        </HeaderButton>
+      ),
+    });
+  }, [navigation, theme.primary]);
 
   const [search, setSearch] = useState("");
   const [expandedTerm, setExpandedTerm] = useState<string | null>(null);

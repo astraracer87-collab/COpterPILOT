@@ -10,6 +10,7 @@ import * as Haptics from "expo-haptics";
 import BriefingsStackNavigator from "@/navigation/BriefingsStackNavigator";
 import HistoryStackNavigator from "@/navigation/HistoryStackNavigator";
 import NotamsStackNavigator from "@/navigation/NotamsStackNavigator";
+import NdFilterStackNavigator from "@/navigation/NdFilterStackNavigator";
 import RadarStackNavigator from "@/navigation/RadarStackNavigator";
 import SettingsStackNavigator from "@/navigation/SettingsStackNavigator";
 import { ThemedText } from "@/components/ThemedText";
@@ -20,12 +21,14 @@ import { getDrones } from "@/lib/storage";
 import { subscribeAlarmLevel } from "@/lib/proximityAlarm";
 import { subscribeActiveNotamCount } from "@/lib/notamAlertStore";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
+import { setFlightPlanningMode } from "@/lib/flightPlanningMode";
 
 export type MainTabParamList = {
   BriefingsTab: undefined;
   RadarTab: undefined;
   NotamsTab: undefined;
   HistoryTab: undefined;
+  NdFilterTab: undefined;
   SettingsTab: undefined;
 };
 
@@ -344,12 +347,14 @@ function FloatingFab() {
 
   const handleSelectPlanning = () => {
     setShowChooser(false);
+    setFlightPlanningMode("planning");
     navigation.navigate("FlightPlanning" as any);
   };
 
   const handleSelectPreflight = () => {
     setShowChooser(false);
-    navigation.navigate("FlightCheck");
+    setFlightPlanningMode("preflight");
+    navigation.navigate("FlightPlanning" as any);
   };
 
   return (
@@ -451,6 +456,14 @@ export default function MainTabNavigator() {
           }}
         />
         <Tab.Screen
+          name="NdFilterTab"
+          component={NdFilterStackNavigator}
+          options={{
+            tabBarLabel: "ND-Filter",
+            tabBarIcon: ({ focused }) => <TabBarIcon name="aperture" focused={focused} />,
+          }}
+        />
+        <Tab.Screen
           name="SettingsTab"
           component={SettingsStackNavigator}
           options={{
@@ -508,7 +521,7 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
   },
   modalBackdrop: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: "rgba(0, 0, 0, 0.5)",
   },
   modalOverlay: {
@@ -517,7 +530,7 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
   },
   overlayTouchable: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
   },
   modalContent: {
     borderTopLeftRadius: 24,

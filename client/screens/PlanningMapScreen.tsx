@@ -13,8 +13,7 @@ import { useTheme } from "@/hooks/useTheme";
 import { Spacing, Shadows, Colors } from "@/constants/theme";
 import type { FlightPlanningParamList } from "@/navigation/FlightPlanningNavigator";
 import {
-  getCountryMapConfig,
-  getDefaultMapConfig,
+  getMapConfigOrFallback,
   buildMapUrl,
   type CountryMapConfig,
 } from "@/lib/countryMaps";
@@ -35,16 +34,11 @@ export default function PlanningMapScreen() {
   const { droneId, latitude, longitude, locationName, countryIso } = route.params;
 
   useEffect(() => {
-    if (countryIso) {
-      const config = getCountryMapConfig(countryIso);
-      setCountryConfig(config || getDefaultMapConfig());
-    } else {
-      setCountryConfig(getDefaultMapConfig());
-    }
+    setCountryConfig(getMapConfigOrFallback(countryIso));
   }, [countryIso]);
 
   const mapUrl = countryConfig ? buildMapUrl(countryConfig, latitude, longitude) : "";
-  const countryName = countryConfig?.nameDE || "Deutschland";
+  const countryName = countryConfig?.nameDE || "EASA Drohnen-Portal";
 
   const handleDone = () => {
     navigation.navigate("PlanningRestrictions", { 
@@ -119,7 +113,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   loadingContainer: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     justifyContent: "center",
     alignItems: "center",
     backgroundColor: Colors.light.backgroundRoot,

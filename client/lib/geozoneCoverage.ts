@@ -1,0 +1,213 @@
+// Standalone-Helfer für die länderübergreifende Geozonen-Abdeckung (welche
+// Länder ein Pin/Viewport berührt) und den ED-269-Cache-Abruf.
+//
+// Bewusst frei von React-Native-Imports (kein AsyncStorage/expo-constants),
+// damit die reine Logik unter dem tsx-Testrunner (web/run-tests.sh) ohne den
+// nativen Modulgraphen geprüft werden kann – analog zu geozoneTileUrl.ts.
+// geozones.ts re-exportiert dünne Wrapper, die getApiUrl() bzw. die
+// COUNTRY_GEOZONE_CONFIGS-Schlüssel injizieren, sodass die öffentliche API
+// (und alle Aufrufer) unverändert bleibt.
+import { detectCountryFromCoordinates } from "./countryMaps";
+import { parseEd269ToGeozoneInfo } from "./ed269";
+import type { GeozoneFeatureInfo } from "./geozones";
+
+// Sowohl die Radius- (getCountriesInRadius) als auch die Viewport-Abdeckung
+// (getViewportCountries) bestimmen die berührten Länder polygon-autoritativ über
+// detectCountryFromCoordinates. So nutzen Punkt-Erkennung und Abdeckung dieselbe
+// (Polygon-)Quelle und können nicht auseinanderdriften. Grobe Länder-Bounding-
+// Boxen werden hier bewusst NICHT mehr für die Abdeckung verwendet, da sie an
+// Grenzen weit ins Nachbarland reichen (z. B. die FR-Box über die belgische
+// Grenze) und so fremde Zonen/Texte in die Flugbereichsliste mischen würden.
+
+// Fragt den serverseitigen ED-269-Cache (z. B. Österreich) für die per bbox
+// abgesteckte Umgebung ab und normalisiert die {countries:[{features:[]}]}-
+// Antwort. Liefert [] bei nicht-ok-Status, kaputter Form oder Netzwerkfehler,
+// ohne zu werfen.
+export async function queryEd269CachedFeaturesFrom(
+  baseUrl: string,
+  lat: number,
+  lon: number,
+  radiusKm: number,
+  iso: string,
+  limit?: number,
+  // Bei `true` wird KEINE bbox gesetzt -> der Server liefert den gesamten
+  // Landesbestand. Nur für kleine Datensätze (z. B. Belgien, ~288 Zonen) sinnvoll,
+  // damit beim Herauszoomen alle Zonen statt nur der zentrumsnahen erscheinen.
+  fullCountry?: boolean,
+  // Serverseitiger Filter: nur Zonen mit einer Gültigkeitsdauer < N Tagen
+  // (temporäre NOTAM-artige Zonen). Hält die Antwort klein, auch bei großen
+  // Beständen (z. B. DK), da der Server vor dem Senden filtert.
+  maxValidityDays?: number,
+): Promise<GeozoneFeatureInfo[]> {
+  const url = new URL("/api/cached/geozones", baseUrl);
+  url.searchParams.set("country", iso.toLowerCase());
+  if (maxValidityDays != null && Number.isFinite(maxValidityDays) && maxValidityDays > 0) {
+    url.searchParams.set("maxValidityDays", String(maxValidityDays));
+  }
+  if (!fullCountry) {
+    const kmToDegLat = 1 / 111.32;
+    const kmToDegLon = 1 / (111.32 * Math.cos((lat * Math.PI) / 180));
+    const dLat = radiusKm * kmToDegLat;
+    const dLon = radiusKm * kmToDegLon;
+    const bbox = `${(lon - dLon).toFixed(6)},${(lat - dLat).toFixed(6)},${(lon + dLon).toFixed(6)},${(lat + dLat).toFixed(6)}`;
+    if (limit != null && Number.isFinite(limit) && limit > 0) {
+      url.searchParams.set("limit", String(Math.floor(limit)));
+    }
+    url.searchParams.set("bbox", bbox);
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 12000);
+  try {
+    const resp = await fetch(url.toString(), { signal: controller.signal });
+    if (!resp.ok) return [];
+    const data = await resp.json();
+    const country = Array.isArray(data?.countries)
+      ? data.countries.find((c: any) => (c?.country || "").toLowerCase() === iso.toLowerCase()) ?? data.countries[0]
+      : null;
+    const features = country?.features;
+    if (!Array.isArray(features)) return [];
+    return parseEd269ToGeozoneInfo(features, iso);
+  } catch (e: any) {
+    console.warn("[Geozones] ED-269 cache query error:", e?.message || e);
+    return [];
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+// Liefert alle unterstützten Länder, die der durch (lat, lon, radiusKm)
+// aufgespannte Kreis-Bereich tatsächlich berührt. Die Länderauswahl ist – wie
+// getViewportCountries – polygon-autoritativ (detectCountryFromCoordinates auf
+// Zentrum + Raster-/Randproben innerhalb des Radius), NICHT über grobe Länder-
+// Bounding-Boxen. Die groben Boxen überlappen an Grenzen weit ins Nachbarland
+// (z. B. reicht die FR-Box über die belgische Grenze) und würden für einen
+// eindeutig belgischen Punkt fälschlich FR mitzählen. `primaryIso` (falls
+// unterstützt) wird NUR nach vorne sortiert, wenn der Radius es tatsächlich
+// berührt – es wird niemals erzwungen aufgenommen.
+export function getCountriesInRadius(
+  supportedIsos: string[],
+  lat: number,
+  lon: number,
+  radiusKm: number,
+  primaryIso?: string,
+): string[] {
+  const supported = new Set(supportedIsos.map((s) => s.toUpperCase()));
+  const isSupported = (iso: string | null): iso is string => !!iso && supported.has(iso.toUpperCase());
+
+  const found: string[] = [];
+  const add = (iso: string | null) => {
+    if (isSupported(iso)) {
+      const up = iso.toUpperCase();
+      if (!found.includes(up)) found.push(up);
+    }
+  };
+
+  // Zentrum (polygon-autoritativ) zuerst. Das primäre Land (z. B. das in den
+  // Einstellungen bevorzugte Land) wird NICHT mehr erzwungen aufgenommen, sondern
+  // nur einsortiert (siehe unten), wenn der Radius es tatsächlich berührt. Sonst
+  // mischt ein im falschen Land gewähltes Vorzugsland fremde Zonen/Texte (z. B.
+  // FR DGAC/AlphaTango) in einen Flug in Belgien.
+  add(detectCountryFromCoordinates(lat, lon));
+
+  const kmToDegLat = 1 / 111.32;
+  const kmToDegLon = 1 / (111.32 * Math.cos((lat * Math.PI) / 180));
+  const dLat = radiusKm * kmToDegLat;
+  const dLon = radiusKm * kmToDegLon;
+
+  // Raster über den Kreis abtasten (auf den Kreis beschnitten), damit ein Land,
+  // das einen nennenswerten Teil des Radius einnimmt, erfasst wird, ohne dass
+  // bloße Box-Überlappung ein Nachbarland fälschlich einschließt.
+  const fracs = [-1, -0.5, 0, 0.5, 1];
+  for (const fLat of fracs) {
+    for (const fLon of fracs) {
+      if (fLat * fLat + fLon * fLon > 1.0001) continue; // außerhalb des Kreises
+      add(detectCountryFromCoordinates(lat + fLat * dLat, lon + fLon * dLon));
+    }
+  }
+
+  // Zusätzliche Randproben in 8 Richtungen am Kreisrand, damit dünne Grenz-
+  // bänder (zwischen den Rasterpunkten) erfasst werden.
+  const angles = [0, 45, 90, 135, 180, 225, 270, 315];
+  for (const deg of angles) {
+    const r = (deg * Math.PI) / 180;
+    add(detectCountryFromCoordinates(lat + dLat * Math.sin(r), lon + dLon * Math.cos(r)));
+  }
+
+  // Primäres Land nur nach vorne sortieren, wenn der Radius es tatsächlich
+  // berührt (also bereits erkannt wurde) – niemals erzwungen aufnehmen.
+  if (primaryIso) {
+    const up = primaryIso.toUpperCase();
+    const idx = found.indexOf(up);
+    if (idx > 0) {
+      found.splice(idx, 1);
+      found.unshift(up);
+    }
+  }
+
+  return found;
+}
+
+// Ermittelt die Länder, die ein Karten-Viewport (Mitte + optionale Ausdehnung)
+// abdeckt. Die erkannte Mitte ist das primäre Overlay; mit bekannter Ausdehnung
+// wird ein Raster abgetastet, ohne Ausdehnung dienen Nachbar-Proben < borderKm.
+export function getViewportCountries(
+  supportedIsos: string[],
+  lat: number,
+  lon: number,
+  latDelta: number = 0,
+  lonDelta: number = 0,
+  borderKm: number = 20,
+  maxCountries: number = 4,
+): string[] {
+  const supported = new Set(supportedIsos);
+  const isSupported = (iso: string | null): iso is string => !!iso && supported.has(iso);
+
+  const found: string[] = [];
+  const add = (iso: string | null) => {
+    if (isSupported(iso) && !found.includes(iso)) found.push(iso);
+  };
+
+  // Mittelland zuerst (primäres Overlay, oberste Render-Ebene).
+  add(detectCountryFromCoordinates(lat, lon));
+
+  const hasExtent = latDelta > 0 && lonDelta > 0;
+  if (hasExtent) {
+    // Raster über den sichtbaren Bereich abtasten. Reicht, um jedes Land zu
+    // erfassen, das einen nennenswerten Teil des Viewports einnimmt (z. B. die
+    // andere Grenzseite), ohne winzige Sliver mitzuladen.
+    const halfLat = latDelta / 2;
+    const halfLon = lonDelta / 2;
+    const fracs = [-1, -0.5, 0, 0.5, 1];
+    outer: for (const fLat of fracs) {
+      for (const fLon of fracs) {
+        add(detectCountryFromCoordinates(lat + fLat * halfLat, lon + fLon * halfLon));
+        if (found.length >= maxCountries) break outer;
+      }
+    }
+    return found.slice(0, maxCountries);
+  }
+
+  // Fallback ohne bekannte Ausdehnung: Mitte + ggf. ein Nachbar < borderKm.
+  // Liegt die Mitte außerhalb unterstützter Länder, wird der nächstgelegene
+  // unterstützte Nachbar zum primären Overlay (off-shore-Verhalten).
+  const kmToDegLat = 1 / 111.32;
+  const kmToDegLon = 1 / (111.32 * Math.cos((lat * Math.PI) / 180));
+  const dLat = borderKm * kmToDegLat;
+  const dLon = borderKm * kmToDegLon;
+  const probes: Array<[number, number]> = [
+    [lat + dLat, lon],
+    [lat - dLat, lon],
+    [lat, lon + dLon],
+    [lat, lon - dLon],
+    [lat + dLat * 0.7, lon + dLon * 0.7],
+    [lat + dLat * 0.7, lon - dLon * 0.7],
+    [lat - dLat * 0.7, lon + dLon * 0.7],
+    [lat - dLat * 0.7, lon - dLon * 0.7],
+  ];
+  for (const [pLat, pLon] of probes) {
+    if (found.length >= 2) break;
+    add(detectCountryFromCoordinates(pLat, pLon));
+  }
+  return found;
+}

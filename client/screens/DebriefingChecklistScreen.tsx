@@ -14,7 +14,8 @@ import { Button } from "@/components/Button";
 import Checkbox from "@/components/Checkbox";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, Typography, Colors, BorderRadius } from "@/constants/theme";
-import { updateFlightSession, FlightSession, completeSessionWithLogEntry, getFlightSession, TrafficLogData } from "@/lib/storage";
+import { updateFlightSession, FlightSession, completeSessionWithLogEntry, getFlightSession, TrafficLogData, addDroneHistoryEntry, getDrone, DroneProfile, BatteryUsage } from "@/lib/storage";
+import BatterySelectionBlock from "@/components/BatterySelectionBlock";
 import { stopRecording as stopTrafficRecording, isRecording as isTrafficRecording } from "@/lib/trafficRecorder";
 import type { FlightCheckParamList } from "@/navigation/FlightCheckNavigator";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
@@ -24,9 +25,10 @@ interface CheckItem {
   label: string;
   required: boolean;
   tip: string;
-  type?: "checkbox" | "text" | "number";
+  type?: "checkbox" | "text" | "number" | "choice";
   placeholder?: string;
   suffix?: string;
+  options?: { value: string; label: string }[];
 }
 
 interface CheckSection {
@@ -56,19 +58,24 @@ const DEBRIEFING_SECTIONS: CheckSection[] = [
       },
       {
         id: "battery_final",
-        label: "Endlicher Akkustand",
-        required: true,
-        tip: "Notiere den finalen Akkustand für spätere Referenz und Flugzeitplanung.",
+        label: "Endlicher Akkustand (optional)",
+        required: false,
+        tip: "Freiwillig. Notiere den finalen Akkustand für spätere Referenz und Flugzeitplanung — oder übernimm ihn später aus dem angehängten Fluglog.",
         type: "number",
         placeholder: "z.B. 15",
         suffix: "%",
       },
       {
-        id: "landing_clean",
-        label: "Saubere Landung erfolgt",
+        id: "landing_quality",
+        label: "Landung dokumentieren",
         required: true,
-        tip: "War die Landung kontrolliert? Probleme bei der Landung sollten dokumentiert werden.",
-        type: "checkbox",
+        tip: "Wähle den Landungstyp nach Luftfahrt-Standard. Smooth Landing = unauffällig. Hard Landing = Wartungs-Inspektion erforderlich (Airframe, Motoren, Akku). Crash Landing = Vorfall, Drohne nicht mehr fliegen, dokumentations- und ggf. meldepflichtig.",
+        type: "choice",
+        options: [
+          { value: "smooth_landing", label: "Smooth Landing" },
+          { value: "hard_landing", label: "Hard Landing" },
+          { value: "crash_landing", label: "Crash Landing" },
+        ],
       },
     ],
   },
@@ -130,6 +137,9 @@ export default function DebriefingChecklistScreen() {
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [textValues, setTextValues] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const [drone, setDrone] = useState<DroneProfile | null>(null);
+  const [batteryUsage, setBatteryUsage] = useState<BatteryUsage[]>([]);
+  const [batteryInitial, setBatteryInitial] = useState<BatteryUsage[] | undefined>(undefined);
   const [tipModal, setTipModal] = useState<{ visible: boolean; title: string; tip: string }>({
     visible: false,
     title: "",
@@ -144,21 +154,54 @@ export default function DebriefingChecklistScreen() {
       if (!sessionId) return;
       
       const session = await getFlightSession(sessionId);
+      if (session?.droneId) {
+        const d = await getDrone(session.droneId);
+        setDrone(d);
+        // Vorbelegung aus Pre-Check: gleiche Akku-Auswahl, Endwerte aber leer
+        const preUsage = session.preflight?.batteryUsage;
+        if (preUsage && preUsage.length > 0) {
+          setBatteryInitial(
+            preUsage.map((u) => ({
+              batteryId: u.batteryId,
+              name: u.name,
+              serialNumber: u.serialNumber,
+            })),
+          );
+        }
+      }
       if (session?.debriefing) {
         const debriefing = session.debriefing;
+        if (debriefing.batteryUsage && debriefing.batteryUsage.length > 0) {
+          setBatteryInitial(debriefing.batteryUsage);
+        }
         
         // Restore checkbox state
         if (debriefing.checklistCompleted && Array.isArray(debriefing.checklistCompleted)) {
           setChecked(new Set(debriefing.checklistCompleted));
         }
         
-        // Restore text input values
+        // Restore text input values + choice values
         const savedTexts: Record<string, string> = {};
         if (debriefing.batteryUsedPercent !== undefined) {
           savedTexts["battery_final"] = String(debriefing.batteryUsedPercent);
         }
         if (debriefing.generalNotes && debriefing.generalNotes !== "Keine Probleme") {
           savedTexts["issues_noted"] = debriefing.generalNotes;
+        }
+        // Restore landing quality from checklist (incl. legacy values for backward compat)
+        const completedList = debriefing.checklistCompleted || [];
+        if (completedList.includes("crash_landing")) {
+          savedTexts["landing_quality"] = "crash_landing";
+        } else if (completedList.includes("hard_landing")) {
+          savedTexts["landing_quality"] = "hard_landing";
+        } else if (completedList.includes("smooth_landing")) {
+          savedTexts["landing_quality"] = "smooth_landing";
+        } else if (completedList.includes("firm_landing")) {
+          savedTexts["landing_quality"] = "smooth_landing";
+        } else if (completedList.includes("landing_hard")) {
+          savedTexts["landing_quality"] = "hard_landing";
+        } else if (completedList.includes("landing_soft") || completedList.includes("landing_clean")) {
+          savedTexts["landing_quality"] = "smooth_landing";
         }
         if (Object.keys(savedTexts).length > 0) {
           setTextValues(savedTexts);
@@ -169,18 +212,33 @@ export default function DebriefingChecklistScreen() {
     loadSavedDebriefing();
   }, [sessionId]);
 
-  const allRequiredCheckboxes = DEBRIEFING_SECTIONS.flatMap(s => 
+  const hasDroneBatteries = !!(drone?.batteries && drone.batteries.length > 0);
+  const effectiveSections: CheckSection[] = hasDroneBatteries
+    ? DEBRIEFING_SECTIONS.map((s) => ({
+        ...s,
+        items: s.items.filter((i) => i.id !== "battery_final"),
+      }))
+    : DEBRIEFING_SECTIONS;
+
+  const allRequiredCheckboxes = effectiveSections.flatMap(s => 
     s.items.filter(i => i.required && (i.type === "checkbox" || !i.type))
   );
-  const allRequiredTextInputs = DEBRIEFING_SECTIONS.flatMap(s =>
+  const allRequiredTextInputs = effectiveSections.flatMap(s =>
     s.items.filter(i => i.required && (i.type === "text" || i.type === "number"))
   );
-  
+  const allRequiredChoices = effectiveSections.flatMap(s =>
+    s.items.filter(i => i.required && i.type === "choice")
+  );
+
   const allRequiredCheckboxesChecked = allRequiredCheckboxes.every(item => checked.has(item.id));
   const allRequiredTextInputsFilled = allRequiredTextInputs.every(item => 
     textValues[item.id] && textValues[item.id].trim().length > 0
   );
-  const allRequiredCompleted = allRequiredCheckboxesChecked && allRequiredTextInputsFilled;
+  const allRequiredChoicesPicked = allRequiredChoices.every(item => {
+    const v = textValues[item.id];
+    return v != null && (item.options?.some(o => o.value === v) ?? false);
+  });
+  const allRequiredCompleted = allRequiredCheckboxesChecked && allRequiredTextInputsFilled && allRequiredChoicesPicked;
 
   const toggleItem = (id: string) => {
     setChecked(prev => {
@@ -213,14 +271,32 @@ export default function DebriefingChecklistScreen() {
     setSaving(true);
     try {
       const issuesText = textValues["issues_noted"]?.trim() || "";
-      const batteryPercent = textValues["battery_final"]?.trim() || "";
+      const batteryPercent = hasDroneBatteries ? "" : (textValues["battery_final"]?.trim() || "");
       
+      // Choice values (e.g. smooth_landing / hard_landing) are stored alongside checkbox IDs
+      // so HistoryScreen and PDF export render them automatically.
+      const choiceValues = effectiveSections
+        .flatMap(s => s.items)
+        .filter(i => i.type === "choice")
+        .map(i => textValues[i.id])
+        .filter((v): v is string => !!v);
+      const checklistCompleted = Array.from(new Set([...Array.from(checked), ...choiceValues]));
+      const isCrash = choiceValues.includes("crash_landing");
+      const isHardLanding = choiceValues.includes("hard_landing");
+      const requiresMaintenance = isCrash || isHardLanding;
+      const landingNote = isCrash
+        ? "Crash Landing — Drohne aus dem Flugbetrieb nehmen, vollständige Inspektion (Zelle, Motoren, Akku, Sensorik), Vorfall ggf. meldepflichtig"
+        : isHardLanding
+          ? "Hard Landing — Wartungs-Inspektion erforderlich (Airframe, Motoren, Akku)"
+          : null;
+
       const debriefingData = {
-        incidentOccurred: issuesText.length > 0,
-        maintenanceRequired: false,
-        generalNotes: issuesText.length > 0 ? issuesText : "Keine Probleme",
+        incidentOccurred: issuesText.length > 0 || isCrash,
+        maintenanceRequired: requiresMaintenance,
+        generalNotes: issuesText.length > 0 ? issuesText : (landingNote ?? "Keine Probleme"),
         batteryUsedPercent: batteryPercent ? parseInt(batteryPercent, 10) : undefined,
-        checklistCompleted: Array.from(checked),
+        batteryUsage: batteryUsage.length > 0 ? batteryUsage : undefined,
+        checklistCompleted,
         landingTime: new Date().toISOString(),
       };
       
@@ -229,6 +305,28 @@ export default function DebriefingChecklistScreen() {
         const recording = stopTrafficRecording();
         if (recording) {
           trafficLog = recording as TrafficLogData;
+        }
+      }
+
+      // Hard/Crash Landing automatisch in Drohnen-Historie eintragen
+      if (isHardLanding || isCrash) {
+        try {
+          const session = await getFlightSession(sessionId);
+          if (session?.droneId) {
+            const description = isCrash
+              ? "Drohne aus dem Flugbetrieb nehmen. Vollständige Inspektion (Zelle, Motoren, Akku, Sensorik) erforderlich, Vorfall ggf. meldepflichtig."
+              : "Wartungs-Inspektion erforderlich (Airframe, Motoren, Akku).";
+            await addDroneHistoryEntry(session.droneId, {
+              eventType: isCrash ? "crash_landing" : "hard_landing",
+              description,
+              date: new Date().toISOString(),
+              sessionId,
+              locationName: session.locationName ?? null,
+            });
+          }
+        } catch (e) {
+          // Drohnen-Historie ist sekundär — Debriefing trotzdem speichern
+          console.warn("Konnte Landungs-Eintrag in Drohnen-Historie nicht anlegen:", e);
         }
       }
 
@@ -259,15 +357,30 @@ export default function DebriefingChecklistScreen() {
           onPress: async () => {
             if (sessionId) {
               const issuesText = textValues["issues_noted"]?.trim() || "";
-              const batteryPercent = textValues["battery_final"]?.trim() || "";
+              const batteryPercent = hasDroneBatteries ? "" : (textValues["battery_final"]?.trim() || "");
               
+              const choiceValues = effectiveSections
+                .flatMap(s => s.items)
+                .filter(i => i.type === "choice")
+                .map(i => textValues[i.id])
+                .filter((v): v is string => !!v);
+              const checklistCompleted = Array.from(new Set([...Array.from(checked), ...choiceValues]));
+              const isCrashP = choiceValues.includes("crash_landing");
+              const isHardP = choiceValues.includes("hard_landing");
+              const landingNoteP = isCrashP
+                ? "Crash Landing — Drohne aus dem Flugbetrieb nehmen, vollständige Inspektion (Zelle, Motoren, Akku, Sensorik), Vorfall ggf. meldepflichtig"
+                : isHardP
+                  ? "Hard Landing — Wartungs-Inspektion erforderlich (Airframe, Motoren, Akku)"
+                  : undefined;
+
               await updateFlightSession(sessionId, { 
                 debriefing: {
-                  incidentOccurred: issuesText.length > 0,
-                  maintenanceRequired: false,
-                  generalNotes: issuesText.length > 0 ? issuesText : undefined,
+                  incidentOccurred: issuesText.length > 0 || isCrashP,
+                  maintenanceRequired: isCrashP || isHardP,
+                  generalNotes: issuesText.length > 0 ? issuesText : landingNoteP,
                   batteryUsedPercent: batteryPercent ? parseInt(batteryPercent, 10) : undefined,
-                  checklistCompleted: Array.from(checked),
+                  batteryUsage: batteryUsage.length > 0 ? batteryUsage : undefined,
+                  checklistCompleted,
                 }
               });
             }
@@ -296,7 +409,7 @@ export default function DebriefingChecklistScreen() {
           </ThemedText>
         </View>
 
-        {DEBRIEFING_SECTIONS.map((section) => (
+        {effectiveSections.map((section) => (
           <View key={section.title} style={styles.section}>
             <View style={styles.sectionHeader}>
               <Feather name={section.icon} size={18} color={theme.primary} />
@@ -306,20 +419,96 @@ export default function DebriefingChecklistScreen() {
               {section.items.map((item, itemIndex) => {
                 const itemType = item.type || "checkbox";
                 const isTextInput = itemType === "text" || itemType === "number";
+                const isChoice = itemType === "choice";
                 
                 return (
                   <View
                     key={item.id}
                     style={[
                       styles.checkItem,
-                      isTextInput && styles.checkItemTextInput,
+                      (isTextInput || isChoice) && styles.checkItemTextInput,
                       itemIndex < section.items.length - 1 && {
                         borderBottomWidth: 1,
                         borderBottomColor: theme.border,
                       },
                     ]}
                   >
-                    {isTextInput ? (
+                    {isChoice ? (
+                      <View style={styles.textInputContainer}>
+                        <View style={styles.textInputHeader}>
+                          <ThemedText style={styles.checkLabel}>{item.label}</ThemedText>
+                          <View style={styles.itemActions}>
+                            {item.required ? (
+                              <View style={[styles.requiredBadge, { backgroundColor: theme.statusCautionBackground }]}>
+                                <ThemedText style={[styles.requiredText, { color: theme.statusCaution }]}>
+                                  Pflicht
+                                </ThemedText>
+                              </View>
+                            ) : null}
+                            <Pressable
+                              onPress={() => showTip(item.label, item.tip)}
+                              style={({ pressed }) => [
+                                styles.tipButton,
+                                { backgroundColor: theme.backgroundSecondary },
+                                pressed && { opacity: 0.7 },
+                              ]}
+                              hitSlop={8}
+                            >
+                              <Feather name="help-circle" size={18} color={theme.primary} />
+                            </Pressable>
+                          </View>
+                        </View>
+                        <View style={styles.choiceRow}>
+                          {(item.options || []).map((opt) => {
+                            const selected = textValues[item.id] === opt.value;
+                            const isCrash = opt.value === "crash_landing";
+                            const isHard = opt.value === "hard_landing";
+                            const activeBg = isCrash
+                              ? theme.statusNoGoBackground
+                              : isHard
+                                ? theme.statusCautionBackground
+                                : theme.statusGoBackground;
+                            const activeColor = isCrash
+                              ? theme.statusNoGo
+                              : isHard
+                                ? theme.statusCaution
+                                : theme.statusGo;
+                            return (
+                              <Pressable
+                                key={opt.value}
+                                testID={`choice-${item.id}-${opt.value}`}
+                                onPress={() => {
+                                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                  setTextValues(prev => ({ ...prev, [item.id]: opt.value }));
+                                }}
+                                style={({ pressed }) => [
+                                  styles.choiceButton,
+                                  {
+                                    backgroundColor: selected ? activeBg : theme.backgroundSecondary,
+                                    borderColor: selected ? activeColor : theme.border,
+                                  },
+                                  pressed && { opacity: 0.7 },
+                                ]}
+                              >
+                                <Feather
+                                  name={selected ? (isCrash ? "alert-octagon" : isHard ? "alert-triangle" : "check-circle") : "circle"}
+                                  size={16}
+                                  color={selected ? activeColor : theme.textSecondary}
+                                />
+                                <ThemedText
+                                  style={[
+                                    styles.choiceLabel,
+                                    { color: selected ? activeColor : theme.text },
+                                  ]}
+                                >
+                                  {opt.label}
+                                </ThemedText>
+                              </Pressable>
+                            );
+                          })}
+                        </View>
+                      </View>
+                    ) : isTextInput ? (
                       <View style={styles.textInputContainer}>
                         <View style={styles.textInputHeader}>
                           <ThemedText style={styles.checkLabel}>{item.label}</ThemedText>
@@ -407,6 +596,15 @@ export default function DebriefingChecklistScreen() {
             </Card>
           </View>
         ))}
+
+        {drone?.batteries && drone.batteries.length > 0 ? (
+          <BatterySelectionBlock
+            batteries={drone.batteries}
+            mode="post"
+            initial={batteryInitial}
+            onChange={setBatteryUsage}
+          />
+        ) : null}
       </KeyboardAwareScrollViewCompat>
 
       <View style={[styles.footer, { paddingBottom: insets.bottom + Spacing.lg, backgroundColor: theme.backgroundDefault }]}>
@@ -605,5 +803,27 @@ const styles = StyleSheet.create({
   inputSuffix: {
     ...Typography.body,
     fontWeight: "600",
+  },
+  choiceRow: {
+    flexDirection: "row",
+    gap: Spacing.sm,
+    flexWrap: "wrap",
+  },
+  choiceButton: {
+    flex: 1,
+    minWidth: 140,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1.5,
+  },
+  choiceLabel: {
+    ...Typography.body,
+    fontWeight: "600",
+    textAlign: "center",
   },
 });

@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { View, StyleSheet, FlatList, Pressable, RefreshControl, Alert } from "react-native";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -14,8 +14,9 @@ import StatusBadge from "@/components/StatusBadge";
 import { Button } from "@/components/Button";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, Typography, BorderRadius } from "@/constants/theme";
-import { getActiveSessions, FlightSession, getDrone, deleteFlightSession, updateFlightSession, archiveSessionToLogbook, DEFAULT_LIMITS } from "@/lib/storage";
+import { getActiveSessions, FlightSession, getDrone, deleteFlightSession, updateFlightSession, archiveSessionToLogbook, DEFAULT_LIMITS, trashFlightSession, restoreFlightSession, getTrashedFlightSessions, TRASH_RETENTION_DAYS } from "@/lib/storage";
 import { getCheckItemLabel } from "@/lib/checklists";
+import { setFlightPlanningMode } from "@/lib/flightPlanningMode";
 import type { BriefingsStackParamList } from "@/navigation/BriefingsStackNavigator";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
@@ -24,7 +25,7 @@ const DEPRECATED_CHECKLIST_IDS = ["registration", "insurance", "permissions"];
 type NavigationProp = NativeStackNavigationProp<BriefingsStackParamList>;
 type RootNavProp = NativeStackNavigationProp<RootStackParamList>;
 
-interface DisplayItem {
+interface SessionDisplayItem {
   type: "session";
   id: string;
   createdAt: string;
@@ -38,9 +39,38 @@ interface DisplayItem {
   droneName?: string;
   droneClass?: string;
   droneType?: "standard" | "fpv_only" | "hybrid_fpv" | "selfie";
+  plannedDate?: string;
   plannedTime?: string;
+  isExpired?: boolean;
+  canCheckWeather?: boolean;
   session?: FlightSession;
 }
+
+interface ExpiredSectionItem {
+  type: "expired_header";
+  id: string;
+  count: number;
+}
+
+interface TrashSectionItem {
+  type: "trash_header";
+  id: string;
+  count: number;
+}
+
+interface TrashedDisplayItem {
+  type: "trashed";
+  id: string;
+  session: FlightSession;
+  droneName?: string;
+  droneClass?: string;
+  deletedAt: string;
+  daysLeft: number;
+}
+
+type DisplayItem = SessionDisplayItem | ExpiredSectionItem | TrashSectionItem | TrashedDisplayItem;
+
+const EXPIRY_AUTO_DELETE_DAYS = 28;
 
 const PHASE_LABELS: Record<string, string> = {
   planning: "Planung",
@@ -62,8 +92,10 @@ function SessionCard({
   onCancelSession,
   onSkipToPostCheck,
   onEditPlanningChecklist,
+  onReplan,
+  onCheckWeather,
 }: { 
-  item: DisplayItem; 
+  item: SessionDisplayItem; 
   index: number; 
   onContinue: () => void; 
   onDelete: () => void;
@@ -72,6 +104,8 @@ function SessionCard({
   onCancelSession: () => void;
   onSkipToPostCheck: () => void;
   onEditPlanningChecklist: () => void;
+  onReplan: () => void;
+  onCheckWeather: () => void;
 }) {
   const { theme } = useTheme();
   const [expanded, setExpanded] = useState(false);
@@ -142,6 +176,11 @@ function SessionCard({
   };
 
   const currentPhaseIndex = PHASE_ORDER.indexOf(item.phase || "planning");
+
+  // Pflicht-Vorbereitungs-Items aus PLANNING_CHECKLIST ("Vorbereitung"-Sektion)
+  const PREP_REQUIRED_IDS = ["drone_ready", "firmware", "batteries", "controller"] as const;
+  const completedIds = session?.planning?.checklistCompleted ?? [];
+  const allPrepDone = PREP_REQUIRED_IDS.every((id) => completedIds.includes(id));
   
   const isPlanningComplete = currentPhaseIndex > 0;
   const isPreflightComplete = currentPhaseIndex > 1;
@@ -171,6 +210,26 @@ function SessionCard({
         {data ? (
           <View style={styles.phaseSectionContent}>
             {Object.entries(data).map(([key, value]) => {
+              const HIDDEN_KEYS = new Set([
+                "radiusKm",
+                "isFpvFlight",
+                "fpvMode",
+                "vlosExceeded",
+                "recommendedVlosM",
+                "vlosCharDimensionM",
+                "routeWaypoints",
+                "countryIso",
+                "mapUrl",
+                "sessionId",
+                "forecastWeather",
+                "latitude",
+                "longitude",
+                "locationName",
+                "droneId",
+                "restrictionStatus",
+                "endTime",
+              ]);
+              if (HIDDEN_KEYS.has(key)) return null;
               if (key === "checklistCompleted" && Array.isArray(value) && value.length > 0) {
                 const filteredItems = value.filter((id: string) => !DEPRECATED_CHECKLIST_IDS.includes(id));
                 if (filteredItems.length === 0) return null;
@@ -344,26 +403,58 @@ function SessionCard({
                 </View>
               </View>
               
-              <ThemedText style={styles.dateText}>
+              <ThemedText
+                style={[
+                  styles.dateText,
+                  item.isExpired ? { color: theme.statusNoGo, fontWeight: "600" } : null,
+                ]}
+              >
                 {item.plannedTime 
                   ? (() => {
                       const [hours, minutes] = item.plannedTime.split(":").map(Number);
+                      let timeRange = item.plannedTime;
                       if (!isNaN(hours) && !isNaN(minutes)) {
                         const endHours = (hours + 2) % 24;
                         const endTime = `${endHours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}`;
-                        return `Geplant: ${item.plannedTime} - ${endTime}`;
+                        timeRange = `${item.plannedTime} - ${endTime}`;
                       }
-                      return `Geplant: ${item.plannedTime}`;
+                      let datePart = "";
+                      if (item.plannedDate) {
+                        const d = new Date(`${item.plannedDate}T00:00:00`);
+                        if (!isNaN(d.getTime())) {
+                          datePart = d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" }) + ", ";
+                        }
+                      }
+                      return `Geplant: ${datePart}${timeRange}`;
                     })()
                   : formatDate(item.createdAt)
                 }
               </ThemedText>
+              {item.isExpired ? (
+                <View style={styles.expiredBanner}>
+                  <Feather name="alert-circle" size={12} color={theme.statusNoGo} />
+                  <ThemedText style={[styles.expiredBannerText, { color: theme.statusNoGo }]}>
+                    Planung abgelaufen
+                  </ThemedText>
+                </View>
+              ) : null}
             </View>
-            <Feather 
-              name={expanded ? "chevron-up" : "chevron-down"} 
-              size={20} 
-              color={theme.textTertiary} 
-            />
+            <View style={styles.cardHeaderRight}>
+              {item.isExpired ? (
+                <Pressable
+                  onPress={onDelete}
+                  hitSlop={10}
+                  style={[styles.trashBtn, { backgroundColor: theme.statusNoGo + "15" }]}
+                >
+                  <Feather name="trash-2" size={16} color={theme.statusNoGo} />
+                </Pressable>
+              ) : null}
+              <Feather 
+                name={expanded ? "chevron-up" : "chevron-down"} 
+                size={20} 
+                color={theme.textTertiary} 
+              />
+            </View>
           </View>
 
           {item.locationName ? (
@@ -461,32 +552,75 @@ function SessionCard({
 
             {renderWeatherInfo()}
             
-            <View style={styles.expandedActions}>
-              <Button
-                title={getPhaseActionText(item.phase)}
-                onPress={onContinue}
-                style={{ flex: 1 }}
-              />
-              {item.phase === "hover" ? (
-                <Button
-                  title="Post-Check"
-                  onPress={onSkipToPostCheck}
-                  variant="secondary"
-                  style={{ flex: 1 }}
-                />
-              ) : null}
-            </View>
-
-            {(item.phase === "planning" || item.phase === "preflight") && session.planning ? (
-              <View style={[styles.expandedActions, { marginTop: Spacing.sm }]}>
-                <Button
-                  title="Vorbereitung abhaken"
-                  onPress={onEditPlanningChecklist}
-                  variant="secondary"
-                  style={{ flex: 1 }}
-                />
+            {item.isExpired ? (
+              <View>
+                <View style={[styles.expiredBanner, { marginBottom: Spacing.sm }]}>
+                  <Feather name="alert-circle" size={14} color={theme.statusNoGo} />
+                  <ThemedText style={[styles.expiredBannerText, { color: theme.statusNoGo }]}>
+                    Diese Planung ist abgelaufen. Bitte neu planen, damit Wetter und NOTAMs aktuell sind.
+                  </ThemedText>
+                </View>
+                <View style={styles.expandedActions}>
+                  <Button
+                    title="Neu planen"
+                    onPress={onReplan}
+                    style={{ flex: 1 }}
+                  />
+                </View>
               </View>
-            ) : null}
+            ) : (
+              <>
+                <View style={styles.expandedActions}>
+                  <Button
+                    title={getPhaseActionText(item.phase)}
+                    onPress={onContinue}
+                    style={{ flex: 1 }}
+                  />
+                  {item.phase === "hover" ? (
+                    <Button
+                      title="Post-Check"
+                      onPress={onSkipToPostCheck}
+                      variant="secondary"
+                      style={{ flex: 1 }}
+                    />
+                  ) : null}
+                </View>
+
+                {item.canCheckWeather ? (
+                  <View style={[styles.expandedActions, { marginTop: Spacing.sm }]}>
+                    <Button
+                      title="Wetterprüfung"
+                      onPress={onCheckWeather}
+                      style={{ flex: 1 }}
+                    />
+                  </View>
+                ) : null}
+
+                {(item.phase === "planning" || item.phase === "preflight") && session.planning ? (
+                  allPrepDone ? (
+                    <Pressable
+                      onPress={onEditPlanningChecklist}
+                      style={[styles.cancelLink, { marginTop: Spacing.sm }]}
+                      hitSlop={8}
+                    >
+                      <Feather name="check-square" size={13} color={theme.textTertiary} />
+                      <ThemedText style={[styles.cancelText, { color: theme.textTertiary }]}>
+                        Vorbereitung bearbeiten
+                      </ThemedText>
+                    </Pressable>
+                  ) : (
+                    <View style={[styles.expandedActions, { marginTop: Spacing.sm }]}>
+                      <Button
+                        title="Vorbereitung abhaken"
+                        onPress={onEditPlanningChecklist}
+                        variant="secondary"
+                        style={{ flex: 1 }}
+                      />
+                    </View>
+                  )
+                ) : null}
+              </>
+            )}
             
             {item.phase === "hover" ? (
               <View style={[styles.expandedActions, { marginTop: Spacing.sm }]}>
@@ -512,18 +646,104 @@ function SessionCard({
             ) : null}
           </View>
         ) : (
-          <Pressable onPress={item.phase === "hover" ? toggleExpanded : onContinue}>
-            <View style={[styles.actionHint, { backgroundColor: getPhaseColor(item.phase) + "15" }]}>
-              <Feather 
-                name={getPhaseIcon(item.phase)} 
-                size={14} 
-                color={getPhaseColor(item.phase)} 
-              />
-              <ThemedText style={[styles.actionHintText, { color: getPhaseColor(item.phase) }]}>
-                {item.phase === "hover" ? "Im Flug - Optionen anzeigen" : getPhaseActionText(item.phase)}
-              </ThemedText>
-            </View>
-          </Pressable>
+          <View>
+            {item.isExpired ? (
+              <View style={[styles.expandedActions, { marginTop: Spacing.md }]}>
+                <Button
+                  title="Neu planen"
+                  onPress={onReplan}
+                  style={{ flex: 1 }}
+                />
+              </View>
+            ) : (
+              // Wenn Vorbereitung schon komplett abgehakt ist, wird der Pre-Check-
+              // Button zur prominenten Aktion und "Vorbereitung abhaken" rutscht
+              // unten in einen unauffälligen Text-Link.
+              allPrepDone && (item.phase === "planning" || item.phase === "preflight") ? (
+                <View style={styles.expandedActions}>
+                  <Button
+                    title={getPhaseActionText(item.phase)}
+                    onPress={onContinue}
+                    style={{ flex: 1 }}
+                  />
+                </View>
+              ) : item.phase === "hover" ? (
+                // Im Flug: direkt die Aktions-Buttons zeigen, damit der Pilot
+                // schnell weiterkommt. Die volle Checkliste gibt es nur auf
+                // Wunsch über den dezenten "Checkliste prüfen"-Link.
+                <View>
+                  <View style={styles.expandedActions}>
+                    <Button
+                      title="Flight-Check"
+                      onPress={onContinue}
+                      style={{ flex: 1 }}
+                    />
+                    <Button
+                      title="Post-Check"
+                      onPress={onSkipToPostCheck}
+                      variant="secondary"
+                      style={{ flex: 1 }}
+                    />
+                  </View>
+                  <View style={[styles.expandedActions, { marginTop: Spacing.sm }]}>
+                    <Button
+                      title="Direkt ins Logbuch"
+                      onPress={handleArchiveDirectly}
+                      variant="secondary"
+                      style={{ flex: 1 }}
+                    />
+                  </View>
+                  <Pressable
+                    onPress={toggleExpanded}
+                    style={[styles.cancelLink, { marginTop: Spacing.sm }]}
+                    hitSlop={8}
+                  >
+                    <Feather name="list" size={13} color={theme.textTertiary} />
+                    <ThemedText style={[styles.cancelText, { color: theme.textTertiary }]}>
+                      Checkliste & Details prüfen
+                    </ThemedText>
+                  </Pressable>
+                </View>
+              ) : (
+                <Pressable onPress={onContinue}>
+                  <View style={[styles.actionHint, { backgroundColor: getPhaseColor(item.phase) + "15" }]}>
+                    <Feather 
+                      name={getPhaseIcon(item.phase)} 
+                      size={14} 
+                      color={getPhaseColor(item.phase)} 
+                    />
+                    <ThemedText style={[styles.actionHintText, { color: getPhaseColor(item.phase) }]}>
+                      {getPhaseActionText(item.phase)}
+                    </ThemedText>
+                  </View>
+                </Pressable>
+              )
+            )}
+
+            {!item.isExpired && (item.phase === "planning" || item.phase === "preflight") && session?.planning ? (
+              allPrepDone ? (
+                <Pressable
+                  onPress={onEditPlanningChecklist}
+                  style={[styles.cancelLink, { marginTop: Spacing.sm }]}
+                  hitSlop={8}
+                >
+                  <Feather name="check-square" size={13} color={theme.textTertiary} />
+                  <ThemedText style={[styles.cancelText, { color: theme.textTertiary }]}>
+                    Vorbereitung bearbeiten
+                  </ThemedText>
+                </Pressable>
+              ) : (
+                <View style={[styles.expandedActions, { marginTop: Spacing.sm }]}>
+                  <Button
+                    title="Vorbereitung abhaken"
+                    onPress={onEditPlanningChecklist}
+                    variant="secondary"
+                    style={{ flex: 1 }}
+                  />
+                </View>
+              )
+            ) : null}
+          </View>
         )}
       </Card>
     </Animated.View>
@@ -536,19 +756,80 @@ export default function BriefingsScreen() {
   const { theme } = useTheme();
   const headerHeight = useHeaderHeight();
   const tabBarHeight = useBottomTabBarHeight();
-  const [items, setItems] = useState<DisplayItem[]>([]);
+  const [activeItems, setActiveItems] = useState<SessionDisplayItem[]>([]);
+  const [expiredItems, setExpiredItems] = useState<SessionDisplayItem[]>([]);
+  const [trashedItems, setTrashedItems] = useState<TrashedDisplayItem[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [expiredCollapsed, setExpiredCollapsed] = useState(true);
+  const [trashCollapsed, setTrashCollapsed] = useState(true);
+
+  const items: DisplayItem[] = useMemo(() => {
+    const combined: DisplayItem[] = [...activeItems];
+    if (expiredItems.length > 0) {
+      combined.push({ type: "expired_header", id: "__expired_header__", count: expiredItems.length });
+      if (!expiredCollapsed) combined.push(...expiredItems);
+    }
+    if (trashedItems.length > 0) {
+      combined.push({ type: "trash_header", id: "__trash_header__", count: trashedItems.length });
+      if (!trashCollapsed) combined.push(...trashedItems);
+    }
+    return combined;
+  }, [activeItems, expiredItems, trashedItems, expiredCollapsed, trashCollapsed]);
 
   const loadData = useCallback(async () => {
     try {
       const sessions = await getActiveSessions();
-      
-      const displayItems: DisplayItem[] = [];
-      
+      const now = Date.now();
+      const autoDeleteCutoff = now - EXPIRY_AUTO_DELETE_DAYS * 24 * 60 * 60 * 1000;
+
+      const active: SessionDisplayItem[] = [];
+      const expired: SessionDisplayItem[] = [];
+
       for (const session of sessions) {
+        // Auto-Cleanup: Briefings älter als 4 Wochen werden entfernt
+        const createdMs = new Date(session.createdAt).getTime();
+        if (!isNaN(createdMs) && createdMs < autoDeleteCutoff) {
+          try { await deleteFlightSession(session.id); } catch {}
+          continue;
+        }
+
         const drone = await getDrone(session.droneId);
-        displayItems.push({
+        const plannedDate = session.planning?.plannedDate;
+        const plannedTime = session.planning?.plannedTime;
+
+        // Eine Planung gilt als abgelaufen, wenn der geplante Termin in der
+        // Vergangenheit liegt und der Pilot noch nicht in die Luft ist.
+        let isExpired = false;
+        let canCheckWeather = false;
+        if (
+          plannedDate &&
+          plannedTime &&
+          (session.currentPhase === "planning" || session.currentPhase === "preflight")
+        ) {
+          // Annahme Flugfenster = 2 h ab geplantem Startzeitpunkt (gleiche
+          // Logik wie die "HH:MM - HH:MM+2"-Anzeige). Erst NACH dem Fenster
+          // gilt die Planung als abgelaufen — während des Fensters bleibt
+          // sie aktiv.
+          const plannedMs = new Date(`${plannedDate}T${plannedTime}:00`).getTime();
+          const windowEndMs = plannedMs + 2 * 60 * 60 * 1000;
+          if (!isNaN(plannedMs) && windowEndMs < now) {
+            isExpired = true;
+          }
+          // In den letzten 24 h vor Start (und noch nicht abgelaufen) bietet die
+          // Übersicht eine "Wetterprüfung" an — bei der Planung wurde das Wetter
+          // bewusst übersprungen, weil der Start damals > 24 h entfernt war.
+          if (
+            !isNaN(plannedMs) &&
+            !isExpired &&
+            session.currentPhase === "planning" &&
+            plannedMs - now < 24 * 60 * 60 * 1000
+          ) {
+            canCheckWeather = true;
+          }
+        }
+
+        const display: SessionDisplayItem = {
           type: "session",
           id: session.id,
           createdAt: session.createdAt,
@@ -562,16 +843,55 @@ export default function BriefingsScreen() {
           droneName: drone?.name,
           droneClass: drone?.classMark,
           droneType: drone?.droneType,
-          plannedTime: session.planning?.plannedTime,
+          plannedDate,
+          plannedTime,
+          isExpired,
+          canCheckWeather,
           session,
-        });
+        };
+
+        if (isExpired) expired.push(display);
+        else active.push(display);
       }
-      
-      displayItems.sort((a, b) => 
-        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-      );
-      
-      setItems(displayItems);
+
+      const byCreatedDesc = (a: SessionDisplayItem, b: SessionDisplayItem) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      active.sort(byCreatedDesc);
+      expired.sort(byCreatedDesc);
+
+      setActiveItems(active);
+      setExpiredItems(expired);
+
+      // Papierkorb — Soft-Delete-Liste mit verbleibender Aufbewahrungsdauer.
+      try {
+        const trashed = await getTrashedFlightSessions();
+        const display: TrashedDisplayItem[] = [];
+        for (const s of trashed) {
+          const drone = await getDrone(s.droneId);
+          const deletedAtRaw = (s as any).deletedAt as string | Date | undefined;
+          const deletedAt = deletedAtRaw
+            ? new Date(deletedAtRaw).toISOString()
+            : new Date().toISOString();
+          const ageMs = Date.now() - new Date(deletedAt).getTime();
+          const daysLeft = Math.max(
+            0,
+            Math.ceil(TRASH_RETENTION_DAYS - ageMs / (24 * 60 * 60 * 1000)),
+          );
+          display.push({
+            type: "trashed",
+            id: s.id,
+            session: s,
+            droneName: drone?.name,
+            droneClass: drone?.classMark,
+            deletedAt,
+            daysLeft,
+          });
+        }
+        setTrashedItems(display);
+      } catch (e) {
+        console.warn("Failed to load trash:", e);
+        setTrashedItems([]);
+      }
     } catch (error) {
       console.error("Failed to load data:", error);
     } finally {
@@ -608,27 +928,31 @@ export default function BriefingsScreen() {
     }
   };
   
-  const handleOpenMap = (item: DisplayItem) => {
+  const handleOpenMap = (item: SessionDisplayItem) => {
+    const radiusKm = item.session?.planning?.radiusKm;
+    const radiusM = typeof radiusKm === "number" && radiusKm > 0 ? radiusKm * 1000 : undefined;
     navigation.navigate("LocationMap", { 
       latitude: item.latitude, 
       longitude: item.longitude,
       title: item.locationName,
+      radiusM,
+      countryIso: item.session?.countryIso,
     });
   };
   
   const handleCancelSession = (item: DisplayItem) => {
     if (item.type !== "session" || !item.session) return;
-    
+
     Alert.alert(
       "Planung abbrechen",
-      "Möchtest du diese Flugplanung wirklich abbrechen? Die Daten werden gelöscht.",
+      `Diese Flugplanung wird in den Papierkorb verschoben und nach ${TRASH_RETENTION_DAYS} Tagen endgültig gelöscht. Du kannst sie bis dahin wiederherstellen.`,
       [
         { text: "Nein", style: "cancel" },
         {
-          text: "Ja, abbrechen",
+          text: "In Papierkorb",
           style: "destructive",
           onPress: async () => {
-            await deleteFlightSession(item.session!.id);
+            await trashFlightSession(item.session!.id);
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             loadData();
           },
@@ -656,9 +980,39 @@ export default function BriefingsScreen() {
         limits: DEFAULT_LIMITS,
         maxAltitude: p.maxAltitude,
         isFpvFlight: p.isFpvFlight ?? false,
+        fpvMode: p.fpvMode,
         sessionId: s.id,
         editMode: true,
         existingChecked: Array.isArray(p.checklistCompleted) ? p.checklistCompleted : [],
+        directEntry: true,
+      },
+    });
+  };
+
+  const handleCheckWeather = (item: DisplayItem) => {
+    if (item.type !== "session" || !item.session || !item.session.planning) return;
+    const s = item.session;
+    const p = s.planning!;
+    // Wetterprüfung erfolgt im planning-Modus (nicht preflight), damit der
+    // PlanningDetailsScreen ggf. wieder als normale Planung agiert.
+    setFlightPlanningMode("planning");
+    rootNav.navigate("FlightPlanning", {
+      screen: "PlanningDetails",
+      params: {
+        droneId: s.droneId,
+        latitude: s.latitude,
+        longitude: s.longitude,
+        locationName: s.locationName,
+        countryIso: s.countryIso,
+        mapUrl: s.mapUrl,
+        plannedDate: p.plannedDate,
+        plannedTime: p.plannedTime,
+        radiusKm: p.radiusKm,
+        recommendedVlosM: p.recommendedVlosM,
+        vlosExceeded: p.vlosExceeded,
+        vlosCharDimensionM: p.vlosCharDimensionM,
+        sessionId: s.id,
+        directEntry: true,
       },
     });
   };
@@ -685,16 +1039,16 @@ export default function BriefingsScreen() {
   const handleItemLongPress = (item: DisplayItem) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     Alert.alert(
-      "Planung löschen",
-      "Möchtest du diese Planung wirklich löschen?",
+      "Planung in Papierkorb",
+      `Die Planung wird in den Papierkorb verschoben und nach ${TRASH_RETENTION_DAYS} Tagen endgültig entfernt.`,
       [
         { text: "Abbrechen", style: "cancel" },
         {
-          text: "Löschen",
+          text: "In Papierkorb",
           style: "destructive",
           onPress: async () => {
             if (item.type === "session" && item.session) {
-              await deleteFlightSession(item.session.id);
+              await trashFlightSession(item.session.id);
             }
             await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             loadData();
@@ -704,21 +1058,168 @@ export default function BriefingsScreen() {
     );
   };
 
+  const handleRestoreTrashed = useCallback(async (sessionId: string) => {
+    try {
+      await restoreFlightSession(sessionId);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      loadData();
+    } catch (e) {
+      Alert.alert("Fehler", "Wiederherstellen fehlgeschlagen.");
+    }
+  }, [loadData]);
+
+  const handlePermanentDelete = useCallback((sessionId: string) => {
+    Alert.alert(
+      "Endgültig löschen",
+      "Diese Planung wird unwiderruflich gelöscht. Fortfahren?",
+      [
+        { text: "Abbrechen", style: "cancel" },
+        {
+          text: "Endgültig löschen",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await deleteFlightSession(sessionId);
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+              loadData();
+            } catch (e) {
+              Alert.alert("Fehler", "Löschen fehlgeschlagen.");
+            }
+          },
+        },
+      ]
+    );
+  }, [loadData]);
+
+  const handleReplan = useCallback(async (item: SessionDisplayItem) => {
+    if (!item.session) return;
+    const s = item.session;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    // Die alte Session NICHT löschen — wir geben ihre sessionId an die
+    // Planung weiter, damit PlanningDetailsScreen denselben Datensatz
+    // aktualisiert. So bleibt die Karte sichtbar, falls der Pilot mitten
+    // im Re-Planen abbricht, und es entsteht kein Duplikat.
+    rootNav.navigate("FlightPlanning", {
+      screen: "PlanningDateTime",
+      params: {
+        droneId: s.droneId,
+        latitude: s.latitude,
+        longitude: s.longitude,
+        locationName: s.locationName,
+        countryIso: s.countryIso,
+        radiusKm: s.planning?.radiusKm ?? 0.5,
+        recommendedVlosM: s.planning?.recommendedVlosM,
+        vlosExceeded: s.planning?.vlosExceeded,
+        vlosCharDimensionM: s.planning?.vlosCharDimensionM,
+        sessionId: s.id,
+        directEntry: true,
+      },
+    });
+  }, [rootNav]);
+
   const renderItem = useCallback(
-    ({ item, index }: { item: DisplayItem; index: number }) => (
-      <SessionCard 
-        item={item} 
-        index={index} 
-        onContinue={() => handleItemPress(item)}
-        onDelete={() => handleItemLongPress(item)}
-        loadData={loadData}
-        onOpenMap={() => handleOpenMap(item)}
-        onCancelSession={() => handleCancelSession(item)}
-        onSkipToPostCheck={() => handleSkipToPostCheck(item)}
-        onEditPlanningChecklist={() => handleEditPlanningChecklist(item)}
-      />
-    ),
-    [loadData]
+    ({ item, index }: { item: DisplayItem; index: number }) => {
+      if (item.type === "expired_header") {
+        return (
+          <Pressable
+            onPress={() => {
+              Haptics.selectionAsync().catch(() => {});
+              setExpiredCollapsed((v) => !v);
+            }}
+            style={[styles.expiredHeader, { backgroundColor: theme.backgroundSecondary, borderColor: theme.border }]}
+            testID="button-toggle-expired"
+          >
+            <Feather name="archive" size={16} color={theme.textSecondary} />
+            <ThemedText style={[styles.expiredHeaderText, { color: theme.textSecondary }]}>
+              Abgelaufene Briefings ({item.count})
+            </ThemedText>
+            <Feather
+              name={expiredCollapsed ? "chevron-down" : "chevron-up"}
+              size={18}
+              color={theme.textSecondary}
+            />
+          </Pressable>
+        );
+      }
+      if (item.type === "trash_header") {
+        return (
+          <Pressable
+            onPress={() => {
+              Haptics.selectionAsync().catch(() => {});
+              setTrashCollapsed((v) => !v);
+            }}
+            style={[styles.expiredHeader, { backgroundColor: theme.backgroundSecondary, borderColor: theme.border }]}
+            testID="button-toggle-trash"
+          >
+            <Feather name="trash-2" size={16} color={theme.textSecondary} />
+            <ThemedText style={[styles.expiredHeaderText, { color: theme.textSecondary }]}>
+              Papierkorb ({item.count}) — {TRASH_RETENTION_DAYS} Tage Aufbewahrung
+            </ThemedText>
+            <Feather
+              name={trashCollapsed ? "chevron-down" : "chevron-up"}
+              size={18}
+              color={theme.textSecondary}
+            />
+          </Pressable>
+        );
+      }
+      if (item.type === "trashed") {
+        const session = item.session;
+        const planned = session.planning?.plannedDate && session.planning?.plannedTime
+          ? `${session.planning.plannedDate} ${session.planning.plannedTime}`
+          : new Date(session.createdAt).toLocaleDateString("de-DE");
+        return (
+          <Card style={[styles.card, { opacity: 0.85 }]}>
+            <View style={styles.cardHeader}>
+              <View style={styles.cardInfo}>
+                <ThemedText style={{ fontWeight: "600" }}>
+                  {item.droneName ?? "Planung"}
+                  {item.droneClass ? ` · ${item.droneClass}` : ""}
+                </ThemedText>
+                <ThemedText style={{ color: theme.textSecondary }}>
+                  {session.locationName ?? "Ohne Standort"}
+                </ThemedText>
+                <ThemedText style={{ color: theme.textTertiary, ...Typography.caption }}>
+                  Geplant: {planned}
+                </ThemedText>
+                <ThemedText style={{ color: theme.statusCaution, ...Typography.caption, marginTop: 2 }}>
+                  Wird in {item.daysLeft} {item.daysLeft === 1 ? "Tag" : "Tagen"} endgültig gelöscht
+                </ThemedText>
+              </View>
+            </View>
+            <View style={[styles.expandedActions, { marginTop: Spacing.md }]}>
+              <Button
+                title="Wiederherstellen"
+                variant="secondary"
+                onPress={() => handleRestoreTrashed(item.id)}
+                style={{ flex: 1 }}
+              />
+              <Button
+                title="Endgültig löschen"
+                onPress={() => handlePermanentDelete(item.id)}
+                style={{ flex: 1, backgroundColor: theme.statusNoGo }}
+              />
+            </View>
+          </Card>
+        );
+      }
+      return (
+        <SessionCard 
+          item={item} 
+          index={index} 
+          onContinue={() => handleItemPress(item)}
+          onDelete={() => handleItemLongPress(item)}
+          loadData={loadData}
+          onOpenMap={() => handleOpenMap(item)}
+          onCancelSession={() => handleCancelSession(item)}
+          onSkipToPostCheck={() => handleSkipToPostCheck(item)}
+          onEditPlanningChecklist={() => handleEditPlanningChecklist(item)}
+          onReplan={() => handleReplan(item)}
+          onCheckWeather={() => handleCheckWeather(item)}
+        />
+      );
+    },
+    [loadData, expiredCollapsed, trashCollapsed, theme, handleReplan, handleRestoreTrashed, handlePermanentDelete]
   );
 
   const renderEmpty = () => (
@@ -797,6 +1298,16 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "flex-start",
   },
+  cardHeaderRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    marginLeft: Spacing.sm,
+  },
+  trashBtn: {
+    padding: 6,
+    borderRadius: BorderRadius.sm,
+  },
   cardInfo: {
     flex: 1,
     gap: Spacing.xs,
@@ -847,6 +1358,31 @@ const styles = StyleSheet.create({
   dateText: {
     ...Typography.caption,
     marginTop: Spacing.xs,
+  },
+  expiredBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 2,
+  },
+  expiredBannerText: {
+    ...Typography.caption,
+    fontWeight: "600",
+  },
+  expiredHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.sm,
+    borderWidth: 1,
+    marginTop: Spacing.sm,
+  },
+  expiredHeaderText: {
+    ...Typography.caption,
+    fontWeight: "600",
+    flex: 1,
   },
   locationRow: {
     flexDirection: "row",

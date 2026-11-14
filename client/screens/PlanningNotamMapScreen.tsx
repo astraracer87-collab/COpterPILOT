@@ -9,15 +9,23 @@ import {
 } from "react-native";
 import MapView, { Circle, Marker, Callout, Polygon, Polyline, WMSTile } from "@/components/maps";
 import { useRoute, useNavigation, RouteProp } from "@react-navigation/native";
-import { useHeaderHeight, HeaderButton } from "@react-navigation/elements";
+import { HeaderButton } from "@react-navigation/elements";
 import { Feather } from "@expo/vector-icons";
 import * as WebBrowser from "@/lib/webBrowser";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { useTheme } from "@/hooks/useTheme";
+import { useMapBasemapStyle } from "@/hooks/useMapBasemapStyle";
 import { Spacing, Typography, BorderRadius } from "@/constants/theme";
 import type { FlightPlanningParamList } from "@/navigation/FlightPlanningNavigator";
-import { buildDipulLink, buildWmsTileUrl, pointInPolygon } from "@/lib/geozones";
+import {
+  buildDipulLink,
+  buildWmsTileUrl,
+  pointInZone,
+  ringGroupsForZone,
+} from "@/lib/geozones";
+import { smoothRingGroup } from "@/lib/ringSimplify";
+import { nativeMapBasemapProps } from "@/lib/mapBasemap";
 import {
   MIL_LOW_FLIGHT_ACTIVATION_TEXT,
   MIL_LOW_FLIGHT_SOURCE_URL,
@@ -32,6 +40,7 @@ import {
   findAreasContainingPoint,
 } from "@/lib/milLowFlight";
 import type { DipulTempRestriction } from "@/lib/geozones";
+import { formatBelgianNotamValidityRange } from "@/lib/ed269Notams";
 
 type RouteParams = RouteProp<FlightPlanningParamList, "PlanningNotamMap">;
 
@@ -40,6 +49,9 @@ const UPCOMING_COLOR = "#5856D6";
 const PILOT_COLOR = "#007AFF";
 
 function formatDateRange(r: DipulTempRestriction): string {
+  const belgianRange = formatBelgianNotamValidityRange(r);
+  if (belgianRange != null) return belgianRange;
+  if (r.validityUnknown) return "Gültigkeit im Quelldatensatz nicht angegeben";
   if (!r.startTs) return "";
   const opts: Intl.DateTimeFormatOptions = { day: "2-digit", month: "2-digit", year: "numeric" };
   const startStr = new Date(r.startTs).toLocaleDateString("de-DE", opts);
@@ -62,10 +74,10 @@ function formatAltitude(r: DipulTempRestriction): string {
 }
 
 export default function PlanningNotamMapScreen() {
+  const [mapStyle] = useMapBasemapStyle();
   const route = useRoute<RouteParams>();
   const navigation = useNavigation();
   const { theme } = useTheme();
-  const headerHeight = useHeaderHeight();
 
   const { latitude, longitude, restrictions = [], routeWaypoints, milStatuses = [] } = route.params || { latitude: 51.1657, longitude: 10.4515, restrictions: [], milStatuses: [] };
 
@@ -137,8 +149,8 @@ export default function PlanningNotamMapScreen() {
     for (const r of typedRestrictions) {
       if (r.centerLat == null || r.centerLon == null) continue;
       const dist = haversineM(tapLat, tapLon, r.centerLat, r.centerLon);
-      if (r.polygonRings && r.polygonRings.length > 0) {
-        if (pointInPolygon(tapLat, tapLon, r.polygonRings) && dist < bestDist) {
+      if ((r.polygonRings && r.polygonRings.length > 0) || (r.polygonGroups && r.polygonGroups.length > 0)) {
+        if (pointInZone(tapLat, tapLon, r) && dist < bestDist) {
           best = r;
           bestDist = dist;
         }
@@ -163,7 +175,8 @@ export default function PlanningNotamMapScreen() {
   return (
     <ThemedView style={styles.container}>
       <MapView
-        style={[styles.map, { marginTop: headerHeight }]}
+        style={styles.map}
+        {...nativeMapBasemapProps(mapStyle, Platform.OS)}
         initialRegion={initialRegion}
         showsUserLocation
         showsMyLocationButton
@@ -194,18 +207,23 @@ export default function PlanningNotamMapScreen() {
           const pinColor = getMilStatusColor(milStatus);
           return (
             <React.Fragment key={`milLow-${r.id}`}>
-              {r.polygonRings.map((ring, ri) => (
-                <Polygon
-                  key={`milLow-${r.id}-poly-${ri}`}
-                  coordinates={ring.map(([la, lo]) => ({ latitude: la, longitude: lo }))}
-                  fillColor={fill}
-                  strokeColor={stroke}
-                  strokeWidth={highlight ? 3 : 2}
-                  zIndex={highlight ? 8 : 3}
-                  tappable
-                  onPress={() => handleMarkerPress(r)}
-                />
-              ))}
+              {ringGroupsForZone(r).map((group, ri) => {
+                const [outer, ...holes] = smoothRingGroup(group);
+                if (!outer || outer.length < 3) return null;
+                return (
+                  <Polygon
+                    key={`milLow-${r.id}-poly-${ri}`}
+                    coordinates={outer.map(([la, lo]) => ({ latitude: la, longitude: lo }))}
+                    holes={holes.map((h) => h.map(([la, lo]) => ({ latitude: la, longitude: lo })))}
+                    fillColor={fill}
+                    strokeColor={stroke}
+                    strokeWidth={highlight ? 3 : 2}
+                    zIndex={highlight ? 8 : 3}
+                    tappable
+                    onPress={() => handleMarkerPress(r)}
+                  />
+                );
+              })}
               {r.centerLat != null && r.centerLon != null ? (
                 <Marker
                   coordinate={{ latitude: r.centerLat, longitude: r.centerLon }}
@@ -267,16 +285,21 @@ export default function PlanningNotamMapScreen() {
           return (
             <React.Fragment key={`active-${r.id}`}>
               {hasPolygon ? (
-                r.polygonRings!.map((ring, ri) => (
-                  <Polygon
-                    key={`active-${r.id}-poly-${ri}`}
-                    coordinates={ring.map(([la, lo]) => ({ latitude: la, longitude: lo }))}
-                    fillColor="rgba(255,59,48,0.45)"
-                    strokeColor={ACTIVE_COLOR}
-                    strokeWidth={2}
-                    zIndex={10}
-                  />
-                ))
+                ringGroupsForZone(r).map((group, ri) => {
+                  const [outer, ...holes] = smoothRingGroup(group);
+                  if (!outer || outer.length < 3) return null;
+                  return (
+                    <Polygon
+                      key={`active-${r.id}-poly-${ri}`}
+                      coordinates={outer.map(([la, lo]) => ({ latitude: la, longitude: lo }))}
+                      holes={holes.map((h) => h.map(([la, lo]) => ({ latitude: la, longitude: lo })))}
+                      fillColor="rgba(255,59,48,0.45)"
+                      strokeColor={ACTIVE_COLOR}
+                      strokeWidth={2}
+                      zIndex={10}
+                    />
+                  );
+                })
               ) : r.radiusM != null ? (
                 <Circle
                   center={{ latitude: lat, longitude: lon }}
@@ -310,16 +333,21 @@ export default function PlanningNotamMapScreen() {
           return (
             <React.Fragment key={`upcoming-${r.id}`}>
               {hasPolygon ? (
-                r.polygonRings!.map((ring, ri) => (
-                  <Polygon
-                    key={`upcoming-${r.id}-poly-${ri}`}
-                    coordinates={ring.map(([la, lo]) => ({ latitude: la, longitude: lo }))}
-                    fillColor="rgba(88,86,214,0.12)"
-                    strokeColor={UPCOMING_COLOR}
-                    strokeWidth={2}
-                    zIndex={5}
-                  />
-                ))
+                ringGroupsForZone(r).map((group, ri) => {
+                  const [outer, ...holes] = smoothRingGroup(group);
+                  if (!outer || outer.length < 3) return null;
+                  return (
+                    <Polygon
+                      key={`upcoming-${r.id}-poly-${ri}`}
+                      coordinates={outer.map(([la, lo]) => ({ latitude: la, longitude: lo }))}
+                      holes={holes.map((h) => h.map(([la, lo]) => ({ latitude: la, longitude: lo })))}
+                      fillColor="rgba(88,86,214,0.12)"
+                      strokeColor={UPCOMING_COLOR}
+                      strokeWidth={2}
+                      zIndex={5}
+                    />
+                  );
+                })
               ) : r.radiusM != null ? (
                 <Circle
                   center={{ latitude: lat, longitude: lon }}

@@ -14,7 +14,8 @@ import { Button } from "@/components/Button";
 import Checkbox from "@/components/Checkbox";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, Typography, Colors } from "@/constants/theme";
-import { getDrone, DroneProfile } from "@/lib/storage";
+import { getDrone, DroneProfile, BatteryUsage } from "@/lib/storage";
+import BatterySelectionBlock from "@/components/BatterySelectionBlock";
 import type { FlightCheckParamList } from "@/navigation/FlightCheckNavigator";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
@@ -133,13 +134,15 @@ export default function ChecklistScreen() {
   const insets = useSafeAreaInsets();
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [drone, setDrone] = useState<DroneProfile | null>(null);
+  const [batteryUsage, setBatteryUsage] = useState<BatteryUsage[]>([]);
   const [tipModal, setTipModal] = useState<{ visible: boolean; title: string; tip: string }>({
     visible: false,
     title: "",
     tip: "",
   });
 
-  const { latitude, longitude, hasRestrictions, restrictionStatus, restrictionNotes, weatherData, droneId, limits, sessionId, isFpvFlight, kpIndex } = route.params;
+  const { latitude, longitude, hasRestrictions, restrictionStatus, restrictionNotes, weatherData, droneId, limits, sessionId, isFpvFlight, fpvMode, kpIndex } = route.params;
+  const effectiveFpvMode: "spotter" | "verband30m" = fpvMode ?? "spotter";
 
   useEffect(() => {
     if (droneId) {
@@ -147,30 +150,55 @@ export default function ChecklistScreen() {
     }
   }, [droneId]);
 
-  const fpvSection: CheckSection = {
-    title: "FPV-Flug",
-    icon: "eye",
-    items: [
-      {
-        id: "spotter_present",
-        label: "Spotter ist vor Ort und bereit",
-        required: true,
-        tip: "Der Spotter muss die Drohne jederzeit sehen können und in Kommunikationsreichweite sein.",
-      },
-      {
-        id: "spotter_communication",
-        label: "Kommunikation mit Spotter getestet",
-        required: true,
-        tip: "Testet Funk, Handzeichen oder Zurufmöglichkeit. Vereinbart klare Signale für Notfälle.",
-      },
-      {
-        id: "goggles_ready",
-        label: "FPV-Brille/Bildschirm betriebsbereit",
-        required: true,
-        tip: "Akku geladen, Bild klar, keine Interferenzen. Video-Link stabil.",
-      },
-    ],
-  };
+  const fpvSection: CheckSection = effectiveFpvMode === "verband30m"
+    ? {
+        title: "FPV nach Verbandsregel (DMFV/DMO)",
+        icon: "shield",
+        items: [
+          {
+            id: "verband_height_limited_30m",
+            label: "Flughöhe in App/Drohne auf max. 30 m AGL begrenzt",
+            required: true,
+            tip: "Pflicht laut LBA-Verbandsbetriebserlaubnis (Art. 16 EU-VO 2019/947): Bei FPV ohne Spotter darf die Drohne 30 m über Grund nicht überschreiten. Stelle das Höhenlimit jetzt in der Hersteller-App (DJI Fly etc.) oder direkt am Sender ein.",
+          },
+          {
+            id: "verband_member_card_ready",
+            label: "Verbandsausweis (DMFV/DMO) griffbereit",
+            required: true,
+            tip: "Bei Kontrolle muss die gültige Mitgliedschaft/Versicherungsbestätigung digital oder ausgedruckt vorgezeigt werden.",
+          },
+          {
+            id: "goggles_ready",
+            label: "FPV-Brille/Bildschirm betriebsbereit",
+            required: true,
+            tip: "Akku geladen, Bild klar, keine Interferenzen. Video-Link stabil.",
+          },
+        ],
+      }
+    : {
+        title: "FPV-Flug",
+        icon: "eye",
+        items: [
+          {
+            id: "spotter_present",
+            label: "Spotter ist vor Ort und bereit",
+            required: true,
+            tip: "Der Spotter muss die Drohne jederzeit sehen können und in Kommunikationsreichweite sein.",
+          },
+          {
+            id: "spotter_communication",
+            label: "Kommunikation mit Spotter getestet",
+            required: true,
+            tip: "Testet Funk, Handzeichen oder Zurufmöglichkeit. Vereinbart klare Signale für Notfälle.",
+          },
+          {
+            id: "goggles_ready",
+            label: "FPV-Brille/Bildschirm betriebsbereit",
+            required: true,
+            tip: "Akku geladen, Bild klar, keine Interferenzen. Video-Link stabil.",
+          },
+        ],
+      };
 
   const filteredSections = useMemo(() => {
     const droneClass = drone?.classMark || "";
@@ -188,7 +216,7 @@ export default function ChecklistScreen() {
       return [...baseSections, fpvSection];
     }
     return baseSections;
-  }, [drone?.classMark, isFpvFlight]);
+  }, [drone?.classMark, isFpvFlight, effectiveFpvMode]);
 
   const allRequiredItems = filteredSections.flatMap(s => s.items.filter(i => i.required));
   const allRequiredChecked = allRequiredItems.every(item => checked.has(item.id));
@@ -225,7 +253,9 @@ export default function ChecklistScreen() {
       sessionId,
       checklistCompleted: Array.from(checked),
       checklistPresented: presentedItemIds,
+      batteryUsage: batteryUsage.length > 0 ? batteryUsage : undefined,
       isFpvFlight,
+      fpvMode: isFpvFlight ? effectiveFpvMode : undefined,
       kpIndex,
     });
   };
@@ -315,6 +345,14 @@ export default function ChecklistScreen() {
             </Card>
           </View>
         ))}
+
+        {drone?.batteries && drone.batteries.length > 0 ? (
+          <BatterySelectionBlock
+            batteries={drone.batteries}
+            mode="pre"
+            onChange={setBatteryUsage}
+          />
+        ) : null}
 
         <Card style={[styles.confirmCard, { borderColor: theme.primary }]}>
           <Pressable

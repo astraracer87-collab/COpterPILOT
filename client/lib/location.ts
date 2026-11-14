@@ -159,8 +159,10 @@ export async function getCurrentPositionAsync(
   }
 }
 
-export async function getLastKnownPositionAsync(): Promise<ExpoLocation.LocationObject | null> {
-  if (!isAndroid) return ExpoLocation.getLastKnownPositionAsync();
+export async function getLastKnownPositionAsync(
+  options?: ExpoLocation.LocationLastKnownOptions,
+): Promise<ExpoLocation.LocationObject | null> {
+  if (!isAndroid) return ExpoLocation.getLastKnownPositionAsync(options);
   return lastKnown;
 }
 

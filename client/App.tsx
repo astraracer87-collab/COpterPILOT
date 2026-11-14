@@ -1,6 +1,7 @@
-import React, { useEffect, useState, useCallback } from "react";
-import { StyleSheet, View, Text, Pressable, ScrollView, Platform, BackHandler } from "react-native";
+import React, { useEffect, useRef, useState, useCallback } from "react";
+import { StyleSheet, View, Text, Pressable, ScrollView, Platform, BackHandler, ActivityIndicator, AppState, type AppStateStatus } from "react-native";
 import { NavigationContainer } from "@react-navigation/native";
+import { navigationRef } from "@/navigation/navigationRef";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -14,8 +15,10 @@ import { queryClient } from "@/lib/query-client";
 
 import RootStackNavigator from "@/navigation/RootStackNavigator";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
-import { navigationRef } from "@/navigation/navigationRef";
-import { migrateLocalDataToServer } from "@/lib/storage";
+import { AuthProvider } from "@/lib/auth";
+import { NetworkProvider } from "@/lib/network";
+import { OfflineBanner } from "@/components/OfflineBanner";
+import { rescheduleExpiryWarnings } from "@/lib/expiryWarnings";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -62,10 +65,9 @@ export default function App() {
       try {
         const accepted = await AsyncStorage.getItem(DISCLAIMER_KEY);
         setDisclaimerAccepted(accepted === "true");
-        const result = await migrateLocalDataToServer();
-        if (result.success && (result.dronesSync > 0 || result.sessionsSync > 0 || result.logbookSync > 0)) {
-          console.log(`Data synced: ${result.dronesSync} drones, ${result.sessionsSync} sessions, ${result.logbookSync} logbook entries`);
-        }
+        // Hinweis: die Server-Migration läuft jetzt explizit nach dem Login,
+        // nicht mehr blind beim App-Start (sonst würde sie einen anonymen
+        // Nutzer mit dem Server kollidieren lassen).
       } catch (error) {
         console.error(error);
         setDisclaimerAccepted(false);
@@ -97,40 +99,75 @@ export default function App() {
     return null;
   }
 
+  return (
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <NetworkProvider>
+            <SafeAreaProvider>
+              <GestureHandlerRootView style={styles.root} onLayout={onLayoutRootView}>
+                <KeyboardProvider>
+                  <AuthGate
+                    disclaimerAccepted={!!disclaimerAccepted}
+                    onAcceptDisclaimer={handleAccept}
+                    onDeclineDisclaimer={handleDecline}
+                  />
+                  <OfflineBanner />
+                  <StatusBar style="auto" />
+                </KeyboardProvider>
+              </GestureHandlerRootView>
+            </SafeAreaProvider>
+          </NetworkProvider>
+        </AuthProvider>
+      </QueryClientProvider>
+    </ErrorBoundary>
+  );
+}
+
+/**
+ * RC-Version: kein Login und keine Paywall. Nach dem Hinweis geht es direkt
+ * in die App; alle Daten bleiben auf dem Gerät.
+ */
+function AuthGate({
+  disclaimerAccepted,
+  onAcceptDisclaimer,
+  onDeclineDisclaimer,
+}: {
+  disclaimerAccepted: boolean;
+  onAcceptDisclaimer: () => void | Promise<void>;
+  onDeclineDisclaimer: () => void;
+}) {
+  // Ablauf-Erinnerungen (AlphaTango / Lizenzen / Versicherung) lokal planen
+  useEffect(() => {
+    const t = setTimeout(() => {
+      rescheduleExpiryWarnings().catch(() => {});
+    }, 1500);
+    return () => clearTimeout(t);
+  }, []);
+
   if (!disclaimerAccepted) {
     return (
-      <ErrorBoundary>
-        <SafeAreaProvider>
-          <GestureHandlerRootView style={styles.root} onLayout={onLayoutRootView}>
-            <DisclaimerScreen onAccept={handleAccept} onDecline={handleDecline} />
-            <StatusBar style="light" />
-          </GestureHandlerRootView>
-        </SafeAreaProvider>
-      </ErrorBoundary>
+      <DisclaimerScreen
+        onAccept={() => { void onAcceptDisclaimer(); }}
+        onDecline={onDeclineDisclaimer}
+      />
     );
   }
 
   return (
-    <ErrorBoundary>
-      <QueryClientProvider client={queryClient}>
-        <SafeAreaProvider>
-          <GestureHandlerRootView style={styles.root} onLayout={onLayoutRootView}>
-            <KeyboardProvider>
-              <NavigationContainer ref={navigationRef}>
-                <RootStackNavigator />
-              </NavigationContainer>
-              <StatusBar style="auto" />
-            </KeyboardProvider>
-          </GestureHandlerRootView>
-        </SafeAreaProvider>
-      </QueryClientProvider>
-    </ErrorBoundary>
+    <NavigationContainer ref={navigationRef}>
+      <RootStackNavigator />
+    </NavigationContainer>
   );
 }
 
 const styles = StyleSheet.create({
   root: {
     flex: 1,
+  },
+  gateLoading: {
+    alignItems: "center",
+    justifyContent: "center",
   },
 });
 

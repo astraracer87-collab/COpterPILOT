@@ -252,7 +252,7 @@ export default function ProximityAlarmBanner({ alerts, alarmActive, alarmLevel =
             <ThemedText style={styles.title}>CLEAR OF CONFLICT</ThemedText>
             <ThemedText style={styles.detail}>Kollisionsgefahr vorbei — Luftraum frei</ThemedText>
           </View>
-          <Pressable onPress={onDismiss} style={styles.dismissBtn} testID="dismiss-clear-banner">
+          <Pressable onPress={onDismiss} hitSlop={16} style={styles.dismissBtn} testID="dismiss-clear-banner">
             <Feather name="x" size={20} color="#FFFFFF" />
           </Pressable>
         </View>
@@ -315,7 +315,7 @@ export default function ProximityAlarmBanner({ alerts, alarmActive, alarmLevel =
             </ThemedText>
           ) : null}
         </View>
-        <Pressable onPress={onDismiss} style={styles.dismissBtn} testID="dismiss-proximity-alarm">
+        <Pressable onPress={onDismiss} hitSlop={16} style={styles.dismissBtn} testID="dismiss-proximity-alarm">
           <Feather name="x" size={20} color="#FFFFFF" />
         </Pressable>
       </View>

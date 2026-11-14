@@ -210,6 +210,202 @@ export const EU_REGULATIONS = {
   shortcut: { label: "Zusammenfassung Modul 1 \u2013 Luftrecht (PDF)", url: "https://lba-openuav.de/wp-content/uploads/UAS-99-1-ALW-Shortcut-20-4.pdf" },
 };
 
+// ── EASA-Referenzinhalte (EU-Regeln) ──────────────────────────────
+// Quelle: EASA „Civil drones" (easa.europa.eu), Stand 1.1.2024.
+// Eigener deutschsprachiger Nachbau der frei abrufbaren EASA-Inhalte
+// (keine EASA-Bilder/Poster kopiert).
+
+export interface GeoZoneLegendItem {
+  color: "red" | "yellow" | "green" | "blue";
+  englishTerm: string;
+  title: string;
+  description: string;
+}
+
+export const EASA_GEO_ZONE_LEGEND: GeoZoneLegendItem[] = [
+  {
+    color: "red",
+    englishTerm: "Excluded geo-zone",
+    title: "Rot — Ausgeschlossen",
+    description:
+      "Flüge sind für alle oder bestimmte Klassen verboten — der Drohnenbetrieb ist hier nicht erlaubt.",
+  },
+  {
+    color: "yellow",
+    englishTerm: "Restricted geo-zone",
+    title: "Gelb — Eingeschränkt",
+    description:
+      "Der Betrieb ist eingeschränkt und an Bedingungen geknüpft. Eine vorherige Genehmigung ist erforderlich, z. B. in der Nähe von Flughäfen, Hubschrauberlandeplätzen, Nationalparks, Militäranlagen, Krankenhäusern, Kernkraftwerken oder Industrieanlagen.",
+  },
+  {
+    color: "green",
+    englishTerm: "Facilitated geo-zone",
+    title: "Grün — Erleichtert",
+    description:
+      "Der Betrieb in der offenen Kategorie wird erleichtert — du darfst hier fliegen.",
+  },
+  {
+    color: "blue",
+    englishTerm: "U-Space airspace",
+    title: "Blau — U-Space",
+    description:
+      "Ein Teil des unteren Luftraums, in dem der Betrieb für Drohnen und andere Fahrzeuge digital verwaltet wird.",
+  },
+];
+
+export interface OpenCategoryRow {
+  classLabel: string;
+  subcategory: string;
+  operationalLimits: string;
+  operatorRegistration: string;
+  pilotCompetency: string;
+  minAge: string;
+}
+
+export const EASA_OPEN_CATEGORY_TABLE: OpenCategoryRow[] = [
+  {
+    classLabel: "Privat gebaut / Altbestand < 250 g",
+    subcategory: "A1",
+    operationalLimits:
+      "Überflug unbeteiligter Personen mit äußerster Vorsicht erlaubt, nicht über Menschenansammlungen. Max. 120 m AGL, nur VLOS.",
+    operatorRegistration:
+      "Nur erforderlich, wenn ein Sensor zur Erfassung personenbezogener Daten (z. B. Kamera) verbaut ist und die Drohne kein Spielzeug ist.",
+    pilotCompetency: "Kein Kompetenznachweis nötig — nur Sicherheitsregeln kennen.",
+    minAge: "Kein Mindestalter.",
+  },
+  {
+    classLabel: "C0 (< 250 g)",
+    subcategory: "A1",
+    operationalLimits:
+      "Überflug unbeteiligter Personen erlaubt (vermeiden), nicht über Menschenansammlungen. Max. 120 m AGL, max. 19 m/s, nur VLOS.",
+    operatorRegistration:
+      "Nur erforderlich, wenn Kamera/Sensor verbaut ist und die Drohne kein Spielzeug ist.",
+    pilotCompetency: "Kein formaler Nachweis — Herstellerhinweise lesen, Sicherheitsregeln kennen.",
+    minAge: "16 Jahre (Mitgliedstaaten können auf 12 absenken).",
+  },
+  {
+    classLabel: "C1 (< 900 g)",
+    subcategory: "A1",
+    operationalLimits:
+      "Kein gezielter Überflug unbeteiligter Personen, nicht über Menschenansammlungen. Max. 120 m AGL, max. 19 m/s, nur VLOS. Remote-ID + Geo-Sensibilisierung aktiv.",
+    operatorRegistration: "Erforderlich.",
+    pilotCompetency: "EU-Kompetenznachweis A1/A3 (Online-Lehrgang + Online-Prüfung).",
+    minAge: "16 Jahre (Mitgliedstaaten können auf 12 absenken).",
+  },
+  {
+    classLabel: "C2 (< 4 kg)",
+    subcategory: "A2 (bzw. A3)",
+    operationalLimits:
+      "A2: Mindestabstand 30 m zu Personen (5 m im Langsamflugmodus ≤ 3 m/s). Ohne A2-Zeugnis nur A3 (150 m Abstand). Max. 120 m AGL, nur VLOS. Remote-ID aktiv.",
+    operatorRegistration: "Erforderlich.",
+    pilotCompetency:
+      "A2: EU-Kompetenznachweis A1/A3 + praktische Selbstschulung + EU-Fernpilotenzeugnis A2 (Theorieprüfung). A3: EU-Kompetenznachweis A1/A3.",
+    minAge: "16 Jahre (Mitgliedstaaten können auf 12 absenken).",
+  },
+  {
+    classLabel: "C3 (< 25 kg)",
+    subcategory: "A3",
+    operationalLimits:
+      "150 m Abstand zu Wohn-, Gewerbe-, Industrie- und Erholungsgebieten, fernab von Personen. Max. 120 m AGL, nur VLOS. Remote-ID + Geo-Sensibilisierung aktiv.",
+    operatorRegistration: "Erforderlich.",
+    pilotCompetency: "EU-Kompetenznachweis A1/A3 (Online-Lehrgang + Online-Prüfung).",
+    minAge: "16 Jahre (Mitgliedstaaten können auf 12 absenken).",
+  },
+  {
+    classLabel: "C4 (< 25 kg)",
+    subcategory: "A3",
+    operationalLimits:
+      "Wie C3, aber ohne automatische Steuerungssysteme. Keine Remote-ID, keine Geo-Sensibilisierung. 150 m Abstand zu besiedelten Gebieten. Max. 120 m AGL, nur VLOS.",
+    operatorRegistration: "Erforderlich.",
+    pilotCompetency: "EU-Kompetenznachweis A1/A3 (Online-Lehrgang + Online-Prüfung).",
+    minAge: "16 Jahre (Mitgliedstaaten können auf 12 absenken).",
+  },
+];
+
+export interface SpecificRoute {
+  key: string;
+  title: string;
+  description: string;
+}
+
+export const EASA_SPECIFIC_CATEGORY = {
+  intro:
+    "Die spezielle Kategorie gilt, wenn der Betrieb außerhalb der Grenzen der offenen Kategorie stattfindet. Vor dem Flug ist in der Regel eine Betriebsgenehmigung der nationalen Luftfahrtbehörde (in DE: Landesluftfahrtbehörde bzw. LBA) erforderlich.",
+  whenApplies: [
+    "BVLOS — Betrieb außerhalb der Sichtweite",
+    "Drohne mit MTOM über 25 kg",
+    "Flug höher als 120 m über Grund",
+    "Abwurf von Gegenständen/Material",
+    "Betrieb im urbanen Umfeld mit MTOM über 4 kg oder ohne Klassenkennzeichen",
+  ],
+  routes: [
+    {
+      key: "STS",
+      title: "STS — Standardszenario",
+      description:
+        "Für vordefinierte Standardszenarien (STS-01, STS-02) genügt eine Betreibererklärung an die Behörde statt einer Einzelgenehmigung. Voraussetzung sind passende C5-/C6-Drohnen und die erforderliche Pilotenkompetenz.",
+    },
+    {
+      key: "PDRA",
+      title: "PDRA — Predefined Risk Assessment",
+      description:
+        "Vordefinierte Risikobewertung der Behörde für häufige Einsatzarten. Der Betreiber bezieht sich auf eine PDRA und muss die SORA nicht vollständig selbst durchführen — vereinfacht den Genehmigungsantrag.",
+    },
+    {
+      key: "SORA",
+      title: "Genehmigung via SORA",
+      description:
+        "Specific Operations Risk Assessment: vollständige eigene Risikobewertung des geplanten Betriebs. Erforderlich, wenn kein STS und keine PDRA passt. Ergebnis ist ein Antrag auf Betriebsgenehmigung.",
+    },
+    {
+      key: "LUC",
+      title: "LUC — Light UAS Operator Certificate",
+      description:
+        "Zeugnis für Betreiber von Leicht-UAS. Wird der LUC erteilt, darf der Betreiber bestimmte Betriebsarten selbst genehmigen, ohne für jeden Flug eine Einzelgenehmigung zu beantragen.",
+    },
+  ] as SpecificRoute[],
+  operationsManual:
+    "Für den Betrieb in der speziellen Kategorie ist ein Betriebshandbuch (Operations Manual) erforderlich, das Verfahren, Verantwortlichkeiten und Sicherheitsmaßnahmen festlegt.",
+  registration:
+    "Wie in der offenen Kategorie muss sich der Betreiber (nicht die einzelne Drohne) registrieren — im Mitgliedstaat des Wohnsitzes bzw. Hauptgeschäftssitzes. Eine bestehende Registrierung gilt auch für die spezielle Kategorie.",
+};
+
+export interface EasaTopicSection {
+  title: string;
+  paragraphs: string[];
+  link?: { label: string; url: string };
+}
+
+export const EASA_INSURANCE: EasaTopicSection = {
+  title: "Versicherung",
+  paragraphs: [
+    "Eine Haftpflichtversicherung ist für Drohnen ab 20 kg EU-weit vorgeschrieben. Viele Mitgliedstaaten — darunter Deutschland — verlangen jedoch unabhängig vom Gewicht eine Versicherung für jeden Drohnenbetrieb.",
+    "Empfehlung: Vor jedem Flug prüfen, ob für das jeweilige Land und die Drohne eine Versicherungspflicht besteht, und einen ausreichenden Versicherungsschutz nachweisen können.",
+  ],
+  link: { label: "EASA — Drohnen-Versicherung", url: "https://www.easa.europa.eu/light/topics/drone-insurance" },
+};
+
+export const EASA_TRAVELLING: EasaTopicSection = {
+  title: "Reisen mit Drohnen",
+  paragraphs: [
+    "Die EU-Drohnenregeln gelten in allen EASA-Mitgliedstaaten. Betreiberregistrierung und Kompetenznachweise, die in einem Mitgliedstaat ausgestellt wurden, werden in den anderen anerkannt — du registrierst dich nur in deinem Wohnsitzland.",
+    "Geo-Zonen und nationale Zusatzregeln (z. B. Mindestalter, Versicherung) unterscheiden sich je Land. Vor einer Reise immer die Geo-Zonen und Bestimmungen des Ziellandes über dessen nationale Luftfahrtbehörde prüfen.",
+  ],
+  link: { label: "EASA — Reisen mit Drohnen", url: "https://www.easa.europa.eu/light/topics/travelling-drones" },
+};
+
+export const EASA_FPV: EasaTopicSection = {
+  title: "FPV / Drohnenrennen (Brille)",
+  paragraphs: [
+    "Beim Flug mit FPV-Brille (First Person View) sieht der Fernpilot nicht mehr direkt — der Betrieb gilt als BVLOS. In der offenen Kategorie ist FPV daher nur zulässig, wenn ein Luftraumbeobachter (Spotter) direkt neben dem Piloten steht, ununterbrochen Sichtkontakt zur Drohne hält und den Piloten warnen kann.",
+    "Drohnenrennen und FPV-Veranstaltungen können im Rahmen anerkannter Luftsportvereine/-verbände nach gesonderten Regeln stattfinden. Ohne Spotter oder außerhalb dieser Rahmen ist FPV der speziellen Kategorie zuzuordnen.",
+  ],
+  link: {
+    label: "EASA — Drohnenrennen & FPV-Brille",
+    url: "https://www.easa.europa.eu/light/topics/drone-racing-and-flying-drone-goggles-first-person-view-fpv",
+  },
+};
+
 export function suggestCategory(
   drone: DroneProfile,
   options?: {

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { View, StyleSheet, ScrollView, Alert } from "react-native";
+import { View, StyleSheet, ScrollView, Alert, Modal, Pressable } from "react-native";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RouteProp } from "@react-navigation/native";
@@ -13,11 +13,15 @@ import { Card } from "@/components/Card";
 import { Button } from "@/components/Button";
 import StatusBadge from "@/components/StatusBadge";
 import { useTheme } from "@/hooks/useTheme";
-import { Spacing, Typography, Colors } from "@/constants/theme";
-import { updateFlightSession, getDrone, DroneProfile } from "@/lib/storage";
-import { assessWeather } from "@/lib/assessment";
+import { Spacing, Typography, Colors, BorderRadius } from "@/constants/theme";
+import { updateFlightSession, getFlightSession, getDrone, getDrones, DroneProfile } from "@/lib/storage";
+import { assessWeather, ExpertTip } from "@/lib/assessment";
+import { recommendDroneForExceedance, DroneRecommendation } from "@/lib/droneRecommendation";
 import { suggestCategory, CategoryAdvice } from "@/lib/categoryAdvice";
-import { calculateSolarTimes, formatSolarTime, getDaylightPhase, SolarTimes } from "@/lib/solar";
+import { calculateSolarTimes, formatSolarTime, getDaylightPhase, SolarTimes, computeSunElevation } from "@/lib/solar";
+import { findPresetForDrone, DronePreset } from "@/lib/dronePresets";
+import { estimateEv, shutterDenomFromEv, snapShutterDenom, recommendNd, NdRecommendation } from "@/lib/ndFilter";
+import SunArcChart from "@/components/SunArcChart";
 import type { FlightPlanningParamList } from "@/navigation/FlightPlanningNavigator";
 
 type NavigationProp = NativeStackNavigationProp<FlightPlanningParamList, "PlanningResult">;
@@ -32,8 +36,17 @@ export default function PlanningResultScreen() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [droneName, setDroneName] = useState<string>("");
+  const [allDrones, setAllDrones] = useState<DroneProfile[]>([]);
+  const [selectedInfo, setSelectedInfo] = useState<{ tip: ExpertTip; recommendation: DroneRecommendation | null } | null>(null);
   const [categoryAdvice, setCategoryAdvice] = useState<CategoryAdvice | null>(null);
   const [solarTimes, setSolarTimes] = useState<SolarTimes | null>(null);
+  const [dronePreset, setDronePreset] = useState<DronePreset | null>(null);
+  const [droneOwnedNdFilters, setDroneOwnedNdFilters] = useState<string[] | null>(null);
+  const [noGoOverride, setNoGoOverride] = useState<{ acknowledgedAt: string; reasons: string[]; originalStatus: "go" | "caution" | "nogo" } | null>(null);
+  // Gegenprüfung der offiziellen Staatskarte (aus der Session geladen). "blocking"
+  // hebt den Status auf mindestens "caution" an, ersetzt aber NICHT die
+  // automatische Geozonen-/§21h-Erkennung.
+  const [crossCheck, setCrossCheck] = useState<{ blocking: boolean; note?: string } | null>(null);
 
   const { 
     droneId, 
@@ -49,7 +62,24 @@ export default function PlanningResultScreen() {
     checklistPresented,
     sessionId,
     isFpvFlight,
+    fpvMode,
   } = route.params;
+
+  const plannedDateTime = (() => {
+    if (!plannedDate) return undefined;
+    const d = new Date(plannedDate);
+    if (plannedTime && /^\d{1,2}:\d{2}/.test(plannedTime)) {
+      const [h, m] = plannedTime.split(":").map((x) => parseInt(x, 10));
+      d.setHours(h, m, 0, 0);
+    }
+    return d;
+  })();
+
+  const assessmentContext = {
+    plannedDateTime,
+    latitude,
+    longitude,
+  };
 
   const assessment = forecastWeather 
     ? (() => {
@@ -75,9 +105,25 @@ export default function PlanningResultScreen() {
             pressure: 1013,
           }],
         };
-        return assessWeather(weatherData, limits, false, undefined, undefined, maxAltitude);
+        return assessWeather(weatherData, limits, false, undefined, undefined, maxAltitude, assessmentContext);
       })()
-    : { status: "caution" as const, warnings: [], expertTips: [] };
+    : (() => {
+        // Ohne Wetterdaten: trotzdem Nachtflug-Check ausführen
+        const dummyWeather = {
+          latitude,
+          longitude,
+          calculationTime: new Date().toISOString(),
+          forecasts: [{
+            timestamp: new Date().toISOString(),
+            temperature: 15, humidity: 50, windSpeed: 0, windGust: 0, windDirection: 0,
+            windAtAltitude: [], temperatureAtAltitude: [{ height: 2, value: 15 }],
+            humidityAtAltitude: [{ height: 2, value: 50 }], cloudCoverAtAltitude: [],
+            rain: 0, snow: 0, cloudCover: 0, pressure: 1013,
+          }],
+        };
+        const partial = assessWeather(dummyWeather, limits, false, undefined, undefined, maxAltitude, assessmentContext);
+        return { ...partial, status: partial.status === "nogo" ? "nogo" as const : "caution" as const };
+      })();
 
   useEffect(() => {
     getDrone(droneId).then(drone => {
@@ -87,22 +133,52 @@ export default function PlanningResultScreen() {
           isFpvFlight: isFpvFlight,
         });
         setCategoryAdvice(advice);
+        const preset = findPresetForDrone(drone.name, drone.manufacturer, drone.model);
+        setDronePreset(preset);
+        setDroneOwnedNdFilters(drone.ownedNdFilters ?? null);
       }
     });
+    getDrones().then(setAllDrones).catch(() => setAllDrones([]));
     const planDate = plannedDate ? new Date(plannedDate) : new Date();
     setSolarTimes(calculateSolarTimes(latitude, longitude, planDate));
   }, [droneId, isFpvFlight, latitude, longitude, plannedDate]);
 
+  useEffect(() => {
+    getFlightSession(sessionId).then((session) => {
+      setCrossCheck(session?.planning?.officialMapCrossCheck ?? null);
+    });
+  }, [sessionId]);
+
+  // Eine startverhindernde Gegenprüfung hebt den Gesamtstatus auf mindestens
+  // "caution" an (nie über No-Go hinaus reduziert).
+  const crossCheckBlocking = crossCheck?.blocking === true;
+  const effectiveStatus: "go" | "caution" | "nogo" =
+    crossCheckBlocking && assessment.status === "go" ? "caution" : assessment.status;
+
   const handleSave = async () => {
     setSaving(true);
     try {
+      // Bestehende Session laden, damit Felder wie radiusKm, flightPurpose, routeDescription etc.
+      // aus früheren Schritten (PlanningDetailsScreen) erhalten bleiben.
+      const existing = await getFlightSession(sessionId);
       await updateFlightSession(sessionId, {
-        status: assessment.status,
-        reasons: assessment.warnings.map(w => ({
-          type: w.severity === "warning" ? "caution" : "go",
-          message: w.message,
-        })),
+        status: effectiveStatus,
+        reasons: [
+          ...assessment.warnings.map(w => ({
+            type: (w.severity === "warning" ? "caution" : "go") as "caution" | "go",
+            message: w.message,
+          })),
+          ...(crossCheckBlocking
+            ? [{
+                type: "caution" as const,
+                message: crossCheck?.note
+                  ? `Offizielle Karte: startverhindernde Geozonen gemeldet. Notiz: ${crossCheck.note}`
+                  : "Offizielle Karte: startverhindernde Geozonen gemeldet.",
+              }]
+            : []),
+        ],
         planning: {
+          ...(existing?.planning ?? {}),
           plannedDate,
           plannedTime,
           forecastWeather,
@@ -110,6 +186,8 @@ export default function PlanningResultScreen() {
           checklistCompleted,
           checklistPresented: checklistPresented || [],
           isFpvFlight: isFpvFlight || false,
+          fpvMode: isFpvFlight ? (fpvMode ?? "spotter") : undefined,
+          noGoOverride: noGoOverride ?? undefined,
         },
       });
       
@@ -124,6 +202,46 @@ export default function PlanningResultScreen() {
 
   const handleDone = () => {
     navigation.getParent()?.goBack();
+  };
+
+  const handleReplan = () => {
+    Haptics.selectionAsync();
+    const nav = navigation as any;
+    if (typeof nav.popTo === "function") {
+      try {
+        nav.popTo("PlanningDateTime");
+        return;
+      } catch {
+        // Fallback weiter unten
+      }
+    }
+    if (navigation.canGoBack()) navigation.goBack();
+  };
+
+  const handleOverride = () => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    Alert.alert(
+      "Trotz No-Go fliegen?",
+      "Du übernimmst hiermit die volle Verantwortung. Diese Freigabe wird mit Zeitstempel und Gründen in deinem Flugprotokoll dokumentiert und ist im Logbuch sichtbar.\n\nWirklich fortfahren?",
+      [
+        { text: "Abbrechen", style: "cancel" },
+        {
+          text: "Ja, ich übernehme die Verantwortung",
+          style: "destructive",
+          onPress: () => {
+            const reasons = assessment.warnings
+              .filter((w) => w.severity === "warning")
+              .map((w) => w.message);
+            setNoGoOverride({
+              acknowledgedAt: new Date().toISOString(),
+              reasons: reasons.length > 0 ? reasons : ["NO-GO bewusst übersteuert"],
+              originalStatus: assessment.status,
+            });
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          },
+        },
+      ],
+    );
   };
 
   const formatDateTime = () => {
@@ -194,7 +312,7 @@ export default function PlanningResultScreen() {
           <Card style={styles.weatherCard}>
             <View style={styles.weatherHeader}>
               <ThemedText style={styles.weatherTitle}>Wettervorhersage</ThemedText>
-              <StatusBadge status={assessment.status} />
+              <StatusBadge status={effectiveStatus} />
             </View>
             <View style={styles.weatherGrid}>
               <View style={styles.weatherItem}>
@@ -244,14 +362,50 @@ export default function PlanningResultScreen() {
             })() : null}
             {assessment.warnings.length > 0 ? (
               <View style={styles.warningsSection}>
-                {assessment.warnings.map((warning, index) => (
-                  <View key={index} style={styles.warningRow}>
-                    <View style={[styles.warningDot, { backgroundColor: theme.statusCaution }]} />
-                    <ThemedText style={[styles.warningText, { color: theme.textSecondary }]}>
-                      {warning.message}
-                    </ThemedText>
-                  </View>
-                ))}
+                {assessment.warnings.map((warning, index) => {
+                  const rec = warning.exceedance
+                    ? recommendDroneForExceedance(warning.exceedance, allDrones, droneId)
+                    : null;
+                  const tip: ExpertTip = warning.expertTip ?? {
+                    title: "Erläuterung",
+                    description: warning.message,
+                  };
+                  const dotColor = warning.severity === "warning" ? theme.statusNoGo : theme.statusCaution;
+                  return (
+                    <View key={index} style={styles.warningItem}>
+                      <View style={styles.warningRow}>
+                        <View style={[styles.warningDot, { backgroundColor: dotColor }]} />
+                        <ThemedText style={[styles.warningText, { color: theme.textSecondary }]}>
+                          {warning.message}
+                        </ThemedText>
+                        <Pressable
+                          onPress={() => setSelectedInfo({ tip, recommendation: rec })}
+                          hitSlop={8}
+                          style={styles.infoButton}
+                          testID={`button-warning-info-${index}`}
+                        >
+                          <Feather name="info" size={18} color={theme.primary} />
+                        </Pressable>
+                      </View>
+                      {rec ? (
+                        <View style={styles.recRow}>
+                          <Feather
+                            name={rec.hasMatch ? "check-circle" : "shopping-bag"}
+                            size={13}
+                            color={rec.hasMatch ? theme.statusGo : theme.textTertiary}
+                            style={styles.recIcon}
+                          />
+                          <ThemedText
+                            style={[styles.recText, { color: rec.hasMatch ? theme.statusGo : theme.textTertiary }]}
+                            testID={`text-warning-recommendation-${index}`}
+                          >
+                            {rec.message}
+                          </ThemedText>
+                        </View>
+                      ) : null}
+                    </View>
+                  );
+                })}
               </View>
             ) : null}
             {solarTimes ? (
@@ -275,6 +429,29 @@ export default function PlanningResultScreen() {
                   </ThemedText>
                 </View>
               </View>
+            ) : null}
+          </Card>
+        ) : null}
+
+        {crossCheckBlocking ? (
+          <Card
+            style={[styles.crossCheckCard, { borderLeftColor: theme.statusCaution }]}
+            testID="card-crosscheck-warning"
+          >
+            <View style={styles.crossCheckHeader}>
+              <Feather name="alert-triangle" size={18} color={theme.statusCaution} />
+              <ThemedText style={[styles.crossCheckTitle, { color: theme.statusCaution }]}>
+                Gegenprüfung: offizielle Karte
+              </ThemedText>
+            </View>
+            <ThemedText style={[styles.crossCheckText, { color: theme.textSecondary }]}>
+              Du hast bei der Gegenprüfung der offiziellen Staatskarte angegeben, dass
+              dort Geozonen einen Start verhindern würden. Bitte vor dem Flug prüfen.
+            </ThemedText>
+            {crossCheck?.note ? (
+              <ThemedText style={[styles.crossCheckNote, { color: theme.textSecondary }]}>
+                Notiz: {crossCheck.note}
+              </ThemedText>
             ) : null}
           </Card>
         ) : null}
@@ -332,6 +509,76 @@ export default function PlanningResultScreen() {
           </Card>
         ) : null}
 
+        {plannedDateTime ? (() => {
+          const sunElev = computeSunElevation(latitude, longitude, plannedDateTime);
+          const isTwilight = sunElev < 0 && sunElev >= -6;
+          const isNight = sunElev < -6;
+          const aperture = dronePreset?.apertureValue ?? 2.8;
+          const cloud = forecastWeather?.cloudCover ?? 30;
+          const rain = forecastWeather?.rain ?? 0;
+          const fps = 25;
+          let nd: NdRecommendation | null = null;
+          if (!isNight && !isTwilight) {
+            const ev = estimateEv(cloud, rain, sunElev);
+            const measuredDenom = snapShutterDenom(shutterDenomFromEv(ev, aperture));
+            const ecosystem = (droneOwnedNdFilters && droneOwnedNdFilters.length > 0)
+              ? droneOwnedNdFilters
+              : (dronePreset?.filterEcosystem ?? null);
+            nd = recommendNd({ fps, measuredShutterDenom: measuredDenom, filterEcosystem: ecosystem });
+          }
+          const pickLabel = nd?.ecosystemMismatch && nd.ecosystemPick
+            ? `ND${nd.ecosystemPick}`
+            : nd?.ndValue
+              ? `ND${nd.ndValue}`
+              : "Kein Filter";
+          return (
+            <Card style={[styles.ndCard, { borderLeftColor: theme.primary }]}>
+              <View style={styles.ndHeader}>
+                <Feather name="aperture" size={22} color={theme.primary} />
+                <View style={styles.ndTitleWrap}>
+                  <ThemedText style={styles.ndTitle}>ND-Filter Empfehlung</ThemedText>
+                  <ThemedText style={[styles.ndSubtitle, { color: theme.textSecondary }]}>
+                    Sonne {sunElev >= 0 ? `${sunElev.toFixed(0)}° über` : `${Math.abs(sunElev).toFixed(0)}° unter`} Horizont · {fps} fps · ƒ/{aperture.toFixed(1)}
+                  </ThemedText>
+                </View>
+                {!isNight && !isTwilight ? (
+                  <View style={[styles.ndPickBadge, { backgroundColor: theme.statusGoBackground }]}>
+                    <ThemedText style={[styles.ndPickText, { color: theme.statusGo }]}>{pickLabel}</ThemedText>
+                  </View>
+                ) : null}
+              </View>
+
+              <View style={styles.solarArcRow}>
+                <SunArcChart lat={latitude} lon={longitude} date={plannedDateTime} highlightTime={plannedDateTime} width={300} height={140} />
+              </View>
+
+              {isNight ? (
+                <ThemedText style={[styles.ndReasoning, { color: theme.textSecondary }]}>
+                  Sonne {Math.abs(sunElev).toFixed(0)}° unter dem Horizont — Nachtflug, kein ND-Filter sinnvoll. Bei Open-Kategorie zusätzlich Beleuchtung beachten.
+                </ThemedText>
+              ) : isTwilight ? (
+                <ThemedText style={[styles.ndReasoning, { color: theme.textSecondary }]}>
+                  Bürgerliche Dämmerung — Licht ändert sich schnell. ND-Filter meist nicht nötig; bei klarem Himmel max. ND4 zur Feinregelung.
+                </ThemedText>
+              ) : (
+                <>
+                  <ThemedText style={[styles.ndReasoning, { color: theme.text }]}>
+                    {nd?.reasoning}
+                  </ThemedText>
+                  {nd?.ecosystemMismatch && nd.ecosystemPick && nd.ndValue !== nd.ecosystemPick ? (
+                    <ThemedText style={[styles.ndHint, { color: theme.textTertiary }]}>
+                      Ideal wäre ND{nd.ndValue}, mit deinem Filter-Set verfügbar ist ND{nd.ecosystemPick}.
+                    </ThemedText>
+                  ) : null}
+                  <ThemedText style={[styles.ndHint, { color: theme.textTertiary }]}>
+                    Schätzung nach Sunny-16 (Wolken {cloud.toFixed(0)}%, Regen {rain.toFixed(1)} mm/h). Vor Ort prüfen und ggf. anpassen.
+                  </ThemedText>
+                </>
+              )}
+            </Card>
+          );
+        })() : null}
+
         <Card style={[styles.infoCard, { borderLeftColor: theme.primary }]}>
           <Feather name="info" size={20} color={theme.primary} />
           <ThemedText style={[styles.infoText, { color: theme.textSecondary }]}>
@@ -342,19 +589,120 @@ export default function PlanningResultScreen() {
       </ScrollView>
 
       <View style={[styles.footer, { paddingBottom: insets.bottom + Spacing.lg, backgroundColor: theme.backgroundDefault }]}>
-        {saved ? (
-          <Button
-            title="Fertig"
-            onPress={handleDone}
-          />
+        {assessment.status === "nogo" && !noGoOverride && !saved ? (
+          <View>
+            <View style={[styles.nogoBanner, { backgroundColor: theme.statusNoGoBackground, borderColor: theme.statusNoGo }]}>
+              <Feather name="alert-octagon" size={20} color={theme.statusNoGo} />
+              <ThemedText style={[styles.nogoBannerText, { color: theme.statusNoGo }]}>
+                NO-GO: Speichern erst nach Anpassung oder bewusster Übersteuerung möglich.
+              </ThemedText>
+            </View>
+            <View style={styles.nogoActionsRow}>
+              <View style={styles.nogoActionItem}>
+                <Button title="Neu planen" onPress={handleReplan} variant="secondary" />
+              </View>
+              <View style={styles.nogoActionItem}>
+                <Button title="Trotzdem durchführen" onPress={handleOverride} />
+              </View>
+            </View>
+          </View>
+        ) : saved ? (
+          <Button title="Fertig" onPress={handleDone} />
         ) : (
-          <Button
-            title={saving ? "Speichern..." : "Planung speichern"}
-            onPress={handleSave}
-            disabled={saving}
-          />
+          <>
+            {noGoOverride ? (
+              <View style={[styles.overrideNote, { backgroundColor: theme.statusCautionBackground, borderColor: theme.statusCaution }]}>
+                <Feather name="alert-triangle" size={16} color={theme.statusCaution} />
+                <ThemedText style={[styles.overrideNoteText, { color: theme.statusCaution }]}>
+                  NO-GO übersteuert — Freigabe wird im Protokoll dokumentiert.
+                </ThemedText>
+              </View>
+            ) : null}
+            <Button
+              title={saving ? "Speichern..." : "Planung speichern"}
+              onPress={handleSave}
+              disabled={saving}
+            />
+          </>
         )}
       </View>
+
+      <Modal
+        visible={selectedInfo !== null}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setSelectedInfo(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.tipModalContent, { backgroundColor: theme.backgroundSecondary }]}>
+            <View style={styles.tipModalHeader}>
+              <Feather name="book-open" size={24} color={theme.primary} />
+              <ThemedText style={[styles.tipModalTitle, { color: theme.primary }]}>
+                {selectedInfo?.tip.title || "Erläuterung"}
+              </ThemedText>
+              <Pressable onPress={() => setSelectedInfo(null)} style={styles.closeButton}>
+                <Feather name="x" size={24} color={theme.textSecondary} />
+              </Pressable>
+            </View>
+
+            <ScrollView style={styles.tipModalBody}>
+              <ThemedText style={styles.tipDescription}>
+                {selectedInfo?.tip.description}
+              </ThemedText>
+
+              {selectedInfo?.tip.practiceCheck ? (
+                <View style={styles.practiceCheckBox}>
+                  <View style={styles.practiceCheckHeader}>
+                    <Feather name="eye" size={16} color={theme.statusCaution} />
+                    <ThemedText style={[styles.practiceCheckTitle, { color: theme.statusCaution }]}>
+                      Praxis-Check
+                    </ThemedText>
+                  </View>
+                  <ThemedText style={[styles.practiceCheckText, { color: theme.textSecondary }]}>
+                    {selectedInfo.tip.practiceCheck}
+                  </ThemedText>
+                </View>
+              ) : null}
+
+              {selectedInfo?.recommendation ? (
+                <View
+                  style={[
+                    styles.recommendBox,
+                    {
+                      backgroundColor: selectedInfo.recommendation.hasMatch
+                        ? theme.statusGoBackground
+                        : theme.backgroundDefault,
+                    },
+                  ]}
+                >
+                  <View style={styles.practiceCheckHeader}>
+                    <Feather
+                      name={selectedInfo.recommendation.hasMatch ? "check-circle" : "shopping-bag"}
+                      size={16}
+                      color={selectedInfo.recommendation.hasMatch ? theme.statusGo : theme.textSecondary}
+                    />
+                    <ThemedText
+                      style={[
+                        styles.practiceCheckTitle,
+                        { color: selectedInfo.recommendation.hasMatch ? theme.statusGo : theme.textSecondary },
+                      ]}
+                    >
+                      {selectedInfo.recommendation.hasMatch ? "Passende Drohne" : "Empfehlung"}
+                    </ThemedText>
+                  </View>
+                  <ThemedText style={[styles.practiceCheckText, { color: theme.textSecondary }]}>
+                    {selectedInfo.recommendation.message}
+                  </ThemedText>
+                </View>
+              ) : null}
+            </ScrollView>
+
+            <View style={styles.tipModalFooter}>
+              <Button title="Verstanden" onPress={() => setSelectedInfo(null)} />
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ThemedView>
   );
 }
@@ -410,6 +758,41 @@ const styles = StyleSheet.create({
   divider: {
     height: 1,
     marginVertical: Spacing.md,
+  },
+  nogoBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    padding: Spacing.md,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: Spacing.md,
+  },
+  nogoBannerText: {
+    ...Typography.caption,
+    flex: 1,
+    fontWeight: "600",
+  },
+  nogoActionsRow: {
+    flexDirection: "row",
+    gap: Spacing.sm,
+  },
+  nogoActionItem: {
+    flex: 1,
+  },
+  overrideNote: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    padding: Spacing.sm,
+    borderRadius: 10,
+    borderWidth: 1,
+    marginBottom: Spacing.sm,
+  },
+  overrideNoteText: {
+    ...Typography.caption,
+    flex: 1,
+    fontWeight: "500",
   },
   weatherCard: {
     padding: Spacing.lg,
@@ -477,11 +860,13 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: Colors.light.border,
   },
+  warningItem: {
+    marginBottom: Spacing.sm,
+  },
   warningRow: {
     flexDirection: "row",
     alignItems: "flex-start",
     gap: Spacing.sm,
-    marginBottom: Spacing.sm,
   },
   warningDot: {
     width: 8,
@@ -492,6 +877,91 @@ const styles = StyleSheet.create({
   warningText: {
     ...Typography.small,
     flex: 1,
+  },
+  infoButton: {
+    paddingHorizontal: 2,
+    marginTop: -1,
+  },
+  recRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: Spacing.xs,
+    marginTop: 4,
+    marginLeft: 8 + Spacing.sm,
+  },
+  recIcon: {
+    marginTop: 2,
+  },
+  recText: {
+    ...Typography.caption,
+    flex: 1,
+    fontWeight: "600",
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.7)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: Spacing.lg,
+  },
+  tipModalContent: {
+    width: "100%",
+    maxHeight: "80%",
+    borderRadius: BorderRadius.lg,
+    overflow: "hidden",
+  },
+  tipModalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: Spacing.lg,
+    gap: Spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.1)",
+  },
+  tipModalTitle: {
+    ...Typography.h3,
+    fontWeight: "700",
+    flex: 1,
+  },
+  closeButton: {
+    padding: Spacing.sm,
+  },
+  tipModalBody: {
+    padding: Spacing.xl,
+  },
+  tipDescription: {
+    ...Typography.body,
+    lineHeight: 24,
+    marginBottom: Spacing.xl,
+  },
+  practiceCheckBox: {
+    padding: Spacing.lg,
+    borderRadius: BorderRadius.md,
+    backgroundColor: "rgba(0,0,0,0.2)",
+  },
+  practiceCheckHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    marginBottom: Spacing.sm,
+  },
+  practiceCheckTitle: {
+    ...Typography.body,
+    fontWeight: "600",
+  },
+  practiceCheckText: {
+    ...Typography.body,
+    lineHeight: 22,
+  },
+  recommendBox: {
+    padding: Spacing.lg,
+    borderRadius: BorderRadius.md,
+    marginTop: Spacing.lg,
+  },
+  tipModalFooter: {
+    padding: Spacing.lg,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.1)",
   },
   solarRow: {
     flexDirection: "row",
@@ -513,6 +983,29 @@ const styles = StyleSheet.create({
     padding: Spacing.lg,
     marginBottom: Spacing.lg,
     borderLeftWidth: 3,
+  },
+  crossCheckCard: {
+    padding: Spacing.lg,
+    marginBottom: Spacing.lg,
+    borderLeftWidth: 3,
+  },
+  crossCheckHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.md,
+    marginBottom: Spacing.sm,
+  },
+  crossCheckTitle: {
+    ...Typography.h4,
+  },
+  crossCheckText: {
+    ...Typography.body,
+    lineHeight: 20,
+  },
+  crossCheckNote: {
+    ...Typography.small,
+    marginTop: Spacing.sm,
+    fontStyle: "italic",
   },
   categoryHeader: {
     flexDirection: "row",
@@ -573,6 +1066,50 @@ const styles = StyleSheet.create({
     gap: Spacing.md,
     padding: Spacing.lg,
     borderLeftWidth: 3,
+  },
+  ndCard: {
+    padding: Spacing.lg,
+    borderLeftWidth: 3,
+    marginBottom: Spacing.lg,
+  },
+  ndHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.md,
+    marginBottom: Spacing.md,
+  },
+  ndTitleWrap: {
+    flex: 1,
+  },
+  ndTitle: {
+    ...Typography.h4,
+    fontWeight: "700",
+  },
+  ndSubtitle: {
+    fontSize: 11,
+    marginTop: 2,
+  },
+  ndPickBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 14,
+  },
+  ndPickText: {
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  solarArcRow: {
+    alignItems: "center",
+    marginBottom: Spacing.md,
+  },
+  ndReasoning: {
+    ...Typography.small,
+    lineHeight: 20,
+  },
+  ndHint: {
+    fontSize: 11,
+    marginTop: 6,
+    lineHeight: 16,
   },
   infoText: {
     ...Typography.small,

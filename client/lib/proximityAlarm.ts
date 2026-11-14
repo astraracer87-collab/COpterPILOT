@@ -90,7 +90,6 @@ export function checkApproachingAircraft(
   const approaching: ApproachingAircraft[] = [];
   const detectionRadiusKm = settings.radiusKm;
 
-  const altBufferM = 100;
   for (const ac of aircraft) {
     if (ac.trueTrack == null) continue;
 
@@ -99,7 +98,10 @@ export function checkApproachingAircraft(
     if (ac.onGround && mslAlt < 100) continue;
 
     const relativeAlt = pilotElevationMSL != null ? mslAlt - pilotElevationMSL : mslAlt;
-    if (relativeAlt > settings.maxAltitudeM + altBufferM) continue;
+    // Hartes AGL-Limit aus den User-Settings: alles oberhalb wird gar nicht
+    // erst geprüft (eine Drohne in 250 m AGL hat mit Verkehr in 500 m/800 m
+    // schlicht nichts zu tun).
+    if (relativeAlt > settings.maxAltitudeM) continue;
 
     const dist = haversineDistance(userLat, userLon, ac.latitude, ac.longitude);
     if (dist > detectionRadiusKm) continue;
@@ -139,14 +141,14 @@ export function checkProximityAlerts(
   const taTriggerSec = taTimeOn ? (settings.taTimeSec ?? 40) : undefined;
   const raTriggerSec = raTimeOn ? (settings.raTimeSec ?? 30) : undefined;
 
-  const altBufferM = 100;
   for (const ac of aircraft) {
     const mslAlt = ac.geoAltitude ?? ac.baroAltitude;
     if (mslAlt == null) continue;
     if (ac.onGround && mslAlt < 100) continue;
 
     const relativeAlt = pilotElevationMSL != null ? mslAlt - pilotElevationMSL : mslAlt;
-    if (relativeAlt > settings.maxAltitudeM + altBufferM) continue;
+    // Hartes AGL-Limit aus den User-Settings (siehe checkApproachingAircraft).
+    if (relativeAlt > settings.maxAltitudeM) continue;
 
     const dist = haversineDistance(userLat, userLon, ac.latitude, ac.longitude);
     const ttcSec = computeTTC(ac.latitude, ac.longitude, ac.trueTrack, ac.velocity, userLat, userLon);
@@ -346,15 +348,15 @@ function speakTCAS(phrase: string, repeat: boolean = false, withChime: boolean =
 function formatAltitudePhrase(altitudeM: number | null | undefined): string {
   if (altitudeM == null || isNaN(altitudeM)) return "";
   const rounded = Math.round(altitudeM / 10) * 10;
-  return `, height ${rounded} meters`;
+  return `, altitude ${rounded} meters`;
 }
 
 function buildWarningPhrase(altitudeM?: number | null): string {
-  return `Warning! Traffic! Traffic!${formatAltitudePhrase(altitudeM)}`;
+  return `Traffic, traffic!${formatAltitudePhrase(altitudeM)}`;
 }
 
 function buildCriticalPhrase(altitudeM?: number | null): string {
-  return `Warning! Descend! Descend!${formatAltitudePhrase(altitudeM)}`;
+  return `Descend, descend!${formatAltitudePhrase(altitudeM)}`;
 }
 
 export function triggerWarningAlarm(settings?: ProximityAlarmSettings, altitudeM?: number | null): void {
@@ -435,17 +437,17 @@ export function speakClearOfConflict(): void {
           try { Speech.stop(); } catch {}
           setTimeout(() => {
             try {
-              Speech.speak("Clear of Conflict", { language: "en-US", pitch: 0.9, rate: 1.0 });
+              Speech.speak("Clear of conflict", { language: "en-US", pitch: 0.9, rate: 1.0 });
             } catch {}
           }, 300);
         } else {
           try {
-            Speech.speak("Clear of Conflict", { language: "en-US", pitch: 0.9, rate: 1.0 });
+            Speech.speak("Clear of conflict", { language: "en-US", pitch: 0.9, rate: 1.0 });
           } catch {}
         }
       }).catch(() => {
         try {
-          Speech.speak("Clear of Conflict", { language: "en-US", pitch: 0.9, rate: 1.0 });
+          Speech.speak("Clear of conflict", { language: "en-US", pitch: 0.9, rate: 1.0 });
         } catch {}
       });
     }, 350);

@@ -1,13 +1,53 @@
+import { openLink } from "@/lib/webBrowser";
 import React, { useRef, useEffect, useState, useMemo, useCallback } from "react";
-import { View, StyleSheet, Text, Platform, Pressable, ActivityIndicator, ScrollView, LayoutChangeEvent, Modal, SafeAreaView, useColorScheme } from "react-native";
-import MapView, { Marker, Polyline, Circle, Polygon, WMSTile, UrlTile, Region } from "@/components/maps";
+import { View, StyleSheet, Text, Platform, Pressable, ActivityIndicator, LayoutChangeEvent, Modal, SafeAreaView, useColorScheme, Linking } from "react-native";
 import { WebView } from "react-native-webview";
-import { MaterialCommunityIcons, Feather, FontAwesome6 } from "@expo/vector-icons";
+import * as WebBrowser from "@/lib/webBrowser";
+import { Feather } from "@expo/vector-icons";
 import Svg, { Path } from "react-native-svg";
 import * as Location from "@/lib/location";
 import { BorderRadius } from "@/constants/theme";
+import type { GermanEnergyInfrastructureItem } from "../../shared/germanEnergyInfrastructure";
+import type { EnergyFacility100mPoint } from "../../shared/germanEnergyInfrastructure";
 import { getCategoryLabel, type AircraftCategory, type DataSource } from "@/lib/opensky";
-import { buildCombinedWmsTileUrl, queryGeozoneFeatureInfo, getCountryGeozoneConfig, getCountriesInRadius, type GeozoneFeatureInfo } from "@/lib/geozones";
+import { buildGeozoneCacheTileUrl, buildVectorGeozoneTileUrl, isRasterTiledVectorCountry, queryGeozoneFeatureInfo, queryEd269CachedFeatures, getCountryGeozoneConfig, getViewportCountries, separateTempRestrictions, GEOZONE_TILE_MIN_ZOOM, getVectorMinZoom, loadsFullCountryVectorZones, GEOZONE_VECTOR_MAX_RADIUS_KM, GEOZONE_VECTOR_MAX_FEATURES, type GeozoneFeatureInfo } from "@/lib/geozones";
+import { agencyTagColor } from "@/lib/agencyTag";
+import { simplifyRingGroup, smoothRingGroup } from "@/lib/ringSimplify";
+import { findNearbyCtrAirports, CTR_AIRPORTS } from "@/lib/ctrData";
+import { MAJOR_EU_AIRPORTS } from "@/lib/euAirports";
+import { fetchAirportStationsInArea, type AirportStation } from "@/lib/aviationWeather";
+import { getCtrBandRings, getCtrLegendEntries, getCtrProvisionalNote } from "@/lib/ctrAltitude";
+import { fetchElevation } from "@/lib/elevation";
+import { partitionByReachability, DEFAULT_REACHABLE_ALTITUDE_M } from "../../shared/geozoneAltitudeFilter";
+import { splitCountriesByAccess, countryName } from "../../shared/countryEntitlements";
+import { useAuth } from "@/lib/auth";
+import { windFacilitiesAsGeozones, supplementalLinesAsGeozones, supplementalInfrastructureAsGeozones, infrastructureMapGeometry } from "@/lib/energyInfrastructureZones";
+import { getGermanWindFacility100mPoints } from "../../shared/germanEnergyInfrastructure";
+import { getApiUrl } from "@/lib/query-client";
+import CtrInfoCard from "@/components/CtrInfoCard";
+import AirportWeatherSheet from "@/components/AirportWeatherSheet";
+
+function hexToRgba(hex: string, alpha: number): string {
+  const h = hex.replace("#", "");
+  const full = h.length === 3 ? h.split("").map((c) => c + c).join("") : h;
+  const r = parseInt(full.slice(0, 2), 16);
+  const g = parseInt(full.slice(2, 4), 16);
+  const b = parseInt(full.slice(4, 6), 16);
+  if ([r, g, b].some((n) => Number.isNaN(n))) return hex;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+// Liefert die Ringe einer Geozone als Polygon-Gruppen ([Außenring, …Löcher]).
+// Bevorzugt polygonGroups (erhält Donut-Löcher); fällt sonst auf die flache
+// polygonRings-Liste zurück, wobei jeder Ring ein eigenes lochfreies Polygon wird.
+function ringGroupsForZone(z: GeozoneFeatureInfo): [number, number][][][] {
+  if (z.polygonGroups && z.polygonGroups.length > 0) return z.polygonGroups;
+  return (z.polygonRings ?? []).map((ring) => [ring]);
+}
+
+// Ring-Vereinfachung (RDP) ausgelagert nach client/lib/ringSimplify.ts, damit die
+// Donut-/Loch-erhaltende Logik RN-frei unter tsx testbar ist (siehe
+// client/lib/__tests__/belgianAirportDonut.test.ts).
 
 export interface TrafficMarker {
   id: string;
@@ -25,6 +65,15 @@ export interface TrafficMarker {
   isApproaching?: boolean;
   isAlert?: boolean;
   isStale?: boolean;
+  registration?: string;
+  aircraftType?: string;
+  aircraftDesc?: string;
+  operator?: string;
+  cn?: string;
+  originIata?: string;
+  destIata?: string;
+  flightNumber?: string;
+  agencyTag?: string;
 }
 
 export interface TrailPoint {
@@ -62,241 +111,45 @@ interface TrafficMapViewProps {
   sourceStatus?: Record<DataSource, "ok" | "error" | "timeout">;
   geozoneLayers?: string[];
   countryIso?: string;
-  mapStyle?: "standard" | "satellite" | "osm";
-  onMapStyleChange?: (style: "standard" | "satellite" | "osm") => void;
+  highlightedZones?: GeozoneFeatureInfo[];
+  additionalGeozones?: GeozoneFeatureInfo[];
+  energyInfrastructure?: GermanEnergyInfrastructureItem[];
+  windRestrictionPoints?: EnergyFacility100mPoint[];
+  energyTilesEnabled?: boolean;
+  energyTilesShowSupplemental?: boolean;
+  mapStyle?: "standard" | "satellite" | "osm" | "grayscale";
+  onMapStyleChange?: (style: "standard" | "satellite" | "osm" | "grayscale") => void;
   onCenterGps?: () => void;
   onSettingsPress?: () => void;
   settingsActive?: boolean;
   bottomPadding?: number;
+  infoBubbleBottomInset?: number;
   topInset?: number;
   weatherAlerts?: { label: string; value: string; color: string }[];
   onHeadingChange?: (heading: number | null) => void;
   disableGeozoneQuery?: boolean;
+  lockPan?: boolean;
+  // C: aktuelle Viewport-Bbox melden (für Server-Side bbox-Filter).
+  onViewportChange?: (bbox: { latMin: number; latMax: number; lonMin: number; lonMax: number }) => void;
+  // Höhen-Filter für Vektor-Geozonen (AT/BE/DK): erreichbare/geplante Flughöhe
+  // in AGL-Metern. Zonen, deren Untergrenze darüber liegt, werden ausgeblendet.
+  maxReachableAltitudeM?: number;
+  // Sicherheits-Schalter: hebt den Höhen-Filter auf (zeigt alle Vektor-Zonen).
+  showAllGeozones?: boolean;
 }
+
+// Lokaler Region-Typ (ehemals aus react-native-maps). Die Karte wird jetzt im
+// WebView (Leaflet) gerendert; die Region wird per postMessage zurückgemeldet.
+type Region = { latitude: number; longitude: number; latitudeDelta: number; longitudeDelta: number };
 
 function snapHeading(deg: number): number {
   return Math.round(deg);
 }
 
-function GliderIcon({ color, size }: { color: string; size: number }) {
-  const s = size;
-  return (
-    <Svg width={s} height={s} viewBox="0 0 64 64">
-      <Path
-        d={`M32 3 C31 3 30.2 4.5 30 7 L29.5 16 L29.5 24
-            C28 24.5 18 26 4 29.5
-            C2 30.1 1 31 1 32
-            C1 32.8 2 33.2 4 33.2
-            L29.5 32 L29.5 50
-            C28.5 50.5 24 51.5 22 52.2
-            C20.5 52.7 20 53.2 20 53.8
-            C20 54.3 20.8 54.8 22 54.8
-            L29.5 54 L30 58
-            C30.2 59.5 31 61 32 61
-            C33 61 33.8 59.5 34 58
-            L34.5 54 L42 54.8
-            C43.2 54.8 44 54.3 44 53.8
-            C44 53.2 43.5 52.7 42 52.2
-            C40 51.5 35.5 50.5 34.5 50
-            L34.5 32 L60 33.2
-            C62 33.2 63 32.8 63 32
-            C63 31 62 30.1 60 29.5
-            C46 26 36 24.5 34.5 24
-            L34.5 16 L34 7
-            C33.8 4.5 33 3 32 3 Z`}
-        fill={color}
-      />
-    </Svg>
-  );
-}
-
-function HelicopterTopIcon({ color, size }: { color: string; size: number }) {
-  const s = size;
-  const cx = s / 2;
-  const bodyW = s * 0.18;
-  const bodyH = s * 0.32;
-  const bodyTop = s * 0.04;
-  const bodyCy = bodyTop + bodyH * 0.38;
-  const bladeLen = s * 0.48;
-  const bladeW = s * 0.04;
-  const tailW = s * 0.05;
-  const tailTop = bodyTop + bodyH * 0.80;
-  const tailH = s * 0.40;
-  const tailEnd = tailTop + tailH;
-  const finLen = s * 0.18;
-  const finW = s * 0.04;
-  const hubR = s * 0.03;
-  return (
-    <View style={{ width: s, height: s, position: "relative" }}>
-      {[45, -45].map((angle) => (
-        <View key={angle} style={{
-          position: "absolute", width: bladeW, height: bladeLen * 2,
-          backgroundColor: color,
-          left: cx - bladeW / 2, top: bodyCy - bladeLen,
-          borderRadius: bladeW / 2,
-          transform: [{ rotate: `${angle}deg` }],
-        }} />
-      ))}
-      <View style={{
-        position: "absolute",
-        left: cx - bodyW / 2, top: bodyTop,
-        width: bodyW, height: bodyH,
-        backgroundColor: color,
-        borderTopLeftRadius: bodyW / 2,
-        borderTopRightRadius: bodyW / 2,
-        borderBottomLeftRadius: bodyW * 0.35,
-        borderBottomRightRadius: bodyW * 0.35,
-      }} />
-      <View style={{
-        position: "absolute",
-        left: cx - hubR, top: bodyCy - hubR,
-        width: hubR * 2, height: hubR * 2,
-        borderRadius: hubR,
-        borderWidth: s * 0.02,
-        borderColor: color,
-        backgroundColor: "transparent",
-      }} />
-      <View style={{
-        position: "absolute",
-        left: cx - tailW / 2, top: tailTop,
-        width: tailW, height: tailH,
-        backgroundColor: color,
-      }} />
-      <View style={{
-        position: "absolute",
-        left: cx - finLen / 2,
-        top: tailEnd - finW / 2,
-        width: finLen, height: finW,
-        backgroundColor: color,
-        borderRadius: finW / 2,
-      }} />
-    </View>
-  );
-}
-
-function LightAircraftIcon({ color, size }: { color: string; size: number }) {
-  const s = size;
-  const cx = s / 2;
-  const fuseW = s * 0.10;
-  const fuseH = s * 0.70;
-  const fuseTop = s * 0.10;
-  const wingW = s * 0.95;
-  const wingH = s * 0.13;
-  const wingTop = fuseTop + fuseH * 0.30;
-  const tailW = s * 0.35;
-  const tailH = s * 0.06;
-  const tailTop = fuseTop + fuseH - tailH * 0.6;
-  const propW = s * 0.22;
-  const propH = s * 0.03;
-  const propTop = fuseTop - propH;
-  return (
-    <View style={{ width: s, height: s, position: "relative" }}>
-      <View style={{
-        position: "absolute",
-        left: cx - fuseW / 2, top: fuseTop,
-        width: fuseW, height: fuseH,
-        backgroundColor: color,
-        borderTopLeftRadius: fuseW / 2,
-        borderTopRightRadius: fuseW / 2,
-        borderBottomLeftRadius: fuseW * 0.3,
-        borderBottomRightRadius: fuseW * 0.3,
-      }} />
-      <View style={{
-        position: "absolute",
-        left: cx - wingW / 2, top: wingTop,
-        width: wingW, height: wingH,
-        backgroundColor: color,
-        borderRadius: wingH / 2,
-      }} />
-      <View style={{
-        position: "absolute",
-        left: cx - tailW / 2, top: tailTop,
-        width: tailW, height: tailH,
-        backgroundColor: color,
-        borderRadius: tailH / 2,
-      }} />
-      <View style={{
-        position: "absolute",
-        left: cx - propW / 2, top: propTop,
-        width: propW, height: propH,
-        backgroundColor: color,
-        borderRadius: propH / 2,
-      }} />
-    </View>
-  );
-}
-
-function AircraftIcon({ category, color, heading, mapBearing = 0 }: { category: AircraftCategory; color: string; heading: number; mapBearing?: number }) {
-  const shouldRotate = category !== "balloon";
-  const rot = shouldRotate ? heading - mapBearing : 0;
-
-  if (category === "airplane") {
-    return (
-      <View style={[styles.aircraftIcon, { transform: [{ rotate: `${rot - 45}deg` }] }]}>
-        <MaterialCommunityIcons name="airplane" size={40} color={color} />
-      </View>
-    );
-  }
-
-  if (category === "light" || category === "ultralight") {
-    const sz = category === "light" ? 32 : 26;
-    return (
-      <View style={[styles.aircraftIcon, { transform: [{ rotate: `${rot}deg` }] }]}>
-        <LightAircraftIcon color={color} size={sz} />
-      </View>
-    );
-  }
-
-  if (category === "glider") {
-    return (
-      <View style={[styles.aircraftIcon, { transform: [{ rotate: `${rot}deg` }] }]}>
-        <GliderIcon color={color} size={32} />
-      </View>
-    );
-  }
-
-  if (category === "helicopter") {
-    return (
-      <View style={[styles.aircraftIcon, { transform: [{ rotate: `${rot}deg` }] }]}>
-        <HelicopterTopIcon color={color} size={34} />
-      </View>
-    );
-  }
-
-  if (category === "balloon") {
-    return (
-      <View style={styles.aircraftIcon}>
-        <MaterialCommunityIcons name="airballoon" size={34} color={color} />
-      </View>
-    );
-  }
-
-  if (category === "drone") {
-    return (
-      <View style={[styles.aircraftIcon, { transform: [{ rotate: `${rot}deg` }] }]}>
-        <MaterialCommunityIcons name="quadcopter" size={34} color={color} />
-      </View>
-    );
-  }
-
-  if (category === "ground") {
-    return (
-      <View style={[styles.aircraftIcon, { transform: [{ rotate: `${rot}deg` }] }]}>
-        <MaterialCommunityIcons name="truck" size={30} color={color} />
-      </View>
-    );
-  }
-
-  return (
-    <View style={[styles.aircraftIcon, { transform: [{ rotate: `${rot - 45}deg` }] }]}>
-      <MaterialCommunityIcons name="airplane" size={28} color={color} />
-    </View>
-  );
-}
-
-
 const SourceDots = React.memo(function SourceDots({ sources, sourceStatus }: { sources?: DataSource[]; sourceStatus?: Record<DataSource, "ok" | "error" | "timeout"> }) {
-  const allSources: DataSource[] = ["opensky", "adsbfi", "adsbone", "airplaneslive", "adsblol"];
+  // Nur die aktuell aktiven Quellen anzeigen — muss synchron zu
+  // ENABLED_SOURCES im Server-Aggregator und in client/lib/trafficStatus.ts bleiben.
+  const allSources: DataSource[] = ["ogn", "airplaneslive", "adsblol"];
   return (
     <View style={styles.sourceRow}>
       {allSources.map((src) => {
@@ -401,8 +254,14 @@ function WindCompass({ wind, children, deviceHeading, topInset = 0, weatherAlert
         </View>
       </View>
       <View style={[compassStyles.windBadge, { borderLeftColor: speedColor }]}>
-        <Text style={compassStyles.windSpeed}>{wind.speed.toFixed(1)} m/s</Text>
-        <Text style={compassStyles.windDir}>{wind.directionLabel} {wind.direction}°</Text>
+        <Text style={compassStyles.windSpeed}>
+          {typeof wind.speed === "number" && Number.isFinite(wind.speed) ? `${wind.speed.toFixed(1)} m/s` : "NV"}
+        </Text>
+        <Text style={compassStyles.windDir}>
+          {typeof wind.direction === "number" && Number.isFinite(wind.direction)
+            ? `${wind.directionLabel || ""} ${wind.direction}°`.trim()
+            : "NV"}
+        </Text>
       </View>
       {weatherAlerts && weatherAlerts.length > 0 ? (
         <View style={compassStyles.alertsContainer}>
@@ -539,104 +398,1413 @@ const compassStyles = StyleSheet.create({
   },
 });
 
+// ---------------------------------------------------------------------------
+// Leaflet-Karten-Dokument (im WebView). Die Karte wird einmal erstellt; der
+// React-Native-Wrapper schiebt den kompletten Zustand per
+// window.__apply(stateJson) hinein und erhält Region/Tap/Long-Press/Marker-Tap
+// per ReactNativeWebView.postMessage zurück. Bewusst KEINE Template-Literale /
+// ${...} im Inneren, damit dieser RN-Template-String nichts interpoliert.
+// ---------------------------------------------------------------------------
+export const MAIN_MAP_HTML = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  html, body, #map { margin: 0; padding: 0; height: 100%; width: 100%; background: #1A1F2E; }
+  #map { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+  .leaflet-container { background: #1A1F2E; outline: none; }
+  .acm { display: flex; flex-direction: column; align-items: center; }
+  .actag { color: #fff; font-size: 7px; font-weight: 900; letter-spacing: 0.5px; padding: 0 4px; border-radius: 3px; margin-bottom: 1px; }
+  .acicon { width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; }
+  .acalt { background: rgba(0,0,0,0.7); color: #fff; font-size: 9px; font-weight: 700; padding: 0 4px; border-radius: 3px; margin-top: 2px; line-height: 13px; }
+  .gz-popup .leaflet-popup-content-wrapper { background: rgba(20,30,48,0.97); color: #fff; border-radius: 10px; border: 1px solid rgba(74,144,217,0.4); }
+  .gz-popup .leaflet-popup-tip { background: rgba(20,30,48,0.97); }
+  .gz-popup .leaflet-popup-content { margin: 8px 10px; }
+  .gz-popup a.leaflet-popup-close-button { color: #8E8E93; }
+  .gzp { width: 210px; }
+  .gzph { display: flex; align-items: center; font-size: 12px; font-weight: 700; color: #fff; padding-bottom: 5px; margin-bottom: 6px; border-bottom: 1px solid rgba(255,255,255,0.15); }
+  .gzc { background: rgba(255,255,255,0.06); border-radius: 6px; padding: 6px; margin-bottom: 4px; border-left: 2px solid #4A90D9; }
+  .gzc-tmp { border-left-color: #FF9500; }
+  .gzb { display: inline-block; background: #4A90D9; border-radius: 3px; padding: 1px 5px; margin-bottom: 3px; font-size: 8px; font-weight: 800; letter-spacing: 0.3px; color: #fff; }
+  .gzb-tmp { background: #FF9500; }
+  .gzph-tmp { color: #FFB14D; }
+  .gzn { color: #fff; font-size: 11px; font-weight: 700; margin-bottom: 2px; }
+  .gzr { display: flex; gap: 4px; padding: 1px 0; }
+  .gzk { color: #8E9AB0; font-size: 9px; font-weight: 600; min-width: 60px; }
+  .gzv { color: #C8D0E0; font-size: 9px; font-weight: 500; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .gzm { color: #8E9AB0; font-size: 9px; text-align: center; margin-top: 2px; }
+  .gzap { color: #C8D0E0; font-size: 9px; font-weight: 500; line-height: 1.35; white-space: normal; margin-top: 4px; padding-top: 4px; border-top: 1px solid rgba(255,255,255,0.1); }
+  .gzlink { display: block; color: #4A90D9; font-size: 9px; font-weight: 700; margin-top: 4px; text-decoration: none; white-space: normal; word-break: break-word; }
+  .gzl { color: #C8D0E0; font-size: 11px; font-weight: 600; padding: 2px 4px; }
+  .ctrpin { background: rgba(20,30,48,0.85); color: #fff; font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.6); white-space: nowrap; }
+  .basemap-grayscale .leaflet-tile { filter: grayscale(1) contrast(1.04) brightness(1.03); }
+  .ctrh { font-size: 12px; font-weight: 700; color: #fff; margin-bottom: 3px; }
+  .ctrs { font-size: 10px; color: #8E9AB0; }
+  .apm { display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; background: rgba(20,30,48,0.92); border: 1.5px solid rgba(74,144,217,0.9); border-radius: 12px; color: #4A90D9; font-size: 14px; font-weight: 800; font-family: Georgia, serif; font-style: italic; box-shadow: 0 1px 3px rgba(0,0,0,0.4); }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<script>
+(function(){
+  function post(o){ if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify(o)); }
+  function esc(s){ return String(s == null ? "" : s).replace(/[&<>"']/g, function(m){ return ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[m]; }); }
+
+  var map = L.map("map", { zoomControl: false, attributionControl: true, zoomSnap: 1, fadeAnimation: false, maxZoom: 19, minZoom: 3 }).setView([51, 10], 6);
+
+  // ---- Basis-Ebene ----
+  var baseLayer = null, baseKey = "";
+  var activeBaseStyle = "", baseTileReadyStyle = "", baseTileErrorStyle = "";
+  function setBase(style, dark){
+    var key = style + "|" + (dark ? 1 : 0);
+    if (key === baseKey && baseLayer) return;
+    baseKey = key;
+    activeBaseStyle = style;
+    baseTileReadyStyle = "";
+    baseTileErrorStyle = "";
+    if (baseLayer) { map.removeLayer(baseLayer); baseLayer = null; }
+    var url;
+    if (style === "satellite") {
+      url = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
+    } else if (style === "osm") {
+      url = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+    } else {
+      url = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+    }
+    baseLayer = L.tileLayer(url, {
+      maxZoom: 19,
+      keepBuffer: 1,
+      updateWhenIdle: false,
+      attribution: "&copy; OpenStreetMap-Mitwirkende",
+      className: style === "grayscale" ? "basemap-grayscale" : "",
+    });
+    var layerStyle = style;
+    baseLayer.on("tileload", function(){
+      if (activeBaseStyle !== layerStyle || baseTileReadyStyle === layerStyle) return;
+      baseTileReadyStyle = layerStyle;
+      post({ type: "baseTileLoaded", base: layerStyle });
+    });
+    baseLayer.on("tileerror", function(){
+      if (activeBaseStyle !== layerStyle || baseTileErrorStyle === layerStyle) return;
+      baseTileErrorStyle = layerStyle;
+      post({ type: "baseTileError", base: layerStyle });
+    });
+    baseLayer.addTo(map);
+    baseLayer.bringToBack();
+  }
+  window.__hasBaseTile = function(style){ return baseTileReadyStyle === style; };
+  // Sofort eine sichtbare Grundkarte anlegen. Die erste native ready-Nachricht
+  // kann auf iOS verloren gehen; die NOTAM-WebView setzt ihren endgültigen
+  // Mittelpunkt/Stil anschließend zusätzlich über den nativen onLoadEnd-Pfad.
+  setBase("standard", false);
+
+  // ---- Geozonen-Ebenen (serverseitig komponierte XYZ-Kacheln) ----
+  // Inkrementelles Diffing pro Land-URL: beim Grenz-Panning ändert sich nur das
+  // Länder-Set (z. B. LU+DE+FR -> LU+DE). Statt ALLE Ebenen abzureißen und neu
+  // zu laden (sichtbares Flackern + erneutes langsames WMS-Laden), behalten wir
+  // unveränderte Länder-Kacheln bei und entfernen/ergänzen nur die Differenz.
+  var geoLayers = {};  // url -> { layer, sig }
+  function setGeo(arr){
+    arr = arr || [];
+    var next = {};
+    for (var j = 0; j < arr.length; j++) next[arr[j].u] = arr[j];
+    // Entfernen: Ebenen, die weg sind ODER deren Eigenschaften sich geändert haben.
+    for (var url in geoLayers){
+      if (!geoLayers.hasOwnProperty(url)) continue;
+      if (!next[url] || geoLayers[url].sig !== JSON.stringify(next[url])){
+        map.removeLayer(geoLayers[url].layer);
+        delete geoLayers[url];
+      }
+    }
+    // Ergänzen: neue Ebenen, die noch nicht (oder nicht mehr) existieren.
+    for (var u in next){
+      if (!next.hasOwnProperty(u) || geoLayers[u]) continue;
+      var g = next[u];
+      var tl = L.tileLayer(g.u, {
+        opacity: g.p,
+        minZoom: ` + String(GEOZONE_TILE_MIN_ZOOM) + `,
+        maxZoom: 19,
+        maxNativeZoom: g.mnz || 19,
+        tileSize: 256,
+        zIndex: g.primary ? 5 : 4,
+        updateWhenIdle: true,
+        keepBuffer: 1
+      });
+      // Transiente Kachel-Fehler (Server liefert 504, wenn der Upstream-WMS
+      // gedrosselt hat) selbst heilen: Leaflet laedt eine fehlgeschlagene
+      // Kachel sonst NIE nach -> dauerhaftes Loch im Overlay (z. B. fehlende
+      // rechte Haelfte bei Calais/FR). Bis zu 3 Wiederholungen mit Cache-Bust.
+      tl.on('tileerror', function(ev){
+        try {
+          var img = ev && ev.tile; if (!img) return;
+          var n = img._gzRetry || 0; if (n >= 3) return;
+          img._gzRetry = n + 1;
+          if (!img._gzBase) img._gzBase = (img.src || '').split('&_r=')[0];
+          var base = img._gzBase; if (!base) return;
+          var sep = base.indexOf('?') >= 0 ? '&' : '?';
+          setTimeout(function(){ img.src = base + sep + '_r=' + Date.now(); }, 700 * (n + 1));
+        } catch (e) {}
+      });
+      tl.addTo(map);
+      geoLayers[u] = { layer: tl, sig: JSON.stringify(g) };
+    }
+  }
+
+  var energyTileLayer = null, energyTileUrl = "";
+  function setEnergyTiles(url){
+    url = url || "";
+    if (url === energyTileUrl) return;
+    energyTileUrl = url;
+    if (energyTileLayer) { map.removeLayer(energyTileLayer); energyTileLayer = null; }
+    if (!url) return;
+    energyTileLayer = L.tileLayer(url, {
+      minZoom: 12, maxZoom: 19, maxNativeZoom: 16, tileSize: 256,
+      opacity: 1, zIndex: 6, keepBuffer: 1, updateWhenIdle: true,
+      attribution: "Anlagendaten: MaStR · DIPUL · OpenStreetMap"
+    }).addTo(map);
+  }
+
+  // Nur Treffer, die ein verfügbarer amtlicher Anlagenlayer als fehlend bestätigt.
+  var energyLayer = L.layerGroup().addTo(map);
+  var energySig = "";
+  function setEnergy(arr, windBuffers){
+    var sig = JSON.stringify([arr || [], windBuffers || []]);
+    if (sig === energySig) return;
+    energySig = sig;
+    energyLayer.clearLayers();
+    for (var b = 0; windBuffers && b < windBuffers.length; b++){
+      var buffer = windBuffers[b];
+      if (!buffer || !Number.isFinite(buffer.latitude) || !Number.isFinite(buffer.longitude)) continue;
+      var consentText = "<div class='gzn'>" + esc(buffer.name || "Windkraftanlage") + "</div>" +
+        "<div class='gzap'>100-m-Prüfkreis</div>" +
+        "<div class='gzap'>Datenquelle: " + esc(buffer.source || "unbekannt") + "</div>" +
+        "<div class='gzap'>Sofern § 21h Abs. 3 Nr. 3 LuftVO anwendbar ist, ist innerhalb dieses Abstands die ausdrückliche Zustimmung der zuständigen Stelle oder des Betreibers erforderlich.</div>" +
+        "<div class='gzap'>Karten-Näherung ab Anlagenpunkt; rechtlich maßgeblich ist die Anlagenbegrenzung.</div>";
+      L.circle([buffer.latitude, buffer.longitude], {
+        radius: 100, color: "#FF9500", weight: 2, opacity: 0.95,
+        fillColor: "#FF9500", fillOpacity: 0.15, interactive: true
+      }).bindPopup(consentText).addTo(energyLayer);
+      L.circleMarker([buffer.latitude, buffer.longitude], {
+        radius: 6, color: "#FFFFFF", weight: 2, fillColor: "#7B2CBF",
+        fillOpacity: 1, interactive: true
+      }).bindPopup(consentText).addTo(energyLayer);
+    }
+    for (var i = 0; arr && i < arr.length; i++){
+      var item = arr[i];
+      if (!item || item.officialMatch !== "not_found" || !item.geometry) continue;
+      var kind = item.kind === "wind_turbine" ? "Windkraftanlage" :
+        item.kind === "power_line" ? "Stromleitung" : "Strommast";
+      var details = "<div class='gzn'>" + esc(kind) + "</div><div class='gzr'><span class='gzk'>Quelle</span><span class='gzv'>" + esc(item.source) + "</span></div>" +
+        "<div class='gzr'><span class='gzk'>Amtlicher Abgleich</span><span class='gzv'>Nicht gefunden</span></div>";
+      if (item.name) details += "<div class='gzap'>" + esc(item.name) + "</div>";
+      if (Number.isFinite(item.taggedHeightM)) details += "<div class='gzap'>Höhe laut Quelle: " + esc(Math.round(item.taggedHeightM)) + " m</div>";
+      if (item.voltage) details += "<div class='gzap'>Spannung: " + esc(item.voltage) + "</div>";
+      if (item.geometry.type === "Point" && Array.isArray(item.geometry.coordinates) && item.geometry.coordinates.length >= 2){
+        var lon = Number(item.geometry.coordinates[0]), lat = Number(item.geometry.coordinates[1]);
+        if (Number.isFinite(lat) && Number.isFinite(lon)){
+          L.circleMarker([lat, lon], { radius: 6, color: "#FFFFFF", weight: 1.5, fillColor: item.kind === "wind_turbine" ? "#7B2CBF" : "#C2410C", fillOpacity: 0.95 }).bindPopup(details).addTo(energyLayer);
+        }
+      } else if (item.geometry.type === "LineString" && Array.isArray(item.geometry.coordinates)){
+        var coords = item.geometry.coordinates.filter(function(p){ return Array.isArray(p) && Number.isFinite(Number(p[0])) && Number.isFinite(Number(p[1])); }).map(function(p){ return [Number(p[1]), Number(p[0])]; });
+        if (coords.length >= 2) L.polyline(coords, { color: "#C2410C", weight: 4, opacity: 0.9, dashArray: "7 5" }).bindPopup(details).addTo(energyLayer);
+      }
+    }
+  }
+
+  // ---- Standort-Marker ----
+  var userMarker = null;
+  function setUser(u){
+    if (!u || u.length < 2) { if (userMarker) { map.removeLayer(userMarker); userMarker = null; } return; }
+    if (userMarker) { userMarker.setLatLng([u[0], u[1]]); }
+    else { userMarker = L.circleMarker([u[0], u[1]], { radius: 7, color: "#FFFFFF", weight: 2, fillColor: "#007AFF", fillOpacity: 1, interactive: false }).addTo(map); }
+  }
+
+  // ---- Kreise (Scan/TA/RA) + Sichtfeld-Kegel ----
+  var ringLayer = L.layerGroup().addTo(map);
+  var ringSig = "";
+  function setRings(center, c, fov){
+    var sig = JSON.stringify([center, c, fov]);
+    if (sig === ringSig) return;
+    ringSig = sig;
+    ringLayer.clearLayers();
+    if (center && center.length >= 2) {
+      if (c && c.scan) L.circle(center, { radius: c.scan, color: "#AF52DE", opacity: 0.85, weight: 2.5, fillColor: "#AF52DE", fillOpacity: 0.06, interactive: false }).addTo(ringLayer);
+      if (c && c.ta) L.circle(center, { radius: c.ta, color: "#FF9500", opacity: 0.7, weight: 1.5, fillColor: "#FF9500", fillOpacity: 0.06, interactive: false }).addTo(ringLayer);
+      if (c && c.ra) L.circle(center, { radius: c.ra, color: "#FF3B30", opacity: 0.85, weight: 2.5, fillColor: "#FF3B30", fillOpacity: 0.10, interactive: false }).addTo(ringLayer);
+    }
+    if (fov && fov.length > 2) {
+      L.polygon(fov, { color: "#007AFF", opacity: 0.85, weight: 2, fillColor: "#007AFF", fillOpacity: 0.45, interactive: false }).addTo(ringLayer);
+    }
+  }
+
+  // ---- Markierte Zonen-Polygone ----
+  var hzLayer = L.layerGroup().addTo(map);
+  var hzSig = "";
+  function setHz(arr){
+    var sig = JSON.stringify(arr || []);
+    if (sig === hzSig) return;
+    hzSig = sig;
+    hzLayer.clearLayers();
+    if (!arr) return;
+    for (var i = 0; i < arr.length; i++){
+      var poly = arr[i]; // [Aussenring, ...Loecher]
+      if (poly && poly.length >= 1 && poly[0] && poly[0].length >= 3) {
+        L.polygon(poly, { color: "#FF3B30", opacity: 0.95, weight: 2.5, fillColor: "#FF3B30", fillOpacity: 0.18, interactive: false, smoothFactor: 0 }).addTo(hzLayer);
+      }
+    }
+  }
+
+  // NOTAM-Karte: dieselbe Leaflet-Basis wie die Hauptkarte, aber ausschließlich
+  // die ausdrücklich übergebenen NOTAM-Polygone (keine Radar-/Geozonen-Layer).
+  var notamLayer = L.layerGroup().addTo(map);
+  var notamSig = "";
+  function setNotams(arr){
+    var sig = JSON.stringify(arr || []);
+    if (sig === notamSig) return;
+    notamSig = sig;
+    notamLayer.clearLayers();
+    for (var i = 0; arr && i < arr.length; i++){
+      var item = arr[i];
+      // item.r is [outerRing, ...holes]; validate the number of vertices in
+      // the outer ring, not the number of rings. Most polygons have one ring.
+      if (!item || !item.r || !item.r[0] || item.r[0].length < 3) continue;
+      L.polygon(item.r, {
+        color: item.s || "#FF9500",
+        opacity: 1,
+        weight: item.w || 2,
+        fillColor: item.f || "#FF9500",
+        fillOpacity: 1,
+        interactive: false,
+        smoothFactor: 0
+      }).addTo(notamLayer);
+    }
+  }
+
+  // ---- Vektor-Geozonen (ED-269, z. B. AT/BE) mit Tap-Popup ----
+  // Die Polygone werden NICHT mehr einzeln per bindPopup angeklickt (das zeigte bei
+  // sich ueberlagernden Zonen nur die oberste). Stattdessen sind sie nicht-interaktiv
+  // und der Map-Klick-Handler ermittelt per Punkt-in-Polygon ALLE getroffenen Zonen
+  // und zeigt sie gesammelt in einem Popup.
+  var vzLayer = L.layerGroup().addTo(map);
+  var vzSig = "";
+  var vzData = [];
+  function setVz(arr){
+    var sig = JSON.stringify(arr || []);
+    if (sig === vzSig) return;
+    vzSig = sig;
+    vzData = arr || [];
+    vzLayer.clearLayers();
+    if (!arr) return;
+    for (var i = 0; i < arr.length; i++){
+      var z = arr[i];
+      if (!z || !z.r) continue;
+      // hide=true: dauerhafte Zone eines Raster-Kachel-Landes (z. B. Belgien).
+      // Sie wird vom Server als WMS-artige Kachel gezeichnet; hier NICHT zeichnen,
+      // aber in vzData belassen, damit die Tap-Abfrage (vzHitsAt) sie weiterhin trifft.
+      if (z.hide) continue;
+      for (var p = 0; z.p && p < z.p.length; p++){
+        L.circleMarker(z.p[p], {radius:5,color:z.s,weight:2,fillColor:z.s,fillOpacity:0.4,interactive:false}).addTo(vzLayer);
+      }
+      for (var l = 0; z.l && l < z.l.length; l++){
+        L.polyline(z.l[l], {color:z.s,weight:2,opacity:0.95,interactive:false}).addTo(vzLayer);
+      }
+      for (var k = 0; k < z.r.length; k++){
+        var poly = z.r[k]; // [Aussenring, ...Loecher] -> Leaflet sticht Loecher aus
+        if (poly && poly.length >= 1 && poly[0] && poly[0].length >= 3) {
+          L.polygon(poly, { color: z.s || "rgba(0,122,255,0.85)", opacity: 0.95, weight: 2, fillColor: z.f || "rgba(0,122,255,0.15)", fillOpacity: 1, interactive: false, smoothFactor: 0 }).addTo(vzLayer);
+        }
+      }
+    }
+  }
+  // Strahl-Methode (Ray-Casting): liegt [lat,lon] im Ring [[lat,lon],...]?
+  function pointInRing(lat, lon, ring){
+    var inside = false;
+    for (var i = 0, j = ring.length - 1; i < ring.length; j = i++){
+      var yi = ring[i][0], xi = ring[i][1];
+      var yj = ring[j][0], xj = ring[j][1];
+      var intersect = ((yi > lat) !== (yj > lat)) && (lon < (xj - xi) * (lat - yi) / (yj - yi) + xi);
+      if (intersect) inside = !inside;
+    }
+    return inside;
+  }
+  // Punkt-in-Polygon mit Loch-Behandlung: drinnen, wenn im Aussenring UND in
+  // keinem Loch. Ein Tap im Loch (hoeherer Kernbereich) zaehlt nicht als Treffer.
+  function pointInPolyWithHoles(lat, lon, poly){
+    if (!poly || !poly.length || !poly[0] || !pointInRing(lat, lon, poly[0])) return false;
+    for (var h = 1; h < poly.length; h++){
+      if (poly[h] && poly[h].length >= 3 && pointInRing(lat, lon, poly[h])) return false;
+    }
+    return true;
+  }
+  function vzHitsAt(lat, lon){
+    var hits = [];
+    for (var i = 0; i < vzData.length; i++){
+      var z = vzData[i];
+      if (!z || !z.r) continue;
+      var hit = false;
+      var tapPixel = map.latLngToLayerPoint([lat, lon]);
+      for (var p = 0; z.p && p < z.p.length; p++){
+        if (tapPixel.distanceTo(map.latLngToLayerPoint(z.p[p])) <= 12) hit = true;
+      }
+      for (var l = 0; z.l && l < z.l.length; l++){
+        var line = z.l[l];
+        for (var j = 1; j < line.length; j++){
+          var a = map.latLngToLayerPoint(line[j-1]), b = map.latLngToLayerPoint(line[j]);
+          var dx=b.x-a.x, dy=b.y-a.y, den=dx*dx+dy*dy;
+          var t=den?Math.max(0,Math.min(1,((tapPixel.x-a.x)*dx+(tapPixel.y-a.y)*dy)/den)):0;
+          if (Math.hypot(tapPixel.x-a.x-t*dx,tapPixel.y-a.y-t*dy)<=8) hit=true;
+        }
+      }
+      for (var k = 0; k < z.r.length; k++){
+        if (pointInPolyWithHoles(lat, lon, z.r[k])) { hit = true; break; }
+      }
+      if (hit) hits.push(z);
+    }
+    return hits;
+  }
+  function buildVzCombinedHtml(zones){
+    var h = "<div class='gzp'><div class='gzph'>" + (zones.length > 1 ? "Geozonen (" + zones.length + ")" : "Geozone") + "</div>";
+    var n = Math.min(zones.length, 6);
+    for (var i = 0; i < n; i++){
+      var z = zones[i];
+      h += "<div class='gzc'><div class='gzn'>" + esc(z.t || "Geozone") + "</div>";
+      if (z.vr) h += "<div class='gzr'><span class='gzk'>Gültig</span><span class='gzv'>" + esc(z.vr) + "</span></div>";
+      var d = z.d || [];
+      for (var j = 0; j < d.length; j++){
+        var line = d[j] || "";
+        if (line.indexOf("Zone:") === 0) continue; // Name steht bereits als Kopf
+        var parts = line.split(":");
+        if (parts.length >= 2) {
+          h += "<div class='gzr'><span class='gzk'>" + esc(parts[0].trim()) + "</span><span class='gzv'>" + esc(parts.slice(1).join(":").trim()) + "</span></div>";
+        } else if (line.trim().length > 0) {
+          h += "<div class='gzv'>" + esc(line) + "</div>";
+        }
+      }
+      if (z.ap) h += "<div class='gzap'>" + esc(z.ap) + "</div>";
+      var lk = z.lk || [];
+      for (var m = 0; m < lk.length; m++){
+        if (lk[m] && lk[m].url) {
+          h += "<a class='gzlink' href='" + esc(lk[m].url) + "'>" + esc(lk[m].label || lk[m].url) + "</a>";
+        }
+      }
+      h += "</div>";
+    }
+    if (zones.length > 6) h += "<div class='gzm'>+" + (zones.length - 6) + " weitere</div>";
+    h += "</div>";
+    return h;
+  }
+
+  // ---- CTR-Höhenband-Ringe (Innen-/Außenbereich, vorläufig) ----
+  var ctrLayer = L.layerGroup().addTo(map);
+  var ctrSig = "";
+  function setCtr(arr){
+    var sig = JSON.stringify(arr || []);
+    if (sig === ctrSig) return;
+    ctrSig = sig;
+    ctrLayer.clearLayers();
+    if (!arr) return;
+    for (var i = 0; i < arr.length; i++){
+      var a = arr[i];
+      if (!a || a.lat == null || a.lon == null) continue;
+      // Ein Tap auf Ring oder ICAO-Marker meldet die CTR an die RN-Seite
+      // (analog markerPress), die dann die native Info-Karte oeffnet.
+      var onCtrTap = (function(icao){ return function(ev){ L.DomEvent.stopPropagation(ev); post({ type: "ctrPress", icao: icao }); }; })(a.icao);
+      var rings = a.rings || [];
+      for (var k = 0; k < rings.length; k++){
+        var r = rings[k];
+        if (!(r.radiusM > 0)) continue;
+        L.circle([a.lat, a.lon], { radius: r.radiusM, color: r.strokeColor, weight: 1.5, opacity: r.strokeOpacity, fillColor: r.fillColor, fillOpacity: r.fillOpacity, interactive: true })
+          .bindTooltip(esc(r.label) + " \u2014 vorl\u00e4ufig", { sticky: true })
+          .on("click", onCtrTap)
+          .addTo(ctrLayer);
+      }
+      L.marker([a.lat, a.lon], { icon: L.divIcon({ className: "", html: "<div class='ctrpin'>" + esc(a.icao) + "</div>", iconSize: [0, 0], iconAnchor: [0, 0] }) })
+        .on("click", onCtrTap)
+        .addTo(ctrLayer);
+    }
+  }
+
+  // ---- Flughafen-Wetter-Marker (METAR/TAF, Info-Symbol) ----
+  var airLayer = L.layerGroup().addTo(map);
+  var airSig = "";
+  function setAir(arr){
+    var sig = JSON.stringify(arr || []);
+    if (sig === airSig) return;
+    airSig = sig;
+    airLayer.clearLayers();
+    if (!arr) return;
+    for (var i = 0; i < arr.length; i++){
+      var ap = arr[i];
+      if (!ap || ap.lat == null || ap.lon == null) continue;
+      var onAirTap = (function(icao){ return function(ev){ L.DomEvent.stopPropagation(ev); post({ type: "airportPress", icao: icao }); }; })(ap.icao);
+      L.marker([ap.lat, ap.lon], { icon: L.divIcon({ className: "", html: "<div class='apm'>i</div>", iconSize: [24, 24], iconAnchor: [12, 12] }), zIndexOffset: 500 })
+        .bindTooltip(esc(ap.icao) + " \u2014 Flugwetter", { sticky: true })
+        .on("click", onAirTap)
+        .addTo(airLayer);
+    }
+  }
+
+  // ---- Trails ----
+  var trailLayer = L.layerGroup().addTo(map);
+  function applyTrails(arr){
+    trailLayer.clearLayers();
+    if (!arr) return;
+    for (var i = 0; i < arr.length; i++){
+      var t = arr[i];
+      if (t.pts && t.pts.length >= 2) {
+        L.polyline(t.pts, { color: t.col, weight: t.w, opacity: 0.9, interactive: false }).addTo(trailLayer);
+      }
+    }
+  }
+
+  // ---- Flugzeug-Marker-Icons ----
+  function svgPlane(color){
+    return "<svg width='34' height='34' viewBox='0 0 24 24'><path fill='" + color + "' d='M21,16V14L13,9V3.5A1.5,1.5 0 0,0 11.5,2A1.5,1.5 0 0,0 10,3.5V9L2,14V16L10,13.5V19L8,20.5V22L11.5,21L15,22V20.5L13,19V13.5L21,16Z'/></svg>";
+  }
+  function svgGlider(color){
+    return "<svg width='32' height='32' viewBox='0 0 64 64'><path fill='" + color + "' d='M32 3 C31 3 30.2 4.5 30 7 L29.5 16 L29.5 24 C28 24.5 18 26 4 29.5 C2 30.1 1 31 1 32 C1 32.8 2 33.2 4 33.2 L29.5 32 L29.5 50 C28.5 50.5 24 51.5 22 52.2 C20.5 52.7 20 53.2 20 53.8 C20 54.3 20.8 54.8 22 54.8 L29.5 54 L30 58 C30.2 59.5 31 61 32 61 C33 61 33.8 59.5 34 58 L34.5 54 L42 54.8 C43.2 54.8 44 54.3 44 53.8 C44 53.2 43.5 52.7 42 52.2 C40 51.5 35.5 50.5 34.5 50 L34.5 32 L60 33.2 C62 33.2 63 32.8 63 32 C63 31 62 30.1 60 29.5 C46 26 36 24.5 34.5 24 L34.5 16 L34 7 C33.8 4.5 33 3 32 3 Z'/></svg>";
+  }
+  function svgLight(color, sz){
+    var s = sz || 32, cx = s / 2;
+    var p = "<svg width='" + s + "' height='" + s + "' viewBox='0 0 " + s + " " + s + "'>";
+    var fuseW = s * 0.10, fuseH = s * 0.70, fuseTop = s * 0.10;
+    var wingW = s * 0.95, wingH = s * 0.13, wingTop = fuseTop + fuseH * 0.30;
+    var tailW = s * 0.35, tailH = s * 0.06, tailTop = fuseTop + fuseH - tailH * 0.6;
+    var propW = s * 0.22, propH = s * 0.03, propTop = fuseTop - propH;
+    p += "<rect x='" + (cx - fuseW / 2) + "' y='" + fuseTop + "' width='" + fuseW + "' height='" + fuseH + "' rx='" + (fuseW * 0.3) + "' fill='" + color + "'/>";
+    p += "<rect x='" + (cx - wingW / 2) + "' y='" + wingTop + "' width='" + wingW + "' height='" + wingH + "' rx='" + (wingH / 2) + "' fill='" + color + "'/>";
+    p += "<rect x='" + (cx - tailW / 2) + "' y='" + tailTop + "' width='" + tailW + "' height='" + tailH + "' rx='" + (tailH / 2) + "' fill='" + color + "'/>";
+    p += "<rect x='" + (cx - propW / 2) + "' y='" + (propTop > 0 ? propTop : 0) + "' width='" + propW + "' height='" + propH + "' rx='" + (propH / 2) + "' fill='" + color + "'/>";
+    p += "</svg>";
+    return p;
+  }
+  function svgHeli(color){
+    var s = 34, cx = s / 2;
+    var p = "<svg width='" + s + "' height='" + s + "' viewBox='0 0 " + s + " " + s + "'>";
+    var bodyW = s * 0.18, bodyH = s * 0.32, bodyTop = s * 0.04, bodyCy = bodyTop + bodyH * 0.38;
+    var bladeLen = s * 0.48, bladeW = s * 0.04;
+    var tailW = s * 0.05, tailTop = bodyTop + bodyH * 0.80, tailH = s * 0.40, tailEnd = tailTop + tailH;
+    var finLen = s * 0.18, finW = s * 0.04;
+    p += "<g transform='rotate(45 " + cx + " " + bodyCy + ")'><rect x='" + (cx - bladeW / 2) + "' y='" + (bodyCy - bladeLen) + "' width='" + bladeW + "' height='" + (bladeLen * 2) + "' rx='" + (bladeW / 2) + "' fill='" + color + "'/></g>";
+    p += "<g transform='rotate(-45 " + cx + " " + bodyCy + ")'><rect x='" + (cx - bladeW / 2) + "' y='" + (bodyCy - bladeLen) + "' width='" + bladeW + "' height='" + (bladeLen * 2) + "' rx='" + (bladeW / 2) + "' fill='" + color + "'/></g>";
+    p += "<rect x='" + (cx - bodyW / 2) + "' y='" + bodyTop + "' width='" + bodyW + "' height='" + bodyH + "' rx='" + (bodyW / 2) + "' fill='" + color + "'/>";
+    p += "<rect x='" + (cx - tailW / 2) + "' y='" + tailTop + "' width='" + tailW + "' height='" + tailH + "' fill='" + color + "'/>";
+    p += "<rect x='" + (cx - finLen / 2) + "' y='" + (tailEnd - finW / 2) + "' width='" + finLen + "' height='" + finW + "' rx='" + (finW / 2) + "' fill='" + color + "'/>";
+    p += "</svg>";
+    return p;
+  }
+  function svgBalloon(color){
+    return "<svg width='30' height='34' viewBox='0 0 30 34'><circle cx='15' cy='13' r='12' fill='" + color + "'/><path d='M10 23 L20 23 L17 31 L13 31 Z' fill='" + color + "'/></svg>";
+  }
+  function svgDrone(color){
+    return "<svg width='32' height='32' viewBox='0 0 32 32'><circle cx='8' cy='8' r='5' fill='none' stroke='" + color + "' stroke-width='2'/><circle cx='24' cy='8' r='5' fill='none' stroke='" + color + "' stroke-width='2'/><circle cx='8' cy='24' r='5' fill='none' stroke='" + color + "' stroke-width='2'/><circle cx='24' cy='24' r='5' fill='none' stroke='" + color + "' stroke-width='2'/><rect x='12' y='12' width='8' height='8' rx='2' fill='" + color + "'/></svg>";
+  }
+  function svgGround(color){
+    return "<svg width='28' height='28' viewBox='0 0 28 28'><rect x='6' y='8' width='16' height='12' rx='2' fill='" + color + "'/></svg>";
+  }
+  function iconSvg(cat, color){
+    if (cat === "glider") return svgGlider(color);
+    if (cat === "light") return svgLight(color, 32);
+    if (cat === "ultralight") return svgLight(color, 26);
+    if (cat === "helicopter") return svgHeli(color);
+    if (cat === "balloon") return svgBalloon(color);
+    if (cat === "drone") return svgDrone(color);
+    if (cat === "ground") return svgGround(color);
+    return svgPlane(color);
+  }
+  function buildIcon(d){
+    var rot = d.c === "balloon" ? 0 : d.h;
+    var tagH = d.w ? 12 : 0;
+    var badgeH = d.a ? 15 : 0;
+    var totalH = tagH + 40 + badgeH;
+    var html = "<div class='acm' style='opacity:" + d.o + "'>";
+    if (d.w) html += "<div class='actag' style='background:" + (d.al ? "#FF3B30" : "#FF9500") + "'>" + (d.al ? "RA" : "TA") + "</div>";
+    html += "<div class='acicon' style='transform:rotate(" + rot + "deg)'>" + iconSvg(d.c, d.col) + "</div>";
+    if (d.a) html += "<div class='acalt'>" + esc(d.a) + "</div>";
+    html += "</div>";
+    return L.divIcon({ className: "", html: html, iconSize: [44, totalH], iconAnchor: [22, tagH + 20] });
+  }
+
+  var markerLayer = L.layerGroup().addTo(map);
+  var acMarkers = {};
+  function applyMarkers(arr){
+    var seen = {};
+    if (arr) for (var i = 0; i < arr.length; i++){
+      var d = arr[i];
+      seen[d.id] = 1;
+      var sig = d.lat + "," + d.lon + "," + d.h + "," + d.col + "," + d.a + "," + d.c + "," + (d.w ? 1 : 0) + "," + (d.al ? 1 : 0) + "," + d.o;
+      var ex = acMarkers[d.id];
+      if (ex && ex.sig === sig) continue;
+      if (ex) {
+        ex.m.setLatLng([d.lat, d.lon]);
+        ex.m.setIcon(buildIcon(d));
+        ex.sig = sig;
+      } else {
+        var m = L.marker([d.lat, d.lon], { icon: buildIcon(d), keyboard: false, zIndexOffset: d.w ? 1000 : 0 });
+        m.on("click", (function(id){ return function(ev){ L.DomEvent.stopPropagation(ev); post({ type: "markerPress", id: id }); }; })(d.id));
+        m.addTo(markerLayer);
+        acMarkers[d.id] = { m: m, sig: sig };
+      }
+    }
+    for (var id in acMarkers){ if (!seen[id]) { markerLayer.removeLayer(acMarkers[id].m); delete acMarkers[id]; } }
+  }
+
+  // ---- Geozonen-Tap-Popup ----
+  var featPopup = null;
+  function renderPopupGroup(arr, isTmp){
+    if (!arr || arr.length === 0) return "";
+    var head = isTmp
+      ? (arr.length > 1 ? "NOTAM-Gebiete / Sperrungen (" + arr.length + ")" : "NOTAM-Gebiet / Sperrung")
+      : (arr.length > 1 ? "Geozonen (" + arr.length + ")" : "Geozone");
+    var h = "<div class='gzph" + (isTmp ? " gzph-tmp" : "") + "'>" + esc(head) + "</div>";
+    var n = Math.min(arr.length, 4);
+    for (var i = 0; i < n; i++){
+      var fi = arr[i];
+      h += "<div class='gzc" + (isTmp ? " gzc-tmp" : "") + "'><div class='gzb" + (isTmp ? " gzb-tmp" : "") + "'>" + esc(fi.layerLabel) + "</div><div class='gzn'>" + esc(fi.name) + "</div>";
+      var det = (fi.details || "").split("\\n").filter(function(x){ return x.trim().length > 0; }).slice(0, 3);
+      for (var j = 0; j < det.length; j++){
+        var parts = det[j].split(":");
+        if (parts.length >= 2) {
+          h += "<div class='gzr'><span class='gzk'>" + esc(parts[0].trim()) + "</span><span class='gzv'>" + esc(parts.slice(1).join(":").trim()) + "</span></div>";
+        } else {
+          h += "<div class='gzv'>" + esc(det[j]) + "</div>";
+        }
+      }
+      h += "</div>";
+    }
+    if (arr.length > 4) h += "<div class='gzm'>+" + (arr.length - 4) + " weitere</div>";
+    return h;
+  }
+  function buildPopupHtml(items){
+    var geo = [], tmp = [];
+    for (var gi = 0; gi < items.length; gi++){
+      var it = items[gi];
+      if (it && it.cat === "notam") tmp.push(it); else geo.push(it);
+    }
+    var h = "<div class='gzp'>";
+    h += renderPopupGroup(geo, false);
+    h += renderPopupGroup(tmp, true);
+    h += "</div>";
+    return h;
+  }
+  window.__popup = function(d){ try { if (featPopup) map.closePopup(featPopup); featPopup = L.popup({ className: "gz-popup", maxWidth: 240, autoPan: false }).setLatLng([d.lat, d.lon]).setContent(buildPopupHtml(d.items)).openOn(map); } catch (e) {} };
+  window.__popupLoading = function(d){ try { if (featPopup) map.closePopup(featPopup); featPopup = L.popup({ className: "gz-popup", maxWidth: 120, closeButton: false, autoPan: false }).setLatLng([d.lat, d.lon]).setContent("<div class='gzl'>Laden…</div>").openOn(map); } catch (e) {} };
+  window.__popupClose = function(){ try { if (featPopup) { map.closePopup(featPopup); featPopup = null; } } catch (e) {} };
+
+  // ---- Pan-Sperre ----
+  function setLock(lock){
+    if (lock) { map.dragging.disable(); map.touchZoom.disable(); map.doubleClickZoom.disable(); map.scrollWheelZoom.disable(); map.boxZoom.disable(); }
+    else { map.dragging.enable(); map.touchZoom.enable(); map.doubleClickZoom.enable(); map.scrollWheelZoom.enable(); map.boxZoom.enable(); }
+  }
+
+  // ---- Zustand anwenden ----
+  var lastFit = null;
+  window.__apply = function(s){
+    try {
+      if (!map || !baseLayer) throw new Error("Map oder Grundkarte ist nicht initialisiert");
+      setBase(s.base, s.dark);
+      setGeo(s.geo || []);
+      setEnergyTiles(s.energyTileUrl || "");
+      setUser(s.user);
+      setRings(s.user, s.circles || {}, s.fov);
+      setHz(s.hz);
+      setNotams(s.nt || []);
+      setEnergy(s.energy || [], s.windBuffers || []);
+      setVz(s.vz || []);
+      setCtr(s.ctr || []);
+      setAir(s.air || []);
+      applyTrails(s.trails || []);
+      applyMarkers(s.markers || []);
+      setLock(!!s.lockPan);
+      if (s.fit !== lastFit) { lastFit = s.fit; map.setView(s.center, s.zoom, { animate: true }); }
+      setTimeout(function(){ try { map.invalidateSize({ pan: false }); } catch (e) {} }, 0);
+      return true;
+    } catch (e) {
+      post({ type: "mapError", reason: String(e) });
+      return false;
+    }
+  };
+
+  // ---- Region/Interaktion zurückmelden ----
+  function reportRegion(){
+    try {
+      var c = map.getCenter(), b = map.getBounds();
+      post({ type: "region", lat: c.lat, lon: c.lng, latDelta: Math.abs(b.getNorth() - b.getSouth()), lonDelta: Math.abs(b.getEast() - b.getWest()), zoom: map.getZoom() });
+    } catch (e) {}
+  }
+  map.on("moveend", reportRegion);
+  map.on("zoomend", reportRegion);
+  map.on("click", function(e){
+    // Vektor-Geozonen (AT/BE) lokal per Punkt-in-Polygon treffen – zeigt ALLE
+    // ueberlagernden Zonen gesammelt; ansonsten WMS-GetFeatureInfo via mapPress.
+    var hits = vzHitsAt(e.latlng.lat, e.latlng.lng);
+    if (hits.length > 0) {
+      try { if (featPopup) map.closePopup(featPopup); featPopup = L.popup({ className: "gz-popup", maxWidth: 260, autoPan: false }).setLatLng([e.latlng.lat, e.latlng.lng]).setContent(buildVzCombinedHtml(hits)).openOn(map); } catch (err) {}
+      return;
+    }
+    post({ type: "mapPress", lat: e.latlng.lat, lon: e.latlng.lng });
+  });
+
+  // Long-Press: contextmenu feuert in iOS WKWebView nicht zuverlaessig auf
+  // Touch-Halten, daher zusaetzlich eigene Touch-Erkennung. Beide Pfade laufen
+  // ueber fireLongPress (debounced), damit es auf Android kein Doppel-Event gibt.
+  var lastLp = 0;
+  function fireLongPress(lat, lon){
+    var now = Date.now();
+    if (now - lastLp < 800) return;
+    lastLp = now;
+    post({ type: "longPress", lat: lat, lon: lon });
+  }
+  map.on("contextmenu", function(e){ fireLongPress(e.latlng.lat, e.latlng.lng); });
+
+  (function(){
+    var lpTimer = null, lpStart = null, lpMoved = false;
+    var container = map.getContainer();
+    function clearLp(){ if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; } lpStart = null; lpMoved = false; }
+    container.addEventListener("touchstart", function(ev){
+      if (!ev.touches || ev.touches.length !== 1) { clearLp(); return; }
+      // Nicht auf Flugzeug-/Standort-Markern ausloesen (sonst verschoebe ein
+      // Halten auf einem Flieger versehentlich den Radar-Standpunkt).
+      if (ev.target && ev.target.closest && ev.target.closest(".leaflet-marker-icon")) { clearLp(); return; }
+      var t = ev.touches[0];
+      var rect = container.getBoundingClientRect();
+      lpStart = { x: t.clientX, y: t.clientY, pt: L.point(t.clientX - rect.left, t.clientY - rect.top) };
+      lpMoved = false;
+      lpTimer = setTimeout(function(){
+        if (lpStart && !lpMoved) {
+          try { var ll = map.containerPointToLatLng(lpStart.pt); fireLongPress(ll.lat, ll.lng); } catch (e) {}
+        }
+        clearLp();
+      }, 500);
+    }, { passive: true });
+    container.addEventListener("touchmove", function(ev){
+      if (!lpStart || !ev.touches || !ev.touches.length) return;
+      var t = ev.touches[0];
+      if (Math.abs(t.clientX - lpStart.x) > 12 || Math.abs(t.clientY - lpStart.y) > 12) { lpMoved = true; clearLp(); }
+    }, { passive: true });
+    container.addEventListener("touchend", clearLp, { passive: true });
+    container.addEventListener("touchcancel", clearLp, { passive: true });
+  })();
+
+  post({ type: "ready" });
+})();
+</script>
+</body>
+</html>`;
+
+// Formatiert das Gültigkeitsfenster temporärer Zonen (ms-Epoch) als deutsche
+// "von … bis … Uhr"-Zeichenkette. null, wenn keine vollständige Gültigkeit.
+function formatValidityRange(startTs?: number | null, endTs?: number | null): string | null {
+  if (startTs == null || endTs == null) return null;
+  const fmt = (ms: number) =>
+    new Date(ms).toLocaleString("de-DE", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone: "Europe/Berlin",
+    });
+  return `von ${fmt(startTs)} bis ${fmt(endTs)} Uhr`;
+}
+
+// True, wenn die Zone ein Gültigkeitsfenster trägt (temporäre/NOTAM-Zone, z. B.
+// belgische skeyes-COMMON-Zonen). Permanente Zonen haben null in beiden Feldern.
+function isTempVectorZone(z: GeozoneFeatureInfo): boolean {
+  // Kanonische Regel (shared/ed269Restriction ed269IsTemporary): eine Zone ist
+  // temporär, sobald EIN Gültigkeits-Zeitstempel gesetzt ist (Start ODER Ende).
+  // Muss identisch zur serverseitigen Kachel-Aussparung sein, sonst fallen Zonen
+  // mit nur Start- oder nur End-Zeit aus Kachel UND Vektor heraus.
+  return z.validStartTs != null || z.validEndTs != null;
+}
+
 export default function TrafficMapView({
   latitude, longitude, latDelta, lonDelta, locationName, markers, trails,
   fullScreen, alarmRadiusM, taRadiusM, scanRadiusM, onLongPress, wind, sourceStatus,
-  geozoneLayers, countryIso, mapStyle = "standard", onMapStyleChange,
-  onCenterGps, onSettingsPress, settingsActive, bottomPadding = 0, topInset = 0, weatherAlerts,
-  onHeadingChange, disableGeozoneQuery = false,
+  geozoneLayers, countryIso, highlightedZones, additionalGeozones = [], energyInfrastructure = [], windRestrictionPoints = [], energyTilesEnabled, energyTilesShowSupplemental, mapStyle = "grayscale", onMapStyleChange,
+  onCenterGps, onSettingsPress, settingsActive, bottomPadding = 0, infoBubbleBottomInset = 0, topInset = 0, weatherAlerts,
+  onHeadingChange, disableGeozoneQuery = false, lockPan = false, onViewportChange,
+  maxReachableAltitudeM = DEFAULT_REACHABLE_ALTITUDE_M, showAllGeozones = false,
 }: TrafficMapViewProps) {
+  // Im Flug-Modus: Panning gesperrt → Geozone-Tap-Abfrage komplett aus.
+  const geozoneQueryDisabled = disableGeozoneQuery || lockPan;
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
-  const osmTileUrl = isDark
-    ? "https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png"
-    : "https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png";
-  const mapRef = useRef<MapView>(null);
-  const [mapBearing, setMapBearing] = useState(0);
+
+  const webRef = useRef<WebView>(null);
+  const [ready, setReady] = useState(false);
   const [flightUrl, setFlightUrl] = useState<string | null>(null);
   const [flightCallsign, setFlightCallsign] = useState("");
   const [selectedAircraftId, setSelectedAircraftId] = useState<string | null>(null);
-  const markerTapRef = useRef(false);
+  const [selectedCtrIcao, setSelectedCtrIcao] = useState<string | null>(null);
+  const [selectedAirportIcao, setSelectedAirportIcao] = useState<string | null>(null);
+  // Tier-2-Flughafen-Wetter-Stationen (live per AWC-Bbox geladen, ab Zoom 9).
+  const [areaStations, setAreaStations] = useState<AirportStation[]>([]);
   const [deviceHeading, setDeviceHeading] = useState<number | null>(null);
-  const [featureInfo, setFeatureInfo] = useState<GeozoneFeatureInfo[] | null>(null);
-  const [featureLoading, setFeatureLoading] = useState(false);
-  const [tapCoord, setTapCoord] = useState<{ latitude: number; longitude: number } | null>(disableGeozoneQuery ? null : null);
+  const [ctrLegendOpen, setCtrLegendOpen] = useState(true);
+  // Vektor-Geozonen aus dem zentralen Cache (ED-269, z. B. Österreich). Diese
+  // Länder liefern kein WMS -- die Zonen werden im WebView als Leaflet-Polygone
+  // mit Tap-Popup gerendert.
+  const [vectorZones, setVectorZones] = useState<GeozoneFeatureInfo[]>([]);
+  // Geländehöhe (MSL) am Kartenzentrum für die MSL->AGL-Umrechnung im Höhen-
+  // Filter. Eine Näherung über das Zentrum genügt; null = nicht (sicher) bekannt.
+  const [centerElevationM, setCenterElevationM] = useState<number | null>(null);
+  // Pro-Land-Zwischenspeicher der zuletzt ERFOLGREICH geladenen Vektor-Zonen.
+  // Verhindert, dass ein fehlgeschlagener/abgebrochener Re-Fetch beim Scrollen
+  // die bereits gezeichneten Zonen löscht ("nach Scrollen keine Geozonen mehr").
+  const vectorZonesByIsoRef = useRef<Record<string, GeozoneFeatureInfo[]>>({});
+  // Länder, deren GESAMTER Landesbestand bereits geladen ist (z. B. BE). Ihre
+  // Daten sind positionsunabhängig -> beim Pannen NICHT erneut 3,6 MB nachladen.
+  const fullCountryLoadedRef = useRef<Set<string>>(new Set());
+  const vzPublishSigRef = useRef<string>("");
+  // Wird bei JEDER tatsächlichen Inhaltsänderung des Pro-Land-Caches erhöht.
+  // Fließt in die Publish-Signatur ein, damit auch bbox-Länder (DK) mit gleicher
+  // Zonenanzahl, aber anderem Inhalt zuverlässig neu gezeichnet werden.
+  const vzVersionRef = useRef<number>(0);
   const [mapSize, setMapSize] = useState({ width: 400, height: 400 });
   const [currentRegion, setCurrentRegion] = useState<Region>({
     latitude, longitude, latitudeDelta: latDelta, longitudeDelta: lonDelta,
   });
+  // settledRegion = Region am Gestenende; speist Geozonen-Sichtbarkeit + Länder-Set.
+  const [settledRegion, setSettledRegion] = useState<Region>({
+    latitude, longitude, latitudeDelta: latDelta, longitudeDelta: lonDelta,
+  });
+
+  const runJs = useCallback((code: string) => {
+    try { webRef.current?.injectJavaScript(code + ";true;"); } catch {}
+  }, []);
+
+  // Ziel-Zoom aus latDelta (Leaflet nutzt Integer-Zoomstufen).
+  const targetZoom = useMemo(() => {
+    const z = Math.round(Math.log2(360 / Math.max(latDelta, 0.0001)));
+    return Math.max(3, Math.min(18, z));
+  }, [latDelta]);
+
+  // fit zählt hoch, wenn sich die Eingabe-Position/Ausdehnung ändert → WebView
+  // führt dann ein setView aus (mirror des früheren animateToRegion).
+  const [fit, setFit] = useState(0);
+  useEffect(() => { setFit((f) => f + 1); }, [latitude, longitude, latDelta, lonDelta]);
 
   const currentZoom = useMemo(() => {
     if (!currentRegion.latitudeDelta || currentRegion.latitudeDelta <= 0) return 15;
     return Math.round(Math.log2(360 / currentRegion.latitudeDelta));
   }, [currentRegion.latitudeDelta]);
-  const geozonesVisible = currentZoom >= 11;
-  const wmsUrlsPerCountry = useMemo(() => {
-    const radiusKm = Math.max((taRadiusM || 0) / 1000, (alarmRadiusM || 0) / 1000, 80);
-    const gpsCountries = getCountriesInRadius(latitude, longitude, radiusKm, countryIso);
-    const viewRadiusKm = Math.max(
-      (currentRegion.latitudeDelta || 0) * 111.32 / 2,
-      (currentRegion.longitudeDelta || 0) * 111.32 * Math.cos((currentRegion.latitude * Math.PI) / 180) / 2,
-      50
-    );
-    const viewCountries = getCountriesInRadius(currentRegion.latitude, currentRegion.longitude, viewRadiusKm);
-    const countries = [...gpsCountries];
-    for (const vc of viewCountries) {
-      if (!countries.includes(vc)) countries.push(vc);
-    }
 
+  const settledZoom = useMemo(() => {
+    if (!settledRegion.latitudeDelta || settledRegion.latitudeDelta <= 0) return 15;
+    return Math.round(Math.log2(360 / settledRegion.latitudeDelta));
+  }, [settledRegion.latitudeDelta]);
+
+  // Legenden-Einträge: nur die Höhenbänder der Modelle, die tatsächlich für
+  // Flughäfen in der Nähe gelten. Wenn z. B. nur DFS-4-Zonen-Flughäfen sichtbar
+  // sind, erscheinen keine verwirrenden Innenbereich/Außenbereich-Einträge.
+  // Die Legende ist bei zoom < 8 oder ohne Kontrollzonen-Layer ohnehin unsichtbar.
+  const ctrLegendEntries = useMemo(() => {
+    const ctrEnabled = !!geozoneLayers && geozoneLayers.includes("kontrollzonen");
+    if (!ctrEnabled || settledZoom < 8) return getCtrLegendEntries();
+    const nearby = findNearbyCtrAirports(latitude, longitude, 30)
+      .filter((a) => !!a.avInfo)
+      .slice(0, 4);
+    if (nearby.length === 0) return getCtrLegendEntries();
+    // Dedupliziere Staffelungen nach Signatur (fromDistanceKm:maxHeightAglM-Paare).
+    const seen = new Set<string>();
+    const stepsList = nearby
+      .map((a) => a.avInfo!.heightSteps)
+      .filter((steps) => {
+        const key = steps.map((s) => `${s.fromDistanceKm}:${s.maxHeightAglM}`).join(",");
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    return getCtrLegendEntries(stepsList);
+  }, [geozoneLayers, settledZoom, latitude, longitude]);
+
+  // Geozonen-Overlay erst ab regionaler Zoomstufe; beim Rauszoomen ganz aus.
+  const geozonesVisible = settledZoom >= GEOZONE_TILE_MIN_ZOOM;
+  // Vektor-Zonen (ED-269) werden pro Land gegated: dichte Länder (z. B. DK) erst
+  // ab GEOZONE_VECTOR_MIN_ZOOM (ihre bbox-Abfrage zieht sonst den gesamten
+  // sichtbaren Bereich als ein riesiges JSON ins Timeout), kleine Länder (z. B.
+  // BE, ~288 Zonen) bereits bei landesweiter Sicht (getVectorMinZoom). Ein Land
+  // ist sichtbar, wenn der Zoom über SEINER Mindestschwelle liegt.
+  const isVectorCountryVisible = useCallback(
+    (iso: string) => settledZoom >= getVectorMinZoom(iso),
+    [settledZoom],
+  );
+
+  // Zoom-abhängiger Marker-/Trail-Cap (wie zuvor).
+  const markerCap = useMemo(() => {
+    if (currentZoom >= 14) return 12;
+    if (currentZoom >= 12) return 22;
+    if (currentZoom >= 10) return 35;
+    return 60;
+  }, [currentZoom]);
+  const trailCap = useMemo(() => Math.min(markerCap, 20), [markerCap]);
+
+  // Länder-Set aus dem sichtbaren (settled) Viewport.
+  const countryListKey = useMemo(() => {
+    const isos = getViewportCountries(
+      settledRegion.latitude,
+      settledRegion.longitude,
+      settledRegion.latitudeDelta,
+      settledRegion.longitudeDelta,
+    );
+    if (isos.length === 0 && countryIso) return countryIso.toUpperCase();
+    return isos.join(",");
+  }, [settledRegion.latitude, settledRegion.longitude, settledRegion.latitudeDelta, settledRegion.longitudeDelta, countryIso]);
+
+  // Länder-Berechtigung (Task #522): Nur freigeschaltete Länder zeigen Geozonen.
+  // Auf Mobile tragen die Kachel-Requests KEIN Session-Cookie (react-native-maps
+  // UrlTile), daher kann die Server-Gate-Prüfung dort nicht greifen — das Ausgrauen
+  // gesperrter Nachbarländer muss hier clientseitig erfolgen.
+  const { entitlement } = useAuth();
+  const { lockedSet, lockedNames } = useMemo(() => {
+    const isos = countryListKey ? countryListKey.split(",").filter(Boolean) : [];
+    const { locked } = splitCountriesByAccess(isos, entitlement);
+    return {
+      lockedSet: new Set(locked),
+      lockedNames: locked.map((iso) => countryName(iso)),
+    };
+  }, [countryListKey, entitlement]);
+
+  // Eine serverseitig gecachte XYZ-Kachel-URL pro freigeschaltetem Land.
+  const geozoneTileUrls = useMemo(() => {
+    const countries = (countryListKey ? countryListKey.split(",") : []).filter(
+      (iso) => !lockedSet.has(iso),
+    );
     return countries.map((iso) => {
+      // Vektor-Länder ohne WMS (z. B. Belgien) werden serverseitig zu PNG-Kacheln
+      // rasterisiert und wie eine WMS-Kachel-Ebene eingebunden — robust statt
+      // fragiler Client-Vektor-Polygone. Keine Layer-Auswahl (Server zeichnet alle
+      // dauerhaften Zonen).
+      if (isRasterTiledVectorCountry(iso)) {
+        return { iso, url: buildVectorGeozoneTileUrl(iso) };
+      }
       const config = getCountryGeozoneConfig(iso);
       const defaultLayers = config.layers.filter(l => l.defaultEnabled).map(l => l.wmsLayer);
-      const fallbackLayers = defaultLayers.length > 0 ? defaultLayers : [config.layers[0]?.wmsLayer].filter(Boolean);
-      if (iso === countryIso && geozoneLayers && geozoneLayers.length > 0) {
-        return { iso, url: buildCombinedWmsTileUrl(geozoneLayers, iso) };
+      const fallbackLayers = defaultLayers.length > 0 ? defaultLayers : [config.layers[0]?.wmsLayer].filter(Boolean) as string[];
+      const layerSet = (iso === countryIso && geozoneLayers && geozoneLayers.length > 0)
+        ? geozoneLayers
+        : fallbackLayers;
+      return { iso, url: buildGeozoneCacheTileUrl(layerSet, iso) };
+    }).filter((t) => t.url);
+  }, [countryListKey, geozoneLayers, countryIso, lockedSet]);
+
+  // ED-269-Vektorländer (ohne WMS, z. B. AT/BE/DK) aus dem sichtbaren Viewport
+  // laden. Quelle ist settledRegion (Gestenende), damit sich die Polygone nicht
+  // mitten in einer Pan-/Pinch-Geste neu mounten.
+  //
+  // WICHTIG: Diese Vektor-Zonen sind ein ANZEIGE-Overlay wie die WMS-Kacheln und
+  // dürfen NICHT an geozoneQueryDisabled (= disableGeozoneQuery || lockPan)
+  // hängen. Dieses Flag steuert nur das Tap-zum-Abfragen-Popup (siehe
+  // handleMapPress). Die WMS-Kacheln (FR/DE/CH/LU/NL) werden unabhängig davon
+  // gerendert; würden die Vektor-Zonen daran gekoppelt, erschienen auf dem
+  // Radar (disableGeozoneQuery) und im Flight-Check (lockPan) WMS-Länder, aber
+  // Belgien/Österreich/Dänemark blieben unsichtbar – genau der Fehler "in
+  // Belgien keine Geozonen auf dem Radar". Gating erfolgt daher ausschließlich
+  // über die pro-Land-Zoomschwelle (isVectorCountryVisible).
+  useEffect(() => {
+    // Nur die ED-269-Länder laden, die bei DIESEM Zoom sichtbar sind (pro-Land-
+    // Schwelle). DK bleibt so bei weiter Sicht ungeladen (Timeout-Schutz), BE
+    // wird bereits landesweit gezeichnet.
+    const isos = (countryListKey ? countryListKey.split(",") : []).filter(
+      (i) =>
+        getCountryGeozoneConfig(i).featureInfoType === "ed269-cached" &&
+        isVectorCountryVisible(i) &&
+        !lockedSet.has(i),
+    );
+
+    // Cache der Länder vergessen, die NICHT mehr sichtbar sind (Zoom/Pan), damit
+    // sie beim Wiedereintritt frisch geladen werden und keinen Speicher halten.
+    for (const k of Object.keys(vectorZonesByIsoRef.current)) {
+      if (!isos.includes(k)) {
+        delete vectorZonesByIsoRef.current[k];
+        fullCountryLoadedRef.current.delete(k);
+        vzVersionRef.current++;
       }
-      return { iso, url: buildCombinedWmsTileUrl(fallbackLayers, iso) };
+    }
+
+    // Aktuell zwischengespeicherte Zonen aller sichtbaren Länder veröffentlichen.
+    // Wird bei JEDEM Settle aufgerufen: liefert sofort die bereits geladenen
+    // Zonen (kein Flackern beim Scrollen) und ersetzt sie NUR, wenn sich der
+    // Inhalt wirklich geändert hat.
+    const publish = () => {
+      const merged = isos.flatMap((iso) => vectorZonesByIsoRef.current[iso] || []);
+      // Signatur = sichtbare Länder + Inhalts-Version. Letztere ändert sich bei
+      // JEDER Cache-Aktualisierung, also auch wenn ein bbox-Land (DK) gleich viele,
+      // aber andere Zonen liefert -> kein unterdrücktes Neuzeichnen.
+      const sig = `${isos.join("|")}#${vzVersionRef.current}`;
+      if (sig === vzPublishSigRef.current) return;
+      vzPublishSigRef.current = sig;
+      setVectorZones(merged);
+    };
+
+    if (isos.length === 0) {
+      publish();
+      return;
+    }
+    publish();
+
+    let cancelled = false;
+    // Nur Länder neu abfragen, die es brauchen: Länder mit vollem Landesbestand
+    // (BE) sind positionsunabhängig und werden nach dem ersten Erfolg NICHT mehr
+    // nachgeladen; bbox-Länder (DK) werden beim Pannen weiter aktualisiert.
+    const toFetch = isos.filter((iso) =>
+      loadsFullCountryVectorZones(iso) ? !fullCountryLoadedRef.current.has(iso) : true,
+    );
+    if (toFetch.length === 0) {
+      return () => { cancelled = true; };
+    }
+    // bbox-Radius am sichtbaren Bereich (halbe Ausdehnung) ausrichten und auf
+    // GEOZONE_VECTOR_MAX_RADIUS_KM deckeln, damit die Antwort selbst bei weiter
+    // Sicht nicht zu einer landesweiten Massenabfrage anwächst (Dänemark).
+    const radiusKm = Math.min(
+      GEOZONE_VECTOR_MAX_RADIUS_KM,
+      Math.max(
+        5,
+        ((settledRegion.latitudeDelta + settledRegion.longitudeDelta) / 2) * 111.32 * 0.5,
+      ),
+    );
+    Promise.all(
+      toFetch.map(async (iso) => {
+        // Kleine Länder (BE) den gesamten Landesbestand laden, damit beim
+        // Herauszoomen ALLE Zonen statt nur der zentrumsnahen erscheinen.
+        const res = await queryEd269CachedFeatures(
+          settledRegion.latitude,
+          settledRegion.longitude,
+          radiusKm,
+          iso,
+          GEOZONE_VECTOR_MAX_FEATURES,
+          loadsFullCountryVectorZones(iso),
+        ).catch(() => [] as GeozoneFeatureInfo[]);
+        return { iso, res };
+      }),
+    ).then((items) => {
+      if (cancelled) return;
+      for (const { iso, res } of items) {
+        if (res.length > 0) {
+          // Erfolg: Zonen übernehmen; volle Länder als geladen markieren.
+          vectorZonesByIsoRef.current[iso] = res;
+          vzVersionRef.current++;
+          if (loadsFullCountryVectorZones(iso)) fullCountryLoadedRef.current.add(iso);
+        }
+        // Leeres Ergebnis (Fehler/Timeout): vorherige Zonen BEHALTEN und nicht
+        // als geladen markieren -> nächster Settle versucht es erneut.
+      }
+      publish();
     });
-  }, [geozoneLayers, countryIso, latitude, longitude, taRadiusM, alarmRadiusM, currentRegion.latitude, currentRegion.longitude, currentRegion.latitudeDelta, currentRegion.longitudeDelta]);
+    return () => { cancelled = true; };
+  }, [countryListKey, isVectorCountryVisible, lockedSet, settledRegion.latitude, settledRegion.longitude, settledRegion.latitudeDelta, settledRegion.longitudeDelta]);
+
+  // Hinweis "Hineinzoomen", wenn ein Vektor-Land (ED-269, z. B. DK) sichtbar ist,
+  // dessen Zonen aber wegen zu weiter Sicht (< seiner Mindestschwelle) noch nicht
+  // gezeichnet werden. Verhindert die Fehldeutung "hier gibt es keine Zonen".
+  // Länder, die bereits sichtbar sind (z. B. BE landesweit), lösen ihn NICHT aus.
+  const vectorZonesHiddenHint = useMemo(() => {
+    const isos = countryListKey ? countryListKey.split(",") : [];
+    return isos.some(
+      (i) =>
+        getCountryGeozoneConfig(i).featureInfoType === "ed269-cached" &&
+        !isVectorCountryVisible(i),
+    );
+  }, [isVectorCountryVisible, countryListKey]);
 
   const onMapLayout = useCallback((e: LayoutChangeEvent) => {
     const { width, height } = e.nativeEvent.layout;
     setMapSize({ width: Math.round(width), height: Math.round(height) });
   }, []);
 
-  const bearingThrottle = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const regionThrottle = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const onRegionChange = useCallback((region: Region) => {
-    if (regionThrottle.current) return;
-    regionThrottle.current = setTimeout(() => {
-      regionThrottle.current = null;
-      setCurrentRegion(region);
-    }, 300);
+  const onMarkerPress = useCallback((id: string) => {
+    setSelectedCtrIcao(null);
+    setSelectedAircraftId((prev) => (prev === id ? null : id));
   }, []);
 
-  const onRegionDone = useCallback((region: Region) => {
-    setCurrentRegion(region);
-    if (bearingThrottle.current) return;
-    bearingThrottle.current = setTimeout(() => {
-      bearingThrottle.current = null;
-      if (mapRef.current) {
-        mapRef.current.getCamera().then((cam) => {
-          const h = cam.heading ?? 0;
-          setMapBearing((prev) => Math.abs(prev - h) > 3 ? h : prev);
-        }).catch(() => {});
-      }
-    }, 300);
-  }, []);
-
-  const onMapPress = useCallback((e: any) => {
-    if (markerTapRef.current) { markerTapRef.current = false; return; }
+  const onCtrPress = useCallback((icao: string) => {
     setSelectedAircraftId(null);
-    if (featureInfo) { setFeatureInfo(null); setTapCoord(null); }
-    if (disableGeozoneQuery) return;
-    if (!geozoneLayers || geozoneLayers.length === 0) return;
+    setSelectedCtrIcao((prev) => (prev === icao ? null : icao));
+  }, []);
+
+  const onAirportPress = useCallback((icao: string) => {
+    setSelectedAircraftId(null);
+    setSelectedCtrIcao(null);
+    setSelectedAirportIcao((prev) => (prev === icao ? null : icao));
+  }, []);
+
+  // Angetippte CTR (ICAO-Marker/Ring) → vollständiger Flughafen-Datensatz.
+  const selectedCtr = useMemo(
+    () => (selectedCtrIcao ? CTR_AIRPORTS.find((a) => a.icao === selectedCtrIcao) ?? null : null),
+    [selectedCtrIcao],
+  );
+
+  // Angetippter Flughafen-Wetter-Marker → METAR/TAF-Fenster. Name aus CTR-Liste,
+  // sonst aus den großen EU-Flughäfen bzw. den live geladenen Stationen.
+  const selectedAirport = useMemo(() => {
+    if (!selectedAirportIcao) return null;
+    // Vorab bekannte METAR aus dem Marker mitgeben, damit das Wetter-Fenster sie
+    // sofort anzeigen kann (nur die TAF wird dann im Hintergrund nachgeladen).
+    const station = areaStations.find((a) => a.icao === selectedAirportIcao);
+    const ctr = CTR_AIRPORTS.find((a) => a.icao === selectedAirportIcao);
+    if (ctr) return { icao: ctr.icao, name: ctr.name, raw: station?.raw ?? null, observedAt: station?.observedAt ?? null };
+    const major = MAJOR_EU_AIRPORTS.find((a) => a.icao === selectedAirportIcao);
+    if (major) return { icao: major.icao, name: major.name, raw: station?.raw ?? null, observedAt: station?.observedAt ?? null };
+    if (station) return { icao: station.icao, name: station.name, raw: station.raw ?? null, observedAt: station.observedAt ?? null };
+    return { icao: selectedAirportIcao, name: selectedAirportIcao, raw: null, observedAt: null };
+  }, [selectedAirportIcao, areaStations]);
+
+  // Marker-Daten (kompaktes JSON für den WebView) — Heading aus Trail ableiten,
+  // wenn keines vorhanden; Cap zoomabhängig.
+  const renderableMarkers = useMemo(() => {
+    const trailById = new Map<string, AircraftTrail>();
+    if (trails) for (const t of trails) trailById.set(t.id, t);
+    return markers.slice(0, markerCap).map((m) => {
+      const isWarning = !!(m.isAlert || m.isApproaching);
+      const iconColor = m.isAlert ? "#FF3B30" : m.isApproaching ? "#FF9500" : m.pinColor;
+      const staleOpacity = m.isStale ? 0.7 : 1;
+      const altShort = m.altitude ? m.altitude.replace(/ m AGL$/, "m") : "";
+      let heading = m.heading ?? 0;
+      if (m.heading == null || m.heading === 0) {
+        const trail = trailById.get(m.id);
+        if (trail && trail.points.length >= 2) {
+          const p1 = trail.points[trail.points.length - 2];
+          const p2 = trail.points[trail.points.length - 1];
+          const dLon = (p2.longitude - p1.longitude) * Math.PI / 180;
+          const lat1 = p1.latitude * Math.PI / 180;
+          const lat2 = p2.latitude * Math.PI / 180;
+          const y = Math.sin(dLon) * Math.cos(lat2);
+          const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+          heading = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+        }
+      }
+      return {
+        id: m.id,
+        lat: m.latitude,
+        lon: m.longitude,
+        c: (m.category || "unknown") as string,
+        col: iconColor,
+        h: snapHeading(heading),
+        a: altShort,
+        w: isWarning,
+        al: !!m.isAlert,
+        o: staleOpacity,
+      };
+    });
+  }, [markers, trails, markerCap]);
+
+  // Trail-Daten (kompaktes JSON), mit stabiler Signatur-Cache.
+  const trailCacheRef = useRef<Map<string, { sig: string; data: { id: string; col: string; w: number; pts: [number, number][] } }>>(new Map());
+  const renderableTrails = useMemo(() => {
+    if (!trails || trails.length === 0) {
+      if (trailCacheRef.current.size > 0) trailCacheRef.current.clear();
+      return [] as { id: string; col: string; w: number; pts: [number, number][] }[];
+    }
+    const result: { id: string; col: string; w: number; pts: [number, number][] }[] = [];
+    const seenIds = new Set<string>();
+    const cappedTrails = trails.slice(0, trailCap);
+    for (const trail of cappedTrails) {
+      if (!trail.points || trail.points.length < 2) continue;
+      seenIds.add(trail.id);
+      const pts = trail.points.length > 30
+        ? trail.points.filter((_: any, i: number) => i % 2 === 0 || i === trail.points.length - 1)
+        : trail.points;
+      const last = pts[pts.length - 1];
+      const first = pts[0];
+      const lenBucket = Math.floor(pts.length / 3);
+      const sig = `${lenBucket}|${trail.color}|${trail.isAlert ? 1 : 0}|${first.latitude.toFixed(4)},${first.longitude.toFixed(4)}|${last.latitude.toFixed(4)},${last.longitude.toFixed(4)}`;
+      const cached = trailCacheRef.current.get(trail.id);
+      if (cached && cached.sig === sig) {
+        result.push(cached.data);
+        continue;
+      }
+      const data = {
+        id: trail.id,
+        col: trail.color,
+        w: trail.isAlert ? 4 : 3,
+        pts: pts.map((p) => [p.latitude, p.longitude] as [number, number]),
+      };
+      trailCacheRef.current.set(trail.id, { sig, data });
+      result.push(data);
+    }
+    if (trailCacheRef.current.size > seenIds.size) {
+      for (const id of trailCacheRef.current.keys()) {
+        if (!seenIds.has(id)) trailCacheRef.current.delete(id);
+      }
+    }
+    return result;
+  }, [trails, trailCap]);
+
+  // Sichtfeld-Kegel (Geräte-Heading) → [lat,lon]-Koordinaten.
+  const fovCoords = useMemo<[number, number][] | null>(() => {
+    if (deviceHeading == null) return null;
+    const fovHalf = 30;
+    const taRadDeg = (taRadiusM ?? 0) > 0 ? ((taRadiusM ?? 0) / 111320) * 0.75 : latDelta * 0.08;
+    const fovLen = Math.min(taRadDeg, latDelta * 0.08);
+    const a1 = ((deviceHeading - fovHalf) * Math.PI) / 180;
+    const a2 = ((deviceHeading + fovHalf) * Math.PI) / 180;
+    const cosLat = Math.cos((latitude * Math.PI) / 180);
+    const steps = 12;
+    const coords: [number, number][] = [[latitude, longitude]];
+    for (let i = 0; i <= steps; i++) {
+      const a = a1 + (a2 - a1) * (i / steps);
+      coords.push([latitude + fovLen * Math.cos(a), longitude + (fovLen * Math.sin(a)) / cosLat]);
+    }
+    coords.push([latitude, longitude]);
+    return coords;
+  }, [deviceHeading, taRadiusM, latDelta, latitude, longitude]);
+
+  // Markierte Zonen → gruppierte, vereinfachte Polygone ([Außenring, …Löcher]).
+  const hzPolys = useMemo<[number, number][][][]>(() => {
+    const out: [number, number][][][] = [];
+    for (const z of (highlightedZones ?? [])) {
+      const groups = ringGroupsForZone(z);
+      if (groups.length === 0) continue;
+      const totalPts = groups.reduce(
+        (s, g) => s + g.reduce((a, r) => a + r.length, 0),
+        0,
+      );
+      if (totalPts > 4000) continue;
+      for (const group of groups) {
+        const poly = smoothRingGroup(simplifyRingGroup(group));
+        if (poly.length > 0) out.push(poly);
+      }
+    }
+    return out;
+  }, [highlightedZones]);
+
+  // Geländehöhe am (gesetzten) Kartenzentrum laden, sobald MSL-Vektorzonen
+  // sichtbar sind. Nur dann nötig — sonst keine Netzlast. Eine Näherung über das
+  // Zentrum genügt für den Höhen-Filter.
+  const needsTerrain = useMemo(
+    () => !showAllGeozones && vectorZones.some((z) => z.lowerReference === "MSL"),
+    [showAllGeozones, vectorZones],
+  );
+  useEffect(() => {
+    if (!needsTerrain) return;
+    let cancelled = false;
+    fetchElevation(settledRegion.latitude, settledRegion.longitude)
+      .then((e) => { if (!cancelled && e != null) setCenterElevationM(e); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [needsTerrain, settledRegion.latitude, settledRegion.longitude]);
+
+  // Höhen-Filter: Vektorzonen ausblenden, deren Untergrenze (in AGL) über der
+  // erreichbaren/geplanten Flughöhe liegt. Der Sicherheits-Schalter
+  // (showAllGeozones) hebt die Filterung auf.
+  const filteredVectorZones = useMemo(() => {
+    if (showAllGeozones) return vectorZones;
+    return partitionByReachability(vectorZones, {
+      reachableAltitudeM: maxReachableAltitudeM,
+      terrainElevationM: centerElevationM,
+    }).visible;
+  }, [vectorZones, showAllGeozones, maxReachableAltitudeM, centerElevationM]);
+
+  // ED-269-Vektorzonen → kompaktes WebView-Format. r ist eine Liste von Polygonen,
+  // jedes Polygon ist [Außenring, …Löcher], damit Leaflet Löcher aussticht.
+  const vzPolys = useMemo(() => {
+    const now = Date.now();
+    const energyZones = countryIso === "DE" ? [
+      ...windFacilitiesAsGeozones(
+        windRestrictionPoints.length ? windRestrictionPoints : getGermanWindFacility100mPoints("DE", energyInfrastructure),
+        energyInfrastructure,
+      ),
+      ...supplementalLinesAsGeozones(energyInfrastructure.filter((item) => item.officialMatch === "not_found")),
+      ...additionalGeozones,
+    ] : [...supplementalInfrastructureAsGeozones(countryIso, energyInfrastructure), ...additionalGeozones];
+    const uniqueEnergyZones = [...new Map(energyZones.map((zone) => [zone.featureId, zone])).values()];
+    return [...filteredVectorZones, ...uniqueEnergyZones.filter((z) =>
+      !lockedSet.has(z.country ?? "DE") && splitCountriesByAccess([z.country ?? "DE"], entitlement).locked.length === 0)]
+      // Temporäre Zonen, die JETZT nicht gelten (Start in der Zukunft ODER Ende
+      // bereits vorbei), werden auf dem Radar gar nicht gezeichnet. Permanente
+      // Zonen (ohne Gültigkeitsfenster) bleiben immer sichtbar. Die NOTAM-Liste
+      // führt zukünftige Zonen weiterhin (anderer Pfad).
+      .filter((z) => {
+        if (!isTempVectorZone(z)) return true;
+        return (z.validStartTs as number) <= now && now < (z.validEndTs as number);
+      })
+      .map((z) => {
+        const polys: [number, number][][][] = [];
+        for (const group of ringGroupsForZone(z)) {
+          const poly = smoothRingGroup(simplifyRingGroup(group));
+          if (poly.length > 0) polys.push(poly);
+        }
+        const details = (z.details || "")
+          .split("\n")
+          .map((s) => s.trim())
+          .filter((s) => s.length > 0)
+          .slice(0, 6);
+        const isTemp = isTempVectorZone(z);
+        // Dauerhafte Zonen eines Raster-Kachel-Landes (z. B. Belgien) werden vom
+        // Server als WMS-artige PNG-Kachel gezeichnet. Sie bleiben hier nur als
+        // unsichtbares Polygon für die Tap-Abfrage (vzHitsAt) erhalten — `hide`
+        // unterdrückt das doppelte Zeichnen. Temporäre Zonen sind NICHT in den
+        // (24 h gecachten) Kacheln und werden weiterhin orange gezeichnet.
+        const hide = (!z.informationalOnly && !isTemp && isRasterTiledVectorCountry(z.country ?? "")) ||
+          (z.featureId?.startsWith("energy-zone:") === true && countryIso === "DE" &&
+            energyTilesEnabled !== false && settledZoom >= 12);
+        return {
+          r: polys,
+          p: infrastructureMapGeometry(z.infrastructureGeometry).points,
+          l: infrastructureMapGeometry(z.infrastructureGeometry).lines,
+          // Aktive temporäre/NOTAM-Zonen orange einfärben, klar abgegrenzt vom
+          // permanenten Geozonen-Styling.
+          f: isTemp ? "rgba(255,149,0,0.18)" : (z.fillColor ?? "rgba(0,122,255,0.15)"),
+          s: isTemp ? "rgba(255,149,0,0.95)" : (z.strokeColor ?? "rgba(0,122,255,0.85)"),
+          hide,
+          t: z.name,
+          d: details,
+          ap: z.applicationText,
+          lk: z.links,
+          // Gültigkeitszeitraum für das Tap-Popup temporärer Zonen.
+          vr: isTemp ? formatValidityRange(z.validStartTs, z.validEndTs) : null,
+        };
+       }).filter((z) => z.r.length > 0 || z.p.length > 0 || z.l.length > 0);
+   }, [filteredVectorZones, additionalGeozones, lockedSet, entitlement, countryIso, energyTilesEnabled, settledZoom, windRestrictionPoints, energyInfrastructure]);
+
+  // Vorläufige CTR-Innen-/Außenbereich-Höhenbänder um nahe Flughafen-Referenzen
+  // (geteilte, RN-freie Logik getCtrBandRings). Gekoppelt an den Kontrollzonen-
+  // Layer (kontrollzonen): nur sichtbar, wenn der Nutzer ihn aktiviert hat und
+  // hinreichend hineingezoomt ist. Während eines aktiven Flugs/Trackings hilft
+  // die Einordnung Innen-/Außenbereich besonders. Zentrum ist der Radar-Standort.
+  const ctrBands = useMemo(() => {
+    const ctrEnabled = !!geozoneLayers && geozoneLayers.includes("kontrollzonen");
+    if (!ctrEnabled || settledZoom < 8) {
+      return [] as { icao: string; name: string; lat: number; lon: number; provisional: boolean; rings: { radiusM: number; strokeColor: string; fillColor: string; fillOpacity: number; strokeOpacity: number; label: string }[] }[];
+    }
+    return findNearbyCtrAirports(latitude, longitude, 30)
+      .filter((a) => !!a.avInfo)
+      .slice(0, 4)
+      .map((a) => {
+        const rings = getCtrBandRings(a.avInfo!.heightSteps).map((r) => ({
+          radiusM: r.radiusM,
+          strokeColor: r.strokeColor,
+          fillColor: r.fillColor,
+          fillOpacity: r.fillOpacity,
+          strokeOpacity: r.strokeOpacity,
+          label: r.label,
+        }));
+        return { icao: a.icao, name: a.name, lat: a.lat, lon: a.lon, provisional: a.avInfo!.geometryPerAip, rings };
+      });
+  }, [geozoneLayers, settledZoom, latitude, longitude]);
+
+  // Flughafen-Wetter-Marker (METAR/TAF), zwei Stufen:
+  //  - Tier 1 (immer): große europäische Flughäfen (MAJOR_EU_AIRPORTS) im
+  //    sichtbaren Ausschnitt – auch bei niedrigem Zoom.
+  //  - Tier 2 (ab Zoom 9): alle aktuell meldenden METAR-Stationen im Ausschnitt,
+  //    live per AWC-Bbox geladen ("kleine Flughäfen beim Reinzoomen").
+  const AREA_ZOOM_MIN = 9;
+
+  // Sichtbarer Ausschnitt (settled) als Bbox; etwas gepolstert für Stabilität.
+  const viewBbox = useMemo(() => {
+    const padLat = settledRegion.latitudeDelta * 0.6;
+    const padLon = settledRegion.longitudeDelta * 0.6;
+    return {
+      minLat: settledRegion.latitude - padLat,
+      maxLat: settledRegion.latitude + padLat,
+      minLon: settledRegion.longitude - padLon,
+      maxLon: settledRegion.longitude + padLon,
+    };
+  }, [settledRegion.latitude, settledRegion.longitude, settledRegion.latitudeDelta, settledRegion.longitudeDelta]);
+
+  // Tier 2: meldende Stationen im Ausschnitt nachladen (nur ab Zoom-Schwelle).
+  useEffect(() => {
+    if (settledZoom < AREA_ZOOM_MIN) {
+      setAreaStations([]);
+      return;
+    }
+    let cancelled = false;
+    fetchAirportStationsInArea([viewBbox.minLat, viewBbox.minLon, viewBbox.maxLat, viewBbox.maxLon])
+      .then((s) => {
+        if (!cancelled) setAreaStations(s);
+      })
+      .catch(() => {
+        if (!cancelled) setAreaStations([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [settledZoom, viewBbox.minLat, viewBbox.minLon, viewBbox.maxLat, viewBbox.maxLon]);
+
+  const airportMarkers = useMemo(() => {
+    const inView = (lat: number, lon: number) =>
+      lat >= viewBbox.minLat && lat <= viewBbox.maxLat && lon >= viewBbox.minLon && lon <= viewBbox.maxLon;
+    const byIcao = new Map<string, { icao: string; lat: number; lon: number }>();
+    // Tier 1: große Flughäfen immer.
+    for (const a of MAJOR_EU_AIRPORTS) {
+      if (inView(a.lat, a.lon)) byIcao.set(a.icao, { icao: a.icao, lat: a.lat, lon: a.lon });
+    }
+    // Tier 2: live geladene Stationen (Dedup gegen Tier 1, auf Ausschnitt filtern –
+    // der Server liefert eine Obermenge des Bbox-Buckets).
+    if (settledZoom >= AREA_ZOOM_MIN) {
+      for (const s of areaStations) {
+        if (!inView(s.lat, s.lon)) continue;
+        if (!byIcao.has(s.icao)) byIcao.set(s.icao, { icao: s.icao, lat: s.lat, lon: s.lon });
+      }
+    }
+    return Array.from(byIcao.values());
+  }, [settledZoom, areaStations, viewBbox.minLat, viewBbox.minLon, viewBbox.maxLat, viewBbox.maxLon]);
+
+  // Vollständiger Zustand, der in den WebView geschoben wird.
+  const stateJson = useMemo(() => {
+    const geo = geozonesVisible ? geozoneTileUrls.map(({ iso, url }) => ({
+      u: url,
+      p: mapStyle === "satellite"
+        ? (iso === countryIso ? 0.85 : 0.65)
+        : iso === countryIso
+          ? (mapStyle === "osm" || mapStyle === "grayscale" ? (isDark ? 0.55 : 0.85) : 0.65)
+          : (mapStyle === "osm" || mapStyle === "grayscale" ? (isDark ? 0.4 : 0.55) : 0.45),
+      mnz: getCountryGeozoneConfig(iso).wmsMaxNativeZoom,
+      primary: iso === countryIso,
+    })) : [];
+    const state = {
+      fit,
+      center: [latitude, longitude] as [number, number],
+      zoom: targetZoom,
+      base: mapStyle,
+      dark: isDark,
+      lockPan,
+      geo,
+      user: [latitude, longitude] as [number, number],
+      markers: renderableMarkers,
+      trails: renderableTrails,
+      circles: {
+        scan: (scanRadiusM ?? 0) > 0 ? scanRadiusM : 0,
+        ta: (taRadiusM ?? 0) > 0 ? taRadiusM : 0,
+        ra: (alarmRadiusM ?? 0) > 0 ? alarmRadiusM : 0,
+      },
+      fov: fovCoords,
+      hz: hzPolys,
+      // vzPolys enthält bereits nur die Zonen sichtbarer Länder (Lade-Effekt
+      // filtert per-Land per isVectorCountryVisible); kein globales Zoom-Gate mehr.
+      vz: vzPolys,
+      ctr: ctrBands,
+      air: airportMarkers,
+      energy: [],
+      windBuffers: [],
+      energyTileUrl: countryIso === "DE" &&
+        geozoneTileUrls.some((tile) => tile.iso === "DE") &&
+        (energyTilesEnabled ?? (windRestrictionPoints.length > 0 || energyInfrastructure.length > 0))
+        ? `${getApiUrl().replace(/\/+$/, "")}/api/proxy/energy-infrastructure-tiles/{z}/{x}/{y}.png${energyTilesShowSupplemental ? "?supplemental=1" : ""}`
+        : "",
+    };
+    return JSON.stringify(state);
+  }, [fit, latitude, longitude, targetZoom, mapStyle, isDark, lockPan, geozonesVisible, geozoneTileUrls, countryIso, renderableMarkers, renderableTrails, scanRadiusM, taRadiusM, alarmRadiusM, fovCoords, hzPolys, vzPolys, ctrBands, airportMarkers, energyInfrastructure, windRestrictionPoints, energyTilesEnabled, energyTilesShowSupplemental]);
+
+  useEffect(() => {
+    if (!ready) return;
+    runJs(`window.__apply(${stateJson})`);
+  }, [stateJson, ready, runJs]);
+
+  const handleMapPress = useCallback((tapLat: number, tapLon: number) => {
+    setSelectedAircraftId(null);
+    setSelectedCtrIcao(null);
+    setSelectedAirportIcao(null);
+    if (geozoneQueryDisabled) { runJs("window.__popupClose()"); return; }
+    if (!geozoneLayers || geozoneLayers.length === 0) { runJs("window.__popupClose()"); return; }
     const approxZoom = Math.log2(360 / Math.max(currentRegion.latitudeDelta, 0.0001));
-    if (approxZoom < 11) return;
-    const { latitude: tapLat, longitude: tapLon } = e.nativeEvent.coordinate;
-    setTapCoord({ latitude: tapLat, longitude: tapLon });
-    setFeatureLoading(true);
-    setFeatureInfo(null);
+    if (approxZoom < 11) { runJs("window.__popupClose()"); return; }
+    if (typeof tapLat !== "number" || typeof tapLon !== "number" || !isFinite(tapLat) || !isFinite(tapLon)) return;
+    runJs(`window.__popupLoading(${JSON.stringify({ lat: tapLat, lon: tapLon })})`);
     queryGeozoneFeatureInfo(
       geozoneLayers,
       tapLat, tapLon,
@@ -644,46 +1812,51 @@ export default function TrafficMapView({
       currentRegion.latitudeDelta, currentRegion.longitudeDelta,
       countryIso,
     ).then((results) => {
-      setFeatureInfo(results.length > 0 ? results : null);
+      if (results && results.length > 0) {
+        // Gleiche Kategorisierung wie das seitliche Panel: befristete Sperrungen
+        // (NOTAM-Gebiete / ED-R / LU-Temp) werden als "NOTAM-Gebiet / Sperrung"
+        // beschriftet, nicht als "Geozone" — sonst widerspricht das Popup dem
+        // Panel (das diese Objekte im NOTAM-Tab führt).
+        const { geozones: permPop, tempRestrictions: tempPop } = separateTempRestrictions(results);
+        const items = [
+          ...permPop.map((z) => ({ ...z, cat: "geozone" as const })),
+          ...tempPop.map((z) => ({ ...z, cat: "notam" as const })),
+        ];
+        runJs(`window.__popup(${JSON.stringify({ lat: tapLat, lon: tapLon, items })})`);
+      } else {
+        runJs("window.__popupClose()");
+      }
     }).catch(() => {
-      setFeatureInfo(null);
-    }).finally(() => {
-      setFeatureLoading(false);
+      runJs("window.__popupClose()");
     });
-  }, [disableGeozoneQuery, geozoneLayers, mapSize, currentRegion, countryIso]);
+  }, [geozoneQueryDisabled, geozoneLayers, currentRegion, mapSize, countryIso, runJs]);
 
-  const animateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => {
-    if (!isFinite(latitude) || !isFinite(longitude) || !isFinite(latDelta) || !isFinite(lonDelta)) return;
-    if (latDelta <= 0 || lonDelta <= 0 || latDelta > 90 || lonDelta > 180) return;
-    if (animateTimerRef.current) clearTimeout(animateTimerRef.current);
-    animateTimerRef.current = setTimeout(() => {
-      try {
-        mapRef.current?.animateToRegion({
-          latitude,
-          longitude,
-          latitudeDelta: latDelta,
-          longitudeDelta: lonDelta,
-        }, 400);
-      } catch {}
-    }, 150);
-    return () => { if (animateTimerRef.current) clearTimeout(animateTimerRef.current); };
-  }, [latitude, longitude, latDelta, lonDelta]);
-
-  const prevBottomPadding = useRef(bottomPadding);
-  useEffect(() => {
-    if (prevBottomPadding.current === bottomPadding) return;
-    prevBottomPadding.current = bottomPadding;
-    if (!mapRef.current) return;
-    const timer = setTimeout(() => {
-      try {
-        mapRef.current?.animateToRegion({
-          ...currentRegion,
-        }, 300);
-      } catch {}
-    }, 50);
-    return () => clearTimeout(timer);
-  }, [bottomPadding]);
+  const onMessage = useCallback((e: any) => {
+    let msg: any;
+    try { msg = JSON.parse(e.nativeEvent.data); } catch { return; }
+    if (!msg || typeof msg.type !== "string") return;
+    if (msg.type === "ready") { setReady(true); return; }
+    if (msg.type === "region") {
+      const r: Region = { latitude: msg.lat, longitude: msg.lon, latitudeDelta: msg.latDelta, longitudeDelta: msg.lonDelta };
+      if (!isFinite(r.latitude) || !isFinite(r.longitude) || !(r.latitudeDelta > 0) || !(r.longitudeDelta > 0)) return;
+      setCurrentRegion(r);
+      setSettledRegion(r);
+      if (onViewportChange) {
+        const hl = r.latitudeDelta / 2;
+        const ho = r.longitudeDelta / 2;
+        onViewportChange({ latMin: r.latitude - hl, latMax: r.latitude + hl, lonMin: r.longitude - ho, lonMax: r.longitude + ho });
+      }
+      return;
+    }
+    if (msg.type === "markerPress") { if (msg.id) onMarkerPress(msg.id); return; }
+    if (msg.type === "ctrPress") { if (msg.icao) onCtrPress(msg.icao); return; }
+    if (msg.type === "airportPress") { if (msg.icao) onAirportPress(msg.icao); return; }
+    if (msg.type === "longPress") {
+      if (onLongPress && isFinite(msg.lat) && isFinite(msg.lon)) onLongPress(msg.lat, msg.lon);
+      return;
+    }
+    if (msg.type === "mapPress") { handleMapPress(msg.lat, msg.lon); return; }
+  }, [onViewportChange, onMarkerPress, onCtrPress, onAirportPress, onLongPress, handleMapPress]);
 
   useEffect(() => {
     let sub: Location.LocationSubscription | null = null;
@@ -700,398 +1873,300 @@ export default function TrafficMapView({
   }, [onHeadingChange]);
 
   return (
-    <View style={fullScreen ? styles.mapViewFull : styles.mapView}>
-    <MapView
-      ref={mapRef}
-      style={StyleSheet.absoluteFillObject}
-      mapType={mapStyle === "osm" ? (Platform.OS === "ios" ? "mutedStandard" : "standard") : mapStyle === "satellite" ? "hybrid" : "standard"}
-      mapPadding={{ top: 0, right: 0, bottom: bottomPadding, left: 0 }}
-      initialRegion={{
-        latitude,
-        longitude,
-        latitudeDelta: latDelta,
-        longitudeDelta: lonDelta,
-      }}
-      showsUserLocation={false}
-      showsCompass={false}
-      rotateEnabled={false}
-      onLayout={onMapLayout}
-      onRegionChange={onRegionChange}
-      onRegionChangeComplete={onRegionDone}
-      onPress={onMapPress}
-      onLongPress={onLongPress ? (e) => {
-        try {
-          const { latitude: lat, longitude: lon } = e.nativeEvent.coordinate;
-          if (typeof lat === "number" && typeof lon === "number" && isFinite(lat) && isFinite(lon)) {
-            onLongPress(lat, lon);
-            setTimeout(() => {
-              try {
-                mapRef.current?.animateToRegion({
-                  latitude: lat,
-                  longitude: lon,
-                  latitudeDelta: currentRegion.latitudeDelta,
-                  longitudeDelta: currentRegion.longitudeDelta,
-                }, 1);
-              } catch {}
-            }, 50);
+    <View style={fullScreen ? styles.mapViewFull : styles.mapView} onLayout={onMapLayout}>
+      <WebView
+        ref={webRef}
+        source={{ html: MAIN_MAP_HTML }}
+        originWhitelist={["*"]}
+        style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? "#1A1F2E" : "#E8ECF2" }]}
+        onMessage={onMessage}
+        onShouldStartLoadWithRequest={(req) => {
+          // Geozonen-Popups enthalten anklickbare Antrags-/Info-Links und
+          // Kontakt-E-Mails. Diese extern öffnen (Browser bzw. Mail-App) statt im
+          // Karten-WebView zu navigieren; das initiale HTML lädt ohne http-Schema.
+          const u = req?.url || "";
+          if (/^(https?|mailto|tel):/i.test(u)) {
+            if (/^https?:/i.test(u)) {
+              WebBrowser.openBrowserAsync(u).catch(() => {});
+            } else {
+              openLink(u).catch(() => {});
+            }
+            return false;
           }
-        } catch {}
-      } : undefined}
-    >
-      {wmsUrlsPerCountry.map(({ iso, url }) => url ? (
-        <WMSTile
-          key={`wms-${iso}-${url.length}`}
-          urlTemplate={url}
-          zIndex={iso === countryIso ? 1 : 0}
-          minimumZ={5}
-          maximumZ={19}
-          opacity={geozonesVisible ? (iso === countryIso ? (mapStyle === "osm" ? (isDark ? 0.55 : 0.85) : 0.65) : (mapStyle === "osm" ? (isDark ? 0.4 : 0.55) : 0.45)) : 0}
-          tileSize={256}
-        />
-      ) : null)}
-      {(scanRadiusM ?? 0) > 0 ? (
-        <Circle
-          key="scan-circle"
-          center={{ latitude, longitude }}
-          radius={scanRadiusM ?? 0}
-          strokeColor="rgba(175, 82, 222, 0.85)"
-          fillColor="rgba(175, 82, 222, 0.06)"
-          strokeWidth={2.5}
-          zIndex={9}
-        />
-      ) : null}
-      {(taRadiusM ?? 0) > 0 ? (
-        <Circle
-          key="ta-circle"
-          center={{ latitude, longitude }}
-          radius={taRadiusM ?? 0}
-          strokeColor="rgba(255, 149, 0, 0.7)"
-          fillColor="rgba(255, 149, 0, 0.06)"
-          strokeWidth={1.5}
-          zIndex={10}
-        />
-      ) : null}
-      {(alarmRadiusM ?? 0) > 0 ? (
-        <Circle
-          key="ra-circle"
-          center={{ latitude, longitude }}
-          radius={alarmRadiusM ?? 0}
-          strokeColor="rgba(255, 59, 48, 0.85)"
-          fillColor="rgba(255, 59, 48, 0.10)"
-          strokeWidth={2.5}
-          zIndex={11}
-        />
-      ) : null}
-      {deviceHeading != null ? (() => {
-        const fovHalf = 30;
-        const taRadDeg = (taRadiusM ?? 0) > 0 ? ((taRadiusM ?? 0) / 111320) * 0.75 : latDelta * 0.08;
-        const fovLen = Math.min(taRadDeg, latDelta * 0.08);
-        const headRad = (deviceHeading * Math.PI) / 180;
-        const a1 = ((deviceHeading - fovHalf) * Math.PI) / 180;
-        const a2 = ((deviceHeading + fovHalf) * Math.PI) / 180;
-        const cosLat = Math.cos((latitude * Math.PI) / 180);
-        const steps = 12;
-        const coords = [{ latitude, longitude }];
-        for (let i = 0; i <= steps; i++) {
-          const a = a1 + (a2 - a1) * (i / steps);
-          coords.push({
-            latitude: latitude + fovLen * Math.cos(a),
-            longitude: longitude + (fovLen * Math.sin(a)) / cosLat,
-          });
-        }
-        coords.push({ latitude, longitude });
+          return true;
+        }}
+        javaScriptEnabled
+        domStorageEnabled
+        scrollEnabled={false}
+        overScrollMode="never"
+        androidLayerType="hardware"
+        setSupportMultipleWindows={false}
+        automaticallyAdjustContentInsets={false}
+        bounces={false}
+        allowsInlineMediaPlayback
+      />
+      {selectedAircraftId != null ? (() => {
+        const sel = markers.find((m) => m.id === selectedAircraftId);
+        if (!sel) return null;
+        const isWarning = sel.isAlert || sel.isApproaching;
+        const borderColor = sel.isAlert ? "#FF3B30" : sel.isApproaching ? "#FF9500" : "transparent";
+        const bgColor = sel.isAlert ? "rgba(255,59,48,0.92)" : sel.isApproaching ? "rgba(255,149,0,0.92)" : "rgba(0,0,0,0.88)";
+        const isOgnOnly = sel.sources != null && sel.sources.length === 1 && sel.sources[0] === "ogn";
+        const categoryLabel = sel.category ? getCategoryLabel(sel.category) : null;
         return (
-          <Polygon
-            coordinates={coords}
-            fillColor="rgba(0,122,255,0.55)"
-            strokeColor="rgba(0,122,255,0.85)"
-            strokeWidth={2}
-            zIndex={15}
-          />
-        );
-      })() : null}
-      <Marker
-        coordinate={{ latitude, longitude }}
-        title="Radar-Standort"
-        description={locationName || `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`}
-        anchor={{ x: 0.5, y: 0.5 }}
-      >
-        <View style={styles.userMarker}>
-          <View style={styles.userMarkerDot} />
-        </View>
-      </Marker>
-      {trails ? trails.map((trail) =>
-        trail.points.length >= 2 ? (
-          <Polyline
-            key={`trail-${trail.id}`}
-            coordinates={trail.points.length > 30 ? trail.points.filter((_: any, i: number) => i % 2 === 0 || i === trail.points.length - 1) : trail.points}
-            strokeColor={trail.color}
-            strokeWidth={trail.isAlert ? 4 : 3}
-            zIndex={10}
-          />
-        ) : null
-      ) : null}
-      {markers.map((m) => {
-        const isWarning = m.isAlert || m.isApproaching;
-        const iconColor = m.isAlert ? "#FF3B30" : m.isApproaching ? "#FF9500" : m.pinColor;
-        const staleOpacity = m.isStale ? 0.7 : 1;
-        const isSelected = selectedAircraftId === m.id;
-        const altShort = m.altitude ? m.altitude.replace(/ m AGL$/, "m") : "";
-
-        const TAG_H = isWarning ? 12 : 0;
-        const ICON_H = 40;
-        const BADGE_H = altShort ? 15 : 0;
-        const markerH = TAG_H + ICON_H + BADGE_H;
-        const iconCenterY = (TAG_H + ICON_H / 2) / markerH;
-
-        let heading = m.heading ?? 0;
-        if (m.heading == null || m.heading === 0) {
-          const trail = trails ? trails.find((t) => t.id === m.id) : null;
-          if (trail && trail.points.length >= 2) {
-            const p1 = trail.points[trail.points.length - 2];
-            const p2 = trail.points[trail.points.length - 1];
-            const dLon = (p2.longitude - p1.longitude) * Math.PI / 180;
-            const lat1 = p1.latitude * Math.PI / 180;
-            const lat2 = p2.latitude * Math.PI / 180;
-            const y = Math.sin(dLon) * Math.cos(lat2);
-            const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
-            heading = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
-          }
-        }
-
-        return (
-          <Marker
-            key={`ac-${m.id}`}
-            coordinate={{ latitude: m.latitude, longitude: m.longitude }}
-            anchor={{ x: 0.5, y: iconCenterY }}
-            tracksViewChanges={false}
-            zIndex={isSelected ? 200 : (isWarning ? 110 : (m.isStale ? 11 : 60))}
-            onPress={() => { markerTapRef.current = true; setSelectedAircraftId(isSelected ? null : m.id); }}
-          >
-            <View style={styles.markerComposite}>
-              {isWarning ? (
-                <Text style={[styles.warningTag, { backgroundColor: m.isAlert ? "#FF3B30" : "#FF9500" }]}>
-                  {m.isAlert ? "RA" : "TA"}
+          <View style={[styles.infoBubbleOverlay, infoBubbleBottomInset > 0 ? { paddingBottom: 16 + infoBubbleBottomInset } : null]} pointerEvents="box-none">
+            <Pressable style={styles.infoBubbleBackdrop} onPress={() => setSelectedAircraftId(null)} />
+            <View style={[
+              styles.infoBubbleCard,
+              { backgroundColor: bgColor },
+              isWarning ? { borderWidth: 1.5, borderColor } : undefined,
+            ]}>
+              <View style={styles.infoBubbleHeader}>
+                <Text style={styles.infoBubbleCallsign} numberOfLines={1}>{sel.title || sel.id}</Text>
+                <Pressable onPress={() => setSelectedAircraftId(null)} hitSlop={12}>
+                  <Feather name="x" size={16} color="rgba(255,255,255,0.7)" />
+                </Pressable>
+              </View>
+              {(() => {
+                const subParts: string[] = [];
+                if (sel.registration && sel.registration !== sel.title) subParts.push(sel.registration);
+                if (sel.aircraftDesc) subParts.push(sel.aircraftDesc);
+                else if (sel.aircraftType) subParts.push(sel.aircraftType);
+                else if (categoryLabel) subParts.push(categoryLabel);
+                return subParts.length > 0 ? (
+                  <Text style={[styles.infoBubbleDetail, { fontSize: 10, opacity: 0.85, marginBottom: 2 }]} numberOfLines={2}>
+                    {subParts.join(" · ")}
+                  </Text>
+                ) : null;
+              })()}
+              {(sel.originIata || sel.destIata || sel.flightNumber) ? (
+                <Text style={[styles.infoBubbleDetail, { fontSize: 10, opacity: 0.85, marginBottom: 2 }]} numberOfLines={1}>
+                  {[sel.originIata, sel.destIata].filter((x) => x).join(" → ")}
+                  {sel.flightNumber ? `   ${sel.flightNumber}` : ""}
                 </Text>
               ) : null}
-              <View style={[styles.markerIconRoot, { opacity: staleOpacity }]}>
-                <AircraftIcon
-                  category={m.category || "unknown"}
-                  color={iconColor}
-                  heading={heading}
-                  mapBearing={0}
-                />
-              </View>
-              {altShort ? (
-                <View style={[styles.altBadge, { opacity: staleOpacity }]}>
-                  <Text style={styles.altBadgeText} numberOfLines={1}>
-                    {altShort}
-                  </Text>
+              {(sel.operator || sel.agencyTag) ? (
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4, flexWrap: "wrap" }}>
+                  {sel.agencyTag ? (
+                    <View style={{ paddingHorizontal: 6, paddingVertical: 1, borderRadius: 4, backgroundColor: agencyTagColor(sel.agencyTag) }}>
+                      <Text style={{ color: "#FFFFFF", fontSize: 9, fontWeight: "700" }}>{sel.agencyTag}</Text>
+                    </View>
+                  ) : null}
+                  {sel.operator ? (
+                    <Text style={[styles.infoBubbleDetail, { fontSize: 10, opacity: 0.75 }]} numberOfLines={1}>
+                      {sel.operator}
+                    </Text>
+                  ) : null}
                 </View>
               ) : null}
-            </View>
-          </Marker>
-        );
-      })}
-      {!disableGeozoneQuery && featureLoading && tapCoord ? (
-        <Marker coordinate={tapCoord} anchor={{ x: 0.5, y: 1 }} tracksViewChanges={false}>
-          <View style={geoStyles.tapBubble}>
-            <ActivityIndicator size="small" color="#4A90D9" />
-          </View>
-        </Marker>
-      ) : null}
-      {!disableGeozoneQuery && featureInfo && featureInfo.length > 0 && tapCoord ? (
-        <Marker
-          coordinate={tapCoord}
-          anchor={{ x: 0.1, y: 1 }}
-          tracksViewChanges={false}
-          onPress={() => { setFeatureInfo(null); setTapCoord(null); }}
-        >
-          <View style={geoStyles.tapPopup}>
-            <View style={geoStyles.tapPopupHeader}>
-              <Feather name="layers" size={12} color="#4A90D9" />
-              <Text style={geoStyles.tapPopupTitle}>Geozonen</Text>
-              <Pressable onPress={() => { setFeatureInfo(null); setTapCoord(null); }} hitSlop={12}>
-                <Feather name="x" size={14} color="#8E8E93" />
-              </Pressable>
-            </View>
-            {featureInfo.slice(0, 4).map((fi, idx) => {
-              const details = fi.details.split("\n").filter((d: string) => d.trim().length > 0);
-              return (
-                <View key={`${fi.layerLabel}-${idx}`} style={geoStyles.tapCard}>
-                  <View style={geoStyles.tapCardBadge}>
-                    <Text style={geoStyles.tapCardBadgeText}>{fi.layerLabel}</Text>
+              <View style={styles.infoBubbleRow}>
+                {sel.altitude ? <Text style={styles.infoBubbleDetail}>{sel.altitude}</Text> : null}
+                {sel.speed ? <Text style={styles.infoBubbleDetail}>{sel.speed}</Text> : null}
+              </View>
+              {sel.altitudeDual ? <Text style={[styles.infoBubbleDetail, { fontSize: 9, opacity: 0.7 }]}>{sel.altitudeDual}</Text> : null}
+              <View style={styles.infoBubbleFooter}>
+                {isOgnOnly ? (
+                  <View style={styles.sourceRow}>
+                    <View style={[styles.sourceDot, { backgroundColor: "#FF5722" }]} />
+                    <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 9 }}>OGN</Text>
                   </View>
-                  <Text style={geoStyles.tapCardName}>{fi.name}</Text>
-                  {details.slice(0, 3).map((line: string, li: number) => {
-                    const parts = line.split(":");
-                    return parts.length >= 2 ? (
-                      <View key={li} style={geoStyles.tapDetailRow}>
-                        <Text style={geoStyles.tapDetailKey}>{parts[0].trim()}</Text>
-                        <Text style={geoStyles.tapDetailVal} numberOfLines={1}>{parts.slice(1).join(":").trim()}</Text>
-                      </View>
-                    ) : (
-                      <Text key={li} style={geoStyles.tapDetailVal} numberOfLines={1}>{line}</Text>
-                    );
-                  })}
-                </View>
-              );
-            })}
-            {featureInfo.length > 4 ? (
-              <Text style={geoStyles.tapMoreText}>+{featureInfo.length - 4} weitere</Text>
-            ) : null}
+                ) : (
+                  <SourceDots sources={sel.sources} sourceStatus={sourceStatus} />
+                )}
+                {(() => {
+                  const rawReg = (sel.registration || "").trim().toUpperCase().replace(/[^A-Z0-9-]/g, "");
+                  const rawCs = (sel.title || "").trim().toUpperCase().replace(/\s+/g, "").replace(/[^A-Z0-9-]/g, "");
+                  const lookupKey = rawReg.length >= 4 ? rawReg : rawCs;
+                  if (!lookupKey) return null;
+                  return (
+                    <Pressable
+                      style={styles.infoBubbleLink}
+                      onPress={() => {
+                        setFlightCallsign(lookupKey);
+                        setFlightUrl(`https://de.flightaware.com/live/flight/${encodeURIComponent(lookupKey)}`);
+                        setSelectedAircraftId(null);
+                      }}
+                    >
+                      <Feather name="external-link" size={11} color="#4A90D9" />
+                      <Text style={styles.infoBubbleLinkText}>FlightAware</Text>
+                    </Pressable>
+                  );
+                })()}
+              </View>
+            </View>
           </View>
-        </Marker>
+        );
+      })() : null}
+      {selectedCtr ? (
+        <CtrInfoCard ctr={selectedCtr} onClose={() => setSelectedCtrIcao(null)} bottomInset={infoBubbleBottomInset} />
       ) : null}
-    </MapView>
-    {selectedAircraftId != null ? (() => {
-      const sel = markers.find((m) => m.id === selectedAircraftId);
-      if (!sel) return null;
-      const isWarning = sel.isAlert || sel.isApproaching;
-      const borderColor = sel.isAlert ? "#FF3B30" : sel.isApproaching ? "#FF9500" : "transparent";
-      const bgColor = sel.isAlert ? "rgba(255,59,48,0.92)" : sel.isApproaching ? "rgba(255,149,0,0.92)" : "rgba(0,0,0,0.88)";
-      const isOgnOnly = sel.sources != null && sel.sources.length === 1 && sel.sources[0] === "ogn";
-      const categoryLabel = sel.category ? getCategoryLabel(sel.category) : null;
-      return (
-        <View style={styles.infoBubbleOverlay} pointerEvents="box-none">
-          <Pressable style={styles.infoBubbleBackdrop} onPress={() => setSelectedAircraftId(null)} />
-          <View style={[
-            styles.infoBubbleCard,
-            { backgroundColor: bgColor },
-            isWarning ? { borderWidth: 1.5, borderColor } : undefined,
-          ]}>
-            <View style={styles.infoBubbleHeader}>
-              <Text style={styles.infoBubbleCallsign} numberOfLines={1}>{sel.title || sel.id}</Text>
-              <Pressable onPress={() => setSelectedAircraftId(null)} hitSlop={12}>
-                <Feather name="x" size={16} color="rgba(255,255,255,0.7)" />
-              </Pressable>
-            </View>
-            {categoryLabel ? <Text style={[styles.infoBubbleDetail, { fontSize: 10, opacity: 0.7, marginBottom: 2 }]}>{categoryLabel}</Text> : null}
-            <View style={styles.infoBubbleRow}>
-              {sel.altitude ? <Text style={styles.infoBubbleDetail}>{sel.altitude}</Text> : null}
-              {sel.speed ? <Text style={styles.infoBubbleDetail}>{sel.speed}</Text> : null}
-            </View>
-            {sel.altitudeDual ? <Text style={[styles.infoBubbleDetail, { fontSize: 9, opacity: 0.7 }]}>{sel.altitudeDual}</Text> : null}
-            <View style={styles.infoBubbleFooter}>
-              {isOgnOnly ? (
-                <View style={styles.sourceRow}>
-                  <View style={[styles.sourceDot, { backgroundColor: "#FF5722" }]} />
-                  <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 9 }}>OGN</Text>
-                </View>
-              ) : (
-                <SourceDots sources={sel.sources} sourceStatus={sourceStatus} />
-              )}
-              {isOgnOnly || !(sel.title || "").trim() ? null : (
+      {selectedAirport ? (
+        <AirportWeatherSheet
+          icao={selectedAirport.icao}
+          name={selectedAirport.name}
+          initialMetarRaw={selectedAirport.raw}
+          initialObservedAt={selectedAirport.observedAt}
+          onClose={() => setSelectedAirportIcao(null)}
+          bottomInset={infoBubbleBottomInset}
+        />
+      ) : null}
+      {wind ? (
+        <WindCompass wind={wind} deviceHeading={deviceHeading} topInset={topInset} weatherAlerts={weatherAlerts}>
+          {(onCenterGps || onSettingsPress) ? (
+            <View style={{ flexDirection: "row", gap: 8, marginTop: 6 }}>
+              {onCenterGps ? (
                 <Pressable
-                  style={styles.infoBubbleLink}
-                  onPress={() => {
-                    const cs = (sel.title || "").trim();
-                    setFlightCallsign(cs);
-                    setFlightUrl(`https://de.flightaware.com/live/flight/${encodeURIComponent(cs)}`);
-                    setSelectedAircraftId(null);
+                  onPress={onCenterGps}
+                  style={{
+                    width: 36, height: 36, borderRadius: 18,
+                    backgroundColor: isDark ? "rgba(30,40,60,0.88)" : "rgba(255,255,255,0.92)",
+                    alignItems: "center", justifyContent: "center",
+                    ...(Platform.OS === "ios" ? { shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 4 } : { elevation: 4 }),
                   }}
                 >
-                  <Feather name="external-link" size={11} color="#4A90D9" />
-                  <Text style={styles.infoBubbleLinkText}>FlightAware</Text>
+                  <Feather name="navigation" size={18} color="#007AFF" />
                 </Pressable>
-              )}
+              ) : null}
+              {onSettingsPress ? (
+                <Pressable
+                  onPress={onSettingsPress}
+                  style={{
+                    width: 36, height: 36, borderRadius: 18,
+                    backgroundColor: settingsActive ? "#007AFF" : isDark ? "rgba(30,40,60,0.88)" : "rgba(255,255,255,0.92)",
+                    alignItems: "center", justifyContent: "center",
+                    ...(Platform.OS === "ios" ? { shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 4 } : { elevation: 4 }),
+                  }}
+                >
+                  <Feather name="settings" size={18} color={settingsActive ? "#FFFFFF" : isDark ? "#FFFFFF" : "#333333"} />
+                </Pressable>
+              ) : null}
             </View>
-          </View>
-        </View>
-      );
-    })() : null}
-    {wind ? (
-      <WindCompass wind={wind} deviceHeading={deviceHeading} topInset={topInset} weatherAlerts={weatherAlerts}>
-        {(onCenterGps || onSettingsPress) ? (
-          <View style={{ flexDirection: "row", gap: 8, marginTop: 6 }}>
-            {onCenterGps ? (
-              <Pressable
-                onPress={onCenterGps}
-                style={{
-                  width: 36, height: 36, borderRadius: 18,
-                  backgroundColor: isDark ? "rgba(30,40,60,0.88)" : "rgba(255,255,255,0.92)",
-                  alignItems: "center", justifyContent: "center",
-                  ...(Platform.OS === "ios" ? { shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 4 } : { elevation: 4 }),
-                }}
-              >
-                <Feather name="navigation" size={18} color="#007AFF" />
-              </Pressable>
-            ) : null}
-            {onSettingsPress ? (
-              <Pressable
-                onPress={onSettingsPress}
-                style={{
-                  width: 36, height: 36, borderRadius: 18,
-                  backgroundColor: settingsActive ? "#007AFF" : isDark ? "rgba(30,40,60,0.88)" : "rgba(255,255,255,0.92)",
-                  alignItems: "center", justifyContent: "center",
-                  ...(Platform.OS === "ios" ? { shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 4 } : { elevation: 4 }),
-                }}
-              >
-                <Feather name="settings" size={18} color={settingsActive ? "#FFFFFF" : isDark ? "#FFFFFF" : "#333333"} />
-              </Pressable>
-            ) : null}
-          </View>
-        ) : null}
-      </WindCompass>
-    ) : null}
-    {onMapStyleChange ? (
-      <View style={mapSwitchStyles.container}>
-        {([
-          { id: "standard" as const, label: "Standard" },
-          { id: "satellite" as const, label: "Satellit" },
-          { id: "osm" as const, label: "OSM" },
-        ]).map((opt) => (
+          ) : null}
+        </WindCompass>
+      ) : null}
+      {ctrBands.length > 0 ? (
+        <View style={[ctrLegendStyles.container, { top: topInset + 16 }]} pointerEvents="box-none">
           <Pressable
-            key={opt.id}
-            style={[
-              mapSwitchStyles.segment,
-              mapStyle === opt.id ? mapSwitchStyles.segmentActive : undefined,
-            ]}
-            onPress={() => onMapStyleChange(opt.id)}
+            style={ctrLegendStyles.header}
+            onPress={() => setCtrLegendOpen((v) => !v)}
+            testID="button-ctr-legend-toggle"
           >
-            <Text style={[
-              mapSwitchStyles.segmentLabel,
-              mapStyle === opt.id ? mapSwitchStyles.segmentLabelActive : undefined,
-            ]}>
-              {opt.label}
-            </Text>
+            <Feather
+              name={ctrLegendOpen ? "chevron-down" : "chevron-up"}
+              size={14}
+              color="#FFFFFF"
+            />
+            <Text style={ctrLegendStyles.title}>{"CTR-H\u00f6henb\u00e4nder"}</Text>
           </Pressable>
-        ))}
-      </View>
-    ) : null}
-    <Modal
-      visible={flightUrl !== null}
-      animationType="slide"
-      presentationStyle="pageSheet"
-      onRequestClose={() => setFlightUrl(null)}
-    >
-      <SafeAreaView style={faStyles.container}>
-        <View style={faStyles.header}>
-          <Pressable onPress={() => setFlightUrl(null)} hitSlop={12} style={faStyles.closeBtn}>
-            <Feather name="x" size={22} color="#FFFFFF" />
-          </Pressable>
-          <View style={faStyles.titleRow}>
-            <Feather name="navigation" size={14} color="#4A90D9" />
-            <Text style={faStyles.title} numberOfLines={1}>{flightCallsign}</Text>
-          </View>
-          <Text style={faStyles.subtitle}>FlightAware</Text>
+          {ctrLegendOpen ? (
+            <View style={ctrLegendStyles.body}>
+              {ctrLegendEntries.map((entry) => (
+                <View key={entry.label} style={ctrLegendStyles.row}>
+                  <View
+                    style={[
+                      ctrLegendStyles.swatch,
+                      {
+                        borderColor: entry.strokeColor,
+                        backgroundColor: hexToRgba(
+                          entry.fillColor,
+                          Math.max(entry.fillOpacity, 0.5),
+                        ),
+                      },
+                    ]}
+                  />
+                  <Text style={ctrLegendStyles.label}>{entry.label}</Text>
+                </View>
+              ))}
+              <Text style={ctrLegendStyles.note}>{getCtrProvisionalNote()}</Text>
+            </View>
+          ) : null}
         </View>
-        {flightUrl ? (
-          <WebView
-            setSupportMultipleWindows={false}
-            source={{ uri: flightUrl }}
-            style={faStyles.webview}
-            startInLoadingState
-            renderLoading={() => (
-              <View style={faStyles.loading}>
-                <ActivityIndicator size="large" color="#4A90D9" />
-                <Text style={faStyles.loadingText}>Flugdaten laden...</Text>
-              </View>
-            )}
-          />
-        ) : null}
-      </SafeAreaView>
-    </Modal>
+      ) : null}
+      {vectorZonesHiddenHint ? (
+        <View
+          style={[vectorHintStyles.container, { top: topInset + 16 }]}
+          pointerEvents="none"
+          testID="hint-zoom-geozones"
+        >
+          <Feather name="zoom-in" size={13} color="#FFFFFF" />
+          <Text style={vectorHintStyles.text}>
+            {"Hineinzoomen, um Geozonen anzuzeigen"}
+          </Text>
+        </View>
+      ) : null}
+      {lockedNames.length > 0 ? (
+        <View
+          style={[lockedHintStyles.container, { top: topInset + (vectorZonesHiddenHint ? 56 : 16) }]}
+          pointerEvents="none"
+          testID="hint-locked-countries"
+        >
+          <Feather name="lock" size={13} color="#FFFFFF" />
+          <Text style={lockedHintStyles.text}>
+            {lockedNames.length === 1
+              ? `${lockedNames[0]}: Land freischalten`
+              : `Land freischalten: ${lockedNames.join(", ")}`}
+          </Text>
+        </View>
+      ) : null}
+      {onMapStyleChange ? (
+        <View style={mapSwitchStyles.container}>
+          {([
+            { id: "standard" as const, label: "Standard" },
+            { id: "satellite" as const, label: "Satellit" },
+            { id: "osm" as const, label: "OSM" },
+            { id: "grayscale" as const, label: "Graustufen" },
+          ]).map((opt) => (
+            <Pressable
+              key={opt.id}
+              style={[
+                mapSwitchStyles.segment,
+                mapStyle === opt.id ? mapSwitchStyles.segmentActive : undefined,
+              ]}
+              onPress={() => onMapStyleChange(opt.id)}
+            >
+              <Text style={[
+                mapSwitchStyles.segmentLabel,
+                mapStyle === opt.id ? mapSwitchStyles.segmentLabelActive : undefined,
+              ]}>
+                {opt.label}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+      <Modal
+        visible={flightUrl !== null}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setFlightUrl(null)}
+      >
+        <SafeAreaView style={faStyles.container}>
+          <View style={faStyles.header}>
+            <Pressable onPress={() => setFlightUrl(null)} hitSlop={12} style={faStyles.closeBtn}>
+              <Feather name="x" size={22} color="#FFFFFF" />
+            </Pressable>
+            <View style={faStyles.titleRow}>
+              <Feather name="navigation" size={14} color="#4A90D9" />
+              <Text style={faStyles.title} numberOfLines={1}>{flightCallsign}</Text>
+            </View>
+            <Text style={faStyles.subtitle}>FlightAware</Text>
+          </View>
+          {flightUrl ? (
+            <WebView
+              setSupportMultipleWindows={false}
+              source={{ uri: flightUrl }}
+              style={faStyles.webview}
+              startInLoadingState
+              renderLoading={() => (
+                <View style={faStyles.loading}>
+                  <ActivityIndicator size="large" color="#4A90D9" />
+                  <Text style={faStyles.loadingText}>Flugdaten laden...</Text>
+                </View>
+              )}
+            />
+          ) : null}
+        </SafeAreaView>
+      </Modal>
     </View>
   );
 }
@@ -1106,56 +2181,6 @@ const styles = StyleSheet.create({
     flex: 1,
     borderRadius: BorderRadius.md,
     overflow: "hidden",
-  },
-  userMarker: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: "rgba(0, 122, 255, 0.2)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  userMarkerDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: "#007AFF",
-    borderWidth: 2,
-    borderColor: "#FFFFFF",
-  },
-  markerComposite: {
-    alignItems: "center",
-    minWidth: 44,
-  },
-  warningTag: {
-    color: "#FFFFFF",
-    fontSize: 7,
-    fontWeight: "900",
-    letterSpacing: 0.5,
-    paddingHorizontal: 4,
-    paddingVertical: 1,
-    borderRadius: 3,
-    overflow: "hidden",
-    marginBottom: 1,
-  },
-  markerIconRoot: {
-    width: 40,
-    height: 40,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  altBadge: {
-    backgroundColor: "rgba(0,0,0,0.7)",
-    paddingHorizontal: 4,
-    paddingVertical: 1,
-    borderRadius: 3,
-    marginTop: 2,
-  },
-  altBadgeText: {
-    color: "#FFFFFF",
-    fontSize: 9,
-    fontWeight: "700",
-    textAlign: "center",
   },
   infoBubbleOverlay: {
     position: "absolute",
@@ -1231,45 +2256,6 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "700",
   },
-  aircraftIcon: {
-    alignItems: "center",
-    justifyContent: "center",
-    width: 40,
-    height: 40,
-    overflow: "visible",
-  },
-  markerLabelFloat: {
-    paddingHorizontal: 5,
-    paddingVertical: 2,
-    borderRadius: 4,
-    alignItems: "center",
-    minWidth: 60,
-  },
-  warningLabel: {
-    color: "#FFFFFF",
-    fontSize: 7,
-    fontWeight: "900",
-    letterSpacing: 1,
-    textAlign: "center",
-  },
-  labelCallsign: {
-    color: "#FFFFFF",
-    fontSize: 9,
-    fontWeight: "700",
-    fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
-    textAlign: "center",
-  },
-  labelDetail: {
-    fontSize: 9,
-    fontWeight: "600",
-    textAlign: "center",
-  },
-  labelSpeed: {
-    color: "#CCCCCC",
-    fontSize: 8,
-    fontWeight: "500",
-    textAlign: "center",
-  },
   sourceRow: {
     flexDirection: "row",
     gap: 3,
@@ -1282,88 +2268,6 @@ const styles = StyleSheet.create({
     borderRadius: 3,
     borderWidth: 0.5,
     borderColor: "rgba(255,255,255,0.5)",
-  },
-});
-
-const geoStyles = StyleSheet.create({
-  tapBubble: {
-    backgroundColor: "rgba(20, 30, 48, 0.9)",
-    borderRadius: 16,
-    padding: 6,
-  },
-  tapPopup: {
-    width: 220,
-    backgroundColor: "rgba(20, 30, 48, 0.95)",
-    borderRadius: 10,
-    padding: 8,
-    borderWidth: 1,
-    borderColor: "rgba(74, 144, 217, 0.3)",
-  },
-  tapPopupHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    marginBottom: 6,
-    paddingBottom: 5,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "rgba(255,255,255,0.15)",
-  },
-  tapPopupTitle: {
-    flex: 1,
-    color: "#FFFFFF",
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  tapCard: {
-    backgroundColor: "rgba(255,255,255,0.06)",
-    borderRadius: 6,
-    padding: 6,
-    marginBottom: 4,
-    borderLeftWidth: 2,
-    borderLeftColor: "#4A90D9",
-  },
-  tapCardBadge: {
-    alignSelf: "flex-start",
-    backgroundColor: "#4A90D9",
-    borderRadius: 3,
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-    marginBottom: 3,
-  },
-  tapCardBadgeText: {
-    color: "#FFFFFF",
-    fontSize: 8,
-    fontWeight: "800",
-    letterSpacing: 0.3,
-  },
-  tapCardName: {
-    color: "#FFFFFF",
-    fontSize: 11,
-    fontWeight: "700",
-    marginBottom: 2,
-  },
-  tapDetailRow: {
-    flexDirection: "row",
-    gap: 3,
-    paddingVertical: 1,
-  },
-  tapDetailKey: {
-    color: "#8E9AB0",
-    fontSize: 9,
-    fontWeight: "600",
-    minWidth: 60,
-  },
-  tapDetailVal: {
-    color: "#C8D0E0",
-    fontSize: 9,
-    fontWeight: "500",
-    flex: 1,
-  },
-  tapMoreText: {
-    color: "#8E9AB0",
-    fontSize: 9,
-    textAlign: "center",
-    marginTop: 2,
   },
 });
 
@@ -1427,6 +2331,108 @@ const faStyles = StyleSheet.create({
     color: "#8E8E93",
     fontSize: 14,
     marginTop: 12,
+  },
+});
+
+const ctrLegendStyles = StyleSheet.create({
+  container: {
+    position: "absolute",
+    top: 16,
+    right: 10,
+    maxWidth: 220,
+    backgroundColor: "rgba(20, 30, 48, 0.85)",
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(255, 255, 255, 0.25)",
+    overflow: "hidden",
+    zIndex: 16,
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  title: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  body: {
+    paddingHorizontal: 10,
+    paddingBottom: 9,
+    gap: 5,
+  },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+  },
+  swatch: {
+    width: 14,
+    height: 14,
+    borderRadius: 3,
+    borderWidth: 1.5,
+  },
+  label: {
+    color: "rgba(255, 255, 255, 0.92)",
+    fontSize: 11,
+    flexShrink: 1,
+  },
+  note: {
+    color: "rgba(255, 255, 255, 0.65)",
+    fontSize: 10,
+    fontStyle: "italic",
+    marginTop: 3,
+  },
+});
+
+const vectorHintStyles = StyleSheet.create({
+  container: {
+    position: "absolute",
+    alignSelf: "center",
+    maxWidth: "80%",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    backgroundColor: "rgba(20, 30, 48, 0.85)",
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(255, 255, 255, 0.25)",
+    zIndex: 16,
+  },
+  text: {
+    color: "rgba(255, 255, 255, 0.92)",
+    fontSize: 12,
+    fontWeight: "600",
+    flexShrink: 1,
+  },
+});
+
+const lockedHintStyles = StyleSheet.create({
+  container: {
+    position: "absolute",
+    alignSelf: "center",
+    maxWidth: "80%",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    backgroundColor: "rgba(120, 53, 15, 0.9)",
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(251, 191, 36, 0.5)",
+    zIndex: 16,
+  },
+  text: {
+    color: "rgba(255, 255, 255, 0.95)",
+    fontSize: 12,
+    fontWeight: "600",
+    flexShrink: 1,
   },
 });
 

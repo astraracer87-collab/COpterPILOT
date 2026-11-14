@@ -212,7 +212,7 @@ export function buildMilLowFlightRestriction(area: MilLowFlightArea): DipulTempR
     lowerAlt: 0,
     lowerAltRef: "AGL",
     lowerAltUnit: "m",
-    upperAlt: 500,
+    upperAlt: 250,
     upperAltRef: "AGL",
     upperAltUnit: "ft",
     status: "active",
@@ -515,6 +515,39 @@ export function getStatusStrokeColor(status: MilLowFlightStatus): string {
     case "inactive":
       return "rgba(142,142,147,0.65)";
   }
+}
+
+/**
+ * Returns LFA polygons within `radiusKm` of (lat,lon) AS DipulTempRestriction
+ * entries, filtered to those whose REAL activation status (per dipul AUP/UUP
+ * matches in `restrictions`) is "active" or "upcoming". The synthetic
+ * "always active" entries from `getNearbyMilLowFlightRestrictions` are
+ * intentionally NOT used here. This keeps the radar's NOTAM list consistent
+ * with the NOTAM map (NotamsScreen).
+ */
+export function getActiveOrUpcomingNearbyMilLowFlight(
+  restrictions: DipulTempRestrictionsResult,
+  lat: number,
+  lon: number,
+  radiusKm: number
+): { active: DipulTempRestriction[]; upcoming: DipulTempRestriction[] } {
+  const statuses = deriveNearbyMilLowFlightStatuses(restrictions, lat, lon, radiusKm);
+  const active: DipulTempRestriction[] = [];
+  const upcoming: DipulTempRestriction[] = [];
+  for (const s of statuses) {
+    if (s.status !== "active" && s.status !== "upcoming") continue;
+    const base = buildMilLowFlightRestriction(s.area);
+    const entry: DipulTempRestriction = {
+      ...base,
+      status: s.status,
+      startTs: s.startTs ?? base.startTs,
+      endTs: s.endTs ?? base.endTs,
+      endTsIndefinite: s.endTsIndefinite ?? base.endTsIndefinite,
+    };
+    if (s.status === "active") active.push(entry);
+    else upcoming.push(entry);
+  }
+  return { active, upcoming };
 }
 
 export function buildMilLowFlightStatusMap(

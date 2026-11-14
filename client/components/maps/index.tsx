@@ -53,6 +53,8 @@ export interface MapViewHandle {
   animateCamera: (camera: Partial<Camera>, opts?: { duration?: number }) => void;
   getCamera: () => Promise<Camera>;
   fitToCoordinates: (coords: LatLng[], opts?: { edgePadding?: { top: number; right: number; bottom: number; left: number }; animated?: boolean }) => void;
+  /** Bild der Karte (base64 ohne Präfix bzw. Datei-URI), wie react-native-maps */
+  takeSnapshot: (opts?: { width?: number; height?: number; format?: string; quality?: number; result?: "base64" | "file" }) => Promise<string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -263,6 +265,12 @@ const MapViewImpl = forwardRef<MapViewHandle, MapViewProps>(function MapView(pro
       if (!m) return { center: { latitude: startRegion.latitude, longitude: startRegion.longitude }, heading: 0, pitch: 0, zoom };
       const [center, z, bearing, pitch] = await Promise.all([m.getCenter(), m.getZoom(), m.getBearing(), m.getPitch()]);
       return { center: { latitude: center[1], longitude: center[0] }, heading: bearing, pitch, zoom: z };
+    },
+    takeSnapshot: async (opts) => {
+      const m = mapRef.current;
+      if (!m) throw new Error("Karte nicht bereit");
+      const out = await m.createStaticMapImage({ output: opts?.result === "file" ? "file" : "base64" });
+      return opts?.result === "file" ? out : out.replace(/^data:image\/[a-z]+;base64,/, "");
     },
     fitToCoordinates: (coords, opts) => {
       const valid = coords.filter(validCoord);
