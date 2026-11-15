@@ -28,9 +28,14 @@ object Engine {
 
     private const val PREFS = "fcc"
     private const val KEY_PORT = "port"
+    private const val KEY_MODE = "last_mode"
 
     fun savedPort(ctx: Context): Int = ctx.getSharedPreferences(PREFS, 0).getInt(KEY_PORT, 0)
     fun savePort(ctx: Context, port: Int) = ctx.getSharedPreferences(PREFS, 0).edit().putInt(KEY_PORT, port).apply()
+
+    /** Zuletzt gesetzter Modus laut dieser App: "FCC", "CE" oder "" (unbekannt). */
+    fun lastMode(ctx: Context): String = ctx.getSharedPreferences(PREFS, 0).getString(KEY_MODE, "") ?: ""
+    fun setMode(ctx: Context, mode: String) = ctx.getSharedPreferences(PREFS, 0).edit().putString(KEY_MODE, mode).apply()
 
     /**
      * Sucht den lokalen DUML-Port: zuerst einer, der auf die Versionsabfrage antwortet,

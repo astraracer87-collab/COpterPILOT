@@ -52,6 +52,7 @@ class KeepaliveService : Service() {
                 if (link != null) {
                     if (!appliedFull) {
                         Engine.runProfile(link, full)
+                        Engine.setMode(this, "FCC")
                         appliedFull = true
                     } else {
                         val n = Engine.runProfile(link, keep, verbose = false)
