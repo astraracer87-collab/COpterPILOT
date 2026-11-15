@@ -545,7 +545,7 @@ export function buildUkMessageDe(folder: UkFolder, d: UkParsedDescription, isFrz
   if (d.siteElevation && d.siteElevation.meters != null) {
     lines.push(`Geländehöhe am Standort: ${formatUkLimitDe({ ...d.siteElevation, reference: "MSL" })}`);
   }
-  lines.push(`Quelle: ${GB_GEOZONE_SOURCE_LABEL} – nur zur Information, nicht zur Navigation. NOTAMs und aktuelle Aktivierungen zusätzlich prüfen.`);
+  lines.push(`Quelle: ${GB_GEOZONE_SOURCE_LABEL} – nur zur Information, nicht zur Navigation. Kurzfristige Beschränkungen (NOTAMs) und aktuelle Aktivierungen sind in dieser Karte nicht enthalten – vor dem Flug zusätzlich prüfen.`);
   // Seitliche Grenzen (Koordinatenliste) nur, wenn kurz – lange Listen zeigt die Karte.
   const original = [d.lateral && d.lateral.length <= UK_MAX_LATERAL_TEXT ? d.lateral : "", d.englishText].filter(Boolean).join("\n");
   if (original) {
