@@ -88,11 +88,35 @@ GET https://features.geoportail.lu/collections/1928/items?f=json&limit=2000
 
 ## 4. Integrationsauftrag für COpterPILOT
 
-### Ist-Zustand
-- LU hängt heute an den Geoportail-**WMS-Rasterlayern** `1927`/`1928`
+### Ist-Zustand (WICHTIG: LU ist im Repo schon weitgehend gebaut)
+- Es gibt bereits ein **vollständiges LU-Modul**: `client/lib/luGeozones.ts`
+  (316 Zeilen) – ED-269-Modell (`LuZoneFeature` mit Geometrie, `restriction`,
+  `applicability`, `zoneAuthority`), `fetchLuZonesFeed()` auf
+  `https://drones.geoportail.lu/zones`, Nähe-/Punkt-in-Polygon-Logik
+  (`findNearbyLuZones`), eine hartkodierte Fallback-Liste `LU_PERMANENT_ZONES`
+  (EL-UAS-S1…S18), DAC-Kontakte, Rechtsrahmen, Open-Category-Regeln.
+- **Aber zwei Probleme, beide verifiziert (2026-11-15):**
+  1. **Der Feed `drones.geoportail.lu/zones` ist kaputt** (konstant `422`,
+     FME-Fehlerseite). `fetchLuZonesFeed()` liefert dadurch **immer `null`** –
+     also live keine Zonen.
+  2. **Das Modul ist nirgends eingebunden** – kein Import von `luGeozones`
+     irgendwo im Code, keine Tests. Es ist ein verwaistes Modul.
+- Daneben hängt LU noch an den Geoportail-**WMS-Rasterlayern** `1927`/`1928`
   (`shared/geozoneLayerCatalog.ts`).
-- Vektor-Länder (AT/BE/DK) laufen über
-  `client/lib/geozoneDirect/ed269Sources.ts` + Normalisierer in `shared/`.
+
+### Konkrete Reparatur (klein, da Modell/Logik schon stehen)
+1. **Datenquelle fixen:** `fetchLuZonesFeed()` auf die **funktionierende
+   OGC-Features-API** umstellen (`features.geoportail.lu/collections/1928/items`,
+   live 34 Zonen, §3) **oder** warten, bis die DAC den ED-269-Feed repariert
+   (bei `uas.zones@av.etat.lu` melden). Die OGC-Antwort hat ein **anderes
+   Schema** (natives Geoportail, §3) → kleinen Adapter auf `LuZoneFeature`
+   schreiben.
+2. **Modul einbinden:** `luGeozones.ts` in den Flugplanungs-/Karten-Flow
+   verdrahten (Import + Aufruf von `fetchLuZonesFeed`/`findNearbyLuZones`),
+   mit `LU_PERMANENT_ZONES` als Offline-/Fallback-Anzeige.
+3. Tests ergänzen (Adapter, Nähe-Logik).
+
+### Schritte (allgemein, falls neu gebaut)
 
 ### Schritte
 1. **Primär ED-269 (CC0):** Konstante `LU_ED269_URL =

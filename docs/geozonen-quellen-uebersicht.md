@@ -26,7 +26,7 @@ Pro Land gibt es ein eigenes Detaildokument (`docs/<land>-…-integration.md`).
 | **HR** | Croatia Control (AMC) | keine | SignalR-Hub (WKT) | ✅ einsatzbereit (anonym) | `croatia-amc-api-integration.md` |
 | **BG** | CAA Bulgaria | keine | GeoServer WFS (ED-269-nah) | ✅ einsatzbereit | `bulgaria-caa-api-integration.md` |
 | **SI** | CAA Slovenia / Slovenia Control | keine | ArcGIS FeatureServer (dünn) | ✅ einsatzbereit (Stand 2021 prüfen) | `slovenia-caa-api-integration.md` |
-| **LU** | Geoportail Luxembourg | keine (CC0) | ED-269 / OGC Features | 🔑 ED-269-Endpoint defekt → OGC-Rückfall live | `luxembourg-geozones-integration.md` |
+| **LU** | Geoportail Luxembourg | keine (CC0) | ED-269 / OGC Features | 🔑 Modul `luGeozones.ts` gebaut (nicht eingebunden), Feed defekt → auf OGC umstellen | `luxembourg-geozones-integration.md` |
 | **IT** | d-flight | Login (Keycloak) + CSRF | ED-269 Download | 🔑 CSRF gelöst, Download-Format erfassen | `dflight-it-api-integration.md` |
 | **PL** | PANSA DroneMap | API-Key (`x-api-key`) → Bearer | KML | 🔑 Schnittstelle belegt · 🌐 hier geo-geblockt | `pansa-pl-api-integration.md` |
 | **ES** | ENAIRE | keine | ED-318 (ArcGIS/WFS/WMS) | 🔑 Spec dokumentiert · 🌐 WAF-geblockt | `enaire-es-api-integration.md` |
