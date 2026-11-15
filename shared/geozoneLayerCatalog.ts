@@ -189,10 +189,61 @@ export const HU_GEOZONE_LAYERS: GeozoneLayer[] = [
   },
 ];
 
+// Griechenland (HASP/HCAA, DAGR): MapServer-WMS (MS4W) – NUR Bild-Overlay,
+// zeitgefiltert über WMS_DATE_FROM/WMS_DATE_TO (heute 00:00 bis morgen 24:00,
+// beim Bauen der Kachel-URL eingesetzt, fillGeozoneDatePlaceholders). WFS ist
+// serverseitig abgeschaltet; GetFeatureInfo wäre aktiv, aber der Host blockt
+// Nicht-Browser-Clients (curl → 403) – keine Umgehung. Ob die Kacheln in der
+// App (MapLibre/WebView) laden, ist auf dem Gerät zu prüfen. Vektorzonen nur
+// per Datei-Import (docs/tools/greece/dagr_geozonen.py).
+export const GR_GEOZONE_ATTRIBUTION = "© HASP / HCAA – DAGR (CC BY-NC-ND 4.0)";
+export const GR_DAGR_WMS_BASE = "https://dagr.hasp.gov.gr/cgi-bin/mapserv.exe?map=C:/ms4w_3.1.4/MAPFILES/dagr_TILED.map";
+export const GR_DAGR_LAYERS = ["all_limitation_layer", "all_warning_layer", "all_permifrag_layer", "hellas_CTR"] as const;
+/** Platzhalter für das WMS-Zeitfenster (werden beim Bauen der Kachel-URL gefüllt). */
+export const GEOZONE_DATE_FROM_PLACEHOLDER = "{wmsDateFrom}";
+export const GEOZONE_DATE_TO_PLACEHOLDER = "{wmsDateTo}";
+export const GR_GEOZONE_TILE_URL =
+  `${GR_DAGR_WMS_BASE}&SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&FORMAT=image/png&TRANSPARENT=true` +
+  `&LAYERS=${GR_DAGR_LAYERS.join(",")}&STYLES=&CRS=EPSG:3857&WIDTH=256&HEIGHT=256` +
+  `&WMS_DATE_FROM=${GEOZONE_DATE_FROM_PLACEHOLDER}&WMS_DATE_TO=${GEOZONE_DATE_TO_PLACEHOLDER}&BBOX={bbox}`;
+export const GR_GEOZONE_RASTER_HINT =
+  "Für Griechenland zeigt die Karte die Zonen nur als Bild (HASP/DAGR). " +
+  "Eine automatische Prüfung ist nicht möglich – Zonen bitte auf dagr.hasp.gov.gr prüfen und den Flug dort anmelden. " +
+  "Optional: am PC mit dem Skript dagr_geozonen.py exportierte Zonen in den Offline-Einstellungen importieren.";
+
+export const GR_GEOZONE_LAYERS: GeozoneLayer[] = [
+  {
+    id: "gr_dagr",
+    wmsLayer: "DAGR",
+    label: "Drohnenzonen, Warnungen, Genehmigungen & CTR (DAGR)",
+    defaultEnabled: true,
+    tileUrlTemplate: GR_GEOZONE_TILE_URL,
+    tileAttribution: GR_GEOZONE_ATTRIBUTION,
+  },
+];
+
+function pad2(n: number): string {
+  return String(n).padStart(2, "0");
+}
+
+/**
+ * WMS-Zeitfenster (GR/DAGR) einsetzen: von = heute 00:00, bis = morgen 24:00
+ * (Gerätezeit, wie die DAGR-Karte „YYYY-MM-DD HH:MM“). Vorlagen ohne
+ * Platzhalter bleiben unverändert.
+ */
+export function fillGeozoneDatePlaceholders(template: string, now: Date = new Date()): string {
+  if (!template.includes(GEOZONE_DATE_FROM_PLACEHOLDER) && !template.includes(GEOZONE_DATE_TO_PLACEHOLDER)) return template;
+  const day = (d: Date) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+  const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+  const from = encodeURIComponent(`${day(now)} 00:00`);
+  const to = encodeURIComponent(`${day(tomorrow)} 24:00`);
+  return template.split(GEOZONE_DATE_FROM_PLACEHOLDER).join(from).split(GEOZONE_DATE_TO_PLACEHOLDER).join(to);
+}
+
 // Länder, die erst NACH der einmaligen Migration auf die Kategorie-Auswahl
 // dazukamen. Für sie gibt es keine alten Speicher-Schlüssel; als Alt-Layer
 // gezählt würde die Migration ihren Gesamt-Schalter fälschlich auf "aus" falten.
-const POST_MIGRATION_ISOS = new Set(["HU"]);
+const POST_MIGRATION_ISOS = new Set(["HU", "GR"]);
 
 // Pro-Land-Liste der nativen Layer (id/iso/wmsLayer-Quelle). Vektor-Länder
 // AT/BE/DK liefern KEIN WMS und haben daher keine Layer; sie werden als
@@ -211,6 +262,7 @@ export const NATIVE_GEOZONE_LAYER_CATALOG: NativeGeozoneCountryLayers[] = [
   { iso: "NL", layers: NL_GEOZONE_LAYERS },
   { iso: "FR", layers: FR_GEOZONE_LAYERS },
   { iso: "HU", layers: HU_GEOZONE_LAYERS },
+  { iso: "GR", layers: GR_GEOZONE_LAYERS },
   { iso: "AT", layers: [] },
   { iso: "BE", layers: [] },
   { iso: "DK", layers: [] },

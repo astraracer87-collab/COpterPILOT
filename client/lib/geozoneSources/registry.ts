@@ -31,8 +31,15 @@ import { DANISH_GEOZONE_SOURCE_LABEL } from "../../../shared/danishGeozones";
 import { GODRONE_ATTRIBUTION, GODRONE_GEOZONE_SOURCE_LABEL } from "../../../shared/dutchGeozones";
 import { EANS_GEOZONE_SOURCE_LABEL } from "../../../shared/estonianGeozones";
 import { FI_GEOZONE_ATTRIBUTION, FI_GEOZONE_SOURCE_LABEL } from "../../../shared/finnishGeozones";
-import { RO_GEOZONE_SOURCE_LABEL, RO_ROMATSA_DRONES_URL } from "../../../shared/geozoneImport";
-import { HU_GEOZONE_ATTRIBUTION, HU_GEOZONE_RASTER_HINT } from "../../../shared/geozoneLayerCatalog";
+import { RO_GEOZONE_ATTRIBUTION, RO_GEOZONE_SOURCE_LABEL, RO_ROMATSA_DRONES_URL } from "../../../shared/romanianGeozones";
+import { MT_GEOZONE_ATTRIBUTION, MT_GEOZONE_SOURCE_LABEL } from "../../../shared/malteseGeozones";
+import { GR_GEOZONE_SOURCE_LABEL } from "../../../shared/greekGeozones";
+import {
+  GR_GEOZONE_ATTRIBUTION,
+  GR_GEOZONE_RASTER_HINT,
+  HU_GEOZONE_ATTRIBUTION,
+  HU_GEOZONE_RASTER_HINT,
+} from "../../../shared/geozoneLayerCatalog";
 import { IS_GEOZONE_ATTRIBUTION, IS_GEOZONE_SOURCE_LABEL } from "../../../shared/icelandicGeozones";
 import { IE_GEOZONE_SOURCE_LABEL, LU_GEOZONE_SOURCE_LABEL } from "../../../shared/irishLuxGeozones";
 import { IT_GEOZONE_ATTRIBUTION, IT_GEOZONE_SOURCE_LABEL } from "../../../shared/italianGeozones";
@@ -53,7 +60,7 @@ import {
   type GeoFeature,
 } from "../geozoneDirect/ed269Sources";
 import { getEd269DatasetStatus } from "../geozoneDirect/ed269Store";
-import { getDeTempStatus, getTilePartMeta } from "../geozoneTiles/tileStore";
+import { getTilePartMeta, getTileTempStatus } from "../geozoneTiles/tileStore";
 import { TILE_STORE_ATTRIBUTION } from "../geozoneTiles/tileStoreCore";
 import { WMS_GEOZONE_CONFIGS, type CountryGeozoneConfig, type CountryIsoWithGeozones } from "./wmsConfigs";
 
@@ -128,7 +135,11 @@ const CLIENT_PARTS: Record<CountryIsoWithGeozones, GeozoneSourceClientPart> = {
   IE: { sourceLabel: IE_GEOZONE_SOURCE_LABEL, attributions: [IE_GEOZONE_SOURCE_LABEL] },
   SE: { sourceLabel: SE_GEOZONE_SOURCE_LABEL, attributions: [SE_GEOZONE_ATTRIBUTION] },
   PT: { sourceLabel: PT_GEOZONE_SOURCE_LABEL, attributions: ["© ANAC – Autoridade Nacional da Aviação Civil"] },
-  ES: { sourceLabel: ES_GEOZONE_SOURCE_LABEL, attributions: [ES_GEOZONE_ATTRIBUTION] },
+  ES: {
+    sourceLabel: ES_GEOZONE_SOURCE_LABEL,
+    attributions: [ES_GEOZONE_ATTRIBUTION],
+    tileAttribution: TILE_STORE_ATTRIBUTION.ES,
+  },
   PL: { sourceLabel: PL_GEOZONE_SOURCE_LABEL, attributions: [PL_ATTRIBUTION] },
   LT: { sourceLabel: LT_GEOZONE_SOURCE_LABEL, attributions: ["© Oro navigacija / Lithuanian ANS"] },
   GB: { sourceLabel: GB_GEOZONE_SOURCE_LABEL, attributions: [GB_ATTRIBUTION] },
@@ -140,7 +151,7 @@ const CLIENT_PARTS: Record<CountryIsoWithGeozones, GeozoneSourceClientPart> = {
   BG: { sourceLabel: BG_GEOZONE_SOURCE_LABEL, attributions: [BG_GEOZONE_ATTRIBUTION] },
   LV: { sourceLabel: LV_GEOZONE_SOURCE_LABEL, attributions: [LV_GEOZONE_SOURCE_LABEL] },
   SK: { sourceLabel: SK_GEOZONE_SOURCE_LABEL, attributions: [SK_DU_ATTRIBUTION, SK_GEOZONE_ATTRIBUTION] },
-  RO: { sourceLabel: RO_GEOZONE_SOURCE_LABEL, attributions: [RO_GEOZONE_SOURCE_LABEL], url: RO_ROMATSA_DRONES_URL },
+  RO: { sourceLabel: RO_GEOZONE_SOURCE_LABEL, attributions: [RO_GEOZONE_ATTRIBUTION], url: RO_ROMATSA_DRONES_URL },
   FI: { sourceLabel: FI_GEOZONE_SOURCE_LABEL, attributions: [FI_GEOZONE_ATTRIBUTION] },
   NO: { sourceLabel: NO_GEOZONE_SOURCE_LABEL, attributions: [NO_GEOZONE_ATTRIBUTION] },
   CZ: {
@@ -148,6 +159,14 @@ const CLIENT_PARTS: Record<CountryIsoWithGeozones, GeozoneSourceClientPart> = {
     attributions: [TILE_STORE_ATTRIBUTION.CZ.label],
     url: TILE_STORE_ATTRIBUTION.CZ.url,
     tileAttribution: TILE_STORE_ATTRIBUTION.CZ,
+  },
+  MT: { sourceLabel: MT_GEOZONE_SOURCE_LABEL, attributions: [MT_GEOZONE_ATTRIBUTION] },
+  GR: {
+    // Bild-Overlay (DAGR-WMS); importierte Vektorzonen tragen das Import-Label.
+    sourceLabel: GR_GEOZONE_SOURCE_LABEL,
+    attributions: [GR_GEOZONE_ATTRIBUTION],
+    wms: WMS_GEOZONE_CONFIGS.GR,
+    manualCheckHint: GR_GEOZONE_RASTER_HINT,
   },
 };
 
@@ -196,7 +215,8 @@ export function buildCountryGeozoneConfigs(): Record<string, CountryGeozoneConfi
       wmsBaseUrl: "",
       wmsVersion: "1.3.0",
       layers: [],
-      featureInfoType: s.kind === "tiled" ? "tiles" : "ed269-cached",
+      // Kachelspeicher ohne Online-Abfrage (CZ): nur Paket; ES fragt ohne Paket live je Ausschnitt ab.
+      featureInfoType: s.kind === "tiled" && !s.liveVectorQuery ? "tiles" : "ed269-cached",
       alwaysVisibleLayerIds: [],
       forceEnabledLayerIds: [],
     };
@@ -251,7 +271,7 @@ export function getSourceDataStatus(iso: string | null | undefined, now: number 
   const tempSource = temporarySourceOf(meta.iso);
   let temporary: Pick<SourceDataStatus, "temporaryFetchedAt" | "temporaryStale"> = {};
   if (fetchedAt != null && tempSource !== "none" && !imported) {
-    const tAt = tempSource === "separate" ? getDeTempStatus().fetchedAt : fetchedAt;
+    const tAt = tempSource === "separate" ? getTileTempStatus(meta.iso).fetchedAt : fetchedAt;
     temporary = { temporaryFetchedAt: tAt, temporaryStale: isTemporaryDataStale(meta.iso, tAt, now) };
   }
   return {

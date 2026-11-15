@@ -1,13 +1,14 @@
 // Direkter Abruf der polnischen Drohnen-Geozonen (PANSA / PAŻP DroneMap).
 // Siehe docs/pansa-pl-api-integration.md.
 //
-//  1. POST /v1/front/login mit Header x-api-key → { token }
-//  2. GET  /v1/kml/filtered?extrude=false&types=DRAP,DRAR,DRAI&max=3000
-//     mit Authorization: Bearer <token> → KML
-//  3. KML parsen (shared/geozoneKit/kml.ts) → normalisieren (shared/polishGeozones.ts)
+//  1. POST /v1/front/login mit Header x-api-key → { access_token }
+//  2. GET  /v1/kml/filtered?extrude=false&types=DRAP,DRAR,DRAI&max=500
+//     mit x-api-key UND Authorization: Bearer <access_token> → KML
+//     (`max` = Höhengrenze in Metern; 500 = ungefiltert, siehe PANSA_KML_MAX_M)
+//  3. KML parsen (shared/geozoneKit/kml.ts) → normalisieren (shared/polishGeozones.ts;
+//     Typ/Höhen aus der <description> „Restriction: …, Type: DRAP, Min: 0 ft, Max: 600 ft“)
 //
-// ⚠️ api.dronemap.pansa.pl ist nur von EU-/PL-IPs erreichbar und wurde NICHT live
-// gegen diese Implementierung getestet (Schnittstelle laut offiziellem QGIS-Plugin).
+// Live verifiziert von DE-IP (2026-11-15, 1.774 Zonen); aus der US-Cloud geblockt.
 // Wirft, wenn nichts geladen werden kann (damit ein gespeicherter Datensatz
 // erhalten bleibt). Bewusst frei von React-Native-/Expo-Importen.
 import type { GeoFeature } from "./ed269Sources";
@@ -18,14 +19,14 @@ import {
   PANSA_WEB_ORIGIN,
   PL_DRONE_ZONE_TYPES,
   PL_GEOZONE_SOURCE_LABEL,
-  PANSA_MAX_NO_FILTER,
+  PANSA_KML_MAX_M,
   buildPansaKmlUrl,
   normalizePolishKml,
   parsePansaLoginToken,
 } from "../../../shared/polishGeozones";
 
 export { PL_GEOZONE_SOURCE_LABEL, PANSA_LOGIN_URL };
-export const PANSA_KML_REQUEST_URL = buildPansaKmlUrl(PL_DRONE_ZONE_TYPES, PANSA_MAX_NO_FILTER);
+export const PANSA_KML_REQUEST_URL = buildPansaKmlUrl(PL_DRONE_ZONE_TYPES, PANSA_KML_MAX_M);
 
 /**
  * API-Key: über EXPO_PUBLIC_PANSA_API_KEY konfigurierbar (eigener Key von PANSA,
@@ -79,12 +80,14 @@ export async function pansaLogin(apiKey: string = pansaApiKey()): Promise<string
 }
 
 /** Schritt 2: KML mit den Drohnenzonen laden. */
-export async function pansaFetchKml(token: string, url: string = PANSA_KML_REQUEST_URL): Promise<string> {
+export async function pansaFetchKml(token: string, url: string = PANSA_KML_REQUEST_URL, apiKey: string = pansaApiKey()): Promise<string> {
   return await fetchWithTimeout(
     url,
     {
       method: "GET",
       headers: {
+        // Doku §2: BEIDE Header (x-api-key + Bearer) sind nötig.
+        "x-api-key": apiKey,
         Authorization: `Bearer ${token}`,
         Accept: "application/vnd.google-earth.kml+xml, application/xml;q=0.9, */*;q=0.8",
       },

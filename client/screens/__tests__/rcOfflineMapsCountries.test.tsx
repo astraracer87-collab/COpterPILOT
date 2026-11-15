@@ -11,6 +11,7 @@ import {
   estimateSize,
   offlineCountries,
   startCountryDownload,
+  storePartsFor,
   tileSourceHash,
 } from "@/lib/offlineMaps";
 import { COUNTRY_MAP_PROVIDERS, getMapProvider } from "@/lib/mapSources";
@@ -152,9 +153,10 @@ describe("offlineCountries", () => {
       obstacles: true,
     });
     expect(defaultConfig("DK")).toMatchObject({ map: false, geozones: true });
+    // GR: Bild-Overlay nur online (zeitgefiltert), Vektorzonen nur per Datei-Import
     expect(defaultConfig("GR")).toMatchObject({
       map: false,
-      geozones: false,
+      geozones: true,
       obstacles: true,
     });
     expect(defaultConfig("NO")).toMatchObject({ map: true, geozones: true });
@@ -267,13 +269,43 @@ describe("tiled vector geozones (DE/FR/CZ) and Liechtenstein", () => {
     expect(defaultConfig("DE").wohngebiete).toBe(true);
   });
 
-  it("Romania: geozones only via file import (no download attempt)", async () => {
-    const ro = offlineCountries().find((c) => c.iso === "RO")!;
-    expect(ro.geozoneKind).toBe("import");
-    expect(ro.hasGeozones).toBe(true);
-    expect(estimateSize(defaultConfig("RO")).geoMB).toBe(0);
-    await startCountryDownload({ ...defaultConfig("RO"), obstacles: false }, () => {}, () => {}, () => false);
+  it("Malta/Griechenland: geozones only via file import (no download attempt, no GR raster tiles)", async () => {
+    for (const iso of ["MT", "GR"]) {
+      const c = offlineCountries().find((x) => x.iso === iso)!;
+      expect(c.geozoneKind).toBe("import");
+      expect(c.hasGeozones).toBe(true);
+      expect(estimateSize(defaultConfig(iso)).geoMB).toBe(0);
+      await startCountryDownload({ ...defaultConfig(iso), obstacles: false }, () => {}, () => {}, () => false);
+    }
     expect(mockRefreshEd269).not.toHaveBeenCalled();
+    expect(mockDownloadAsync).not.toHaveBeenCalled();
+  });
+
+  it("Romania: online vector dataset since 2026-11 (import stays as fallback)", async () => {
+    const ro = offlineCountries().find((c) => c.iso === "RO")!;
+    expect(ro.geozoneKind).toBe("vector");
+    await startCountryDownload({ ...defaultConfig("RO"), map: false, obstacles: false }, () => {}, () => {}, () => false);
+    expect(mockRefreshEd269).toHaveBeenCalledWith("RO");
+  });
+
+  it("Spain: tiled store with selectable parts (infra/enp) and size estimates", async () => {
+    const es = offlineCountries().find((c) => c.iso === "ES")!;
+    expect(es.geozoneKind).toBe("tilestore");
+    expect(es.geozoneAttribution?.label).toBe("© ENAIRE");
+    const c = { ...defaultConfig("ES"), map: false, obstacles: false };
+    expect(c).toMatchObject({ esInfra: true, esEnp: true });
+    expect(storePartsFor(c)).toEqual(["base", "infra", "enp"]);
+    expect(storePartsFor({ ...c, esEnp: false })).toEqual(["base", "infra"]);
+    const all = estimateSize(c);
+    const none = estimateSize({ ...c, esInfra: false, esEnp: false });
+    expect(all.esInfraMB).toBeGreaterThan(50);
+    expect(all.esEnpMB).toBeGreaterThan(100);
+    expect(none.esInfraMB + none.esEnpMB).toBe(0);
+    expect(all.geoMB - none.geoMB).toBe(all.esInfraMB + all.esEnpMB);
+    const packs: any[] = [];
+    await startCountryDownload({ ...c, esEnp: false }, (p) => packs.push(p), () => {}, () => false);
+    expect(mockDownloadTileStore).toHaveBeenCalledWith("ES", expect.objectContaining({ parts: ["infra"] }));
+    expect(mockRefreshEd269).not.toHaveBeenCalledWith("ES");
   });
 
   it("estimates DE with and without Wohngebiete", () => {

@@ -590,3 +590,59 @@ alle Länderlisten werden daraus abgeleitet.
 - Stundenwerte/Vorhersage offline nur für bereits abgefragte Fenster bzw.
   Stunden (Schlüssel Standort + Zeit); die Radar-/Pre-Check-Wettervorhersage
   (24 h je Standort) ist davon unabhängig.
+
+## Stand Länder-Update PL/RO/MT/GR/ES (2026-11-15)
+
+Grundlage: die von DE-IP verifizierten Doku-Stände und die echten Fixtures in
+`docs/fixtures/` (Kopien in `client/lib/__tests__/fixtures/`).
+
+- **PL** (shared/polishGeozones.ts, geozoneDirect/polandSource.ts): Login-
+  Antwort `access_token`; KML-Abruf mit `x-api-key` UND Bearer; `max=500`
+  (`max` = Höhengrenze in m, ≥ 500 = ungefiltert, wie die offizielle Karte/Doku)
+  – bewusst ungefiltert, der Höhenfilter der App entscheidet. Typ und Höhen aus
+  der `<description>` („Type: DRAP, Min: 0 ft, Max: 600 ft“), Beschränkung über
+  die kodierte Typ-Tabelle `PL_TYPE_TABLE` (34 Typen aus `/v1/zones/types`,
+  7 PROHIBITED / 18 REQ_AUTHORISATION / 9 NO_RESTRICTION; DRAI ist jetzt Info,
+  CTR1KM/ATZ6KM/MCTR2KM Genehmigung). Höhen ft → m, **Bezug unbekannt**
+  (UNKNOWN, nie ausgeblendet). Deutsche Meldung + Originaltext. Info-Lufträume
+  nur mit `includeAirspace`; Verbots-/Genehmigungstypen werden nie verworfen.
+- **RO** (shared/romanianGeozones.ts, geozoneDirect/romaniaSource.ts): Online-
+  Abruf statt Nur-Import (`kind` ed269-vector, kein Zugangs-Gate, `hasOwnMap`
+  wie andere Vektorländer): statischer Zonensatz (RESTRICTED → Genehmigung,
+  Kontakt, Höhen) + NOTAM-UAV-WFS als temporäre Zonen (`isNotam`,
+  applicability aus dfrom/dto, „D) DAILY hhmm-hhmm“ → Zeitplan, Höhen aus F/G).
+  Verbindungsfehler: „ROMATSA nicht erreichbar – Datei-Import nutzen“. Datei-
+  Import bleibt Rückfall (ROMATSA-Datei wird mit demselben Normalisierer
+  erkannt; ein erfolgreicher Online-Abruf ersetzt den Import).
+- **MT** (shared/malteseGeozones.ts): Nur-Import-Land (`import-only`, Gate
+  „import“, manuelle Prüfung bis zum Import). Import erkennt Roh-Export und
+  `normalisieren.py`-Ausgabe; forbidden → PROHIBITED, sonst REQ_AUTHORISATION;
+  Höhen ohne Einheit/Bezug: Untergrenze vorsichtig als ft, Obergrenze
+  vorsichtig als m, Bezug UNKNOWN. Keine DDP-Abfragen.
+- **GR** (shared/geozoneLayerCatalog.ts, shared/greekGeozones.ts): Bild-Overlay
+  (`xyz-raster`, `manualCheckOnly`, Hinweis wie HU) über den DAGR-MapServer-WMS
+  mit `WMS_DATE_FROM/TO` = heute 00:00 bis morgen 24:00 (Platzhalter in der
+  Kachel-Vorlage, beim Bauen gefüllt: `fillGeozoneDatePlaceholders`). Zusätzlich
+  Import der `dagr_geozonen.py`-Ausgabe (Gate „import“; mit Import zählen die
+  Vektorzonen wie bei MT). Bildkacheln werden nicht offline gespeichert
+  (zeitgefiltert). Bot-Schutz: ob die Kacheln in der App laden, auf dem Gerät
+  prüfen. `GEOZONE_IMPORT_ONLY_SOURCE_ISOS` = Quellen mit `offline: "import"`
+  (MT, GR); `OWN_MAP_SOURCE_ISOS` enthält Bild-Overlays mit Import-Gate.
+- **ES** (shared/spanishGeozones.ts `ES_INSIGNIAS_LAYERS`, geozoneTiles/*):
+  Kachelspeicher-Land (`tiled`, `liveVectorQuery`, `temporary: "separate"`,
+  Mindestzoom 10). Teile `base` (Aero 1,2,3,4,6,10 + Urbano 11), `infra`,
+  `enp` (abwählbar, `TILE_STORE_OPTIONAL_PARTS`), Download über ArcGIS-Paging
+  (Zähl-Abfrage, OBJECTID-Reihenfolge, volle Präzision, gekappte Seiten werden
+  im Auftrag weitergeblättert). NOTAM (NOTAM_UAS_APP_V3/1) live mit 10-min-
+  Cache, offline `es/temp.json` (Stand → temporäre Zonen). Ohne Paket:
+  bbox-Live-Abfragen je Ausschnitt (geozoneTiles/esLive.ts, 10-min-Cache) +
+  Speicherung je Standort (offlineResultCache „geozones-live“). Paket ohne
+  infra/enp: online live ergänzt, offline „partial“. Layer 0 (Bezugspunkte)
+  wird nicht gespeichert. Entfernt: AIP-ZIP-Pfad und alter FeatureServer/WFS
+  (`insigniads/…/SRV_UAS_ZG_data_V2`) samt `normalizeSpanishEd318`,
+  `esLayerIdsFromService`, geozoneDirect/spainSource.ts (ES steht nicht mehr
+  in ED269_FETCHERS). Zeilen mit gleichem Identifier bleiben getrennte Zonen
+  (sicher bei Zeitfenstern, ggf. Doppelanzeige).
+- Offen: PL-Höhenbezug, ES-Feldnamen der Zonen-Layer und Paketgrößen, MT-
+  Höheneinheit, GR-Kacheln/Ebenen-Semantik, RO-TLS auf Android – auf dem Gerät
+  bzw. mit den Betreibern klären.

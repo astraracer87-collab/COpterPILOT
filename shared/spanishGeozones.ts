@@ -3,8 +3,11 @@
 // (parseEd269ToGeozoneInfo) liest: restriction, name, lowerMeters/upperMeters,
 // lowerReference/upperReference, message, applicability, zoneAuthority …
 //
-// Grundlage: docs/enaire-es-api-integration.md (ENAIRE-Spec v3.1, §4/§6).
-// Drei Layer (ArcGIS-FeatureServer bzw. WFS-typeNames):
+// Grundlage: docs/enaire-es-api-integration.md (ENAIRE-Spec v3.1, §4/§6;
+// insignias-MapServer §3.1/§8). Abruf und Speicherung: Kachelspeicher
+// (client/lib/geozoneTiles/, Teile base/infra/enp) bzw. live je Ausschnitt
+// (geozoneTiles/esLive.ts) – Layer-Katalog ES_INSIGNIAS_LAYERS unten.
+// Rechtsgrundlage/Default je ED-318-Layer:
 //   ZGUAS_Aero              – Zonen aeronautischen Ursprungs (AIP)
 //   ZGUAS_Urbano            – öffentliche Sicherheit im urbanen Raum
 //   ZGUAS_Infraestructuras  – Schutz von Anlagen/Infrastruktur (inkl. CIDETRA)
@@ -24,7 +27,6 @@
 // Bewusst frei von React-Native-Importen (unter tsx/Node testbar).
 import { normalizeEd269Restriction } from "./ed269Restriction";
 import { isoDurationText } from "./swedishGeozones";
-import { ed318GroupVolumes, ed318ParseZone, ed318PolygonsGeometry } from "./ed318Pure";
 import { parseHeight } from "./geozoneKit/heights";
 import { cleanText as kitCleanText, round1 } from "./geozoneKit/text";
 import { arcgisPage, ensureLonLat } from "./geozoneKit";
@@ -135,6 +137,11 @@ function stripAccents(s: string): string {
  * Spanische Klartexte werden zusätzlich verstanden. Unbekannt/leer → Layer-Default.
  */
 export function esRestriction(type: unknown, layer: EsLayer): string {
+  return esRestrictionKnown(type) ?? ES_LAYER_DEFAULT_RESTRICTION[layer];
+}
+
+/** ENAIRE-`Type` → App-Restriction; null = leer/unbekannt (Aufrufer wählt den Default). */
+export function esRestrictionKnown(type: unknown): string | null {
   const raw = stripAccents(str(type)).toUpperCase().replace(/[\s-]+/g, "_");
   if (raw) {
     if (/^(PROHIBID[OA]|ZONA_PROHIBIDA|PROHIBICION)$/.test(raw)) return "PROHIBITED";
@@ -144,7 +151,7 @@ export function esRestriction(type: unknown, layer: EsLayer): string {
     const n = normalizeEd269Restriction(raw);
     if (["PROHIBITED", "REQ_AUTHORISATION", "CONDITIONAL", "NO_RESTRICTION", "RESTRICTED"].includes(n)) return n;
   }
-  return ES_LAYER_DEFAULT_RESTRICTION[layer];
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -601,34 +608,6 @@ function buildFeature(grp: Group, now: Date): EsFeature | null {
 // ArcGIS-Hilfen (rein, testbar)
 // ---------------------------------------------------------------------------
 
-function layerNameKey(s: unknown): string {
-  return stripAccents(str(s)).toLowerCase().replace(/[^a-z0-9]/g, "");
-}
-
-/**
- * FeatureServer?f=json → Layer-IDs der drei ZGUAS-Layer. Exakter Name zuerst,
- * sonst Teilstring (aero / urban / infraestr). Nicht gefundene Layer fehlen.
- */
-export function esLayerIdsFromService(body: any): Partial<Record<EsLayer, number>> {
-  const layers: any[] = [
-    ...(Array.isArray(body?.layers) ? body.layers : []),
-    ...(Array.isArray(body?.tables) ? body.tables : []),
-  ];
-  const out: Partial<Record<EsLayer, number>> = {};
-  const hints: Record<EsLayer, RegExp> = {
-    ZGUAS_Aero: /aero/,
-    ZGUAS_Urbano: /urban/,
-    ZGUAS_Infraestructuras: /infra/,
-  };
-  for (const layer of ES_LAYERS) {
-    const exact = layers.find((l) => layerNameKey(l?.name) === layerNameKey(layer));
-    const loose = exact ?? layers.find((l) => hints[layer].test(layerNameKey(l?.name)));
-    const id = Number(loose?.id);
-    if (loose && Number.isInteger(id) && id >= 0) out[layer] = id;
-  }
-  return out;
-}
-
 /**
  * Seite einer ArcGIS-`f=geojson`-Antwort lesen. `exceededTransferLimit` steht
  * je nach Server-Version auf oberster Ebene oder unter `properties`. Ein
@@ -638,89 +617,264 @@ export function esArcgisPage(body: any): { features: any[]; exceeded: boolean } 
   return arcgisPage(body);
 }
 
+// Die früheren Abrufwege (AIP-ZIP-Downloads aip.enaire.es/…/ZGUAS/ mit
+// normalizeSpanishEd318 sowie der veraltete FeatureServer „insigniads/…/
+// SRV_UAS_ZG_data_V2“ mit WFS-Rückfall) sind 2026-11 entfernt: Spanien ist
+// jetzt ein Kachelspeicher-Land auf Basis der insignias-MapServer (unten). Der
+// Normalisierer normalizeSpanishFeatures (ED-318-Attribute) bleibt die Basis.
+
 // ---------------------------------------------------------------------------
-// ED-318-Dateien aus den AIP-ZIP-Downloads (aip.enaire.es/…/ZGUAS/) –
-// Primärquelle seit 2026-11; die ArcGIS-/WFS-Normalisierung oben bleibt
-// Rückfall. Gleiche Nachbearbeitung wie buildFeature (deutsche Kurzfassung,
-// Layer-Default-Beschränkung, Höhenfilter, Ablauf, Dedupe über Identifier).
+// PRIMÄRQUELLE seit 2026-11: ENAIRE „insignias“-MapServer (live verifiziert
+// von DE-IP, 2026-11-15; docs/enaire-es-api-integration.md §3.1/§8,
+// docs/geozonen-daten-abruf-DE-2026-11-15.md):
+//   https://servais.enaire.es/insignias/rest/services/<Service>/MapServer/<Layer>/query
+//   (ohne Auth, f=geojson, outSR=4326, maxRecordCount 2000)
+// Spanien ist damit ein KACHELSPEICHER-Land (wie DE/FR/CZ): Infra (≈ 177 MB)
+// und ENP (≈ 221 MB + Layer 1) sind zu groß für den ED-269-Gerätecache. Teile:
+//   base  („Luftfahrt“, Pflicht): Aero_V3 1,2,3,4,6,10 + Urbano_V0/11
+//   infra („Infrastruktur“, abwählbar): Infra_V0/11
+//   enp   („Naturschutz“, abwählbar): ENP_APP_Local_V4/0,1
+//   temp  (live, kurzer Cache): NOTAM_UAS_APP_V3/1
+// Aero-Layer 0 (AERODROMOS) enthält nur Flugplatz-BEZUGSPUNKTE (Point, siehe
+// Fixture enaire_aero_layer0_sample.geojson) – keine Zonen; die Flugplatz-
+// zonen liefert Layer 6 (ZG_Aeródromos). Layer 0 wird daher nicht gespeichert.
+//
+// ⚠️ Feldnamen: Nur Layer 0 liegt als echte Fixture vor (OBJECTID, GFID,
+// IDENT_TXT, NAME_TXT, REMARKS_TXT, TYPE_CODE, TIPO, CONTACTO …). Die
+// Zonen-Layer werden tolerant gelesen: ED-318-Namen (Identifier, Type, Lower,
+// Upper, UOM, LowerReference, StartDateTime …) ODER die insignias-Varianten
+// (RESTRICCION_LOWER/RESTRICCION_UPPER, NAME_TXT, REMARKS_TXT …). Ein
+// fehlender Höhenbezug wird – wie im bisherigen ES-Pfad – als AGL gelesen
+// (⚠️ dokumentiert in docs/pruefung-umbau-plan.md B6).
 // ---------------------------------------------------------------------------
 
-/** Download-Datei → Layer (ENAIRE-Verzeichnis ZGUAS/, Stand 2026-11). */
-export const ES_AIP_ZIP_LAYERS: { file: string; layer: EsLayer }[] = [
-  { file: "ZGUAS_Aero.zip", layer: "ZGUAS_Aero" },
-  { file: "ZGUAS_Infra.zip", layer: "ZGUAS_Infraestructuras" },
-  { file: "ZGUAS_Urbano.zip", layer: "ZGUAS_Urbano" },
-];
+export const ENAIRE_INSIGNIAS_BASE = "https://servais.enaire.es/insignias/rest/services";
 
-/** Eine rohe ED-318-Zone (GeoJSON-Feature oder UASZone-Objekt) mit Layer. */
-export type EsEd318Raw = { layer: EsLayer; zone: any };
+export type EsTilePart = "base" | "infra" | "enp" | "temp";
+
+export interface EsInsigniasLayer {
+  /** Schlüssel (Feature-ID-Präfix im Kachelspeicher) */
+  key: string;
+  /** Service-Pfad unter ENAIRE_INSIGNIAS_BASE */
+  service: string;
+  layerId: number;
+  part: EsTilePart;
+  /** Ebenen-Bezeichnung (deutsch) */
+  labelDe: string;
+  /** Bisheriger ED-318-Layer (Rechtsgrundlage, Default) */
+  legacyLayer: EsLayer;
+  /** Beschränkung, wenn die Zone keinen lesbaren Typ trägt */
+  defaultRestriction: string;
+  /** Seitengröße beim Download (Antwort meist < ~3 MB) */
+  pageSize: number;
+}
 
 /**
- * ED-318-Zonen (alle drei ZIPs) → App-Features in derselben Form wie
- * normalizeSpanishFeatures. Spanische Texte bleiben im Original (Präferenz es).
- * Gleiche Kennung + gleiches Höhenband (auch layerübergreifend) = eine Zone;
- * abweichende Geometrien werden zum MultiPolygon zusammengeführt.
+ * Alle Zonen-Layer. Seitengrößen nach den gemessenen Größen (§8): Infra
+ * ≈ 12,5 KB/Zone, ENP ≈ 122 KB/Zone, Aero ≈ 8 KB/Zone.
+ * Defaults (ohne lesbaren Typ): Luftfahrt und Infrastruktur Genehmigung,
+ * Urbano Bedingungen (RD 517/2024 Art. 40: Vorab-Mitteilung), AVISOS/
+ * Modellflug Bedingungen (Hinweis-/Aktivitätsgebiete), ENP Naturschutz,
+ * NOTAM Beschränkungsgebiet (Freigabe nötig).
  */
-export function normalizeSpanishEd318(raw: EsEd318Raw[], now: Date = new Date()): EsFeature[] {
-  const byKey = new Map<string, EsFeature>();
-  const order: string[] = [];
-  raw.forEach(({ layer, zone }, idx) => {
-    const z = ed318ParseZone(zone, now, ["es", "en"]);
-    if (!z || z.applicability === null) return;
-    const restriction = z.restriction ?? esRestriction(z.rawType, layer);
-    const authorities: EsAuthority[] = z.authorities;
-    const msgEs = cleanText(z.message);
-    const conditions = cleanText(z.restrictionConditions);
-    const message = [
-      germanSummary(restriction, authorities),
-      msgEs,
-      conditions && conditions !== msgEs && !msgEs.includes(conditions) ? conditions : "",
-      authorities.map(authorityLine).join("\n"),
-    ]
-      .filter(Boolean)
-      .join("\n\n");
-    const groups = ed318GroupVolumes(z.volumes).filter((g) => esLowerIsRelevant(g.lower));
-    groups.forEach((g, gi) => {
-      const vert = `${g.lower?.meters ?? "-"}${g.lower?.reference ?? ""}/${g.upper?.meters ?? "-"}${g.upper?.reference ?? ""}`;
-      const idBase = z.identifier || `${layer}-${idx}`;
-      const key = `${idBase}|${vert}`;
-      const geometry = esEnsureLonLat(ed318PolygonsGeometry(g.polygons) as { type: string; coordinates: any });
-      const prev = byKey.get(key);
-      if (prev) {
-        if (JSON.stringify(prev.geometry.coordinates) !== JSON.stringify(geometry.coordinates)) {
-          prev.geometry = mergeGeometries(prev.geometry, geometry);
-        }
-        return;
-      }
-      const out: Record<string, any> = {
-        identifier: z.identifier || undefined,
-        zoneId: `ES-${idBase}${groups.length > 1 ? `#${gi + 1}` : ""}`,
-        name: cleanText(z.name) || z.identifier || "Zona geográfica UAS",
-        restriction,
-        originalType: z.rawType ?? null,
-        message,
-        reason: esReasonText([...z.reasons.filter((r) => r.toUpperCase() !== "OTHER"), ...(z.otherReasonInfo ? [z.otherReasonInfo] : [])]) || undefined,
-        restrictionConditions: conditions || undefined,
-        regulationExemption: z.regulationExemption || undefined,
-        country: z.country || "ESP",
-        legalBasis: ES_LAYER_LEGAL_BASIS[layer],
-        source: ES_GEOZONE_SOURCE_LABEL,
-        attribution: ES_GEOZONE_ATTRIBUTION,
-        sourceLayer: layer,
-      };
-      if (z.applicability) out.applicability = z.applicability;
-      applyAltitudes(out, g.lower, g.upper);
-      if (authorities.length > 0) {
-        out.zoneAuthority = authorities.map(({ email: _e, ...rest }) => rest);
-        const mail =
-          (authorities.find((a) => (a.purpose === "AUTHORIZATION" || a.purpose === "AUTHORISATION") && a.email) ??
-            authorities.find((a) => a.email))?.email;
-        if (mail) out.contactEmail = mail;
-      }
-      for (const k of Object.keys(out)) if (out[k] === undefined) delete out[k];
-      byKey.set(key, { type: "Feature", geometry, properties: out });
-      order.push(key);
-    });
+export const ES_INSIGNIAS_LAYERS: readonly EsInsigniasLayer[] = [
+  { key: "es_eac_fiz", service: "NSF/Drones_ZG_Aero_V3", layerId: 1, part: "base", labelDe: "Kontrollierter Luftraum / FIZ", legacyLayer: "ZGUAS_Aero", defaultRestriction: "REQ_AUTHORISATION", pageSize: 300 },
+  { key: "es_avisos", service: "NSF/Drones_ZG_Aero_V3", layerId: 2, part: "base", labelDe: "Hinweise (AVISOS)", legacyLayer: "ZGUAS_Aero", defaultRestriction: "CONDITIONAL", pageSize: 100 },
+  { key: "es_rvf", service: "NSF/Drones_ZG_Aero_V3", layerId: 3, part: "base", labelDe: "Fotoflug-Beschränkung (RVF)", legacyLayer: "ZGUAS_Aero", defaultRestriction: "REQ_AUTHORISATION", pageSize: 300 },
+  { key: "es_aeromodelismo", service: "NSF/Drones_ZG_Aero_V3", layerId: 4, part: "base", labelDe: "Modellflug", legacyLayer: "ZGUAS_Aero", defaultRestriction: "CONDITIONAL", pageSize: 500 },
+  { key: "es_aerodromos", service: "NSF/Drones_ZG_Aero_V3", layerId: 6, part: "base", labelDe: "Flugplätze", legacyLayer: "ZGUAS_Aero", defaultRestriction: "REQ_AUTHORISATION", pageSize: 300 },
+  { key: "es_restringidas", service: "NSF/Drones_ZG_Aero_V3", layerId: 10, part: "base", labelDe: "Sperr-/Beschränkungsgebiete", legacyLayer: "ZGUAS_Aero", defaultRestriction: "REQ_AUTHORISATION", pageSize: 200 },
+  { key: "es_urbano", service: "NSF/Drones_ZG_Urbano_V0", layerId: 11, part: "base", labelDe: "Urbane Zonen", legacyLayer: "ZGUAS_Urbano", defaultRestriction: "CONDITIONAL", pageSize: 200 },
+  { key: "es_infra", service: "NSF/Drones_ZG_Infra_V0", layerId: 11, part: "infra", labelDe: "Infrastruktur", legacyLayer: "ZGUAS_Infraestructuras", defaultRestriction: "REQ_AUTHORISATION", pageSize: 200 },
+  { key: "es_enp0", service: "ENP/ENP_APP_Local_V4", layerId: 0, part: "enp", labelDe: "Naturschutz (ENP)", legacyLayer: "ZGUAS_Infraestructuras", defaultRestriction: "NATURE", pageSize: 20 },
+  { key: "es_enp1", service: "ENP/ENP_APP_Local_V4", layerId: 1, part: "enp", labelDe: "Naturschutz (ENP)", legacyLayer: "ZGUAS_Infraestructuras", defaultRestriction: "NATURE", pageSize: 20 },
+  { key: "es_notam", service: "NOTAM/NOTAM_UAS_APP_V3", layerId: 1, part: "temp", labelDe: "NOTAM (temporär)", legacyLayer: "ZGUAS_Aero", defaultRestriction: "RESTRICTED", pageSize: 1000 },
+];
+
+const ES_LAYER_BY_KEY = new Map(ES_INSIGNIAS_LAYERS.map((l) => [l.key, l]));
+
+export function esInsigniasLayer(key: string | null | undefined): EsInsigniasLayer | null {
+  return ES_LAYER_BY_KEY.get(String(key ?? "")) ?? null;
+}
+
+/** Layer eines Teils. */
+export function esInsigniasLayersOf(part: EsTilePart): EsInsigniasLayer[] {
+  return ES_INSIGNIAS_LAYERS.filter((l) => l.part === part);
+}
+
+/** Layer-URL (`…/<Service>/MapServer/<id>`). */
+export function esInsigniasLayerUrl(l: EsInsigniasLayer): string {
+  return `${ENAIRE_INSIGNIAS_BASE}/${l.service}/MapServer/${l.layerId}`;
+}
+
+/**
+ * Seiten-Abfrage (GeoJSON, WGS84, alle Felder, VOLLE Präzision – bewusst
+ * ohne maxAllowableOffset/geometryPrecision: keine Vereinfachung), stabile
+ * Reihenfolge über OBJECTID.
+ */
+export function esInsigniasPageUrl(l: EsInsigniasLayer, offset: number, count: number): string {
+  const p = new URLSearchParams({
+    where: "1=1",
+    outFields: "*",
+    returnGeometry: "true",
+    outSR: "4326",
+    orderByFields: "OBJECTID ASC",
+    resultOffset: String(offset),
+    resultRecordCount: String(count),
+    f: "geojson",
   });
-  return order.map((k) => byKey.get(k)!);
+  return `${esInsigniasLayerUrl(l)}/query?${p.toString()}`;
+}
+
+/** Zähl-Abfrage (`returnCountOnly`, f=json → { count }). */
+export function esInsigniasCountUrl(l: EsInsigniasLayer): string {
+  const p = new URLSearchParams({ where: "1=1", returnCountOnly: "true", f: "json" });
+  return `${esInsigniasLayerUrl(l)}/query?${p.toString()}`;
+}
+
+/** Ausschnitts-Abfrage (Envelope w,s,e,n in WGS84, Intersects). */
+export function esInsigniasBboxUrl(l: EsInsigniasLayer, bbox: [number, number, number, number], offset = 0, count = 1000): string {
+  const p = new URLSearchParams({
+    where: "1=1",
+    geometry: bbox.map((v) => String(Math.round(v * 1e6) / 1e6)).join(","),
+    geometryType: "esriGeometryEnvelope",
+    inSR: "4326",
+    spatialRel: "esriSpatialRelIntersects",
+    outFields: "*",
+    returnGeometry: "true",
+    outSR: "4326",
+    orderByFields: "OBJECTID ASC",
+    resultOffset: String(offset),
+    resultRecordCount: String(count),
+    f: "geojson",
+  });
+  return `${esInsigniasLayerUrl(l)}/query?${p.toString()}`;
+}
+
+/** count aus einer returnCountOnly-Antwort; null = unlesbar. ArcGIS-Fehler → Error. */
+export function esInsigniasCount(body: any): number | null {
+  if (body && typeof body === "object" && body.error) {
+    throw new Error(`ArcGIS-Fehler ${body.error.code ?? ""}: ${body.error.message ?? "unbekannt"}`.trim());
+  }
+  const n = Number(body?.count);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+/**
+ * Rohfeature eines Layers für den Speicher markieren: ID `<key>.<OBJECTID>`
+ * (OBJECTID ist nur je Layer eindeutig) und `_esLayer`. Nur Polygone –
+ * Punkte (Layer 0 / Bezugspunkte) und Linien sind keine Zonen.
+ */
+export function tagEsInsigniasFeature(f: any, key: string): any | null {
+  const t = f?.geometry?.type;
+  if (t !== "Polygon" && t !== "MultiPolygon") return null;
+  const p = f.properties || {};
+  const oid = p.OBJECTID ?? p.objectid ?? p.FID ?? f.id;
+  if (oid == null || oid === "") return null;
+  return { type: "Feature", id: `${key}.${oid}`, geometry: f.geometry, properties: { ...p, _esLayer: key } };
+}
+
+// Feldnamen-Varianten der insignias-Layer → ED-318-Namen des bestehenden Normalisierers.
+const INSIGNIAS_ALIASES: Record<string, string[]> = {
+  Identifier: ["IDENTIFIER", "IDENTIFICADOR", "IDENT_TXT", "GFID", "ID_ZONA", "CODIGO", "CODE", "NOTAM_ID", "NOTAMID", "ID_NOTAM", "SERIE", "SITECODE", "SITE_CODE"],
+  Name: ["NAME_TXT", "NOMBRE", "NOMBRE_ZONA", "DENOMINACION", "SITE_NAME", "NOMBRE_ENP", "NAME"],
+  Type: ["TIPO_RESTRICCION", "RESTRICCION", "RESTRICTION", "TYPE_RESTRICTION", "UASZONE_TYPE"],
+  Message: ["MESSAGE", "MENSAJE", "REMARKS_TXT", "OBSERVACIONES", "OBSERVACION", "DESCRIPCION", "ITEME", "ITEM_E", "TEXTO"],
+  RestrictionConditions: ["CONDICIONES", "RESTRICCIONES", "CONDITIONS"],
+  Lower: ["RESTRICCION_LOWER", "LOWER_VAL", "LOWERLIMIT", "LOWER_LIMIT", "ALT_INF", "LIM_INF", "ALTURA_MIN", "ITEMF"],
+  Upper: ["RESTRICCION_UPPER", "UPPER_VAL", "UPPERLIMIT", "UPPER_LIMIT", "ALT_SUP", "LIM_SUP", "ALTURA_MAX", "ITEMG"],
+  UOM: ["RESTRICCION_UOM", "UOM_VAL", "UNIDAD", "UNIT", "UOM_DIMENSIONS"],
+  LowerReference: ["RESTRICCION_LOWER_REF", "LOWER_REF", "LOWERREF", "LOWER_DATUM", "REF_INF"],
+  UpperReference: ["RESTRICCION_UPPER_REF", "UPPER_REF", "UPPERREF", "UPPER_DATUM", "REF_SUP"],
+  StartDateTime: ["FECHA_INICIO", "F_INICIO", "VALID_FROM", "VALIDFROM", "DATE_FROM", "START_DATE", "ITEMB", "ITEM_B"],
+  EndDateTime: ["FECHA_FIN", "F_FIN", "VALID_TO", "VALIDTO", "DATE_TO", "END_DATE", "ITEMC", "ITEM_C"],
+  Email: ["EMAIL", "CORREO", "E_MAIL"],
+  Phone: ["TELEFONO", "PHONE", "TLF"],
+  SiteURL: ["URL", "WEB", "ENLACE"],
+};
+
+/** NOTAM-Zeitangabe „yyMMddHHmm“ (B/C-Feld) → ISO; sonst null. */
+export function esNotamDateIso(v: unknown): string | null {
+  const s = str(v);
+  const m = s.match(/^(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})$/);
+  if (!m) return null;
+  const [y, mo, d, h, mi] = m.slice(1).map(Number);
+  if (mo < 1 || mo > 12 || d < 1 || d > 31 || h > 24 || mi > 59) return null;
+  return new Date(Date.UTC(2000 + y, mo - 1, d, h, mi)).toISOString();
+}
+
+/** HTML-Reste (<font>, <a>) aus Kontakt-/Linkfeldern entfernen. */
+function plain(v: unknown): string {
+  return str(v).replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim();
+}
+
+/** insignias-Properties → ED-318-Namen (vorhandene ED-318-Felder haben Vorrang). */
+export function esInsigniasToEd318Props(props: Record<string, any>): Record<string, any> {
+  const get = esAttributeReader(props);
+  const out: Record<string, any> = { ...props };
+  for (const [canon, aliases] of Object.entries(INSIGNIAS_ALIASES)) {
+    if (get(canon) != null) continue;
+    for (const a of aliases) {
+      const v = get(a);
+      if (v == null) continue;
+      let val: any = v;
+      if (canon === "StartDateTime" || canon === "EndDateTime") val = esNotamDateIso(v) ?? v;
+      if (canon === "Email" || canon === "Phone" || canon === "SiteURL") val = plain(v);
+      if (canon === "Lower" || canon === "Upper") {
+        // NOTAM-F/G-Felder („GND“, „FL065“, „1000FT AMSL“) und Zahlen
+        const t = str(v).toUpperCase();
+        if (/^(GND|SFC)$/.test(t)) val = "GND";
+      }
+      out[canon] = val;
+      break;
+    }
+  }
+  return out;
+}
+
+/**
+ * Ein gespeichertes bzw. live geladenes insignias-Feature → App-Feature
+ * (gleiche Form wie normalizeSpanishFeatures; zusätzlich `esLayerKey`,
+ * `layerLabel`-Hinweis, NOTAM-/Naturschutz-Kennzeichen). null = keine Zone
+ * (keine Fläche, abgelaufen, Untergrenze unerreichbar).
+ */
+export function normalizeEnaireInsigniasFeature(f: any, now: Date = new Date()): EsFeature | null {
+  if (!f || typeof f !== "object" || !f.geometry) return null;
+  const key = str(f.properties?._esLayer) || str(f.id).split(".")[0];
+  const layer = esInsigniasLayer(key);
+  if (!layer) return null;
+  const ed318 = esInsigniasToEd318Props(f.properties || {});
+  const get = esAttributeReader(ed318);
+  const known = esRestrictionKnown(get("Type"));
+  const [base] = normalizeSpanishFeatures([{ layer: layer.legacyLayer, feature: { ...f, properties: ed318 } }], now);
+  if (!base) return null;
+  const p = base.properties;
+  let restriction = known ?? layer.defaultRestriction;
+  const lines: string[] = [`ENAIRE-Ebene: ${layer.labelDe}`];
+  if (!known && layer.defaultRestriction === "NATURE") {
+    lines.push("Naturschutzgebiet (Espacio Natural Protegido) – Schutzvorschriften beachten; Drohnenflug kann verboten oder genehmigungspflichtig sein.");
+  } else if (!known && layer.defaultRestriction === "RESTRICTED") {
+    lines.push("NOTAM für UAS – Beschränkungsgebiet: Einflug nur mit Freigabe; NOTAM-Text beachten.");
+  } else if (!known && restriction !== p.restriction) {
+    // Layer-Default dieses Layers weicht vom ED-318-Layer-Default ab
+    lines.push(restriction === "CONDITIONAL" ? "Flug unter Auflagen zulässig – Bedingungen im Originaltext beachten." : "Flug nur mit Genehmigung.");
+  }
+  if (!known) restriction = restriction || p.restriction;
+  const tail = !known && restriction !== p.restriction ? String(p.message ?? "").replace(/^(Flugverbot für UAS\.|Flug nur mit Genehmigung\.|Flug unter Auflagen zulässig – Bedingungen im Originaltext beachten\.)\s*/, "") : String(p.message ?? "");
+  p.message = [lines.join("\n"), tail].filter((x) => x.trim()).join("\n\n");
+  p.restriction = restriction;
+  if (!known) p.restrictionAssumed = true;
+  p.esLayerKey = layer.key;
+  p.esLayerLabel = layer.labelDe;
+  p.sourceLayer = layer.key;
+  p.legalBasis = layer.part === "enp" ? "Normativa de Espacios Naturales Protegidos" : ES_LAYER_LEGAL_BASIS[layer.legacyLayer];
+  // Je gespeicherter Zeile eindeutig (ED-318-Listen wie DailyPeriod kommen als
+  // mehrere Zeilen mit gleichem Identifier – nicht zusammenführen, sonst ginge
+  // beim Dedupe ein Zeitfenster verloren; Doppelanzeige ist die sichere Seite).
+  p.zoneId = f.id != null && str(f.id) ? `ES-${str(f.id)}` : `ES-${layer.key}-${str(p.identifier)}`;
+  if (layer.part === "temp") {
+    p.isNotam = true;
+    p._notamEligible = true;
+  }
+  return base;
 }

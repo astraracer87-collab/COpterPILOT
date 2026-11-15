@@ -44,16 +44,16 @@ umgangen, keine privaten Logins missbraucht. Teile der Abrufe liefen aus einer
 | 🇧🇬 BG Bulgarien | ✅ | [bulgaria-caa-api-integration.md](bulgaria-caa-api-integration.md) |
 | 🇸🇮 SI Slowenien | ✅ | [slovenia-caa-api-integration.md](slovenia-caa-api-integration.md) |
 | 🇸🇰 SK Slowakei | ✅ | [slovakia-lps-api-integration.md](slovakia-lps-api-integration.md) |
-| 🇪🇸 ES Spanien | ✅ 📥 komplett abgerufen | [enaire-es-api-integration.md](enaire-es-api-integration.md) |
-| 🇵🇱 PL Polen | ✅ 📥 1.774 Zonen | [pansa-pl-api-integration.md](pansa-pl-api-integration.md) |
-| 🇷🇴 RO Rumänien | ✅ 📥 1.272 + 226 | [greece-romania-geozones-notes.md](greece-romania-geozones-notes.md) |
+| 🇪🇸 ES Spanien | ✅ integriert (Kachelspeicher, insignias) | [enaire-es-api-integration.md](enaire-es-api-integration.md) |
+| 🇵🇱 PL Polen | ✅ integriert (verifiziertes KML) | [pansa-pl-api-integration.md](pansa-pl-api-integration.md) |
+| 🇷🇴 RO Rumänien | ✅ integriert (online + NOTAM, Import als Rückfall) | [greece-romania-geozones-notes.md](greece-romania-geozones-notes.md) |
 | 🇱🇺 LU Luxemburg | 📥 🛠 Modul reparieren/einbinden | [luxembourg-geozones-integration.md](luxembourg-geozones-integration.md) |
 | 🇮🇹 IT Italien | 🔑 CSRF gelöst, Download erfassen | [dflight-it-api-integration.md](dflight-it-api-integration.md) |
 | 🇭🇺 HU Ungarn | 🔑 Vektor nur per Login (öffentl. Weg raster-only, verifiziert) | [hungary-mydronespace-api-integration.md](hungary-mydronespace-api-integration.md) |
-| 🇲🇹 MT Malta | 🔎 DDP-Filter-Parameter | [idronect-mt-api-integration.md](idronect-mt-api-integration.md) |
+| 🇲🇹 MT Malta | 📥 integriert als Nur-Import (Browser-Export) | [idronect-mt-api-integration.md](idronect-mt-api-integration.md) |
 | 🇨🇿 CZ Tschechien | 🔎 getGJ.php-Params | [czech-ans-api-integration.md](czech-ans-api-integration.md) |
 | 🇱🇻 LV Lettland | 🔎 Endpoint/ED-269 | [latvia-lgs-api-integration.md](latvia-lgs-api-integration.md) |
-| 🇬🇷 GR Griechenland | ⚠️ nur WMS-Raster → ED-269 erfragen | [greece-romania-geozones-notes.md](greece-romania-geozones-notes.md) |
+| 🇬🇷 GR Griechenland | ⚠️ Bild-Overlay (manuelle Prüfung) + optionaler Import | [greece-romania-geozones-notes.md](greece-romania-geozones-notes.md) |
 
 ---
 

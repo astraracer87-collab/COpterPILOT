@@ -18,10 +18,10 @@
  * Art der Quelle:
  * - "ed269-vector": Vektor-Feed (ED-269/ED-318/GeoJSON/KML/WFS), im
  *   ED-269-Gerätecache gespeichert (geozoneDirect/ed269Store.ts)
- * - "tiled": großer Bestand im Offline-Kachelspeicher (geozoneTiles/, DE/FR/CZ)
+ * - "tiled": großer Bestand im Offline-Kachelspeicher (geozoneTiles/, DE/FR/CZ/ES)
  * - "wms": nur WMS-Abfrage (derzeit kein Land; DE/FR fallen ohne Paket darauf zurück)
- * - "xyz-raster": nur Bild-Overlay ohne Zonenabfrage (HU)
- * - "import-only": kein erreichbarer Feed, nur Datei-Import (RO)
+ * - "xyz-raster": nur Bild-Overlay ohne Zonenabfrage (HU; GR zusätzlich mit Datei-Import)
+ * - "import-only": kein erreichbarer Feed, nur Datei-Import (MT)
  * - "login": Vektor-Feed nur mit eigenem Zugang des Nutzers (IT d-flight)
  */
 export type GeozoneSourceKind = "ed269-vector" | "tiled" | "wms" | "xyz-raster" | "import-only" | "login";
@@ -58,7 +58,7 @@ export interface GeozoneRefreshPolicy {
  * - "separate": eigener Abruf mit eigenem Stand (DE: dipul-Ebene
  *   temporaere_betriebseinschraenkungen, tileStore temp.json)
  * - "none": Quelle veröffentlicht keine temporären Zonen bzw. sie lassen sich
- *   nicht aktualisieren (FR-Karte, CZ-ED-318-Paket, HU-Bild, RO-Import)
+ *   nicht aktualisieren (FR-Karte, CZ-ED-318-Paket, HU-/GR-Bild, MT-/GR-Import)
  */
 export type GeozoneTemporarySource = "dataset" | "separate" | "none";
 
@@ -90,7 +90,13 @@ export interface GeozoneSourceMeta {
   vectorMinZoom?: number;
   /** Gesamten Landesbestand statt bbox-Radius laden (kleine Datensätze) */
   loadsFullCountry?: boolean;
-  /** Zonen nur mit Zugang (IT), Offline-Paket (CZ) bzw. Import (RO) */
+  /**
+   * Kachelspeicher-Land, das OHNE Offline-Paket online direkt beim Anbieter je
+   * Ausschnitt abfragt (ES: ArcGIS-bbox-Abfragen, Ergebnis je Standort
+   * zwischengespeichert) – Karte zeichnet dann Vektorzonen statt nichts.
+   */
+  liveVectorQuery?: boolean;
+  /** Zonen nur mit Zugang (IT), Offline-Paket (CZ) bzw. Import (MT, GR) */
   accessGate?: GeozoneAccessGate;
   /** Hinweis, wenn der Zugang fehlt bzw. der Abruf daran scheitert */
   accessHint?: string;
@@ -150,10 +156,10 @@ export const TEMPORARY_ZONES_STALE_MS = 24 * HOUR;
 const TEMP_POLICY = { temporaryMaxAgeMs: TEMPORARY_ZONES_MAX_AGE_MS, temporaryStaleAfterMs: TEMPORARY_ZONES_STALE_MS } as const;
 const ED269_POLICY: GeozoneRefreshPolicy = { maxAgeMs: ED269_STORE_REFRESH_MS, staleWarnAfterMs: PERMANENT_ZONES_STALE_MS, ...TEMP_POLICY };
 const TILE_POLICY: GeozoneRefreshPolicy = { maxAgeMs: TILE_STORE_REFRESH_MS, staleWarnAfterMs: TILE_STORE_REFRESH_MS };
-// DE: Kachelspeicher + eigener Abruf der temporären Betriebseinschränkungen.
+// DE/ES: Kachelspeicher + eigener Abruf der temporären Zonen (dipul-Ebene bzw. ENAIRE-NOTAM).
 const TILE_POLICY_DE: GeozoneRefreshPolicy = { ...TILE_POLICY, ...TEMP_POLICY };
 // Import: kein automatischer Abruf; Altersschwelle wie beim ED-269-Gerätecache.
-// Importe (RO) lassen sich nicht online aktualisieren, nur neu importieren.
+// Importe (MT, GR) lassen sich nicht online aktualisieren, nur neu importieren.
 // Warnung erst nach einem AIRAC-Zyklus (28 Tage), nicht schon nach 24 h.
 const IMPORT_POLICY: GeozoneRefreshPolicy = { maxAgeMs: null, staleWarnAfterMs: TILE_STORE_REFRESH_MS };
 
@@ -340,12 +346,25 @@ export const GEOZONE_SOURCE_META: readonly GeozoneSourceMeta[] = [
     url: "https://www.anac.pt",
   },
   {
+    // ENAIRE insignias-MapServer (live verifiziert von DE-IP, 2026-11-15):
+    // ≈ 21 000 Zonen, Infra ≈ 177 MB, ENP ≈ 221 MB → Kachelspeicher mit Teilen
+    // base (Luftfahrt + Urbano), infra, enp; NOTAM live (eigener Abruf).
+    // Ohne Paket: online bbox-Abfragen je Ausschnitt (liveVectorQuery).
     iso: "ES",
     labelDe: "Spanien",
-    ...vector,
-    provider: "ENAIRE",
+    kind: "tiled",
+    refresh: TILE_POLICY_DE,
+    offline: "tile-store",
+    temporary: "separate",
+    vectorMinZoom: 10,
+    liveVectorQuery: true,
+    provider: "ENAIRE – Drones (insignias-MapServer)",
+    usage:
+      "Drohnen-Geozonen (Luftfahrt, urbane Zonen, Infrastruktur, Naturschutz) als Vektordaten – offline als Paket mit abwählbaren Teilen, online je Ausschnitt; NOTAM für UAS live.",
+    license: "Nutzung laut schriftlicher Freigabe von ENAIRE; Rechtehinweis „© ENAIRE“ Pflicht",
     writtenPermission: true,
     url: "https://drones.enaire.es",
+    note: "Volle Geometrie-Genauigkeit (keine Vereinfachung). Infrastruktur- und Naturschutz-Teil sind sehr groß (je über 100 MB Download).",
   },
   {
     iso: "PL",
@@ -446,20 +465,18 @@ export const GEOZONE_SOURCE_META: readonly GeozoneSourceMeta[] = [
     url: "https://letectvo.nsat.sk/bezpilotne-letectvo/zemepisne-oblasti-uas/",
   },
   {
-    // ROMATSA: Server für Android nicht erreichbar (veraltete TLS-DH-Parameter)
-    // – Zonen NUR per Datei-Import im ED-269-Gerätecache.
+    // ROMATSA: öffentlicher statischer Zonensatz + NOTAM-UAV-WFS (live
+    // verifiziert von DE-IP, 2026-11-15). Datei-Import bleibt als Rückfall,
+    // falls die Fernsteuerung den Server nicht erreicht (früher: TLS-DH).
     iso: "RO",
     labelDe: "Rumänien",
-    kind: "import-only",
-    refresh: IMPORT_POLICY,
-    offline: "import",
-    accessGate: "import",
-    provider: "ROMATSA (Romanian Air Traffic Services Administration)",
+    ...vector,
+    provider: "ROMATSA (Romanian Air Traffic Services Administration) – flightplan.romatsa.ro",
     usage:
-      "Drohnen-Geozonen nur per Datei-Import: Restricted_zones_for_UAS.json am PC herunterladen und in den Offline-Einstellungen importieren (die ROMATSA-Server sind für Android nicht erreichbar).",
-    writtenPermission: false,
-    // url: RO_ROMATSA_DRONES_URL (shared/geozoneImport.ts) – ergänzt die Client-Registry
-    note: "Kein automatischer Abruf; Stand = Datum des Imports.",
+      "Drohnen-Geozonen (statischer Zonensatz) und NOTAM-UAV (temporäre Zonen) als Vektordaten; Datei-Import als Rückfall, wenn der ROMATSA-Server nicht erreichbar ist.",
+    license: "Öffentliche Daten von ROMATSA, Nutzung laut Freigabe",
+    writtenPermission: true,
+    // url: RO_ROMATSA_DRONES_URL (shared/romanianGeozones.ts) – ergänzt die Client-Registry
   },
   {
     iso: "FI",
@@ -493,6 +510,44 @@ export const GEOZONE_SOURCE_META: readonly GeozoneSourceMeta[] = [
     usage: "Drohnen-Geozonen (ED-318) als Offline-Kachelspeicher.",
     writtenPermission: true,
     // url: TILE_STORE_ATTRIBUTION.CZ.url – ergänzt die Client-Registry
+  },
+  {
+    // Transport Malta / iDronect: kein Feed (DDP-Filter unbekannt) – Zonen nur
+    // per Datei-Import des manuellen Browser-Exports (docs/tools/malta/).
+    iso: "MT",
+    labelDe: "Malta",
+    kind: "import-only",
+    refresh: IMPORT_POLICY,
+    offline: "import",
+    accessGate: "import",
+    accessHint: "Geozonen-Datei nicht importiert",
+    provider: "Transport Malta – Civil Aviation Directorate (TMCAD) / iDronect",
+    usage:
+      "Drohnen-Geozonen nur per Datei-Import: Zonen am PC aus der öffentlichen Karte tmcad.idronect.com exportieren (Browser-Konsole) und in den Offline-Einstellungen importieren.",
+    license: "Öffentlich angezeigte Daten, Nutzung laut Freigabe von Transport Malta",
+    writtenPermission: true,
+    url: "https://tmcad.idronect.com/map",
+    note: "Kein automatischer Abruf; Stand = Datum des Imports. Höheneinheit der Quelle nicht angegeben (vermutlich ft).",
+  },
+  {
+    // HASP/HCAA (DAGR): nur WMS-Raster (Bild); Host blockt Nicht-Browser-
+    // Clients. Vektorzonen nur per Datei-Import (docs/tools/greece/dagr_geozonen.py).
+    iso: "GR",
+    labelDe: "Griechenland",
+    kind: "xyz-raster",
+    refresh: IMPORT_POLICY,
+    offline: "import",
+    accessGate: "import",
+    accessHint: "Geozonen-Datei nicht importiert – Karte zeigt die Zonen nur als Bild",
+    manualCheckOnly: true,
+    provider: "Hellenic Air Navigation Service Provider (HASP) / HCAA – DAGR",
+    usage:
+      "Drohnenzonen als Bild-Overlay (WMS, zeitgefiltert); keine automatische Zonenprüfung. Optional Vektorzonen per Datei-Import (am PC mit dagr_geozonen.py erzeugt).",
+    license: "CC BY-NC-ND 4.0 – Nutzung nur im Rahmen der erteilten Datenfreigabe von HASP/HCAA",
+    licenseUrl: "https://creativecommons.org/licenses/by-nc-nd/4.0/legalcode.de",
+    writtenPermission: true,
+    url: "https://dagr.hasp.gov.gr",
+    note: "Der Server blockt Nicht-Browser-Clients; ob die Bildkacheln in der App laden, auf dem Gerät prüfen.",
   },
 ];
 
@@ -541,8 +596,11 @@ export const ED269_STORE_ISOS: string[] = isos((m) => m.offline === "ed269-store
 /** ED-269-Gerätecache-Länder inkl. Aliase (Quellen-Labels, Höhenfilter). */
 export const ED269_STORE_ISOS_WITH_ALIASES: string[] = withAliases(ED269_STORE_ISOS);
 
-/** Nur per Datei-Import (kein erreichbarer Feed). */
-export const GEOZONE_IMPORT_ONLY_SOURCE_ISOS: string[] = isos((m) => m.kind === "import-only");
+/**
+ * Bestand nur per Datei-Import (kein erreichbarer Vektor-Feed): MT
+ * (import-only) und GR (Bild-Overlay mit optionalem Import).
+ */
+export const GEOZONE_IMPORT_ONLY_SOURCE_ISOS: string[] = isos((m) => m.offline === "import");
 
 /** Offline-Kachelspeicher (DE/FR/CZ). */
 export const TILE_STORE_SOURCE_ISOS: string[] = isos((m) => m.offline === "tile-store");
@@ -550,10 +608,11 @@ export const TILE_STORE_SOURCE_ISOS: string[] = isos((m) => m.offline === "tile-
 /**
  * Länder mit EIGENEN, automatisch prüfbaren Geozonen-Daten (eigene Karte mit
  * Overlay). Reine Bild-Overlays (HU) zählen nicht; Aliase (LI) auch nicht.
+ * Bild-Overlays mit Import (GR) zählen – zugangsgebunden – erst mit Import.
  */
-export const OWN_MAP_SOURCE_ISOS: string[] = isos((m) => !m.manualCheckOnly);
+export const OWN_MAP_SOURCE_ISOS: string[] = isos((m) => !m.manualCheckOnly || m.accessGate === "import");
 
-/** Zugangsgebundene Länder (IT Login, CZ Offline-Paket, RO Import). */
+/** Zugangsgebundene Länder (IT Login, CZ Offline-Paket, MT/GR Import). */
 export const ACCESS_GATED_SOURCE_ISOS: string[] = isos((m) => !!m.accessGate);
 
 /** Pro-Land-Override des Vektor-Mindestzooms. */

@@ -1,4 +1,4 @@
-// Offline-Kachelspeicher für Vektor-Geozonen großer Länder (DE/FR/CZ) – reine
+// Offline-Kachelspeicher für Vektor-Geozonen großer Länder (DE/FR/CZ/ES) – reine
 // Logik ohne React-Native-/Expo-Importe (unter tsx/Node testbar).
 //
 // Warum kein „eine Datei pro Kachel mit allen Zonen darin“?
@@ -29,8 +29,27 @@ export { TILE_STORE_REFRESH_MS };
 
 export type LngLatBBox = [number, number, number, number]; // w, s, e, n
 
-export type TileStoreIso = "DE" | "FR" | "CZ";
-export type TileStorePart = "base" | "wohn";
+export type TileStoreIso = "DE" | "FR" | "CZ" | "ES";
+/**
+ * Teilbestände: "base" = Pflichtteil (alle Zonen bzw. ES „Luftfahrt“),
+ * "wohn" = DE-Wohngrundstücke, "infra"/"enp" = ES-Infrastruktur bzw.
+ * -Naturschutz (je abwählbar, sehr groß).
+ */
+export type TileStorePart = "base" | "wohn" | "infra" | "enp";
+/** Abwählbare Zusatzteile je Land (zusätzlich zu "base"). */
+export const TILE_STORE_OPTIONAL_PARTS: Record<TileStoreIso, TileStorePart[]> = {
+  DE: ["wohn"],
+  FR: [],
+  CZ: [],
+  ES: ["infra", "enp"],
+};
+/** Alle Teile eines Landes ("base" zuerst). */
+export function tileStorePartsOf(iso: string): TileStorePart[] {
+  const up = String(iso || "").toUpperCase() as TileStoreIso;
+  return ["base", ...(TILE_STORE_OPTIONAL_PARTS[up] ?? [])];
+}
+/** Alle bekannten Teil-Namen. */
+export const ALL_TILE_STORE_PARTS: TileStorePart[] = ["base", "wohn", "infra", "enp"];
 /** Länder des Kachelspeichers – Registry (offline "tile-store"); Test hält den Typ synchron. */
 export const TILE_STORE_ISOS: TileStoreIso[] = TILE_STORE_SOURCE_ISOS as TileStoreIso[];
 
@@ -41,6 +60,7 @@ export function isTileStoreIso(iso: string | null | undefined): iso is TileStore
 /** Ein Download-Auftrag (eine WFS-Seite bzw. eine CZ-Kacheldatei). */
 export interface TileJob {
   id: string;
+  /** DE/FR: WFS-Ebene; ES: insignias-Layer-Schlüssel (es_infra …) */
   layer?: string;
   start?: number;
   count?: number;
@@ -502,6 +522,8 @@ export function readCzZipEntry(zip: Uint8Array, name: string): any[] {
 
 /** Quellen-/Lizenzhinweise je Land (Pflicht-Attribution). */
 export const TILE_STORE_ATTRIBUTION: Record<TileStoreIso, { label: string; license?: string; url?: string }> = {
+  // ENAIRE verlangt ausdrücklich den Rechtehinweis („© ENAIRE“).
+  ES: { label: "© ENAIRE", url: "https://drones.enaire.es" },
   DE: {
     label: "dipul, CC-BY-ND 4.0",
     license: "CC BY-ND 4.0",

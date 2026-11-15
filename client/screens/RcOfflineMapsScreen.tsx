@@ -24,6 +24,7 @@ import {
   formatMB,
   freeDiskMB,
   TILE_STORE_DOWNLOAD_MB,
+  TILE_STORE_ES_PART_MB,
   loadOfflineConfigs,
   obstacleTilesStored,
   offlineCountries,
@@ -41,19 +42,41 @@ import { clearDeeplKey, getDeeplKey, setDeeplKey } from "@/lib/zoneTranslationSt
 import { clearDflightCredentials, getDflightCredentials, setDflightCredentials } from "@/lib/geozoneDirect/dflightAuth";
 import { deleteEd269Dataset, loadStoredEd269Dataset, type Ed269ImportMeta } from "@/lib/geozoneDirect/ed269Store";
 import { GEOZONE_IMPORT_FORMAT_LABELS, pickAndImportGeozoneFile } from "@/lib/geozoneDirect/geozoneFileImport";
-import { RO_ROMATSA_DRONES_URL } from "../../shared/geozoneImport";
+import { RO_ROMATSA_DRONES_URL } from "../../shared/romanianGeozones";
+import { MT_TMCAD_MAP_URL } from "../../shared/malteseGeozones";
 import { resolveGeozoneSourceIso } from "../../shared/geozoneSourceMeta";
 import { loadLargePacksOnMobile, setLargePacksOnMobile } from "@/lib/geozoneSources/largePackSetting";
 
 const LEVELS: DetailLevel[] = [11, 12, 13, 14, 15];
 const KIND_LABEL: Record<string, string> = { map: "Karte", sat: "Satellit", geo: "Geozonen" };
 
-// Hinweis je Land, warum/wie eine Geozonen-Datei importiert wird (Nur-Import-Länder).
-const IMPORT_HINTS: Record<string, { text: string; url?: string }> = {
+// Hinweis je Land, warum/wie eine Geozonen-Datei importiert wird (Nur-Import-
+// Länder MT/GR, Rückfall RO).
+const IMPORT_HINTS: Record<string, { text: string; url?: string; linkLabel?: string }> = {
   RO: {
     text:
-      "ROMATSA-Server sind für Android nicht erreichbar (veraltete Verschlüsselung). Lade Restricted_zones_for_UAS.json am PC von flightplan.romatsa.ro/init/drones herunter und importiere sie hier.",
+      "Die Zonen werden automatisch von ROMATSA geladen (Drohnenzonen + NOTAM für UAS). Nur falls die Fernsteuerung den " +
+      "ROMATSA-Server nicht erreicht: zone_restrictionate_uav.json am PC von flightplan.romatsa.ro herunterladen und hier " +
+      "importieren (ein späterer erfolgreicher Online-Abruf ersetzt den Import).",
     url: RO_ROMATSA_DRONES_URL,
+    linkLabel: "ROMATSA",
+  },
+  MT: {
+    text:
+      "Malta: kein automatischer Abruf möglich. Am PC tmcad.idronect.com/map öffnen und warten, bis die orangen Zonen " +
+      "erscheinen → F12 → Konsole → Skript export_tmcad_geozonen.js einfügen (Doku: docs/tools/malta) → die geladene " +
+      "Datei malta_geozonen_roh_<Datum>.geojson (oder malta_geozonen.geojson aus normalisieren.py) hier importieren. " +
+      "Bis dahin Zonen manuell prüfen. Monatlich bzw. vor Einsätzen neu exportieren.",
+    url: MT_TMCAD_MAP_URL,
+    linkLabel: "Transport Malta / iDronect",
+  },
+  GR: {
+    text:
+      "Griechenland: Die Karte zeigt die DAGR-Zonen nur als Bild – keine automatische Prüfung. Optional am PC das Skript " +
+      "dagr_geozonen.py ausführen (python dagr_geozonen.py --tage 30, Doku: docs/tools/greece) und die erzeugte " +
+      "dagr_geozonen.geojson hier importieren. Nutzung nur im Rahmen der Datenfreigabe von HASP/HCAA.",
+    url: "https://dagr.hasp.gov.gr",
+    linkLabel: "HASP / DAGR",
   },
 };
 
@@ -592,7 +615,7 @@ export default function OfflineMapsScreen() {
                             ? `im Schweizer BAZL-Datensatz enthalten (wird mit geladen) · ca. ${formatMB(est.geoMB)}`
                             : `alle Zonen des Landes (Behördendaten) · ca. ${formatMB(est.geoMB)}`
                           : country.geozoneKind === "tilestore"
-                            ? `alle Zonen des Landes als Vektordaten, gekachelt · ca. ${formatMB(est.geoMB - est.wohnMB)}` +
+                            ? `${country.iso === "ES" ? "Luftfahrt- und urbane Zonen (ENAIRE)" : "alle Zonen des Landes"} als Vektordaten, gekachelt · ca. ${formatMB(est.geoMB - est.wohnMB - est.esInfraMB - est.esEnpMB)}` +
                               ` (Download ca. ${formatMB(TILE_STORE_DOWNLOAD_MB[country.iso] ?? 0)})`
                             : country.geozoneKind === "import"
                               ? "kein automatischer Abruf möglich – nur per Datei-Import (unten)"
@@ -607,7 +630,7 @@ export default function OfflineMapsScreen() {
                       {IMPORT_HINTS[country.iso] ? (
                         <Pressable
                           disabled={!IMPORT_HINTS[country.iso].url}
-                          onPress={() => IMPORT_HINTS[country.iso].url && openLink(IMPORT_HINTS[country.iso].url!, "ROMATSA").catch(() => {})}
+                          onPress={() => IMPORT_HINTS[country.iso].url && openLink(IMPORT_HINTS[country.iso].url!, IMPORT_HINTS[country.iso].linkLabel ?? "Quelle").catch(() => {})}
                           style={[styles.noteBox, { backgroundColor: theme.backgroundSecondary }]}
                         >
                           <Feather name="alert-triangle" size={16} color={theme.textSecondary} />
@@ -653,6 +676,27 @@ export default function OfflineMapsScreen() {
                       disabled={!c.geozones}
                     />
                   ) : null}
+                  {country.iso === "ES" && country.geozoneKind === "tilestore" ? (
+                    <>
+                      <Row
+                        label="Infrastruktur-Zonen offline speichern"
+                        sub={`ENAIRE-Infrastruktur (Bahn, Energie, Industrie …, 14 163 Zonen) · zusätzlich ca. ${formatMB(est.esInfraMB || TILE_STORE_ES_PART_MB.infra)} (Download ca. ${formatMB(TILE_STORE_DOWNLOAD_MB.ES_INFRA)}). Ohne diesen Teil werden diese Zonen offline nicht geprüft (online live).`}
+                        value={c.esInfra !== false}
+                        onChange={(v) => update(country.iso, { esInfra: v })}
+                        disabled={!c.geozones}
+                      />
+                      <Row
+                        label="Naturschutzgebiete offline speichern"
+                        sub={`ENAIRE-Naturschutz (ENP, 3 135 Gebiete, sehr detailliert) · zusätzlich ca. ${formatMB(est.esEnpMB || TILE_STORE_ES_PART_MB.enp)} (Download ca. ${formatMB(TILE_STORE_DOWNLOAD_MB.ES_ENP)}, nur im WLAN empfohlen). Ohne diesen Teil werden Naturschutzgebiete offline nicht geprüft (online live).`}
+                        value={c.esEnp !== false}
+                        onChange={(v) => update(country.iso, { esEnp: v })}
+                        disabled={!c.geozones}
+                      />
+                      <ThemedText style={[styles.small, { color: theme.textTertiary }]}>
+                        NOTAM für UAS werden nicht gespeichert, sondern online live geladen (offline: letzter Stand mit Alter).
+                      </ThemedText>
+                    </>
+                  ) : null}
                   {country.geozoneAttribution && c.geozones ? (
                     <Pressable
                       disabled={!country.geozoneAttribution.url}
@@ -685,7 +729,13 @@ export default function OfflineMapsScreen() {
                     <View style={[styles.progressBox, { backgroundColor: theme.backgroundSecondary }]}>
                       {packs.map((p) => (
                         <ThemedText key={p.key} style={styles.small}>
-                          {p.key.endsWith(":geo:wohn") ? "Wohngebiete" : KIND_LABEL[p.kind] ?? p.kind}
+                          {p.key.endsWith(":geo:wohn")
+                            ? "Wohngebiete"
+                            : p.key.endsWith(":geo:infra")
+                              ? "Infrastruktur"
+                              : p.key.endsWith(":geo:enp")
+                                ? "Naturschutz"
+                                : KIND_LABEL[p.kind] ?? p.kind}
                           {p.key.includes(":sat:") ? ` (${p.key.split(":")[2].replace(/^de-dop-/, "").toUpperCase()})` : ""}:{" "}
                           {p.state === "error"
                             ? `Fehler – ${p.error ?? "erneut versuchen"}`

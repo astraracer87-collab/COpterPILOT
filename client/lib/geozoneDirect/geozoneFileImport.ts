@@ -18,6 +18,9 @@ export const GEOZONE_IMPORT_FORMAT_LABELS: Record<GeozoneImportFormat, string> =
   ed269: "ED-269",
   ed318: "ED-318",
   geojson: "GeoJSON",
+  "mt-tmcad": "Transport Malta / iDronect (Export)",
+  "gr-dagr": "HASP / DAGR (dagr_geozonen.py)",
+  "ro-romatsa": "ROMATSA (GeoJSON)",
 };
 
 export type GeozoneFileImportResult =

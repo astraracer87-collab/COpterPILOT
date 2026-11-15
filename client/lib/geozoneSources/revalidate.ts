@@ -43,6 +43,7 @@ import {
   tileStoreVersionCheck,
   type TileStoreVersionCheck,
 } from "../geozoneTiles/tileStore";
+import { tileStorePartsOf } from "../geozoneTiles/tileStoreCore";
 import { loadLargePacksOnMobile, mayDownloadLargePack } from "./largePackSetting";
 
 export type RevalidatePurpose = "check" | "map" | "manual";
@@ -109,7 +110,9 @@ const defaultEnv: RevalidateEnv = {
   tilesHas: (iso) => hasTiledGeozones(iso),
   tilesVersionCheck: (iso) => tileStoreVersionCheck(iso),
   async tilesDownload(iso) {
-    const res = await downloadTileStore(iso, { wohn: !!getTilePartMeta(iso, "wohn"), force: true });
+    // vorhandene Zusatzteile (DE wohn, ES infra/enp) mit aktualisieren
+    const parts = tileStorePartsOf(iso).filter((p) => p !== "base" && !!getTilePartMeta(iso, p));
+    const res = await downloadTileStore(iso, { parts, force: true });
     return res.length > 0 && res.every((r) => r.state === "complete");
   },
   async deTempRefresh(force) {
@@ -160,7 +163,7 @@ export function ed269RefreshThresholdMs(iso: string, purpose: RevalidatePurpose)
 
 async function revalidateEd269(iso: string, purpose: RevalidatePurpose): Promise<RevalidateResult> {
   const meta = getGeozoneSourceMeta(iso);
-  if (meta?.kind === "import-only") return { iso, action: "import-only" };
+  if (meta?.offline === "import") return { iso, action: "import-only" };
   const now = env.now();
   const storedAt = await env.ed269StoredAt(iso);
   const threshold = ed269RefreshThresholdMs(iso, purpose);

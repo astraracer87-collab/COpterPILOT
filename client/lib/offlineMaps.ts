@@ -47,6 +47,10 @@ export interface CountryOfflineConfig {
   obstacles: boolean;
   /** DE: Wohngrundstücke (dipul) im Geozonen-Speicher mitspeichern */
   wohngebiete?: boolean;
+  /** ES: Infrastruktur-Zonen (ENAIRE Infra, sehr groß) mitspeichern */
+  esInfra?: boolean;
+  /** ES: Naturschutzgebiete (ENAIRE ENP, sehr groß) mitspeichern */
+  esEnp?: boolean;
 }
 
 export const DETAIL_LABELS: Record<DetailLevel, string> = {
@@ -79,10 +83,20 @@ const VECTOR_GEO_MB_BY_ISO: Record<string, number> = { CH: 18, LI: 18 };
  *   FR Géoplateforme-WFS: 89 736 Zonen, 103 MB + 7 MB (Download ≈ 79 MB gzip)
  *   CZ ŘLP ED-318: 136 547 Zonen, 73 MB + 9 MB (Download 35 MB ZIP)
  * Aufgerundet für die Speicherplatz-Prüfung.
+ *
+ * ES (ENAIRE insignias, GeoJSON ungekürzt, Stand 15.11.2026 laut Abruf von
+ * DE-IP) – SCHÄTZUNG, auf dem Gerät nicht gemessen; komprimiert ≈ 40 %:
+ *   Luftfahrt + Urbano (Aero 1,2,3,4,6,10 + Urbano 11): ≈ 2 600 Zonen, ≈ 22 MB JSON
+ *   Infrastruktur (Infra 11): 14 163 Zonen, ≈ 177 MB JSON
+ *   Naturschutz (ENP 0 + 1): 1 814 + 1 321 Zonen, ≈ 221 MB + ≈ 160 MB (Layer 1 geschätzt)
  */
-export const TILE_STORE_MB: Record<string, number> = { DE: 240, FR: 115, CZ: 85 };
+export const TILE_STORE_MB: Record<string, number> = { DE: 240, FR: 115, CZ: 85, ES: 10 };
 export const TILE_STORE_WOHN_MB = 175;
-export const TILE_STORE_DOWNLOAD_MB: Record<string, number> = { DE: 205, FR: 80, CZ: 36, DE_WOHN: 160 };
+/** ES-Zusatzteile (geschätzte Gerätegröße) */
+export const TILE_STORE_ES_PART_MB: Record<"infra" | "enp", number> = { infra: 75, enp: 160 };
+export const TILE_STORE_DOWNLOAD_MB: Record<string, number> = {
+  DE: 205, FR: 80, CZ: 36, DE_WOHN: 160, ES: 23, ES_INFRA: 177, ES_ENP: 380,
+};
 const PARALLEL = 6;
 
 // ---------------------------------------------------------------------------
@@ -137,7 +151,7 @@ function fillTemplate(t: string, x: number, y: number, z: number): string {
 // Konfiguration
 // ---------------------------------------------------------------------------
 
-// "import": kein Online-Feed erreichbar (RO) – nur per Datei-Import in den ED-269-Gerätecache
+// "import": kein Online-Feed erreichbar (MT, GR) – nur per Datei-Import in den ED-269-Gerätecache
 export type GeozoneOfflineKind = "tiles" | "vector" | "tilestore" | "import" | "none";
 
 export interface OfflineCountryInfo {
@@ -163,9 +177,11 @@ export interface OfflineCountryInfo {
 export function geozoneOfflineKind(iso: string): GeozoneOfflineKind {
   const offline = getGeozoneSourceMeta(iso)?.offline;
   if (offline === "tile-store") return "tilestore";
+  // Import-Länder (MT, GR): nur Datei-Import. GR-Bildkacheln sind zeitgefiltert
+  // (heute..morgen) und werden bewusst nicht offline gespeichert.
+  if (offline === "import") return "import";
   if (geozoneTemplates(iso).length > 0) return "tiles";
   if (offline === "ed269-store") return "vector";
-  if (offline === "import") return "import";
   return "none";
 }
 
@@ -205,6 +221,8 @@ export function defaultConfig(iso: string): CountryOfflineConfig {
     geoMaxZoom: 12,
     obstacles: true,
     ...(iso === "DE" ? { wohngebiete: true } : {}),
+    // ES: beide Zusatzteile standardmäßig an (sonst offline nicht geprüft), abwählbar
+    ...(iso === "ES" ? { esInfra: true, esEnp: true } : {}),
   };
 }
 
@@ -298,6 +316,9 @@ export interface SizeEstimate {
   geoMB: number;
   /** davon DE-Wohngrundstücke */
   wohnMB: number;
+  /** ES: Infrastruktur- bzw. Naturschutz-Teil */
+  esInfraMB: number;
+  esEnpMB: number;
   obstaclesMB: number;
   totalMB: number;
 }
@@ -310,6 +331,8 @@ export function estimateSize(c: CountryOfflineConfig): SizeEstimate {
   let satMB = 0;
   let geoMB = 0;
   let wohnMB = 0;
+  let esInfraMB = 0;
+  let esEnpMB = 0;
   let obstaclesMB = 0;
   if (c.map && p?.map) {
     mapMB = mb(tileCount(p.map.bounds, Math.max(MAP_MIN_ZOOM, p.map.minzoom ?? 0), Math.min(c.mapMaxZoom, p.map.maxzoom)), p.map.kbPerTile);
@@ -329,10 +352,15 @@ export function estimateSize(c: CountryOfflineConfig): SizeEstimate {
         wohnMB = TILE_STORE_WOHN_MB;
         geoMB += wohnMB;
       }
+      if (c.iso === "ES") {
+        if (c.esInfra !== false) esInfraMB = TILE_STORE_ES_PART_MB.infra;
+        if (c.esEnp !== false) esEnpMB = TILE_STORE_ES_PART_MB.enp;
+        geoMB += esInfraMB + esEnpMB;
+      }
     }
   }
   if (c.obstacles && bounds) obstaclesMB = (tilesForBounds(...bounds).length * LAND_SHARE * OBSTACLE_KB_PER_TILE) / 1024;
-  return { mapMB, satMB, geoMB, wohnMB, obstaclesMB, totalMB: mapMB + satMB + geoMB + obstaclesMB };
+  return { mapMB, satMB, geoMB, wohnMB, esInfraMB, esEnpMB, obstaclesMB, totalMB: mapMB + satMB + geoMB + obstaclesMB };
 }
 
 export function formatMB(mb: number): string {
@@ -358,8 +386,20 @@ type PackKind = "map" | "sat" | "geo";
 /** Fortschritts-Schlüssel der Vektor-Geozonen (keine Kacheln) */
 const vectorGeoKey = (iso: string) => `${iso}:geo:vector`;
 const VECTOR_TEMPLATE_PREFIX = "ed269:";
-/** Gekachelter Vektor-Speicher: `${iso}:geo:store` bzw. `DE:geo:wohn` */
-const storeGeoKey = (iso: string, part: TileStorePart) => `${iso}:geo:${part === "base" ? "store" : "wohn"}`;
+/** Gekachelter Vektor-Speicher: `${iso}:geo:store` bzw. `DE:geo:wohn`, `ES:geo:infra`, `ES:geo:enp` */
+const storeGeoKey = (iso: string, part: TileStorePart) => `${iso}:geo:${part === "base" ? "store" : part}`;
+
+/** Gewählte Teile des Vektor-Speichers ("base" + Zusatzteile laut Konfiguration). */
+export function storePartsFor(c: CountryOfflineConfig): TileStorePart[] {
+  if (c.iso === "DE") return c.wohngebiete !== false ? ["base", "wohn"] : ["base"];
+  if (c.iso === "ES") {
+    const parts: TileStorePart[] = ["base"];
+    if (c.esInfra !== false) parts.push("infra");
+    if (c.esEnp !== false) parts.push("enp");
+    return parts;
+  }
+  return ["base"];
+}
 const STORE_TEMPLATE_PREFIX = "tilestore:";
 
 interface PackPlan {
@@ -591,7 +631,7 @@ export async function startCountryDownload(
   const plans = plansFor(c);
   const vectorGeo = c.geozones && geozoneOfflineKind(c.iso) === "vector";
   const storeGeo = c.geozones && geozoneOfflineKind(c.iso) === "tilestore";
-  const storeParts: TileStorePart[] = storeGeo ? (c.iso === "DE" && c.wohngebiete !== false ? ["base", "wohn"] : ["base"]) : [];
+  const storeParts: TileStorePart[] = storeGeo ? storePartsFor(c) : [];
   const wanted = new Set(plans.map((p) => p.key));
   if (vectorGeo) wanted.add(vectorGeoKey(c.iso));
   for (const part of storeParts) wanted.add(storeGeoKey(c.iso, part));
@@ -717,6 +757,7 @@ async function downloadStorePacks(
 ): Promise<boolean> {
   const results = await downloadTileStore(c.iso, {
     wohn: parts.includes("wohn"),
+    parts: parts.filter((p) => p !== "base"),
     shouldStop,
     onProgress: (p) => {
       const key = storeGeoKey(c.iso, p.part);

@@ -51,6 +51,10 @@ import { SE_WFS_LAYERS, normalizeSwedishWfsFeatures } from "../../../shared/swed
 import { SI_LAYERS, normalizeSloveniaLayersWithStats } from "../../../shared/slovenianGeozones";
 import { normalizeSlovakiaWithStats } from "../../../shared/slovakGeozones";
 import { finlandFeaturesFromBody } from "../geozoneDirect/finlandSource";
+import { polandFeaturesFromKml } from "../geozoneDirect/polandSource";
+import { normalizeRomanianGeozones } from "../../../shared/romanianGeozones";
+import { normalizeMalteseImport } from "../../../shared/malteseGeozones";
+import { normalizeEnaireInsigniasFeature, tagEsInsigniasFeature } from "../../../shared/spanishGeozones";
 
 const FIX = path.join(__dirname, "fixtures");
 const json = (f: string) => JSON.parse(fs.readFileSync(path.join(FIX, f), "utf8"));
@@ -264,6 +268,25 @@ const FIXTURE_SOURCES: { fixture: string[]; iso: string; features: () => any[] }
     features: () => normalizeSlovakiaWithStats({ duKml: text("sk-du-uas-zones-sample.kml"), lps: slovakLps(), now: NOW.getTime() }).features,
   },
   { fixture: ["traficom-uas-zones-sample.json"], iso: "FI", features: () => finlandFeaturesFromBody(json("traficom-uas-zones-sample.json"), NOW) },
+  { fixture: ["pansa_kml_sample.kml"], iso: "PL", features: () => polandFeaturesFromKml(text("pansa_kml_sample.kml")) },
+  {
+    fixture: ["ro_zones_sample.geojson", "ro_notam_sample.geojson"],
+    iso: "RO",
+    features: () => normalizeRomanianGeozones(json("ro_zones_sample.geojson"), json("ro_notam_sample.geojson"), NOW).features,
+  },
+  { fixture: ["mt_zones_sample.geojson"], iso: "MT", features: () => normalizeMalteseImport(json("mt_zones_sample.geojson").features) },
+  {
+    // ENAIRE Layer 0 = Flugplatz-Bezugspunkte (keine Zonen): echte Attribute je
+    // Zonen-Layer mit kleiner Fläche um den Punkt geprüft.
+    fixture: ["enaire_aero_layer0_sample.geojson"],
+    iso: "ES",
+    features: () =>
+      json("enaire_aero_layer0_sample.geojson").features.flatMap((f: any, i: number) => {
+        const [lon, lat] = f.geometry.coordinates;
+        const poly = { ...f, geometry: { type: "Polygon", coordinates: [[[lon, lat], [lon + 0.01, lat], [lon + 0.01, lat + 0.01], [lon, lat]]] } };
+        return ["es_aerodromos", "es_urbano", "es_enp0", "es_notam"].map((key) => normalizeEnaireInsigniasFeature(tagEsInsigniasFeature({ ...poly, id: i + 1 }, key), NOW)).filter(Boolean);
+      }),
+  },
 ];
 
 describe("Jede Länder-Normalisierung liefert nur Union-Werte (alle Fixtures)", () => {

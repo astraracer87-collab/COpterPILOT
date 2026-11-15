@@ -2,22 +2,27 @@
 // App-Format (GeoJSON-Features mit den Properties, die parseEd269ToGeozoneInfo
 // in client/lib/ed269.ts liest). Siehe docs/pansa-pl-api-integration.md.
 //
-// ⚠️ Die KML-Struktur ist NICHT aus einem Live-Abruf verifiziert (api.dronemap.
-// pansa.pl ist nur von EU-/PL-IPs erreichbar). Der Normalisierer ist deshalb
-// bewusst tolerant und liest Typ und Höhen aus mehreren möglichen Stellen:
+// Verifiziert (DE-IP, 2026-11-15, Doku §8, Fixture docs/fixtures/pansa_kml_sample.kml):
+// jedes Placemark trägt Typ und Höhen im Freitext der <description>
+//   "Restriction: N/A, Type: DRAP, Min: 0 ft, Max: 600 ft"
+// → Typ über PL_TYPE_TABLE (34 Typen aus /v1/zones/types), Höhen ft → m,
+// Höhenbezug NICHT angegeben (bleibt leer = UNKNOWN; der Höhenfilter blendet
+// solche Zonen nie aus). Ältere/abweichende KML-Formen werden weiter tolerant
+// gelesen (Rückfall, Reihenfolge):
 //
 // Zonentyp (erster Treffer gewinnt):
+//   0. PANSA-Beschreibung „Type: …“
 //   1. ExtendedData-Felder  type | typ | zoneType | zone_type | kind | rodzaj |
 //      class | airspaceType | layer | category (wenn dort ein Code steht)
 //   2. Placemark-<name>
 //   3. umschließende Folder-Namen
 //   4. <styleUrl> (z. B. "#DRA-P", "#style_DRAR")
-//   Codes: DRAP/DRA-P/ATZ1KM/ATZ6KM/CTR1KM/CTR6KM/MCTR2KM → PROHIBITED,
-//          DRAR/DRA-R → REQ_AUTHORISATION, DRAI/DRA-I → CONDITIONAL,
-//          Luftraumstrukturen (CTR, TMA, ATZ, …) → NO_RESTRICTION (Info, nur mit
-//          includeAirspace).
+//   Beschränkung je Code laut PL_TYPE_TABLE (z. B. DRAP → PROHIBITED, DRAR/CTR/
+//   ATZ6KM → REQ_AUTHORISATION, DRAI/RMZ → NO_RESTRICTION). Reine Info-
+//   Lufträume (RMZ, ADIZ, …) nur mit includeAirspace; Verbots-/Genehmigungs-
+//   typen werden nie verworfen.
 //
-// Höhen (Meter; ft → m, FL → ft·100 → m, MSL-Bezug):
+// Höhen ohne PANSA-Beschreibung (Meter; ft → m, FL → ft·100 → m):
 //   - getrennte Felder: lowerLimit | lower | minAltitude | minAlt | altMin |
 //     altFrom | min | bottom | floor | minHeight | hMin | dolnaGranica | dolna
 //     bzw. upperLimit | upper | maxAltitude | maxAlt | altMax | altTo | max | top |
@@ -26,15 +31,15 @@
 //     upperReference / reference / altitudeReference)
 //   - kombiniertes Feld: altitude | height | wysokosc | limits | verticalLimits
 //     ("GND - 120 m AGL", "0-150m n.p.t.")
-//   - Werte dürfen Einheit/Bezug enthalten: "120 m AGL", "500 ft AMSL", "FL95",
-//     "GND", "SFC", "UNL", "120 m n.p.t." (AGL), "300 m n.p.m." (AMSL).
-//   - Quellen in dieser Reihenfolge: ExtendedData → HTML-Tabelle bzw.
-//     "Schlüssel: Wert"-Zeilen in <description> → einheitliche Polygon-Höhe
-//     (z-Koordinate) bei altitudeMode relativeToGround/absolute als Obergrenze.
+//   - Quellen: ExtendedData → HTML-Tabelle bzw. "Schlüssel: Wert"-Zeilen in
+//     <description> → einheitliche Polygon-Höhe (z-Koordinate) bei altitudeMode
+//     relativeToGround/absolute als Obergrenze.
 //   - Kategorie G1–G4: Feld category | kategoria | geozoneCategory | group
 //     (Bedeutung laut Doku offen → nur angezeigt, nicht interpretiert).
 //
-// Polnische Texte bleiben unverändert (die App übersetzt separat).
+// Meldung: deutsche Zeilen (Typ, Beschränkung, Höhe, Quelle) + Originaltext
+// der Behörde (PANSA-Beschreibung bzw. polnischer Text) unter
+// „Originaltext der Behörde:“; localizedMessages de zuerst.
 // Bewusst frei von React-Native-Importen (unter tsx/Node testbar).
 import {
   htmlToText,
@@ -45,6 +50,7 @@ import {
 } from "./geozoneKit/kml";
 import { flToM, parseHeight } from "./geozoneKit/heights";
 import { round1 } from "./geozoneKit/text";
+import { localizedExtendedProperties, messageWithOriginal, sourceLineDe } from "./geozoneKit/messages";
 
 export const PL_GEOZONE_SOURCE_LABEL = "PANSA DroneMap";
 export const PL_ATTRIBUTION = "© Polska Agencja Żeglugi Powietrznej (PAŻP)";
@@ -67,21 +73,31 @@ export const PL_AIRSPACE_TYPES = [
 ] as const;
 
 /**
- * Höhenfilter: Werte ≥ 500 m deaktivieren den Filter serverseitig; das QGIS-
- * Plugin sendet dann max=3000. Wir übernehmen genau diesen Wire-Wert.
+ * `max` der KML-Abfrage = HÖHENGRENZE in Metern (nicht die Zonenanzahl; live
+ * verifiziert von DE-IP, 2026-11-15, Doku §2). Die Doku/die offizielle Karte
+ * nutzen für Drohnen `max=500`: Werte ≥ 500 m deaktivieren den Höhenfilter
+ * praktisch – es kommen ALLE Zonen (auch solche mit hoher Untergrenze). Wir
+ * fragen bewusst ungefiltert ab (lieber eine Zone zu viel; der Höhenfilter der
+ * App entscheidet), statt mit 120 m Zonen serverseitig zu verlieren.
  */
-export const PANSA_MAX_NO_FILTER = 3000;
+export const PANSA_KML_MAX_M = 500;
+/** @deprecated früherer Wire-Wert des QGIS-Plugins (3000) – nicht mehr verwendet. */
+export const PANSA_MAX_NO_FILTER = PANSA_KML_MAX_M;
 
 export function buildPansaKmlUrl(
   types: readonly string[] = PL_DRONE_ZONE_TYPES,
-  maxMeters: number = PANSA_MAX_NO_FILTER,
+  maxMeters: number = PANSA_KML_MAX_M,
 ): string {
-  const max = !Number.isFinite(maxMeters) || maxMeters >= 500 ? PANSA_MAX_NO_FILTER : Math.max(0, Math.round(maxMeters));
+  const max = !Number.isFinite(maxMeters) ? PANSA_KML_MAX_M : Math.max(0, Math.round(maxMeters));
   // Kommas bewusst unkodiert lassen (wie Plugin/curl in der Doku).
   return `${PANSA_KML_URL}?extrude=false&types=${types.map(encodeURIComponent).join(",")}&max=${max}`;
 }
 
-/** Bearer-Token aus der Login-Antwort lesen ({ token } laut Plugin; Varianten tolerant). */
+/**
+ * Bearer-Token aus der Login-Antwort lesen. Verifiziert (DE-IP, 2026-11-15):
+ * `{ "access_token": "<bearer>", … }`. Ältere Varianten (token/accessToken)
+ * bleiben tolerant lesbar.
+ */
 export function parsePansaLoginToken(body: unknown): string | null {
   if (typeof body === "string") {
     const t = body.trim();
@@ -97,7 +113,7 @@ export function parsePansaLoginToken(body: unknown): string | null {
   }
   if (!body || typeof body !== "object") return null;
   const b = body as Record<string, any>;
-  for (const k of ["token", "accessToken", "access_token", "jwt", "bearer"]) {
+  for (const k of ["access_token", "accessToken", "token", "jwt", "bearer"]) {
     if (typeof b[k] === "string" && b[k].trim()) return b[k].trim();
   }
   if (b.data && typeof b.data === "object") return parsePansaLoginToken(b.data);
@@ -105,19 +121,74 @@ export function parsePansaLoginToken(body: unknown): string | null {
 }
 
 // ---------------------------------------------------------------------------
-// Typ-Erkennung
+// Zonentypen (`zones/types`, 34 Typen – Tabelle laut Doku §8, verifiziert)
 // ---------------------------------------------------------------------------
 
 export type PlZoneClass = "DRAP" | "DRAR" | "DRAI" | "AIRSPACE";
+export type PlRestriction = "PROHIBITED" | "REQ_AUTHORISATION" | "CONDITIONAL" | "NO_RESTRICTION";
 
 export interface PlZoneType {
   /** Gefundener Code in kanonischer Schreibweise, z. B. "DRA-P", "ATZ6KM", "CTR". */
   code: string;
   cls: PlZoneClass;
-  restriction: "PROHIBITED" | "REQ_AUTHORISATION" | "CONDITIONAL" | "NO_RESTRICTION";
+  restriction: PlRestriction;
+  /** Deutsche Bezeichnung des Typs */
+  labelDe?: string;
 }
 
-const DRAP_RING_CODES = ["ATZ1KM", "ATZ6KM", "CTR1KM", "CTR6KM", "MCTR2KM"];
+/**
+ * PANSA-Typ → Beschränkung und deutsche Bezeichnung. Die Zuordnung stammt aus
+ * den 34 Zonentyp-Definitionen des Endpoints `/v1/zones/types`
+ * (pansa_zones_types.json; Präfix DRA-P/DRA-R/DRA-I je Typ, Doku §8):
+ * PROHIBITED 7 · REQ_AUTHORISATION 18 · NO_RESTRICTION/Info 9. Die Datei selbst
+ * liegt nicht im Repo – die Tabelle hier ist die kodierte Fassung.
+ */
+export const PL_TYPE_TABLE: Readonly<Record<string, { restriction: PlRestriction; labelDe: string }>> = {
+  // PROHIBITED (7)
+  DRAP: { restriction: "PROHIBITED", labelDe: "Drohnen-Flugverbotszone (DRA-P)" },
+  MRT: { restriction: "PROHIBITED", labelDe: "Militärische Tiefflugstrecke (MRT)" },
+  TF: { restriction: "PROHIBITED", labelDe: "Temporäres Flugverbot (TF)" },
+  TFR: { restriction: "PROHIBITED", labelDe: "Temporäres Flugbeschränkungsgebiet (TFR)" },
+  TMA: { restriction: "PROHIBITED", labelDe: "Nahverkehrsbereich (TMA) – für Drohnen gesperrt" },
+  TS: { restriction: "PROHIBITED", labelDe: "Temporär abgetrennter Luftraum (TS)" },
+  TSA: { restriction: "PROHIBITED", labelDe: "Temporär abgetrenntes Gebiet (TSA)" },
+  // REQ_AUTHORISATION (18)
+  ATZ: { restriction: "REQ_AUTHORISATION", labelDe: "Flugplatzverkehrszone (ATZ)" },
+  ATZ1KM: { restriction: "REQ_AUTHORISATION", labelDe: "ATZ – 1-km-Bereich um den Flugplatz" },
+  ATZ6KM: { restriction: "REQ_AUTHORISATION", labelDe: "ATZ – 6-km-Bereich um den Flugplatz" },
+  CTR: { restriction: "REQ_AUTHORISATION", labelDe: "Kontrollzone (CTR)" },
+  CTR1KM: { restriction: "REQ_AUTHORISATION", labelDe: "CTR – 1-km-Bereich um den Flughafen" },
+  CTR6KM: { restriction: "REQ_AUTHORISATION", labelDe: "CTR – 6-km-Bereich um den Flughafen" },
+  D: { restriction: "REQ_AUTHORISATION", labelDe: "Gefahrengebiet (D)" },
+  DRAR: { restriction: "REQ_AUTHORISATION", labelDe: "Drohnen-Beschränkungszone (DRA-R)" },
+  EPD: { restriction: "REQ_AUTHORISATION", labelDe: "Gefahrengebiet (EP D)" },
+  EPP: { restriction: "REQ_AUTHORISATION", labelDe: "Sperrgebiet (EP P)" },
+  EPR: { restriction: "REQ_AUTHORISATION", labelDe: "Flugbeschränkungsgebiet (EP R)" },
+  MCTR: { restriction: "REQ_AUTHORISATION", labelDe: "Militärische Kontrollzone (MCTR)" },
+  MCTR2KM: { restriction: "REQ_AUTHORISATION", labelDe: "MCTR – 2-km-Bereich" },
+  P: { restriction: "REQ_AUTHORISATION", labelDe: "Sperrgebiet (P)" },
+  R: { restriction: "REQ_AUTHORISATION", labelDe: "Flugbeschränkungsgebiet (R)" },
+  RPA: { restriction: "REQ_AUTHORISATION", labelDe: "Gebiet für unbemannte Luftfahrzeuge (RPA)" },
+  TR: { restriction: "REQ_AUTHORISATION", labelDe: "Temporär reservierter Luftraum (TR)" },
+  TRA: { restriction: "REQ_AUTHORISATION", labelDe: "Temporär reserviertes Gebiet (TRA)" },
+  // NO_RESTRICTION / Info (9)
+  AAA: { restriction: "NO_RESTRICTION", labelDe: "Gebiet mit Flugaktivität (AAA) – Information" },
+  ADIZ: { restriction: "NO_RESTRICTION", labelDe: "Luftverteidigungs-Identifizierungszone (ADIZ) – Information" },
+  AREA: { restriction: "NO_RESTRICTION", labelDe: "Informationsgebiet (AREA)" },
+  DRAI: { restriction: "NO_RESTRICTION", labelDe: "Drohnen-Informationszone (DRA-I)" },
+  EA: { restriction: "NO_RESTRICTION", labelDe: "Übungsgebiet (EA) – Information" },
+  FIS: { restriction: "NO_RESTRICTION", labelDe: "Fluginformationsbereich (FIS) – Information" },
+  NW: { restriction: "NO_RESTRICTION", labelDe: "Navigationswarnung (NW) – Information" },
+  RMZ: { restriction: "NO_RESTRICTION", labelDe: "Funkkommunikationspflicht-Zone (RMZ) – Information" },
+  ROL: { restriction: "NO_RESTRICTION", labelDe: "Gebiet mit Flugbeschränkung laut NOTAM (ROL) – Information" },
+};
+
+/** Drohnen-Codes (Klasse DRAP/DRAR/DRAI; Ringe um Flugplätze gehören zu DRA-P laut Plugin). */
+const DRONE_CLASS: Record<string, PlZoneClass> = {
+  DRAP: "DRAP", ATZ1KM: "DRAP", ATZ6KM: "DRAP", CTR1KM: "DRAP", CTR6KM: "DRAP", MCTR2KM: "DRAP",
+  DRAR: "DRAR",
+  DRAI: "DRAI",
+};
 
 function canon(s: string): string {
   let v = s;
@@ -130,13 +201,14 @@ function canon(s: string): string {
   return v.replace(/[łŁ]/g, "l").toUpperCase();
 }
 
-function droneType(code: string): PlZoneType | null {
-  const c = code.replace(/[\s_-]+/g, "");
-  if (c === "DRAP") return { code: "DRA-P", cls: "DRAP", restriction: "PROHIBITED" };
-  if (c === "DRAR") return { code: "DRA-R", cls: "DRAR", restriction: "REQ_AUTHORISATION" };
-  if (c === "DRAI") return { code: "DRA-I", cls: "DRAI", restriction: "CONDITIONAL" };
-  if (DRAP_RING_CODES.includes(c)) return { code: c, cls: "DRAP", restriction: "PROHIBITED" };
-  return null;
+/** Kompakter Typ-Code („DRA-P“ → „DRAP“, „EP D“ → „EPD“) → Typ laut Tabelle; null = unbekannt. */
+export function polishTypeFromCode(raw: string | undefined): PlZoneType | null {
+  if (!raw) return null;
+  const c = canon(raw).replace(/[\s_-]+/g, "");
+  const t = PL_TYPE_TABLE[c];
+  if (!t) return null;
+  const code = c === "DRAP" ? "DRA-P" : c === "DRAR" ? "DRA-R" : c === "DRAI" ? "DRA-I" : c;
+  return { code, cls: DRONE_CLASS[c] ?? "AIRSPACE", restriction: t.restriction, labelDe: t.labelDe };
 }
 
 const DRONE_CODE_RE = /(?:^|[^A-Z0-9])(DRA[\s_-]?[PRI]|ATZ[16][\s_-]?KM|CTR[16][\s_-]?KM|MCTR[\s_-]?2[\s_-]?KM)(?=$|[^A-Z0-9])/;
@@ -148,9 +220,10 @@ export function classifyPolishTypeValue(raw: string | undefined): PlZoneType | n
   if (!raw) return null;
   const v = canon(raw).trim();
   if (!v) return null;
-  const d = droneType(v);
-  if (d) return d;
+  const direct = polishTypeFromCode(v);
+  if (direct) return direct;
   const compact = v.replace(/[\s_-]+/g, "");
+  // Luftraumcodes ohne eigene Tabellenzeile (MTMA, MATZ): Information.
   if ((PL_AIRSPACE_TYPES as readonly string[]).includes(compact)) {
     return { code: compact, cls: "AIRSPACE", restriction: "NO_RESTRICTION" };
   }
@@ -162,10 +235,39 @@ export function classifyPolishTypeText(raw: string | undefined): PlZoneType | nu
   if (!raw) return null;
   const v = canon(raw);
   const m = v.match(DRONE_CODE_RE);
-  if (m) return droneType(m[1]);
+  if (m) return polishTypeFromCode(m[1]);
   const a = v.match(AIRSPACE_CODE_RE);
-  if (a) return { code: a[1], cls: "AIRSPACE", restriction: "NO_RESTRICTION" };
+  if (a) return polishTypeFromCode(a[1]) ?? { code: a[1], cls: "AIRSPACE", restriction: "NO_RESTRICTION" };
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Verifiziertes KML-Format (DE-IP, 2026-11-15): Typ und Höhen stehen im
+// Freitext der <description>:
+//   "Restriction: N/A, Type: DRAP, Min: 0 ft, Max: 600 ft"
+// ---------------------------------------------------------------------------
+
+export interface PansaDescription {
+  /** Rohwert „Restriction:“ (meist „N/A“) */
+  restriction?: string;
+  type: string;
+  minFt: number;
+  maxFt: number;
+}
+
+const PANSA_DESC_RE = /Type:\s*([\w-]+)\s*,\s*Min:\s*(-?\d+(?:[.,]\d+)?)\s*ft\s*,\s*Max:\s*(-?\d+(?:[.,]\d+)?)\s*ft/i;
+
+/** PANSA-Beschreibung lesen; null, wenn sie nicht dem verifizierten Muster folgt. */
+export function parsePansaDescription(text: string | undefined): PansaDescription | null {
+  if (!text) return null;
+  const m = text.match(PANSA_DESC_RE);
+  if (!m) return null;
+  const r = text.match(/Restriction:\s*([^,]*)/i);
+  const minFt = Number(m[2].replace(",", "."));
+  const maxFt = Number(m[3].replace(",", "."));
+  if (!Number.isFinite(minFt) || !Number.isFinite(maxFt)) return null;
+  const restriction = r ? r[1].trim() : undefined;
+  return { type: m[1].toUpperCase(), minFt, maxFt, ...(restriction ? { restriction } : {}) };
 }
 
 // ---------------------------------------------------------------------------
@@ -372,6 +474,17 @@ function geozoneCategory(attrs: Attrs, pm: KmlPlacemark): string | undefined {
   return s ? `G${s[1]}` : undefined;
 }
 
+const RESTRICTION_DE: Record<PlRestriction, string> = {
+  PROHIBITED: "Flugverbot für Drohnen.",
+  REQ_AUTHORISATION: "Flug nur mit Genehmigung/Zustimmung der zuständigen Stelle (PAŻP/Flugsicherung bzw. Betreiber).",
+  CONDITIONAL: "Flug unter Auflagen zulässig.",
+  NO_RESTRICTION: "Informationszone – keine Beschränkung, Hinweise beachten.",
+};
+
+function ftText(ft: number): string {
+  return `${ft} ft (${Math.round(ft * 0.3048)} m)`;
+}
+
 export function normalizePolishPlacemark(pm: KmlPlacemark, opts: PlNormalizeOptions = {}): PlFeature | null {
   const geometry = kmlPlacemarkToGeoJsonGeometry(pm);
   if (!geometry) return null;
@@ -381,55 +494,79 @@ export function normalizePolishPlacemark(pm: KmlPlacemark, opts: PlNormalizeOpti
   addAttrs(attrs, pm.data);
   const table = kmlDescriptionTable(pm.description);
   const descText = htmlToText(pm.description);
-  const descAttrs = Object.keys(table).length > 0 ? table : keyValueLines(descText);
+  // Verifiziertes PANSA-Format („Restriction: N/A, Type: DRAP, Min: 0 ft, Max: 600 ft“)
+  const pansa = Object.keys(table).length === 0 ? parsePansaDescription(descText) : null;
+  const descAttrs = pansa ? {} : Object.keys(table).length > 0 ? table : keyValueLines(descText);
   const dataAttrCount = attrs.size;
   addAttrs(attrs, descAttrs);
 
-  let type = placemarkType(pm, attrs);
+  let type: PlZoneType | null = null;
+  if (pansa) type = classifyPolishTypeValue(pansa.type);
+  if (!type) type = placemarkType(pm, attrs);
   let typeUnknown = false;
   if (!type) {
     if (opts.unknownAs === "skip") return null;
-    type = { code: "DRA", cls: "DRAR", restriction: "REQ_AUTHORISATION" };
+    type = { code: pansa?.type || "DRA", cls: "DRAR", restriction: "REQ_AUTHORISATION" };
     typeUnknown = true;
   }
-  if (type.cls === "AIRSPACE" && !opts.includeAirspace) return null;
+  // Reine Info-Lufträume nur auf Wunsch; Verbots-/Genehmigungstypen nie verwerfen.
+  if (type.cls === "AIRSPACE" && type.restriction === "NO_RESTRICTION" && !opts.includeAirspace) return null;
 
   // Höhen
-  const dataOnly: Attrs = new Map([...attrs].slice(0, dataAttrCount));
-  let { lower, upper } = altitudesFromAttrs(dataOnly);
-  let altitudeSource: "extendedData" | "description" | "geometry" | "none" = lower || upper ? "extendedData" : "none";
-  if (!lower && !upper) {
-    ({ lower, upper } = altitudesFromAttrs(attrs));
-    if (lower || upper) altitudeSource = "description";
-  }
-  if (!upper) {
-    const g = altitudeFromGeometry(pm);
-    if (g) {
-      upper = g;
-      if (altitudeSource === "none") altitudeSource = "geometry";
+  let lower: PlAltitude | null = null;
+  let upper: PlAltitude | null = null;
+  let altitudeSource: "pansa" | "extendedData" | "description" | "geometry" | "none" = "none";
+  if (pansa) {
+    // Einheit ft laut PANSA-Text; der Höhenbezug wird NICHT angegeben → leer
+    // lassen (UNKNOWN, der Höhenfilter blendet nie aus). 0 ft = Boden.
+    lower = pansa.minFt <= 0 ? { meters: 0, reference: "AGL" } : { meters: round1(parseHeight(pansa.minFt, "ft")?.m ?? 0) };
+    upper = { meters: round1(parseHeight(pansa.maxFt, "ft")?.m ?? 0) };
+    altitudeSource = "pansa";
+  } else {
+    const dataOnly: Attrs = new Map([...attrs].slice(0, dataAttrCount));
+    ({ lower, upper } = altitudesFromAttrs(dataOnly));
+    if (lower || upper) altitudeSource = "extendedData";
+    else {
+      ({ lower, upper } = altitudesFromAttrs(attrs));
+      if (lower || upper) altitudeSource = "description";
+    }
+    if (!upper) {
+      const g = altitudeFromGeometry(pm);
+      if (g) {
+        upper = g;
+        if (altitudeSource === "none") altitudeSource = "geometry";
+      }
     }
   }
   const lowerMeters = lower?.meters ?? 0;
-  const lowerReference = lower?.reference ?? (lowerMeters === 0 ? "AGL" : upper?.reference ?? "AGL");
-  const upperReference = upper?.reference ?? lower?.reference ?? "AGL";
+  const lowerReference = lower?.reference ?? (lowerMeters === 0 ? "AGL" : pansa ? undefined : upper?.reference ?? "AGL");
+  const upperReference = pansa ? undefined : upper?.reference ?? lower?.reference ?? "AGL";
 
   const name = pm.name ?? pick(attrs, NAME_KEYS) ?? pick(attrs, ID_KEYS) ?? type.code;
   const identifier = pm.id ?? pick(attrs, ID_KEYS) ?? `${type.code}:${name}`;
   const category = geozoneCategory(attrs, pm);
 
-  // Beschreibung (Polnisch, unverändert) + kurze Kontextzeilen.
-  const lines: string[] = [];
+  // Deutsche Meldung + Originaltext der Behörde (PANSA-Beschreibung bzw. polnischer Text).
+  const original: string[] = [];
   if (Object.keys(table).length > 0) {
-    for (const [k, v] of Object.entries(table)) if (v) lines.push(`${k}: ${v}`);
+    for (const [k, v] of Object.entries(table)) if (v) original.push(`${k}: ${v}`);
   } else if (descText) {
-    lines.push(descText);
+    original.push(descText);
   }
   const remark = pick(attrs, REMARK_KEYS);
-  if (remark && !lines.some((l) => l.includes(remark))) lines.push(remark);
-  lines.push(`PANSA-Zonentyp: ${typeUnknown ? "unbekannt" : type.code}${category ? ` · Kategorie ${category}` : ""}`);
+  if (remark && !original.some((l) => l.includes(remark))) original.push(remark);
+
+  const lines: string[] = [];
+  lines.push(`PANSA-Zonentyp: ${typeUnknown ? `unbekannt${pansa ? ` (${pansa.type})` : ""}` : `${type.code}${type.labelDe ? ` – ${type.labelDe}` : ""}`}${category ? ` · Kategorie ${category}` : ""}`);
+  lines.push(RESTRICTION_DE[type.restriction]);
+  if (pansa) {
+    lines.push(`Höhe laut PANSA: ${pansa.minFt <= 0 ? "GND" : ftText(pansa.minFt)} bis ${ftText(pansa.maxFt)} (Höhenbezug nicht angegeben).`);
+  }
   if (typeUnknown) lines.push("Zonentyp in den PANSA-Daten nicht erkannt – vorsorglich als genehmigungspflichtig dargestellt.");
-  if (type.cls === "AIRSPACE") lines.push("Luftraumstruktur – nur zur Information; maßgeblich sind die DRA-Zonen.");
-  lines.push(`${PL_ATTRIBUTION} – nur zur Information, nicht zur Navigation. Tagesaktuelle Luftraum-Aktivierungen (AUP/UUP) und NOTAMs zusätzlich prüfen.`);
+  if (type.cls === "AIRSPACE" && type.restriction === "NO_RESTRICTION") lines.push("Luftraumstruktur – nur zur Information; maßgeblich sind die DRA-Zonen.");
+  lines.push(sourceLineDe("PANSA DroneMap", PL_ATTRIBUTION, "Tagesaktuelle Luftraum-Aktivierungen (AUP/UUP) und NOTAMs"));
+  const originalText = original.join("\n");
+  const message = messageWithOriginal(lines, originalText);
 
   const props: Record<string, any> = {
     identifier,
@@ -438,7 +575,8 @@ export function normalizePolishPlacemark(pm: KmlPlacemark, opts: PlNormalizeOpti
     lowerMeters,
     lowerReference,
     upperReference,
-    message: lines.join("\n"),
+    message,
+    extendedProperties: localizedExtendedProperties(message, originalText || null, pansa ? "en" : "pl"),
     country: "POL",
     source: PL_GEOZONE_SOURCE_LABEL,
     plZoneType: typeUnknown ? undefined : type.code,
@@ -447,6 +585,7 @@ export function normalizePolishPlacemark(pm: KmlPlacemark, opts: PlNormalizeOpti
     notamsUrl: PANSA_AUP_URL,
     notamsUrlLabel: "PANSA AUP/UUP (heute aktive Lufträume)",
   };
+  if (pansa) props.altitudeText = `${pansa.minFt <= 0 ? "GND" : `${pansa.minFt} ft`} – ${pansa.maxFt} ft`;
   if (upper?.meters != null) props.upperMeters = upper.meters;
   if (category) props.plGeozoneCategory = category;
   if (typeUnknown) props.plTypeUnknown = true;

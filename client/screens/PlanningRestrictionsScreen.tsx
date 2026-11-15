@@ -97,9 +97,13 @@ export default function PlanningRestrictionsScreen() {
     (energyInfrastructure?.counts.powerLines ?? 0) +
     (energyInfrastructure?.counts.powerMasts ?? 0);
   const hasAdditionalEnergyInfrastructure = countryIso === "DE" && additionalEnergyCount > 0;
-  // Länder ohne automatische Zonenprüfung (Registry: manualCheckOnly, z. B. HU-Bild-Overlay)
+  // Länder ohne automatische Zonenprüfung (Registry: manualCheckOnly, z. B.
+  // HU-/GR-Bild-Overlay). GR: mit importierten Vektorzonen entfällt der Hinweis.
   const manualCheckSource = getGeozoneSource(countryIso);
-  const manualCheckHint = manualCheckSource?.manualCheckOnly ? manualCheckSource.manualCheckHint : undefined;
+  const manualCheckHint =
+    manualCheckSource?.manualCheckOnly && !(manualCheckSource.accessGate === "import" && hasOwnMap(countryIso))
+      ? manualCheckSource.manualCheckHint
+      : undefined;
   const energyInfrastructureNote = useMemo(() => {
     if (countryIso !== "DE") return null;
     const items = energyInfrastructure?.features ?? [];
@@ -276,7 +280,7 @@ export default function PlanningRestrictionsScreen() {
   // Der Schalter "Alle Geozonen anzeigen" hebt den Filter auf.
   const { geozones, hiddenAboveGeozones } = useMemo(() => {
     // Vektor-Länder aus der Quellen-Registry (ED-269-Gerätecache inkl. LI);
-    // Nur-Import-Länder (RO) zählen erst mit gespeichertem Bestand.
+    // Nur-Import-Länder (MT, GR) zählen erst mit gespeichertem Bestand.
     const isFilterable = (gz: GeozoneFeatureInfo) => isEd269VectorIso(gz.country || countryIso, hasOwnMap);
     if (showAllGeozones) return { geozones: rawGeozones, hiddenAboveGeozones: [] as GeozoneFeatureInfo[] };
     const filterable = rawGeozones.filter(isFilterable);

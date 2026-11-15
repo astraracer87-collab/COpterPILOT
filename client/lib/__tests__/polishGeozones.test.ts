@@ -1,5 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 
 import {
   decodeXmlEntities,
@@ -15,6 +17,8 @@ import {
   classifyPolishTypeText,
   classifyPolishTypeValue,
   normalizePolishKml,
+  PL_TYPE_TABLE,
+  parsePansaDescription,
   parsePansaLoginToken,
   parsePolishAltitude,
   parsePolishAltitudeRange,
@@ -23,9 +27,11 @@ import {
 import { polandFeaturesFromKml, PANSA_KML_REQUEST_URL } from "../geozoneDirect/polandSource";
 import { parseEd269ToGeozoneInfo } from "../ed269";
 
-// Handgemachte Fixture nach der in docs/pansa-pl-api-integration.md
-// beschriebenen Struktur (KML, Folder je Typ, ExtendedData). NICHT aus einem
-// echten Abruf – sobald von einer PL-/EU-IP möglich, durch echte Antwort ersetzen.
+// ECHTE PANSA-Antwort (Ausschnitt, DE-IP 2026-11-15): docs/fixtures/pansa_kml_sample.kml
+const REAL_KML = fs.readFileSync(path.join(__dirname, "fixtures", "pansa_kml_sample.kml"), "utf8");
+
+// Handgemachte Fixture für die toleranten Rückfallpfade (ExtendedData, Folder,
+// Tabelle, Geometrie-Höhe) – das echte Format deckt REAL_KML ab.
 const KML = `<?xml version="1.0" encoding="UTF-8"?>
 <!-- PANSA DroneMap export -->
 <kml xmlns="http://www.opengis.net/kml/2.2" xmlns:gx="http://www.google.com/kml/ext/2.2">
@@ -164,11 +170,18 @@ describe("kmlParse", () => {
 });
 
 describe("polishGeozones – Bausteine", () => {
-  it("Typ-Mapping", () => {
+  it("Typ-Mapping laut verifizierter Tabelle (34 Typen: 7 / 18 / 9)", () => {
+    const counts: Record<string, number> = {};
+    for (const t of Object.values(PL_TYPE_TABLE)) counts[t.restriction] = (counts[t.restriction] ?? 0) + 1;
+    assert.deepEqual(counts, { PROHIBITED: 7, REQ_AUTHORISATION: 18, NO_RESTRICTION: 9 });
     assert.equal(classifyPolishTypeValue("DRA-P")?.restriction, "PROHIBITED");
-    assert.equal(classifyPolishTypeValue("MCTR2KM")?.restriction, "PROHIBITED");
+    assert.equal(classifyPolishTypeValue("TSA")?.restriction, "PROHIBITED");
+    assert.equal(classifyPolishTypeValue("MCTR2KM")?.restriction, "REQ_AUTHORISATION");
+    assert.equal(classifyPolishTypeValue("MCTR2KM")?.cls, "DRAP");
     assert.equal(classifyPolishTypeValue("drar")?.restriction, "REQ_AUTHORISATION");
-    assert.equal(classifyPolishTypeValue("DRA_I")?.restriction, "CONDITIONAL");
+    assert.equal(classifyPolishTypeValue("DRA_I")?.restriction, "NO_RESTRICTION");
+    assert.equal(classifyPolishTypeValue("EP D")?.restriction, "REQ_AUTHORISATION");
+    assert.equal(classifyPolishTypeValue("RMZ")?.restriction, "NO_RESTRICTION");
     assert.equal(classifyPolishTypeValue("R")?.cls, "AIRSPACE");
     assert.equal(classifyPolishTypeText("EPWA CTR")?.cls, "AIRSPACE");
     assert.equal(classifyPolishTypeText("EPWA CTR6KM")?.code, "CTR6KM");
@@ -196,12 +209,14 @@ describe("polishGeozones – Bausteine", () => {
     assert.equal(parsePolishDate("01.11.2026"), Date.UTC(2026, 10, 1));
     assert.equal(parsePolishDate("2099-12-31T23:59:00Z"), Date.UTC(2099, 11, 31, 23, 59));
     assert.equal(parsePolishDate("bzdura"), null);
+    // verifiziert: Feld access_token
+    assert.equal(parsePansaLoginToken({ access_token: "eyJ.abc.def", token_type: "Bearer" }), "eyJ.abc.def");
     assert.equal(parsePansaLoginToken({ token: "abc.def.ghi" }), "abc.def.ghi");
     assert.equal(parsePansaLoginToken('{"data":{"accessToken":"xyz"}}'), "xyz");
     assert.equal(parsePansaLoginToken({}), null);
     assert.equal(
       PANSA_KML_REQUEST_URL,
-      "https://api.dronemap.pansa.pl/v1/kml/filtered?extrude=false&types=DRAP,DRAR,DRAI&max=3000",
+      "https://api.dronemap.pansa.pl/v1/kml/filtered?extrude=false&types=DRAP,DRAR,DRAI&max=500",
     );
     assert.match(buildPansaKmlUrl(["DRAP"], 120), /types=DRAP&max=120$/);
   });
@@ -211,32 +226,39 @@ describe("polishGeozones – KML → Zonen", () => {
   const features = normalizePolishKml(KML);
   const byName = (n: string) => features.find((f) => f.properties.name === n)!;
 
-  it("Auswahl: Dublette entfernt, CTR ohne includeAirspace verworfen, Punkt ignoriert", () => {
+  it("Auswahl: Dublette entfernt, CTR (Genehmigung) bleibt, Punkt ignoriert", () => {
     assert.deepEqual(
       features.map((f) => f.properties.name),
-      ["EPWA CTR1KM", "EPKK ATZ6KM", "DRA-R Elektrownia Bełchatów & okolice", "DRA-R Zakład", "Rezerwat przyrody Łężczok", "Bez typu"],
+      ["EPWA CTR1KM", "EPKK ATZ6KM", "DRA-R Elektrownia Bełchatów & okolice", "DRA-R Zakład", "Rezerwat przyrody Łężczok", "EPWA CTR", "Bez typu"],
     );
     const withAir = normalizePolishKml(KML, { includeAirspace: true, unknownAs: "skip" });
     const ctr = withAir.find((f) => f.properties.name === "EPWA CTR")!;
-    assert.equal(ctr.properties.restriction, "NO_RESTRICTION");
+    assert.equal(ctr.properties.restriction, "REQ_AUTHORISATION");
     assert.equal(ctr.properties.plAirspace, true);
     assert.equal(withAir.some((f) => f.properties.name === "Bez typu"), false);
+    // reine Info-Lufträume nur mit includeAirspace
+    const rmz = `<kml><Placemark><name>EPWA RMZ</name><ExtendedData><Data name="type"><value>RMZ</value></Data></ExtendedData><Polygon><outerBoundaryIs><LinearRing><coordinates>20,52 21,52 21,53 20,52</coordinates></LinearRing></outerBoundaryIs></Polygon></Placemark></kml>`;
+    assert.equal(normalizePolishKml(rmz).length, 0);
+    assert.equal(normalizePolishKml(rmz, { includeAirspace: true })[0].properties.restriction, "NO_RESTRICTION");
   });
 
-  it("DRAP aus ExtendedData, GND–UNL, Polnisch unverändert", () => {
+  it("CTR1KM aus ExtendedData (Tabelle: Genehmigung), GND–UNL, deutsche Meldung + polnischer Originaltext", () => {
     const f = byName("EPWA CTR1KM");
-    assert.equal(f.properties.restriction, "PROHIBITED");
+    assert.equal(f.properties.restriction, "REQ_AUTHORISATION");
     assert.equal(f.properties.plZoneType, "CTR1KM");
     assert.equal(f.properties.lowerMeters, 0);
     assert.equal(f.properties.upperMeters, undefined);
     assert.equal(f.properties.source, PL_GEOZONE_SOURCE_LABEL);
-    assert.match(f.properties.message, /^Strefa zakazu lotów dronów wokół lotniska Warszawa-Okęcie\./);
+    assert.match(f.properties.message, /^PANSA-Zonentyp: CTR1KM – CTR – 1-km-Bereich/);
+    assert.match(f.properties.message, /Originaltext der Behörde:\nStrefa zakazu lotów dronów wokół lotniska Warszawa-Okęcie\./);
+    assert.equal(f.properties.extendedProperties.localizedMessages[0].language, "de");
+    assert.equal(f.properties.extendedProperties.localizedMessages[1].language, "pl");
     assert.equal(f.geometry.type, "Polygon");
   });
 
   it("ATZ6KM: MultiPolygon mit Loch, Kategorie G1, 100 ft → 30,5 m", () => {
     const f = byName("EPKK ATZ6KM");
-    assert.equal(f.properties.restriction, "PROHIBITED");
+    assert.equal(f.properties.restriction, "REQ_AUTHORISATION");
     assert.equal(f.geometry.type, "MultiPolygon");
     assert.equal(f.geometry.coordinates[0].length, 2);
     assert.equal(f.properties.plGeozoneCategory, "G1");
@@ -262,9 +284,9 @@ describe("polishGeozones – KML → Zonen", () => {
     assert.equal(f.properties.validEndTs, Date.UTC(2099, 11, 31, 23, 59));
   });
 
-  it("DRAI → CONDITIONAL, Obergrenze aus relativeToGround-Höhe", () => {
+  it("DRAI → NO_RESTRICTION (Info), Obergrenze aus relativeToGround-Höhe", () => {
     const f = byName("Rezerwat przyrody Łężczok");
-    assert.equal(f.properties.restriction, "CONDITIONAL");
+    assert.equal(f.properties.restriction, "NO_RESTRICTION");
     assert.equal(f.properties.upperMeters, 120);
     assert.equal(f.properties.plAltitudeSource, "geometry");
     // Koordinaten 2D
@@ -279,16 +301,56 @@ describe("polishGeozones – KML → Zonen", () => {
 
   it("finalize + parseEd269ToGeozoneInfo lesen die Zonen", () => {
     const fin = polandFeaturesFromKml(KML);
-    assert.equal(fin.length, 6);
+    assert.equal(fin.length, 7);
     assert.ok(fin.every((f) => f.properties._country === "pl" && Array.isArray(f.bbox)));
     const infos = parseEd269ToGeozoneInfo(fin, "pl");
-    assert.equal(infos.length, 6);
+    assert.equal(infos.length, 7);
     const ctr = infos.find((z) => z.featureId === "DRAP-EPWA-CTR1KM")!;
-    assert.equal(ctr.restriction, "PROHIBITED");
+    assert.equal(ctr.restriction, "REQ_AUTHORISATION");
     assert.equal(ctr.lowerMeters, 0);
     assert.equal(ctr.country, "PL");
     const atz = infos.find((z) => z.featureId === "DRAP-EPKK-ATZ6KM")!;
     assert.equal(atz.polygonGroups.length, 2);
     assert.equal(atz.polygonGroups[0].length, 2);
+  });
+});
+
+describe("polishGeozones – echte PANSA-KML (DE-IP, 2026-11-15)", () => {
+  it("Beschreibung „Restriction: N/A, Type: DRAP, Min: 0 ft, Max: 600 ft“", () => {
+    assert.deepEqual(parsePansaDescription("Restriction: N/A, Type: DRAP, Min: 0 ft, Max: 600 ft"), {
+      type: "DRAP",
+      minFt: 0,
+      maxFt: 600,
+      restriction: "N/A",
+    });
+    assert.equal(parsePansaDescription("irgendwas"), null);
+  });
+
+  it("2 Placemarks → DRA-P Flugverbot, ft → m, Bezug unbekannt, deutsche Meldung", () => {
+    const fs2 = normalizePolishKml(REAL_KML);
+    assert.deepEqual(fs2.map((f) => f.properties.name), ["DRA-P 2550", "DRA-P 1529"]);
+    const a = fs2[0].properties;
+    assert.equal(a.restriction, "PROHIBITED");
+    assert.equal(a.plZoneType, "DRA-P");
+    assert.equal(a.plAltitudeSource, "pansa");
+    assert.equal(a.lowerMeters, 0);
+    assert.equal(a.lowerReference, "AGL"); // 0 ft = Boden
+    assert.equal(a.upperMeters, 182.9); // 600 ft
+    assert.equal(a.upperReference, undefined); // Bezug nicht angegeben → UNKNOWN
+    assert.equal(a.altitudeText, "GND – 600 ft");
+    assert.match(a.message, /^PANSA-Zonentyp: DRA-P – Drohnen-Flugverbotszone \(DRA-P\)\nFlugverbot für Drohnen\./);
+    assert.match(a.message, /Höhe laut PANSA: GND bis 600 ft \(183 m\) \(Höhenbezug nicht angegeben\)\./);
+    assert.match(a.message, /Originaltext der Behörde:\nRestriction: N\/A, Type: DRAP, Min: 0 ft, Max: 600 ft$/);
+    assert.equal(fs2[1].properties.upperMeters, 518.2); // 1700 ft
+    assert.equal(fs2[0].geometry.type, "Polygon");
+    assert.equal(fs2[0].geometry.coordinates[0][0].length, 2);
+  });
+
+  it("finalize + App-Modell: Flugverbot, Obergrenze mit unbekanntem Bezug", () => {
+    const infos = parseEd269ToGeozoneInfo(polandFeaturesFromKml(REAL_KML), "pl");
+    assert.equal(infos.length, 2);
+    assert.ok(infos.every((z) => z.restriction === "PROHIBITED" && z.country === "PL"));
+    assert.equal(infos[0].upper?.ref, "UNKNOWN");
+    assert.equal(infos[0].lowerMeters, 0);
   });
 });

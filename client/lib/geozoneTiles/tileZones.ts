@@ -1,5 +1,5 @@
 // Umwandlung der unverändert gespeicherten Features (dipul-WFS, Géoplateforme-
-// WFS, ŘLP ED-318) in das App-Modell GeozoneFeatureInfo – erst beim Lesen.
+// WFS, ŘLP ED-318, ENAIRE insignias) in das App-Modell GeozoneFeatureInfo – erst beim Lesen.
 // Rein, ohne React-Native-Importe (unter tsx testbar).
 import type { GeozoneFeatureInfo } from "../geozones";
 import { GEOZONE_LAYERS } from "../../../shared/geozoneLayerCatalog";
@@ -16,6 +16,7 @@ import { ed318Applicability } from "../../../shared/ed318Pure";
 import { restrictionLabelDe } from "../../../shared/restrictionPolicy";
 import { capUnlimited, formatHeightRangeDe, parseHeight, type Height } from "../../../shared/heights";
 import { TILE_STORE_ATTRIBUTION, type TileStoreIso } from "./tileStoreCore";
+import { normalizeEnaireInsigniasFeature } from "../../../shared/spanishGeozones";
 
 const DIPUL_LAYER_BY_NAME = new Map(GEOZONE_LAYERS.map((l) => [l.wmsLayer, l]));
 
@@ -178,10 +179,34 @@ export function czZoneFromStored(f: any): GeozoneFeatureInfo | null {
   };
 }
 
+// --- Spanien (ENAIRE insignias) ---------------------------------------------
+
+/**
+ * Gespeichertes bzw. live geladenes insignias-Feature → App-Zone: Normalisierung
+ * wie die übrigen ED-318-Länder (shared/spanishGeozones.ts), dann das ED-269-
+ * Lesemodell (client/lib/ed269.ts; lazy geladen – ed269.ts importiert die
+ * Registry, die diesen Speicher importiert). Ebene je ENAIRE-Layer.
+ */
+export function esZoneFromStored(f: any, now: Date = new Date()): GeozoneFeatureInfo | null {
+  const n = normalizeEnaireInsigniasFeature(f, now);
+  if (!n) return null;
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { parseEd269ToGeozoneInfo } = require("../ed269") as typeof import("../ed269");
+  const [z] = parseEd269ToGeozoneInfo([n], "ES");
+  if (!z) return null;
+  return {
+    ...z,
+    layerLabel: `ENAIRE – ${n.properties.esLayerLabel ?? "Geozonen"}`,
+    details: `${z.details}\nQuelle: ${TILE_STORE_ATTRIBUTION.ES.label} (ENAIRE Drones, insignias)`,
+    links: [...(z.links ?? []), { label: "ENAIRE Drones (verbindlich)", url: TILE_STORE_ATTRIBUTION.ES.url! }],
+  };
+}
+
 export function zoneFromStored(iso: TileStoreIso, f: any): GeozoneFeatureInfo | null {
   try {
     if (iso === "DE") return deZoneFromStored(f);
     if (iso === "FR") return frZoneFromStored(f);
+    if (iso === "ES") return esZoneFromStored(f);
     return czZoneFromStored(f);
   } catch {
     return null;

@@ -16,7 +16,6 @@ import { fetchSwitzerland } from "./switzerlandSource";
 import { fetchFinland } from "./finlandSource";
 import { fetchNorway } from "./norwaySource";
 import { fetchIreland, fetchLuxembourg, fetchPortugal } from "./irelandLuxSource";
-import { fetchSpain } from "./spainSource";
 import { fetchPoland } from "./polandSource";
 import { fetchItaly } from "./italySource";
 import { fetchSlovakia } from "./slovakiaSource";
@@ -27,6 +26,7 @@ import { fetchCroatia } from "./croatiaSource";
 import { fetchCyprus } from "./cyprusSource";
 import { fetchIceland } from "./icelandSource";
 import { fetchUnitedKingdom } from "./ukSource";
+import { fetchRomania } from "./romaniaSource";
 
 export const LT_GEOZONE_SOURCE_LABEL = "Oro navigacija (ED-269)";
 import { fetchSweden } from "./swedenSource";
@@ -54,7 +54,8 @@ export type GeoFeature = {
 // Länder, deren Geozonen als ED-269-/GeoJSON-Vektordaten mit automatischem
 // Abruf vorliegen (kein WMS) – aus der Quellen-Registry (kind "ed269-vector"
 // bzw. "login"), kleingeschrieben. NL kommt aus GoDrone (LVNL); DE/FR/CZ nutzen
-// den Kachelspeicher, HU nur ein Bild-Overlay, RO nur den Datei-Import.
+// den Kachelspeicher, HU/GR nur ein Bild-Overlay, MT (und GR optional) nur den
+// Datei-Import.
 export const ED269_DIRECT_COUNTRIES: readonly string[] = ED269_FETCH_ISOS.map((iso) => iso.toLowerCase());
 
 export function isEd269DirectCountry(iso: string): boolean {
@@ -467,7 +468,6 @@ export const ED269_FETCHERS: Readonly<Record<string, () => Promise<GeoFeature[]>
   LU: fetchLuxembourg,
   SE: fetchSweden,
   PT: fetchPortugal,
-  ES: fetchSpain,
   PL: fetchPoland,
   LT: fetchLithuania,
   IT: fetchItaly,
@@ -479,6 +479,7 @@ export const ED269_FETCHERS: Readonly<Record<string, () => Promise<GeoFeature[]>
   BG: fetchBulgaria,
   LV: fetchLatvia,
   SK: fetchSlovakia,
+  RO: fetchRomania,
 };
 
 /** Gebündelte Basisdaten je Land (Registry-Flag bundledFallback). */

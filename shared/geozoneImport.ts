@@ -1,9 +1,16 @@
-// Geozonen-Datei-Import (serverloser Rückfall für Länder, deren Server die
-// Fernsteuerung nicht erreicht – erster Fall Rumänien: ROMATSA-TLS mit zu
-// kleinem DH-Schlüssel, Android verbindet nicht).
+// Geozonen-Datei-Import (serverloser Rückfall bzw. einziger Weg für Länder
+// ohne erreichbaren Feed): MT (manueller iDronect-Export), GR (Export des
+// PC-Skripts dagr_geozonen.py) und als Rückfall RO (ROMATSA-Datei, falls die
+// Fernsteuerung den Server nicht erreicht) – grundsätzlich für jedes Land mit
+// ED-269-Gerätecache.
 //
 // Akzeptiert .json/.geojson oder .zip (erste .json/.geojson im Archiv) und
 // erkennt automatisch:
+//  0. Länderformate: Malta (Roh-Export bzw. normalisieren.py →
+//     shared/malteseGeozones.ts), Griechenland (dagr_geozonen.py →
+//     shared/greekGeozones.ts), Rumänien (zone_restrictionate_uav.json bzw.
+//     NOTAM-WFS → shared/romanianGeozones.ts). Eine Länderdatei lässt sich nur
+//     beim passenden Land importieren.
 //  1. ED-269 (UASZoneVersion-Objekte mit `restriction` und `geometry[]`) →
 //     shared/ed269Pure.ts
 //  2. ED-318 (GeoJSON-UASZone-Features mit geometry.layer bzw. ED-318-Feldern
@@ -28,14 +35,28 @@ import {
   ed318ZonesToFeatures,
 } from "./ed318Pure";
 import { GEOZONE_IMPORT_ONLY_SOURCE_ISOS } from "./geozoneSourceMeta";
+import { maltaImportVariant, normalizeMalteseImport } from "./malteseGeozones";
+import { isDagrImportFeature, normalizeGreekDagrImport } from "./greekGeozones";
+import { normalizeRomanianNotam, normalizeRomanianZone } from "./romanianGeozones";
 
-export const RO_GEOZONE_SOURCE_LABEL = "ROMATSA (Datei-Import)";
-export const RO_ROMATSA_DRONES_URL = "https://flightplan.romatsa.ro/init/drones";
-/** Länder ohne erreichbaren Online-Feed: Geozonen nur per Datei-Import
- * (Registry: kind "import-only"). */
+export { RO_ROMATSA_DRONES_URL } from "./romanianGeozones";
+/** Länder ohne erreichbaren Vektor-Feed: Geozonen nur per Datei-Import
+ * (Registry: offline "import" – MT, GR). */
 export const GEOZONE_IMPORT_ONLY_ISOS: string[] = [...GEOZONE_IMPORT_ONLY_SOURCE_ISOS];
 
-export type GeozoneImportFormat = "ed269" | "ed318" | "geojson";
+export type GeozoneImportFormat = "ed269" | "ed318" | "geojson" | "mt-tmcad" | "gr-dagr" | "ro-romatsa";
+
+/** Länderformate gehören zu genau einem Land. */
+const COUNTRY_FORMAT_ISO: Partial<Record<GeozoneImportFormat, { iso: string; labelDe: string }>> = {
+  "mt-tmcad": { iso: "MT", labelDe: "Malta" },
+  "gr-dagr": { iso: "GR", labelDe: "Griechenland" },
+  "ro-romatsa": { iso: "RO", labelDe: "Rumänien" },
+};
+
+function isRomatsaProps(p: any): boolean {
+  if (!p || typeof p !== "object") return false;
+  return ("zone_id" in p && ("lower_lim" in p || "upper_lim" in p)) || ("serie" in p && "mesaj" in p);
+}
 
 export type GeozoneImportResult = {
   format: GeozoneImportFormat;
@@ -86,6 +107,10 @@ export function detectGeozoneImportFormat(input: unknown): GeozoneImportFormat |
   const zones = ed318ExtractZones(input);
   if (zones.length === 0) return null;
   const sample = zones.slice(0, 50);
+  const props = sample.map((z: any) => (z && z.type === "Feature" ? z.properties : null)).filter(Boolean);
+  if (props.some((p: any) => maltaImportVariant(p))) return "mt-tmcad";
+  if (props.some((p: any) => isDagrImportFeature(p))) return "gr-dagr";
+  if (props.some((p: any) => isRomatsaProps(p))) return "ro-romatsa";
   if (sample.some(looksEd269)) return "ed269";
   if (sample.some(looksEd318)) return "ed318";
   if (sample.some((z: any) => z && z.type === "Feature" && z.geometry)) return "geojson";
@@ -248,8 +273,20 @@ export function parseGeozoneImport(input: unknown, opts: GeozoneImportOptions): 
   const format = detectGeozoneImportFormat(data);
   if (!format) throw new Error("Unbekanntes Format – erwartet ED-269, ED-318 oder eine GeoJSON-FeatureCollection.");
   const now = opts.now ?? new Date();
+  const own = COUNTRY_FORMAT_ISO[format];
+  if (own && own.iso !== opts.iso.toUpperCase()) {
+    throw new Error(`Die Datei enthält Geozonen für ${own.labelDe} – bitte beim Land ${own.labelDe} importieren.`);
+  }
   let features: Ed269PureFeature[];
-  if (format === "ed269") {
+  if (format === "mt-tmcad") {
+    features = normalizeMalteseImport(ed318ExtractZones(data)) as unknown as Ed269PureFeature[];
+  } else if (format === "gr-dagr") {
+    features = normalizeGreekDagrImport(ed318ExtractZones(data), now) as unknown as Ed269PureFeature[];
+  } else if (format === "ro-romatsa") {
+    features = ed318ExtractZones(data)
+      .map((f: any) => (f?.properties && "serie" in f.properties ? normalizeRomanianNotam(f, now) : normalizeRomanianZone(f)))
+      .filter((f): f is NonNullable<typeof f> => !!f) as unknown as Ed269PureFeature[];
+  } else if (format === "ed269") {
     features = ed269ZonesToFeatures(ed269ExtractZones(data).length > 0 ? data : ed318ExtractZones(data), { source: opts.source });
     // ED-269-Hilfsfunktionen kennen keinen Ablauf: abgelaufene Zeitfenster entfernen.
     features = features.filter((f) => {

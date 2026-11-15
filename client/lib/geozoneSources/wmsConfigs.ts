@@ -1,5 +1,5 @@
 // WMS-/XYZ-Konfigurationen der Geozonen-Länder mit Kachel-Overlay (DE, CH,
-// LU, NL, FR, HU) – unverändert aus client/lib/geozones.ts hierher verschoben,
+// LU, NL, FR, HU, GR) – unverändert aus client/lib/geozones.ts hierher verschoben,
 // damit die Quellen-Registry (registry.ts) sie ohne React-Native-Importe
 // referenzieren kann. COUNTRY_GEOZONE_CONFIGS (geozones.ts) wird aus der
 // Registry gebaut: diese Einträge für WMS-Länder, eine Standard-Vektor-
@@ -11,11 +11,12 @@ import {
   NL_GEOZONE_LAYERS,
   FR_GEOZONE_LAYERS,
   HU_GEOZONE_LAYERS,
+  GR_GEOZONE_LAYERS,
   type GeozoneLayer,
 } from "../../../shared/geozoneLayerCatalog";
 import { COUNTRY_WMS_MAX_NATIVE_ZOOM } from "../geozoneZoom";
 
-export type CountryIsoWithGeozones = "DE" | "CH" | "LU" | "NL" | "FR" | "AT" | "BE" | "DK" | "EE" | "FI" | "NO" | "SE" | "IE" | "PT" | "ES" | "PL" | "LT" | "IT" | "GB" | "IS" | "CY" | "HR" | "SI" | "HU" | "BG" | "LV" | "CZ" | "SK" | "RO";
+export type CountryIsoWithGeozones = "DE" | "CH" | "LU" | "NL" | "FR" | "AT" | "BE" | "DK" | "EE" | "FI" | "NO" | "SE" | "IE" | "PT" | "ES" | "PL" | "LT" | "IT" | "GB" | "IS" | "CY" | "HR" | "SI" | "HU" | "BG" | "LV" | "CZ" | "SK" | "RO" | "MT" | "GR";
 
 export interface CountryGeozoneConfig {
   iso: CountryIsoWithGeozones;
@@ -114,5 +115,20 @@ export const WMS_GEOZONE_CONFIGS = {
     alwaysVisibleLayerIds: ["hu_aixm"],
     forceEnabledLayerIds: [],
     wmsMaxNativeZoom: COUNTRY_WMS_MAX_NATIVE_ZOOM.HU,
+  },
+  GR: {
+    // Griechenland (HASP/HCAA, DAGR): Bild-Overlay aus dem MapServer-WMS
+    // (Vorlage am Layer inkl. Zeitfenster, kein wmsBaseUrl). featureInfoType
+    // "ed269-cached": KEINE Abfrage beim Anbieter (Bot-Schutz), aber per Datei-
+    // Import gespeicherte Vektorzonen werden wie bei Vektorländern gelesen und
+    // gezeichnet. Ohne Import: Abdeckungslücke + Hinweis zur manuellen Prüfung
+    // (Registry: manualCheckOnly, accessGate "import").
+    iso: "GR",
+    wmsBaseUrl: "",
+    wmsVersion: "1.3.0",
+    layers: GR_GEOZONE_LAYERS,
+    featureInfoType: "ed269-cached",
+    alwaysVisibleLayerIds: ["gr_dagr"],
+    forceEnabledLayerIds: [],
   },
 } satisfies Record<string, CountryGeozoneConfig>;

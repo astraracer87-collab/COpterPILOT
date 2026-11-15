@@ -26,9 +26,11 @@ import {
   hasTiledGeozones,
   queryTiledGeozones,
   queryTiledGeozonesAtPoint,
+  queryEsTempZones,
   getTilePartMeta,
 } from "@/lib/geozoneTiles/tileStore";
-import { bboxAround, DIPUL_WOHN_LAYER } from "@/lib/geozoneTiles/tileStoreCore";
+import { bboxAround, DIPUL_WOHN_LAYER, TILE_STORE_OPTIONAL_PARTS, type LngLatBBox } from "@/lib/geozoneTiles/tileStoreCore";
+import { queryEsLiveZones } from "@/lib/geozoneTiles/esLive";
 import { geozoneTruncationHint } from "../../shared/checks/builders";
 import {
   queryChRestIdentifyFrom,
@@ -68,6 +70,7 @@ import {
   HU_GEOZONE_LAYERS,
   HU_GEOZONE_ATTRIBUTION,
   HU_GEOZONE_RASTER_HINT,
+  fillGeozoneDatePlaceholders,
   getNativeLegacyLayerRefs,
   type GeozoneLayer,
 } from "../../shared/geozoneLayerCatalog";
@@ -120,7 +123,7 @@ import { buildVectorGeozoneTileUrlFrom } from "@/lib/geozoneTileUrl";
 import { deRestrictionForLayer, restrictionFromText } from "../../shared/restrictionPolicy";
 import { buildCountryGeozoneConfigs, getSourceDataStatus } from "@/lib/geozoneSources/registry";
 import type { CountryGeozoneConfig } from "@/lib/geozoneSources/wmsConfigs";
-import { resolveGeozoneSourceIso } from "../../shared/geozoneSourceMeta";
+import { getGeozoneSourceMeta, resolveGeozoneSourceIso } from "../../shared/geozoneSourceMeta";
 export {
   LEAFLET_WMS_BBOX_FN_JS,
   GEOZONE_TILE_BBOX_PLACEHOLDER,
@@ -215,7 +218,7 @@ export function buildWmsTileUrl(layerName: string, countryIso?: string): string 
   // (z. B. NL Natura 2000 auf eigenem PDOK-Endpoint).
   const def = config.layers.find((l) => l.wmsLayer === layerName);
   // Reine XYZ-Kacheln (z. B. HU MyDroneSpace): Vorlage unverändert.
-  if (def?.tileUrlTemplate) return def.tileUrlTemplate;
+  if (def?.tileUrlTemplate) return fillGeozoneDatePlaceholders(def.tileUrlTemplate);
   const baseUrl = def?.wmsBaseUrl ?? config.wmsBaseUrl;
   const version = def?.wmsVersion ?? config.wmsVersion;
   return buildWmsGetMapUrl(baseUrl, version, [layerName], {
@@ -246,7 +249,8 @@ export function buildCombinedWmsTileUrl(layers: string[], countryIso?: string): 
   for (const name of layers) {
     const def = layerByName.get(name);
     if (def?.tileUrlTemplate) {
-      if (!xyz.includes(def.tileUrlTemplate)) xyz.push(def.tileUrlTemplate);
+      const t = fillGeozoneDatePlaceholders(def.tileUrlTemplate);
+      if (!xyz.includes(t)) xyz.push(t);
       continue;
     }
     const baseUrl = def?.wmsBaseUrl ?? config.wmsBaseUrl;
@@ -591,15 +595,100 @@ export async function queryEd269CachedFeaturesWithStatus(
     const trunc = stats.truncated && limit ? { truncated: true, note: geozoneTruncationHint(limit) } : {};
     // Temporäre DE-Zonen nur bewerten, wenn sie abgefragt wurden (Ebenen-Filter).
     const withTemp = !opts?.layers || opts.layers.length === 0 || opts.layers.includes("temporaere_betriebseinschraenkungen");
-    return { zones: tiled, ...storedDataReport(iso, withTemp), ...trunc };
+    const report = { zones: tiled, ...storedDataReport(iso, withTemp), ...trunc };
+    if (String(iso).toUpperCase() === "ES") return esSupplementMissingParts(report, bboxAround(lat, lon, radiusKm));
+    return report;
+  }
+  // ES ohne Offline-Paket: online je Ausschnitt beim ENAIRE-MapServer (wie DE-WFS).
+  if (getGeozoneSourceMeta(iso)?.liveVectorQuery) {
+    if (fullCountry || maxValidityDays) return { zones: [], status: "ok" };
+    return queryEsLiveWithStatus(lat, lon, radiusKm, limit);
   }
   // Offline-Quelle der ED-269-Länder ist allein der Gerätebestand
   // (geozoneDirect/ed269Store, auf dem Gerät gespeichert, Stand/„stale“ laut
   // Registry). Der frühere Rückfall auf die Features des Offline-Pakets ist
   // entfallen (B7/S6): das Paket wird aus genau diesem Bestand erzeugt, lieferte
-  // offline aber „ok“ ohne Datenalter und hätte einen gelöschten Import (RO)
+  // offline aber „ok“ ohne Datenalter und hätte einen gelöschten Import (MT/GR)
   // wiederbelebt. Kein Bestand = Abdeckungslücke ("missing").
   return queryEd269CachedFeaturesWithStatusFrom("", lat, lon, radiusKm, iso, limit, fullCountry, maxValidityDays);
+}
+
+// ---------------------------------------------------------------------------
+// Spanien (ENAIRE insignias): Live-Pfad ohne Paket, Ergänzung fehlender Teile
+// ---------------------------------------------------------------------------
+
+const ES_PART_LABELS: Record<string, string> = { infra: "Infrastruktur", enp: "Naturschutz" };
+
+/** Höchstens `limit` Zonen, die der Mitte nächsten zuerst (B7/S7: mit Hinweis). */
+function nearestZones(zones: GeozoneFeatureInfo[], lat: number, lon: number, limit?: number): { zones: GeozoneFeatureInfo[]; truncated: boolean } {
+  if (!limit || zones.length <= limit) return { zones, truncated: false };
+  const d2 = (z: GeozoneFeatureInfo) => {
+    const ring = z.polygonRings?.[0] ?? [];
+    if (ring.length === 0) return Infinity;
+    let a = 0;
+    let b = 0;
+    for (const [y, x] of ring) {
+      a += y;
+      b += x;
+    }
+    const dy = a / ring.length - lat;
+    const dx = b / ring.length - lon;
+    return dy * dy + dx * dx;
+  };
+  return { zones: [...zones].sort((p, q) => d2(p) - d2(q)).slice(0, limit), truncated: true };
+}
+
+/**
+ * ES ohne Offline-Paket: online live je Ausschnitt (alle Teile + NOTAM) und
+ * das Ergebnis je Standort für offline speichern; offline der gespeicherte
+ * Stand (mit Alter), sonst Abdeckungslücke statt „keine Zonen“.
+ */
+async function queryEsLiveWithStatus(lat: number, lon: number, radiusKm: number, limit?: number): Promise<Ed269StatusResult> {
+  const key = `ES_${offlineLocationKey(lat, lon)}_${Math.round(radiusKm * 10)}`;
+  if (isOfflineNow()) {
+    const stored = await getOfflineResult<GeozoneFeatureInfo[]>("geozones-live", key).catch(() => null);
+    if (stored && Array.isArray(stored.data)) {
+      const st = storedCoverageStatus("ES", stored.fetchedAt, stored.fetchedAt);
+      return { zones: stored.data, status: st.status, fetchedAt: stored.fetchedAt, ...(st.note ? { note: st.note } : {}) };
+    }
+    return { zones: [], status: "missing", note: "Gerät offline – kein Offline-Paket und kein gespeicherter Stand" };
+  }
+  const bbox = bboxAround(lat, lon, radiusKm);
+  let live: { zones: GeozoneFeatureInfo[]; failedLayers: string[] };
+  try {
+    live = await queryEsLiveZones(bbox);
+  } catch (e: any) {
+    return { zones: [], status: "error", note: `ENAIRE nicht erreichbar${e?.message ? ` (${e.message})` : ""}` };
+  }
+  const temp = await queryEsTempZones(bbox).catch(() => [] as GeozoneFeatureInfo[]);
+  const all = [...live.zones, ...temp];
+  putOfflineResult("geozones-live", key, all).catch(() => {});
+  const { zones, truncated } = nearestZones(all, lat, lon, limit);
+  const trunc = truncated && limit ? { truncated: true, note: geozoneTruncationHint(limit) } : {};
+  if (live.failedLayers.length > 0) {
+    return { zones, status: "partial", note: `Einige ENAIRE-Ebenen nicht erreichbar (${live.failedLayers.join(", ")})`, ...(truncated ? { truncated: true } : {}) };
+  }
+  return { zones, status: "ok", ...trunc };
+}
+
+/**
+ * ES mit Paket ohne abwählbare Teile (Infrastruktur/Naturschutz): online live
+ * ergänzen, offline „partial“ mit Hinweis (wie DE-Wohngrundstücke).
+ */
+async function esSupplementMissingParts(r: Ed269StatusResult, bbox: LngLatBBox): Promise<Ed269StatusResult> {
+  const missing = TILE_STORE_OPTIONAL_PARTS.ES.filter((p) => getTilePartMeta("ES", p)?.complete !== true);
+  if (missing.length === 0) return r;
+  const labels = missing.map((p) => ES_PART_LABELS[p] ?? p).join(" und ");
+  if (isOfflineNow()) {
+    const status = worseSourceStatus(r.status, "partial");
+    return { ...r, status, note: r.note ?? `${labels} nicht im Offline-Paket – offline nicht geprüft` };
+  }
+  try {
+    const live = await queryEsLiveZones(bbox, missing as ("infra" | "enp")[]);
+    return { ...r, zones: [...r.zones, ...live.zones] };
+  } catch {
+    return { ...r, status: worseSourceStatus(r.status, "partial"), note: r.note ?? `${labels} nicht im Offline-Paket und online nicht erreichbar` };
+  }
 }
 
 /**
@@ -1412,6 +1501,12 @@ async function queryGeozonesForCountry(
   if (hasTiledGeozones(config.iso)) {
     const tiled = await queryTiledGeozones(config.iso, bboxAround(lat, lon, radiusKm));
     if (tiled) {
+      if (config.iso === "ES") {
+        // abwählbare Teile (Infrastruktur/Naturschutz) online ergänzen bzw. offline melden
+        const r = await esSupplementMissingParts({ zones: tiled, ...storedDataReport("ES") }, bboxAround(lat, lon, radiusKm));
+        report?.(r);
+        return r.zones;
+      }
       // Datenalter des Pakets (Registry-Policy: ab 28 Tagen "stale" → CAUTION)
       report?.(storedDataReport(config.iso));
       if (config.iso !== "DE") return tiled;
@@ -1580,7 +1675,7 @@ export async function queryGeozonesInArea(
  * Wie queryGeozonesInArea, liefert aber zusätzlich, für welche Länder die
  * Abfrage tatsächlich Daten hatte (Review-Fix 4). Ein Abruffehler, ein
  * fehlender Datensatz (z. B. CZ ohne Offline-Paket, IT ohne d-flight-Login,
- * RO ohne Import) oder ein Land ohne automatische Prüfung (HU) erscheint als
+ * MT ohne Import) oder ein Land ohne automatische Prüfung (HU) erscheint als
  * Quelle mit status missing/error/unsupported und senkt `coverage` auf
  * "partial"/"unavailable" — statt still als "keine Zonen" (grün) zu gelten.
  */

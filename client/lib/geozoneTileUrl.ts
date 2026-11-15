@@ -19,6 +19,7 @@
 // LEAFLET_WMS_BBOX_FN_JS); andere Verbraucher nutzen fillGeozoneTileTemplate().
 import {
   NATIVE_GEOZONE_LAYER_CATALOG,
+  fillGeozoneDatePlaceholders,
   type GeozoneLayer,
 } from "../../shared/geozoneLayerCatalog";
 import { WMS_GEOZONE_CONFIGS, type CountryGeozoneConfig } from "./geozoneSources/wmsConfigs";
@@ -126,7 +127,9 @@ export function buildGeozoneWmsTileTemplates(layers: string[], countryIso?: stri
   const xyz: string[] = [];
   const wmsNames: string[] = [];
   for (const name of sorted) {
-    const t = byName.get(name)?.tileUrlTemplate;
+    const raw = byName.get(name)?.tileUrlTemplate;
+    // GR (DAGR): WMS-Zeitfenster heute..morgen beim Bauen einsetzen.
+    const t = raw ? fillGeozoneDatePlaceholders(raw) : undefined;
     if (t) {
       if (!xyz.includes(t)) xyz.push(t);
     } else {
