@@ -29,10 +29,11 @@ class MainActivity : Activity() {
     private var sdAction: ((Uri) -> Unit)? = null
     private var sdVariant = SdCard.Variant.HAM
 
-    private lateinit var content: LinearLayout       // linke Spalte, wird je Bildschirm neu gefüllt
+    private lateinit var body: android.widget.FrameLayout   // Inhaltsbereich unter der Kopfzeile
     private lateinit var logContainer: LinearLayout
     private lateinit var logScroll: ScrollView
     private lateinit var statusPill: TextView
+    private val logCardView by lazy { buildLogCard() }
 
     private val usbPermission = object : BroadcastReceiver() {
         override fun onReceive(c: Context, i: Intent) {
@@ -86,19 +87,26 @@ class MainActivity : Activity() {
         header.addView(statusPill)
         root.addView(header)
 
-        // Zwei Spalten, beide auf gleicher Höhe unter der Kopfzeile
-        val cols = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        cols.addView(ScrollView(this).apply {
-            isFillViewport = true
-            addView(content, android.widget.FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
-        }, LinearLayout.LayoutParams(0, MATCH_PARENT, 1f))
-        cols.addView(logCard(), LinearLayout.LayoutParams(0, MATCH_PARENT, 1f).apply { leftMargin = d(12f) })
-        root.addView(cols, Ui.lp(MATCH_PARENT, 0, 1f, topDp = d(12f)))
+        body = android.widget.FrameLayout(this)
+        root.addView(body, Ui.lp(MATCH_PARENT, 0, 1f, topDp = d(12f)))
         return root
     }
 
-    private fun logCard(): View {
+    private fun detachLog() { (logCardView.parent as? android.view.ViewGroup)?.removeView(logCardView) }
+
+    /** Standard-Bildschirm: Inhalt links (scrollbar), Protokoll rechts über die volle Höhe. */
+    private fun showStandard(col: View) {
+        detachLog()
+        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        row.addView(ScrollView(this).apply {
+            isFillViewport = true
+            addView(col, android.widget.FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+        }, LinearLayout.LayoutParams(0, MATCH_PARENT, 1.1f))
+        row.addView(logCardView, LinearLayout.LayoutParams(0, MATCH_PARENT, 1f).apply { leftMargin = Ui.dpi(this@MainActivity, 12f) })
+        body.removeAllViews(); body.addView(row, android.widget.FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+    }
+
+    private fun buildLogCard(): View {
         val card = Ui.card(this)
         val head = Ui.row(this)
         val titleTv = Ui.title(this, "PROTOKOLL")
@@ -160,26 +168,32 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun showLeft(view: View) { content.removeAllViews(); content.addView(view, Ui.lp(MATCH_PARENT, MATCH_PARENT)) }
+    private fun showLeft(view: View) = showStandard(view)
 
     // ------------------------------------------------------------- Startbildschirm
 
     private fun showHome() {
+        detachLog()
         val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         col.addView(Ui.label(this, "Wofür möchtest du etwas einstellen?", Ui.TEXT, 15f, bold = true))
-        col.addView(Ui.tallModeButton(this,
+
+        // Mittlerer Bereich: Knöpfe links, Protokoll rechts – exakt gleiche Ober-/Unterkante.
+        val mid = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val buttons = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        buttons.addView(Ui.tallModeButton(this,
             "Fluggerät an dieser Fernsteuerung",
             "z. B. Air 3S an der RC Pro 2 – direkt über die Fernsteuerung",
-            Ui.GREEN, R.drawable.rc_controller) { showDroneMenu() },
-            Ui.lp(MATCH_PARENT, 0, 1f, topDp = Ui.dpi(this, 12f)))
-        col.addView(Ui.tallModeButton(this,
+            Ui.GREEN, R.drawable.rc_controller) { showDroneMenu() }, Ui.lp(MATCH_PARENT, 0, 1f))
+        buttons.addView(Ui.tallModeButton(this,
             "Fluggerät an Goggle",
             "z. B. Avata 2 – über eine Datei auf der SD-Karte der Goggle",
-            Ui.BLUE, R.drawable.fpv_goggle) { showGoggleMenu() },
-            Ui.lp(MATCH_PARENT, 0, 1f, topDp = Ui.dpi(this, 12f)))
+            Ui.BLUE, R.drawable.fpv_goggle) { showGoggleMenu() }, Ui.lp(MATCH_PARENT, 0, 1f, topDp = Ui.dpi(this, 12f)))
+        mid.addView(buttons, LinearLayout.LayoutParams(0, MATCH_PARENT, 1.1f))
+        mid.addView(logCardView, LinearLayout.LayoutParams(0, MATCH_PARENT, 1f).apply { leftMargin = Ui.dpi(this@MainActivity, 12f) })
+        col.addView(mid, Ui.lp(MATCH_PARENT, 0, 1f, topDp = Ui.dpi(this, 12f)))
 
         col.addView(Ui.smallButton(this, "Erweitert") { showAdvanced() }, Ui.lp(topDp = Ui.dpi(this, 12f)))
-        showLeft(col)
+        body.removeAllViews(); body.addView(col, android.widget.FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
         refreshStatus()
     }
 

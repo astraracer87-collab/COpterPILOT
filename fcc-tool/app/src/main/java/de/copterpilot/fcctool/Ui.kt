@@ -132,7 +132,7 @@ object Ui {
             box.addView(android.widget.ImageView(ctx).apply {
                 setImageResource(imageRes); adjustViewBounds = true
                 contentDescription = title
-            }, LinearLayout.LayoutParams(dp(ctx, 120f), WRAP_CONTENT).apply { leftMargin = dp(ctx, 12f) })
+            }, LinearLayout.LayoutParams(dp(ctx, 88f), WRAP_CONTENT).apply { leftMargin = dp(ctx, 12f) })
         }
         return box
     }
@@ -156,8 +156,8 @@ object Ui {
         if (imageRes != 0) {
             box.addView(android.widget.ImageView(ctx).apply {
                 setImageResource(imageRes); scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
-                contentDescription = title
-            }, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
+                adjustViewBounds = true; contentDescription = title
+            }, LinearLayout.LayoutParams(WRAP_CONTENT, dp(ctx, 92f)))
         }
         box.addView(TextView(ctx).apply {
             text = title; setTextColor(accent); textSize = 20f; typeface = Typeface.DEFAULT_BOLD
