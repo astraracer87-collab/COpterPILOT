@@ -131,6 +131,8 @@ export function __setTileStoreEnvForTests(env: Partial<TileEnv> | null): void {
   metaCache.clear();
   indexCache.clear();
   zoneCache.clear();
+  zoneCacheBytes.clear();
+  zoneCacheTotal = 0;
   tempCache = null;
   metaLoaded = null;
 }
@@ -261,18 +263,34 @@ function getLoadedIndex(iso: TileStoreIso, part: TileStorePart): Promise<LoadedT
 // ---------------------------------------------------------------------------
 
 const ZONE_CACHE_MAX = 4000;
+// Zusätzlich nach Größe begrenzen: einzelne Zonen sind riesig (z. B. Wohn-
+// grundstücke „Stadt München“ ≈ 1,9 MB). Geschätzt über die entpackte
+// Datensatzgröße; Obergrenze ≈ 60 MB, damit die Fernsteuerung nicht vollläuft.
+const ZONE_CACHE_MAX_BYTES = 60 * 1024 * 1024;
 const zoneCache = new Map<string, GeozoneFeatureInfo | null>();
+const zoneCacheBytes = new Map<string, number>();
+let zoneCacheTotal = 0;
 
-function cacheZone(key: string, z: GeozoneFeatureInfo | null) {
-  if (zoneCache.size >= ZONE_CACHE_MAX) {
-    // älteste ~10 % verwerfen (Map hält Einfügereihenfolge)
+function dropZone(k: string) {
+  zoneCache.delete(k);
+  zoneCacheTotal -= zoneCacheBytes.get(k) ?? 0;
+  zoneCacheBytes.delete(k);
+}
+
+function cacheZone(key: string, z: GeozoneFeatureInfo | null, bytes = 0) {
+  if (zoneCache.has(key)) dropZone(key);
+  if (zoneCache.size >= ZONE_CACHE_MAX || zoneCacheTotal + bytes > ZONE_CACHE_MAX_BYTES) {
+    // älteste Einträge verwerfen (Map hält Einfügereihenfolge), bis Platz ist
     let drop = Math.ceil(ZONE_CACHE_MAX / 10);
     for (const k of zoneCache.keys()) {
-      zoneCache.delete(k);
-      if (--drop <= 0) break;
+      if (drop <= 0 && zoneCacheTotal + bytes <= ZONE_CACHE_MAX_BYTES) break;
+      dropZone(k);
+      drop--;
     }
   }
   zoneCache.set(key, z);
+  zoneCacheBytes.set(key, bytes);
+  zoneCacheTotal += bytes;
 }
 
 async function readZones(
@@ -297,7 +315,7 @@ async function readZones(
       } catch {
         z = null;
       }
-      cacheZone(prefix + i, z);
+      cacheZone(prefix + i, z, (bytes[n]?.length ?? 0) * 4);
     });
   }
   const out: GeozoneFeatureInfo[] = [];

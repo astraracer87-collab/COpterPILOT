@@ -82,6 +82,33 @@ function filePath(fs: FsModule, iso: string): string {
 }
 
 const memory = new Map<string, Ed269Dataset>();
+
+// Speicherschutz für die Fernsteuerung: Landesbestände sind teils groß
+// (NL ≈ 23 MB JSON). Im Arbeitsspeicher bleiben höchstens so viele Länder, wie
+// eine Kartenansicht gleichzeitig zeigt (getViewportCountries: max. 4) plus
+// eines Reserve; das am längsten unbenutzte fliegt raus und wird bei Bedarf
+// wieder von der Datei gelesen.
+const MEMORY_MAX_COUNTRIES = 5;
+
+function remember(iso: string, ds: Ed269Dataset): void {
+  memory.delete(iso);
+  remember(iso, ds);
+  while (memory.size > MEMORY_MAX_COUNTRIES) {
+    const oldest = memory.keys().next().value;
+    if (oldest === undefined) break;
+    memory.delete(oldest);
+  }
+}
+
+function recall(iso: string): Ed269Dataset | undefined {
+  const ds = memory.get(iso);
+  if (ds) {
+    // als zuletzt benutzt markieren
+    memory.delete(iso);
+    remember(iso, ds);
+  }
+  return ds;
+}
 const inFlight = new Map<string, Promise<Ed269Dataset | null>>();
 const lastFailureAt = new Map<string, number>();
 const diskChecked = new Set<string>();
@@ -130,7 +157,7 @@ function download(iso: string): Promise<Ed269Dataset | null> {
     try {
       const features = await fetchEd269CountryFeatures(iso);
       const ds: Ed269Dataset = { iso, fetchedAt: Date.now(), version: STORE_FORMAT_VERSION, features };
-      memory.set(iso, ds);
+      remember(iso, ds);
       lastFailureAt.delete(iso);
       await writeToDisk(ds);
       // z. B. fehlende Übersetzungen nachladen (zoneTranslationStore.ts)
@@ -176,14 +203,14 @@ export async function getEd269Dataset(
   if (!isEd269DirectCountry(iso)) return null;
   const now = Date.now();
 
-  let ds = memory.get(iso) ?? null;
+  let ds = recall(iso) ?? null;
   if (!ds && !diskChecked.has(iso)) {
     diskChecked.add(iso);
     ds = await readFromDisk(iso);
     if (ds) {
       // Ein zwischenzeitlich abgeschlossener Download hat Vorrang.
       const newer = memory.get(iso);
-      if (!newer || newer.fetchedAt < ds.fetchedAt) memory.set(iso, ds);
+      if (!newer || newer.fetchedAt < ds.fetchedAt) remember(iso, ds);
       else ds = newer;
     }
   }
@@ -223,7 +250,7 @@ function fallbackDataset(iso: string): Ed269Dataset | null {
   if (features.length === 0) return null;
   const ds: Ed269Dataset = { iso, fetchedAt: 0, version: STORE_FORMAT_VERSION, features };
   // Im Speicher halten (fetchedAt 0 => gilt als veraltet, Refresh folgt).
-  memory.set(iso, ds);
+  remember(iso, ds);
   return ds;
 }
 
@@ -236,7 +263,7 @@ export async function refreshEd269Dataset(iso: string): Promise<boolean> {
 
 /** Stand des Gerätecaches (für Status-/Debug-Anzeigen). */
 export function getEd269DatasetStatus(iso: string): { fetchedAt: number | null; count: number } {
-  const ds = memory.get(cacheKey(iso));
+  const ds = recall(cacheKey(iso));
   return { fetchedAt: ds && ds.fetchedAt > 0 ? ds.fetchedAt : null, count: ds?.features.length ?? 0 };
 }
 
