@@ -20,6 +20,7 @@ import { useAuth } from "@/lib/auth";
 import { promptFeatureUpgrade } from "@/components/FeatureGate";
 import { ShareControls } from "@/components/ShareControls";
 import type { HistoryStackParamList } from "@/navigation/HistoryStackNavigator";
+import { formatPlannedTimeRange } from "@/lib/planningDateTime";
 
 type NavigationProp = NativeStackNavigationProp<HistoryStackParamList>;
 
@@ -356,14 +357,7 @@ function LogbookCard({ item, index, onDelete }: { item: LogbookDisplayItem; inde
                 <ThemedText style={[styles.detailLabel, { color: theme.textSecondary }]}>Uhrzeit:</ThemedText>
                 <ThemedText style={styles.detailValue}>
                   {(() => {
-                    const time = entry.planning.plannedTime;
-                    const [hours, minutes] = time.split(":").map(Number);
-                    if (!isNaN(hours) && !isNaN(minutes)) {
-                      const endHours = (hours + 2) % 24;
-                      const endTime = `${endHours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}`;
-                      return `${time} - ${endTime}`;
-                    }
-                    return time;
+                    return formatPlannedTimeRange(entry.planning.plannedTime, entry.planning.plannedEndTime);
                   })()}
                 </ThemedText>
               </View>

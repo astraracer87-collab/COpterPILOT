@@ -15,6 +15,7 @@ import StatusBadge from "@/components/StatusBadge";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, Typography, Colors, BorderRadius } from "@/constants/theme";
 import { updateFlightSession, getFlightSession, getDrone, getDrones, DroneProfile } from "@/lib/storage";
+import { computeFlightWindow } from "@/lib/planningDateTime";
 import type { ExpertTip } from "@/lib/assessment";
 import { evaluateFlight, storedChecksFor } from "@/lib/flightChecks";
 import { ALL_CHECK_CATEGORIES, effectiveSeverity, replaceCheckCategories, sessionReasonsFromChecks, sortChecks, type CheckResult } from "../../shared/checks";
@@ -56,6 +57,9 @@ export default function PlanningResultScreen() {
   const [storedChecks, setStoredChecks] = useState<CheckResult[]>(() => storedChecksFor(null, "planning"));
   // Speichern erst, wenn die Session (inkl. Einschränkungs-Ergebnis) geladen ist.
   const [sessionLoaded, setSessionLoaded] = useState(false);
+  // Geplante Endzeit aus der Session (Ende <= Start = Folgetag) – die
+  // Nachtprüfung berücksichtigt damit das ganze Fenster.
+  const [plannedEndTime, setPlannedEndTime] = useState<string | undefined>(undefined);
 
   const { 
     droneId, 
@@ -118,6 +122,9 @@ export default function PlanningResultScreen() {
   const evaluation = evaluateFlight({
     context: "planning",
     at: plannedDateTime,
+    until: plannedDate && plannedTime && plannedEndTime
+      ? computeFlightWindow(plannedDate, plannedTime.padStart(5, "0"), plannedEndTime)?.end ?? null
+      : null,
     latitude,
     longitude,
     countryIso: route.params.countryIso,
@@ -152,6 +159,7 @@ export default function PlanningResultScreen() {
     getFlightSession(sessionId)
       .then((session) => {
         setCrossCheck(session?.planning?.officialMapCrossCheck ?? null);
+        setPlannedEndTime(session?.planning?.plannedEndTime);
         setStoredChecks(
           storedChecksFor(
             session ? { ...session, notamStatusUnknown: session.planning?.notamStatusUnknown === true } : null,

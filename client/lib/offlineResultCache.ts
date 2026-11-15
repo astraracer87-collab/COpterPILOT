@@ -8,8 +8,9 @@
 // - Bewertet wird NICHT hier, sondern in shared/offlineDataPolicy.ts
 //   (assessOfflineData): der Speicher liefert jeden Eintrag mit fetchedAt.
 //
-// RN-frei: AsyncStorage wird lazy geladen; Tests ersetzen den Speicher.
+// RN-frei: liegt im Datei-Cache (fileCache.ts); Tests ersetzen den Speicher.
 
+import { fileCacheStorage } from "./fileCache";
 import { OFFLINE_DATA_MAX_AGE_MS, type OfflineOrigin } from "../../shared/offlineDataPolicy";
 
 export type OfflineCacheKind =
@@ -46,8 +47,10 @@ export interface OfflineCacheStorage {
   removeItem(key: string): Promise<void>;
 }
 
-const PREFIX = "odc1:";
-const INDEX_KEY = "odc1_index";
+export const OFFLINE_RESULT_PREFIX = "odc1:";
+export const OFFLINE_RESULT_INDEX_KEY = "odc1_index";
+const PREFIX = OFFLINE_RESULT_PREFIX;
+const INDEX_KEY = OFFLINE_RESULT_INDEX_KEY;
 
 interface IndexEntry {
   kind: OfflineCacheKind;
@@ -67,13 +70,9 @@ let lazyStorage: OfflineCacheStorage | null | undefined;
 function getStorage(): OfflineCacheStorage | null {
   if (storageOverride !== undefined) return storageOverride;
   if (lazyStorage !== undefined) return lazyStorage;
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const mod = require("@react-native-async-storage/async-storage");
-    lazyStorage = (mod?.default ?? mod) as OfflineCacheStorage;
-  } catch {
-    lazyStorage = null;
-  }
+  // Datei-Cache statt AsyncStorage: bis zu einige MB an Wetter/NOTAM/Geozonen-
+  // Ständen haben die SQLite-DB von AsyncStorage gefüllt (siehe fileCache.ts).
+  lazyStorage = fileCacheStorage;
   return lazyStorage;
 }
 

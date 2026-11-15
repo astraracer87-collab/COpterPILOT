@@ -51,6 +51,7 @@ import { GeozoneDataChangedBanner } from "@/components/GeozoneDataChangedBanner"
 import { DataStandLines } from "@/components/DataStandLines";
 import { EnableCountryButtons } from "@/components/EnableCountryButtons";
 import { isFlightWindowDuringNight } from "@/lib/solar";
+import { computeFlightWindow, formatFlightWindowRange } from "@/lib/planningDateTime";
 import { detectBundeslandFromCoordinates } from "@/lib/countryMaps";
 import { hasOwnMap } from "../../shared/countryDetection";
 import { isEd269VectorIso } from "../../shared/geozoneSourceMeta";
@@ -63,7 +64,7 @@ import { checkEdr146Proximity, Edr146ProximityResult, findNearbyEdrZones, EdrZon
 import {
   findAreasContainingPoint,
   findRouteIntersections,
-  isMilLowFlightLikelyActive,
+  isMilLowFlightLikelyActiveInWindow,
   MIL_LOW_FLIGHT_ACTIVATION,
   type MilLowFlightArea,
   type RouteIntersection,
@@ -367,9 +368,27 @@ export default function PlanningRestrictionsScreen() {
     const d = new Date(`${plannedDate}T${plannedTime && /^\d{1,2}:\d{2}/.test(plannedTime) ? plannedTime.padStart(5, "0") : "12:00"}`);
     return isNaN(d.getTime()) ? null : d;
   }, [plannedDate, plannedTime]);
-  const planningTimeContext: ZoneTimeContext = { kind: "planned", planned: plannedFlightDate };
-  const timeInactiveGeozones = geozones.filter((gz) => !gz.informationalOnly && !isZoneActiveInContext(gz, planningTimeContext));
-  const timeRelevantGeozones = geozones.filter((gz) => gz.informationalOnly || isZoneActiveInContext(gz, planningTimeContext));
+  // Ende des Flugfensters (Ende <= Start = Folgetag): Zonen, die IRGENDWANN
+  // im Fenster aktiv sind (z. B. temporäre Zone 01:00–02:00 bei 23:30–03:00),
+  // zählen als Beschränkung.
+  const plannedFlightEnd = useMemo(() => {
+    if (!plannedDate || !plannedTime || !endTime) return null;
+    return computeFlightWindow(plannedDate, plannedTime.padStart(5, "0"), endTime.padStart(5, "0"))?.end ?? null;
+  }, [plannedDate, plannedTime, endTime]);
+  const planningTimeContext: ZoneTimeContext = { kind: "planned", planned: plannedFlightDate, plannedEnd: plannedFlightEnd };
+  // Das Fenster wird abgetastet (alle 15 min) – Ergebnis je Zone cachen,
+  // solange sich das geplante Fenster nicht ändert.
+  const zoneActivityCache = useMemo(() => new WeakMap<object, boolean>(), [plannedFlightDate, plannedFlightEnd]);
+  const isZoneActivePlanned = (gz: GeozoneFeatureInfo): boolean => {
+    if (!plannedFlightDate) return isZoneActiveInContext(gz, planningTimeContext);
+    const hit = zoneActivityCache.get(gz);
+    if (hit !== undefined) return hit;
+    const active = isZoneActiveInContext(gz, planningTimeContext);
+    zoneActivityCache.set(gz, active);
+    return active;
+  };
+  const timeInactiveGeozones = geozones.filter((gz) => !gz.informationalOnly && !isZoneActivePlanned(gz));
+  const timeRelevantGeozones = geozones.filter((gz) => gz.informationalOnly || isZoneActivePlanned(gz));
   const altitudeClearedGeozones = timeRelevantGeozones.filter((gz) => !gz.informationalOnly && isZoneClearedByAltitude(gz));
   // Aktiv konfliktrelevante Zonen (heutiges Verhalten als sicherer Default).
   const activeGeozones = timeRelevantGeozones.filter((gz) => !gz.informationalOnly && !isZoneClearedByAltitude(gz));
@@ -388,7 +407,7 @@ export default function PlanningRestrictionsScreen() {
   });
   // Temporäre Beschränkungen (dipul-Temporär, ED-R, LU-Temp) zur geplanten
   // Zeit: gleiche Policy (DE-Temporär = Flugverbot, ED-R = Freigabe nötig).
-  const activeTempRestrictions = tempRestrictions.filter((tr) => isZoneActiveInContext(tr, planningTimeContext));
+  const activeTempRestrictions = tempRestrictions.filter((tr) => isZoneActivePlanned(tr));
   const tempClass = classifyPlanningZones(activeTempRestrictions, {
     isCoveredByAV: () => false,
     overrideReason: (tr) => prohibitedOverrides.get(getGeozoneKey(tr)),
@@ -494,7 +513,7 @@ export default function PlanningRestrictionsScreen() {
   const milRouteAreaIds = new Set<string>();
   milRouteIntersections.forEach((it) => milRouteAreaIds.add(it.area.id));
   milTakeoffAreas.forEach((a) => milRouteAreaIds.add(a.id));
-  const milActive = isMilLowFlightLikelyActive(plannedDate, plannedTime);
+  const milActive = isMilLowFlightLikelyActiveInWindow(plannedDate, plannedTime, endTime);
   const hasMilLowFlightWarning =
     milRouteAreaIds.size > 0 && (milActive || milLowFlightHotHits.length > 0);
 
@@ -1038,7 +1057,7 @@ export default function PlanningRestrictionsScreen() {
             <View style={styles.summaryRow}>
               <Feather name="clock" size={14} color={theme.textSecondary} />
               <ThemedText style={[styles.summaryText, { color: theme.textSecondary }]}>
-                {new Date(plannedDate + "T00:00:00").toLocaleDateString("de-DE", { day: "2-digit", month: "short" })} {plannedTime} - {endTime}
+                {new Date(plannedDate + "T00:00:00").toLocaleDateString("de-DE", { day: "2-digit", month: "short" })} {plannedTime ? formatFlightWindowRange(plannedTime, endTime, " - ") : ""}
               </ThemedText>
             </View>
           </Card>
@@ -1615,7 +1634,7 @@ export default function PlanningRestrictionsScreen() {
             {tempRestrictions.map((tr, idx) => {
               // Farbe nach Einstufung (Policy); "Temporär" bleibt als Badge.
               const trPol = zonePolicy(tr);
-              const trActive = isZoneActiveInContext(tr, planningTimeContext);
+              const trActive = isZoneActivePlanned(tr);
               const trProhibited = trActive && trPol === zonePolicy({ restriction: "PROHIBITED" });
               return (
                 <Card key={`temp-${idx}`} style={[styles.geozoneCard, { borderLeftWidth: 3, borderLeftColor: trPol.color }]}>

@@ -429,21 +429,73 @@ export function isZoneActiveAt(z: ZoneActivityInput | null | undefined, date: Da
  */
 export type ZoneTimeContext =
   | { kind: "now"; now?: Date }
-  | { kind: "planned"; planned: Date | null | undefined; now?: Date }
-  | { kind: "precheck"; planned: Date | null | undefined; now?: Date };
+  | { kind: "planned"; planned: Date | null | undefined; plannedEnd?: Date | null; now?: Date }
+  | { kind: "precheck"; planned: Date | null | undefined; plannedEnd?: Date | null; now?: Date };
 
-/** Die zu prüfenden Zeitpunkte eines Kontexts (mindestens einer). */
+/** Abtastschritt über das geplante Flugfenster (Minuten). */
+const WINDOW_SAMPLE_STEP_MIN = 15;
+
+function validDate(d: Date | null | undefined): Date | null {
+  return d instanceof Date && Number.isFinite(d.getTime()) ? d : null;
+}
+
+/** Geplantes Fenster eines Kontexts (Ende nur, wenn nach dem Start). */
+function plannedWindow(ctx: ZoneTimeContext): { start: Date; end: Date | null } | null {
+  if (ctx.kind === "now") return null;
+  const start = validDate(ctx.planned);
+  if (!start) return null;
+  const end = validDate(ctx.plannedEnd);
+  return { start, end: end && end.getTime() > start.getTime() ? end : null };
+}
+
+/**
+ * Die zu prüfenden Zeitpunkte eines Kontexts (mindestens einer). Mit
+ * `plannedEnd` wird das GANZE Flugfenster abgetastet (Start, alle 15 min,
+ * Ende) – auch über Mitternacht (Ende am Folgetag).
+ */
 export function zoneTimeReferences(ctx: ZoneTimeContext): Date[] {
   const now = ctx.now ?? new Date();
   if (ctx.kind === "now") return [now];
-  const planned = ctx.planned && Number.isFinite(ctx.planned.getTime()) ? ctx.planned : null;
-  if (ctx.kind === "planned") return [planned ?? now];
-  return planned ? [now, planned] : [now];
+  const win = plannedWindow(ctx);
+  const plannedRefs: Date[] = [];
+  if (win) {
+    plannedRefs.push(win.start);
+    if (win.end) {
+      const step = WINDOW_SAMPLE_STEP_MIN * 60000;
+      for (let t = win.start.getTime() + step; t < win.end.getTime(); t += step) plannedRefs.push(new Date(t));
+      plannedRefs.push(win.end);
+    }
+  }
+  if (ctx.kind === "planned") return plannedRefs.length > 0 ? plannedRefs : [now];
+  return [now, ...plannedRefs];
+}
+
+/** Beginn-Zeitpunkte einer Zone (hartes Fenster, applicability), die im
+ * Fenster liegen – damit auch kurze Aktivitäten zwischen zwei Abtastpunkten
+ * erfasst werden. */
+function zoneStartsWithin(z: ZoneActivityInput | null | undefined, start: Date, end: Date): Date[] {
+  if (!z) return [];
+  const s = start.getTime();
+  const e = end.getTime();
+  const out: Date[] = [];
+  const add = (ts: number | null) => {
+    if (ts != null && ts > s && ts < e) out.push(new Date(ts));
+  };
+  add(finiteTs(z.validStartTs));
+  if (Array.isArray(z.ed269Applicability)) {
+    for (const entry of z.ed269Applicability) {
+      if (entry && typeof entry === "object") add(ed269ParseTs(entry.startDateTime));
+    }
+  }
+  return out;
 }
 
 /** Ist die Zone im Kontext relevant (aktiv/unbekannt zu einem der Zeitpunkte)? */
 export function isZoneActiveInContext(z: ZoneActivityInput | null | undefined, ctx: ZoneTimeContext): boolean {
-  return zoneTimeReferences(ctx).some((d) => isZoneActiveAt(z, d));
+  if (zoneTimeReferences(ctx).some((d) => isZoneActiveAt(z, d))) return true;
+  const win = plannedWindow(ctx);
+  if (!win?.end) return false;
+  return zoneStartsWithin(z, win.start, win.end).some((d) => isZoneActiveAt(z, d));
 }
 
 /** Zonen, deren Gültigkeit länger als diese Frist vorbei ist, werden beim

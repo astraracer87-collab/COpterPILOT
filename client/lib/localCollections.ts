@@ -1,4 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { purgeAsyncStorageCaches, setItemResilient } from "./storageMaintenance";
+import { purgeFileCache } from "./fileCache";
 
 /**
  * Lokale Ersatz-"API" für die früher serverseitigen Nutzer-Sammlungen
@@ -59,7 +61,11 @@ async function readAll(def: CollectionDef): Promise<Item[]> {
 }
 
 async function writeAll(def: CollectionDef, items: Item[]): Promise<void> {
-  await AsyncStorage.setItem(def.storageKey, JSON.stringify(items));
+  // Nutzerdaten: bei vollem Speicher Caches leeren und einmal neu versuchen.
+  await setItemResilient(AsyncStorage, def.storageKey, JSON.stringify(items), async () => {
+    await purgeAsyncStorageCaches(AsyncStorage);
+    await purgeFileCache();
+  });
 }
 
 function pickFields(def: CollectionDef, data: unknown): Record<string, string> {

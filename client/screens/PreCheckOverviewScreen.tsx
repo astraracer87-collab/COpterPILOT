@@ -54,6 +54,7 @@ import { GEOZONE_VECTOR_MAX_FEATURES } from "@/lib/geozoneZoom";
 import { findMilLowFlightAreasContaining, findMilLowFlightAreasIntersectingRadius, findMilLowFlightAreasOnRoute, MIL_LOW_FLIGHT_LABEL, MIL_LOW_FLIGHT_ACTIVATION_TEXT, MIL_LOW_FLIGHT_DATA_STAND, MIL_LOW_FLIGHT_SOURCE_URL } from "@/lib/milLowFlight";
 import { smoothRingGroup } from "@/lib/ringSimplify";
 import { isZoneActiveInContext, ed269InactiveInfoText, type ZoneTimeContext } from "@/lib/ed269";
+import { computeFlightWindow } from "@/lib/planningDateTime";
 import {
   getPilotProfile,
   PilotProfile,
@@ -144,6 +145,8 @@ export default function PreCheckOverviewScreen() {
 
   const [allGeozones, setGeozones] = useState<GeozoneFeatureInfo[]>([]);
   const [plannedFlightDate, setPlannedFlightDate] = useState<Date | null>(null);
+  // Ende des geplanten Fensters (Ende <= Start = Folgetag), falls gespeichert.
+  const [plannedFlightEnd, setPlannedFlightEnd] = useState<Date | null>(null);
   const [tempRestrictions, setTempRestrictions] = useState<GeozoneFeatureInfo[]>([]);
   const [notams, setNotams] = useState<DipulTempRestrictionsResult>({ active: [], upcoming: [] });
   const [geozoneLoading, setGeozoneLoading] = useState(true);
@@ -198,6 +201,10 @@ export default function PreCheckOverviewScreen() {
           const t = s.planning.plannedTime && /^\d{1,2}:\d{2}/.test(s.planning.plannedTime) ? s.planning.plannedTime.padStart(5, "0") : "12:00";
           const d = new Date(`${s.planning.plannedDate}T${t}`);
           if (!isNaN(d.getTime())) setPlannedFlightDate(d);
+          const w = s.planning.plannedEndTime
+            ? computeFlightWindow(s.planning.plannedDate, t, s.planning.plannedEndTime)
+            : null;
+          setPlannedFlightEnd(w?.end ?? null);
         }
         if (s?.planning?.maxAltitude != null) setPlanningMaxAltitude(s.planning.maxAltitude);
         if (s?.mapSnapshotBase64) {
@@ -256,8 +263,9 @@ export default function PreCheckOverviewScreen() {
       const base64 = await mapRef.current.takeSnapshot({
         width: 800,
         height: 480,
-        format: "png",
-        quality: 0.9,
+        // JPEG statt PNG: ~5–10× kleiner (Logbuch/PDF zeigen es ohnehin als JPEG an).
+        format: "jpg",
+        quality: 0.7,
         result: "base64",
       } as any);
       if (typeof base64 === "string" && base64.length > 0) {
@@ -425,7 +433,7 @@ export default function PreCheckOverviewScreen() {
   // geplanten Zeit liegen). Nur wenn sie zu beiden Zeitpunkten inaktiv ist,
   // wird sie als reiner Hinweis geführt. Die Pre-Check-Karte nutzt denselben
   // Kontext, damit Liste und Karte übereinstimmen.
-  const preCheckTimeContext: ZoneTimeContext = { kind: "precheck", planned: plannedFlightDate };
+  const preCheckTimeContext: ZoneTimeContext = { kind: "precheck", planned: plannedFlightDate, plannedEnd: plannedFlightEnd };
   const isZoneRelevantInTime = (gz: GeozoneFeatureInfo): boolean => isZoneActiveInContext(gz, preCheckTimeContext);
   const totalNotams = notams.active.length + notams.upcoming.length;
   // Abdeckungslücke (Review-Fix 4): kein Datensatz / Abruffehler / Land ohne

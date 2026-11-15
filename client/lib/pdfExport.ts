@@ -9,6 +9,7 @@ import { groupDanishBufferRings } from "../../shared/danishGeozones";
 import { resolveFlightTimeDocuments, type ResolvedPilotDocument } from "../../shared/archivedDocuments";
 import { buildWildlifeRescueOrdinancesHtml } from "../../shared/wildlifeRescue";
 import { renderProtocolMap } from "@/lib/protocolMapClient";
+import { formatPlannedTimeRange } from "../../shared/flightWindow";
 
 /** Vorab clientseitig erzeugte Karten (OSM-Kacheln + Radius/Route als SVG). */
 export interface ProtocolMaps {
@@ -971,7 +972,7 @@ function generateProtocolHtml(entry: LogbookEntry, maps?: ProtocolMaps, attached
     <h2>1. Flugplanung</h2>
     <table>
       <tr><td class="label">Geplantes Datum</td><td>${escapeHtml(entry.planning.plannedDate)}</td></tr>
-      <tr><td class="label">Geplante Uhrzeit</td><td>${escapeHtml(entry.planning.plannedTime)}</td></tr>
+      <tr><td class="label">Geplante Uhrzeit</td><td>${escapeHtml(entry.planning.plannedEndTime ? formatPlannedTimeRange(entry.planning.plannedTime, entry.planning.plannedEndTime) : entry.planning.plannedTime)}</td></tr>
       ${entry.planning.flightPurpose ? `<tr><td class="label">Flugzweck</td><td>${escapeHtml(entry.planning.flightPurpose)}</td></tr>` : ""}
       ${entry.planning.maxAltitude ? `<tr><td class="label">Max. Höhe</td><td>${entry.planning.maxAltitude}m</td></tr>` : ""}
       ${entry.planning.maxDistance ? `<tr><td class="label">Max. Entfernung</td><td>${entry.planning.maxDistance}m</td></tr>` : ""}

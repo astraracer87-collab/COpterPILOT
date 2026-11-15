@@ -14,7 +14,12 @@ import { BlockingWorkOverlay } from "@/components/BlockingWorkOverlay";
 import { rootTouchHandlers, runAfterStartup } from "@/lib/backgroundWork";
 import { prefetchObstaclesAroundLastKnown } from "@/lib/obstacles";
 import { startWeatherPrefetch } from "@/lib/weatherPrefetch";
+import { runStorageMaintenance } from "@/lib/storage";
 
+// Speicher-Wartung zuerst: große Caches aus AsyncStorage (SQLite, Größenlimit)
+// in Dateien verschieben, Karten-Snapshots aus Sessions/Logbuch auslagern –
+// sonst scheitert das Speichern von Nutzerdaten („Session konnte nicht erstellt werden“).
+void runStorageMaintenance();
 // Übersetzungs-Cache der Behördentexte laden (offline) und neue Texte nachziehen
 startZoneTranslation();
 initDflightAccessFlag();

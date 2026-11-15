@@ -50,3 +50,6 @@ export function dateForLocalTime(dateKey: string, time: string): Date {
   );
   return date;
 }
+// Flugfenster (Über-Mitternacht-Regel: Ende <= Start = Folgetag) – die
+// Berechnung lebt in shared/, damit auch die Zonen-Aktivitätsprüfung sie nutzt.
+export * from "../../shared/flightWindow";

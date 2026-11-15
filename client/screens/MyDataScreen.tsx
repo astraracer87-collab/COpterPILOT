@@ -23,6 +23,8 @@ import {
 } from "@/lib/storage";
 import { countLocalCollection } from "@/lib/localCollections";
 import { formatBytes, measureDocumentDirectory, measureKeyValueStore } from "@/lib/storageUsage";
+import { readAllUserBlobs, USER_BLOB_DIR_NAME } from "@/lib/userBlobs";
+import { FILE_CACHE_DIR_NAME } from "@/lib/fileCache";
 import type { SettingsStackParamList } from "@/navigation/SettingsStackNavigator";
 
 type NavigationProp = NativeStackNavigationProp<SettingsStackParamList>;
@@ -50,6 +52,9 @@ const GROUP_ICONS: Record<string, keyof typeof Feather.glyphMap> = {
 // bzw. offlineStore.ts). Beim Löschen werden diese Verzeichnisse mit entfernt.
 const LOCAL_DOCS_DIR = `${FileSystem.documentDirectory ?? ""}documents/`;
 const LOCAL_OFFLINE_DIR = `${FileSystem.documentDirectory ?? ""}offline/`;
+// Ausgelagerte Karten-Snapshots (Nutzerdaten) und Datei-Cache (re-fetchbar).
+const LOCAL_USER_BLOBS_DIR = `${FileSystem.documentDirectory ?? ""}${USER_BLOB_DIR_NAME}/`;
+const LOCAL_FILE_CACHE_DIR = `${FileSystem.documentDirectory ?? ""}${FILE_CACHE_DIR_NAME}/`;
 
 async function listLocalDocumentFiles(): Promise<string[]> {
   if (Platform.OS === "web" || !FileSystem.documentDirectory) return [];
@@ -159,6 +164,9 @@ async function buildLocalExport(): Promise<string> {
       // einzelne Datei nicht lesbar → überspringen
     }
   }
+  // Karten-Snapshots stehen in storage nur als Verweis ("blobref:v1:<pfad>");
+  // der Inhalt kommt hier unter demselben Pfad mit.
+  const userBlobs = Platform.OS === "web" ? {} : await readAllUserBlobs().catch(() => ({}));
   return JSON.stringify(
     {
       exportedAt: new Date().toISOString(),
@@ -166,6 +174,7 @@ async function buildLocalExport(): Promise<string> {
       version: 1,
       storage: data,
       documentFilesBase64: documents,
+      userBlobs,
     },
     null,
     2,
@@ -245,6 +254,8 @@ export default function MyDataScreen() {
       if (Platform.OS !== "web" && FileSystem.documentDirectory) {
         await FileSystem.deleteAsync(LOCAL_DOCS_DIR, { idempotent: true }).catch(() => {});
         await FileSystem.deleteAsync(LOCAL_OFFLINE_DIR, { idempotent: true }).catch(() => {});
+        await FileSystem.deleteAsync(LOCAL_USER_BLOBS_DIR, { idempotent: true }).catch(() => {});
+        await FileSystem.deleteAsync(LOCAL_FILE_CACHE_DIR, { idempotent: true }).catch(() => {});
       }
       queryClient.clear();
       await refetch();

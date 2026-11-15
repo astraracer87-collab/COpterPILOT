@@ -290,5 +290,91 @@ describe.each(["ios", "android"] as const)(
         }),
       );
     });
+
+    it("takes over an end time after midnight (23:30–03:00) in chart, summary and params", async () => {
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      tomorrow.setHours(0, 0, 0, 0);
+      const dayAfter = new Date(tomorrow);
+      dayAfter.setDate(dayAfter.getDate() + 1);
+
+      await act(async () => {
+        byTestId(tree!, "planning-date-button").props.onPress();
+      });
+      await act(async () => {
+        picker(tree!, "planning-date-picker").props.onChange({ type: "set" }, tomorrow);
+      });
+
+      await act(async () => {
+        byTestId(tree!, "planning-start-time-button").props.onPress();
+      });
+      const start = new Date(tomorrow);
+      start.setHours(23, 30, 0, 0);
+      await act(async () => {
+        picker(tree!, "planning-start-time-picker").props.onChange({ type: "set" }, start);
+      });
+
+      if (platform === "ios") {
+        await act(async () => {
+          byTestId(tree!, "planning-start-time-button").props.onPress();
+        });
+      }
+      await act(async () => {
+        byTestId(tree!, "planning-end-time-button").props.onPress();
+      });
+      const end = new Date(tomorrow);
+      end.setHours(3, 0, 0, 0);
+      await act(async () => {
+        picker(tree!, "planning-end-time-picker").props.onChange({ type: "set" }, end);
+      });
+
+      // Chart: Bereich endet am Folgetag 03:00 (nicht mehr auf 23:45 geklemmt).
+      const chart = tree!.root.find((n) => typeof n.props?.onRangeChange === "function");
+      const expectedStart = new Date(tomorrow);
+      expectedStart.setHours(23, 30, 0, 0);
+      const expectedEnd = new Date(dayAfter);
+      expectedEnd.setHours(3, 0, 0, 0);
+      expect(chart.props.rangeStart.getTime()).toBe(expectedStart.getTime());
+      expect(chart.props.rangeEnd.getTime()).toBe(expectedEnd.getTime());
+
+      // "+1"-Hinweis an der Endzeit und Hinweiszeile.
+      expect(tree!.root.findAll((n) => n.props?.testID === "planning-end-next-day-badge").length).toBeGreaterThan(0);
+      const summary = byTestId(tree!, "planning-window-summary");
+      const summaryText = ([] as unknown[]).concat(summary.props.children).join("");
+      expect(summaryText).toContain("23:30–03:00 (+1 Tag)");
+
+      // Endzeit-Picker liegt auf dem Kalendertag des Endes.
+      if (platform === "ios") {
+        await act(async () => {
+          byTestId(tree!, "planning-end-time-button").props.onPress();
+        });
+      }
+      await act(async () => {
+        byTestId(tree!, "planning-end-time-button").props.onPress();
+      });
+      const reopened = picker(tree!, "planning-end-time-picker");
+      expect(formatLocalDateKey(reopened.props.value)).toBe(formatLocalDateKey(dayAfter));
+      expect(reopened.props.value.getHours()).toBe(3);
+
+      // Ziehen im Chart aktualisiert die Picker (Zwei-Wege-Sync).
+      const dragEnd = new Date(dayAfter);
+      dragEnd.setHours(2, 0, 0, 0);
+      await act(async () => {
+        chart.props.onRangeChange(expectedStart, dragEnd);
+      });
+      expect(picker(tree!, "planning-end-time-picker").props.value.getHours()).toBe(2);
+
+      await act(async () => {
+        byTestId(tree!, "planning-continue-button").props.onPress();
+      });
+      expect(mockNavigate).toHaveBeenCalledWith(
+        "PlanningRestrictions",
+        expect.objectContaining({
+          plannedDate: formatLocalDateKey(tomorrow),
+          plannedTime: "23:30",
+          endTime: "02:00",
+        }),
+      );
+    });
   },
 );

@@ -17,6 +17,8 @@ import type { AirportMetarObservation } from "@/lib/aviationWeather";
 import { assessNightFlight, assessWeather, type AssessmentWarning } from "@/lib/assessment";
 import { classifyPlanningZones, type PlanningZoneClassification } from "@/lib/restrictionPlanning";
 import { isZoneActiveInContext, type ZoneTimeContext } from "../../shared/ed269Restriction";
+import { flightWindowSampleTimes } from "../../shared/flightWindow";
+import { computeSunElevation } from "../../shared/solar";
 import { maxRestrictionVerdict, type RestrictionVerdict, type RestrictionZoneLike } from "../../shared/restrictionPolicy";
 import { partitionByReachability, type ReachabilityOptions, type ZoneAltitudeInput } from "../../shared/geozoneAltitudeFilter";
 import {
@@ -75,15 +77,45 @@ export interface NightCheckInput {
   context: CheckContext;
   /** Planung: geplanter Zeitpunkt; Pre-Check: jetzt. */
   at: Date | null | undefined;
+  /** Optional: Ende des geplanten Flugfensters (bei Über-Mitternacht-Flügen
+   *  am Folgetag). Dann zählt der dunkelste Zeitpunkt im Fenster. */
+  until?: Date | null;
   latitude: number;
   longitude: number;
   /** Nur Rückfall, wenn am Standort kein Land erkannt wird. */
   countryIso?: string | null;
 }
 
+/**
+ * Prüfzeitpunkt der Nachtprüfung: ohne Fensterende `at`, sonst der Zeitpunkt
+ * mit der tiefsten Sonne im Fenster [at, until] (10-min-Raster inkl. Ende) –
+ * so wird ein Fenster, das z. B. bei Tageslicht beginnt und in die Nacht
+ * reicht, als Nachtflug erkannt.
+ */
+export function nightCheckReferenceTime(
+  at: Date | null | undefined,
+  until: Date | null | undefined,
+  latitude: number,
+  longitude: number,
+): Date | undefined {
+  if (!at || !Number.isFinite(at.getTime())) return undefined;
+  if (!until || !Number.isFinite(until.getTime()) || until.getTime() <= at.getTime()) return at;
+  let best = at;
+  let bestElev = computeSunElevation(latitude, longitude, at);
+  for (const t of flightWindowSampleTimes(at, until, 10)) {
+    const e = computeSunElevation(latitude, longitude, t);
+    if (e < bestElev) {
+      bestElev = e;
+      best = t;
+    }
+  }
+  return best;
+}
+
 /** Nachtflug-Befunde (assessNightFlight, Land aus dem Standort). */
 export function nightChecks(input: NightCheckInput): CheckResult[] {
-  const night = assessNightFlight(input.at ?? undefined, input.latitude, input.longitude, input.countryIso);
+  const ref = nightCheckReferenceTime(input.at, input.until, input.latitude, input.longitude);
+  const night = assessNightFlight(ref, input.latitude, input.longitude, input.countryIso);
   return night.warnings.map((w, i) => warningToCheck(w, "night", `night:${i}`, input.context));
 }
 
@@ -343,6 +375,8 @@ export interface FlightEvaluationInput {
   context: CheckContext;
   /** Zeitpunkt für die Nachtprüfung (Planung: geplant, Pre-Check: jetzt). */
   at: Date | null | undefined;
+  /** Optional: Ende des geplanten Flugfensters (Ende <= Start = Folgetag). */
+  until?: Date | null;
   latitude: number;
   longitude: number;
   countryIso?: string | null;
@@ -373,6 +407,7 @@ export function evaluateFlight(input: FlightEvaluationInput): FlightEvaluation {
     ...nightChecks({
       context: input.context,
       at: input.at,
+      until: input.until,
       latitude: input.latitude,
       longitude: input.longitude,
       countryIso: input.countryIso,

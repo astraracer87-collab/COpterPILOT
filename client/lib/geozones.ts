@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { fileCacheGet, fileCacheSet } from "./fileCache";
 import { getCached, setCache, makeCacheKey } from "@/lib/dataCache";
 import { polygonGroupsIntersectCircle, polygonRingsIntersectCircle } from "@/lib/geozoneSpatial";
 import {
@@ -1156,11 +1157,13 @@ async function fetchDipulGeoapi(lon: number, lat: number, radiusM: number): Prom
 // Zuletzt erfolgreich geladene dipul-WFS-Layer (ohne Ablauf; Join über extRef,
 // abgelaufene Gebiete stören daher nicht). Dient als Rückfall, wenn der
 // Kartendienst gerade nicht antwortet, und zum Nachrüsten gespeicherter Listen.
-const DIPUL_LAYER_STORE_PREFIX = "dipul_wfs_layer_v1:";
+// Liegen im Datei-Cache (fileCache.ts): ganze WFS-Layer sind mehrere MB groß
+// und hätten AsyncStorage (SQLite, Größenlimit) gefüllt.
+export const DIPUL_LAYER_STORE_PREFIX = "dipul_wfs_layer_v1:";
 const dipulLayerStore: DipulFeatureStore = {
   async load(layer) {
     try {
-      const raw = await AsyncStorage.getItem(DIPUL_LAYER_STORE_PREFIX + layer);
+      const raw = await fileCacheGet(DIPUL_LAYER_STORE_PREFIX + layer);
       const parsed = raw ? JSON.parse(raw) : null;
       return Array.isArray(parsed) ? parsed : null;
     } catch {
@@ -1169,7 +1172,7 @@ const dipulLayerStore: DipulFeatureStore = {
   },
   async save(layer, features) {
     try {
-      await AsyncStorage.setItem(DIPUL_LAYER_STORE_PREFIX + layer, JSON.stringify(features));
+      await fileCacheSet(DIPUL_LAYER_STORE_PREFIX + layer, JSON.stringify(features));
     } catch {
       // Speicher voll o. Ä. – nur der Offline-Rückfall fehlt dann
     }

@@ -6,6 +6,17 @@ import { schedulePreflightReminder, cancelPreflightReminder } from "./notificati
 import { DEFAULT_REACHABLE_ALTITUDE_M } from "../../shared/geozoneAltitudeFilter";
 import { activeWildlifeRescueOrdinanceIds } from "../../shared/wildlifeRescue";
 import { isDfsZonenEffective } from "./ctrAltitude";
+import { migrateCachesToFiles, purgeAsyncStorageCaches, setItemResilient } from "./storageMaintenance";
+import { fileCacheStorage, pruneFileCache, purgeFileCache } from "./fileCache";
+import { DATA_CACHE_MAX_AGE_MS, DATA_CACHE_PREFIX } from "./dataCache";
+import {
+  collectBlobGarbage,
+  externalizeBlobs,
+  hasInlineBlobs,
+  hydrateBlobs,
+  hydrateBlobsOne,
+  type BlobSpec,
+} from "./userBlobs";
 
 function useServer(): boolean {
   return isLoggedInSync();
@@ -325,8 +336,84 @@ async function getLocalData<T>(key: string): Promise<T | null> {
   }
 }
 
+/**
+ * Lesen für Read-Modify-Write: anders als getLocalData wird ein Lesefehler
+ * (z. B. Wert zu groß fürs Android-CursorWindow) NICHT als „leer“ gewertet –
+ * sonst würde das anschließende Speichern alle vorhandenen Datensätze durch
+ * eine Liste mit nur dem neuen Eintrag ersetzen.
+ */
+async function getLocalDataForWrite<T>(key: string): Promise<T | null> {
+  const raw = await AsyncStorage.getItem(key);
+  if (raw == null) return null;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    throw new Error(`Gespeicherte Daten (${key}) sind beschädigt und werden nicht überschrieben.`);
+  }
+}
+
+// Große Felder (Karten-Snapshots, Base64) liegen als Dateien (userBlobs.ts),
+// im AsyncStorage-Wert steht nur ein Verweis. Hält flight_sessions/logbook klein.
+export const SESSION_BLOB_SPEC: BlobSpec = {
+  ns: "sessions",
+  fields: [["mapSnapshotBase64"], ["trafficLog", "mapSnapshotBase64"]],
+};
+export const LOGBOOK_BLOB_SPEC: BlobSpec = {
+  ns: "logbook",
+  fields: [
+    ["mapSnapshotBase64"],
+    ["routeMapSnapshotBase64"],
+    ["mapSatelliteSnapshotBase64"],
+    ["routeMapSatelliteSnapshotBase64"],
+    ["trafficLog", "mapSnapshotBase64"],
+  ],
+};
+const BLOB_SPECS: Record<string, BlobSpec> = {
+  [FLIGHT_SESSIONS_KEY]: SESSION_BLOB_SPEC,
+  [LOGBOOK_KEY]: LOGBOOK_BLOB_SPEC,
+};
+
+/** Alle re-fetchbaren Caches leeren (AsyncStorage + Datei-Cache), nie Nutzerdaten. */
+export async function purgeAllCaches(): Promise<void> {
+  await purgeAsyncStorageCaches(AsyncStorage);
+  await purgeFileCache();
+}
+
+/** setItem für Nutzerdaten: bei vollem Speicher Caches leeren und einmal neu versuchen. */
+async function setUserItem(key: string, value: string): Promise<void> {
+  await setItemResilient(AsyncStorage, key, value, purgeAllCaches);
+}
+
 async function saveLocalData<T>(key: string, data: T): Promise<void> {
-  await AsyncStorage.setItem(key, JSON.stringify(data));
+  const spec = BLOB_SPECS[key];
+  const toStore = spec && Array.isArray(data) ? await externalizeBlobs(spec, data) : data;
+  await setUserItem(key, JSON.stringify(toStore));
+}
+
+// Read-Modify-Write je Schlüssel serialisieren (sonst überschreiben sich
+// parallele Änderungen, z. B. Start-Wartung und neue Session).
+const keyLocks = new Map<string, Promise<unknown>>();
+function withKeyLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const prev = keyLocks.get(key) ?? Promise.resolve();
+  const next = prev.then(fn, fn);
+  keyLocks.set(key, next.catch(() => undefined));
+  return next;
+}
+
+/**
+ * Liste unter `key` lesen (strikt), mit `fn` ändern und speichern – unter
+ * Sperre. `fn` liefert die neue Liste bzw. null (= nichts speichern).
+ */
+async function mutateLocalList<T, R>(
+  key: string,
+  fn: (list: T[]) => { list: T[] | null; result: R },
+): Promise<R> {
+  return withKeyLock(key, async () => {
+    const current = (await getLocalDataForWrite<T[]>(key)) || [];
+    const { list, result } = fn(current);
+    if (list) await saveLocalData(key, list);
+    return result;
+  });
 }
 
 export interface AssessmentReason {
@@ -565,6 +652,9 @@ export type SessionPhase = "planning" | "preflight" | "hover" | "postlanding" | 
 export interface PlanningData {
   plannedDate: string;
   plannedTime: string;
+  /** Geplante Endzeit "HH:MM". Liegt sie vor/gleich plannedTime, endet der
+   *  Flug am Folgetag (siehe shared/flightWindow.ts). Optional für Altbestände. */
+  plannedEndTime?: string;
   flightPurpose?: string;
   maxAltitude?: number;
   maxDistance?: number;
@@ -1008,29 +1098,29 @@ export async function getBriefing(id: string): Promise<Briefing | null> {
 }
 
 export async function saveBriefing(briefing: Omit<Briefing, "id">): Promise<Briefing> {
-  const briefings = await getBriefings();
+  const briefings = (await getLocalDataForWrite<Briefing[]>(BRIEFINGS_KEY)) || [];
   const newBriefing: Briefing = {
     ...briefing,
     id: generateId(),
   };
   briefings.unshift(newBriefing);
-  await AsyncStorage.setItem(BRIEFINGS_KEY, JSON.stringify(briefings));
+  await setUserItem(BRIEFINGS_KEY, JSON.stringify(briefings));
   return newBriefing;
 }
 
 export async function updateBriefing(id: string, updates: Partial<Briefing>): Promise<void> {
-  const briefings = await getBriefings();
+  const briefings = (await getLocalDataForWrite<Briefing[]>(BRIEFINGS_KEY)) || [];
   const index = briefings.findIndex((b) => b.id === id);
   if (index !== -1) {
     briefings[index] = { ...briefings[index], ...updates };
-    await AsyncStorage.setItem(BRIEFINGS_KEY, JSON.stringify(briefings));
+    await setUserItem(BRIEFINGS_KEY, JSON.stringify(briefings));
   }
 }
 
 export async function deleteBriefing(id: string): Promise<void> {
-  const briefings = await getBriefings();
+  const briefings = (await getLocalDataForWrite<Briefing[]>(BRIEFINGS_KEY)) || [];
   const filtered = briefings.filter((b) => b.id !== id);
-  await AsyncStorage.setItem(BRIEFINGS_KEY, JSON.stringify(filtered));
+  await setUserItem(BRIEFINGS_KEY, JSON.stringify(filtered));
 }
 
 export async function getSettings(): Promise<Settings> {
@@ -1113,7 +1203,7 @@ export async function saveSettings(settings: Settings): Promise<void> {
     }
   }
   try {
-    await AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    await setUserItem(SETTINGS_KEY, JSON.stringify(settings));
   } catch (error) {
     console.error("Error saving settings:", error);
     throw error;
@@ -1258,7 +1348,7 @@ export async function saveDrone(drone: Omit<DroneProfile, "id" | "createdAt" | "
       return optimistic;
     }
   }
-  const drones = (await getLocalData<DroneProfile[]>(DRONES_KEY)) || [];
+  const drones = (await getLocalDataForWrite<DroneProfile[]>(DRONES_KEY)) || [];
   const now = new Date().toISOString();
   const newDrone: DroneProfile = {
     ...drone,
@@ -1289,7 +1379,7 @@ export async function updateDrone(id: string, updates: Partial<DroneProfile>): P
       return;
     }
   }
-  const drones = (await getLocalData<DroneProfile[]>(DRONES_KEY)) || [];
+  const drones = (await getLocalDataForWrite<DroneProfile[]>(DRONES_KEY)) || [];
   const index = drones.findIndex((d) => d.id === id);
   if (index !== -1) {
     drones[index] = { ...drones[index], ...updates, updatedAt: new Date().toISOString() };
@@ -1325,7 +1415,7 @@ export async function deleteDrone(id: string): Promise<void> {
       }
     }
   } else {
-    const drones = (await getLocalData<DroneProfile[]>(DRONES_KEY)) || [];
+    const drones = (await getLocalDataForWrite<DroneProfile[]>(DRONES_KEY)) || [];
     const filtered = drones.filter((d) => d.id !== id);
     await saveLocalData(DRONES_KEY, filtered);
   }
@@ -1347,7 +1437,7 @@ export async function getSelectedDroneId(): Promise<string | null> {
 export async function setSelectedDroneId(id: string | null): Promise<void> {
   try {
     if (id) {
-      await AsyncStorage.setItem(SELECTED_DRONE_KEY, id);
+      await setUserItem(SELECTED_DRONE_KEY, id);
     } else {
       await AsyncStorage.removeItem(SELECTED_DRONE_KEY);
     }
@@ -1494,18 +1584,17 @@ function isTrashed(s: FlightSession): boolean {
 
 async function purgeOldLocalTrash(): Promise<void> {
   try {
-    const sessions = (await getLocalData<FlightSession[]>(FLIGHT_SESSIONS_KEY)) || [];
     const cutoff = Date.now() - TRASH_RETENTION_DAYS * 24 * 60 * 60 * 1000;
-    const filtered = sessions.filter((s) => {
-      const d = (s as any).deletedAt;
-      if (!d) return true;
-      const t = new Date(d).getTime();
-      if (isNaN(t)) return true;
-      return t >= cutoff;
+    await mutateLocalList<FlightSession, void>(FLIGHT_SESSIONS_KEY, (sessions) => {
+      const filtered = sessions.filter((s) => {
+        const d = (s as any).deletedAt;
+        if (!d) return true;
+        const t = new Date(d).getTime();
+        if (isNaN(t)) return true;
+        return t >= cutoff;
+      });
+      return { list: filtered.length !== sessions.length ? filtered : null, result: undefined };
     });
-    if (filtered.length !== sessions.length) {
-      await saveLocalData(FLIGHT_SESSIONS_KEY, filtered);
-    }
   } catch {}
 }
 
@@ -1576,16 +1665,16 @@ export async function trashFlightSession(id: string): Promise<void> {
       if (!(err instanceof Api.ApiError && err.status === 404)) throw err;
     }
   } else {
-    const sessions = (await getLocalData<FlightSession[]>(FLIGHT_SESSIONS_KEY)) || [];
-    const idx = sessions.findIndex((s) => s.id === id);
-    if (idx !== -1) {
+    await mutateLocalList<FlightSession, void>(FLIGHT_SESSIONS_KEY, (sessions) => {
+      const idx = sessions.findIndex((s) => s.id === id);
+      if (idx === -1) return { list: null, result: undefined };
       sessions[idx] = {
         ...sessions[idx],
         deletedAt,
         updatedAt: deletedAt,
       } as FlightSession;
-      await saveLocalData(FLIGHT_SESSIONS_KEY, sessions);
-    }
+      return { list: sessions, result: undefined };
+    });
   }
   cancelPreflightReminder(id).catch(() => {});
 }
@@ -1599,20 +1688,22 @@ export async function restoreFlightSession(id: string): Promise<void> {
       if (!(err instanceof Api.ApiError && err.status === 404)) throw err;
     }
   } else {
-    const sessions = (await getLocalData<FlightSession[]>(FLIGHT_SESSIONS_KEY)) || [];
-    const idx = sessions.findIndex((s) => s.id === id);
-    if (idx !== -1) {
+    await mutateLocalList<FlightSession, void>(FLIGHT_SESSIONS_KEY, (sessions) => {
+      const idx = sessions.findIndex((s) => s.id === id);
+      if (idx === -1) return { list: null, result: undefined };
       const restored: any = { ...sessions[idx], updatedAt: new Date().toISOString() };
       delete restored.deletedAt;
       sessions[idx] = restored;
-      await saveLocalData(FLIGHT_SESSIONS_KEY, sessions);
-    }
+      return { list: sessions, result: undefined };
+    });
   }
 }
 
 export async function getFlightSession(id: string): Promise<FlightSession | null> {
   const sessions = await getFlightSessions();
-  return sessions.find((s) => s.id === id) || null;
+  const found = sessions.find((s) => s.id === id) || null;
+  // Listen liefern ausgelagerte Bilder als Verweis; die Einzelansicht lädt sie.
+  return found ? hydrateBlobsOne(SESSION_BLOB_SPEC, found) : null;
 }
 
 export async function getActiveSessions(): Promise<FlightSession[]> {
@@ -1636,16 +1727,17 @@ export async function createFlightSession(
   if (useServer()) {
     created = await Api.apiCreateSession(session as Partial<FlightSession>);
   } else {
-    const sessions = (await getLocalData<FlightSession[]>(FLIGHT_SESSIONS_KEY)) || [];
     const now = new Date().toISOString();
-    created = {
+    const fresh: FlightSession = {
       ...session,
       id: generateId(),
       createdAt: now,
       updatedAt: now,
     };
-    sessions.unshift(created);
-    await saveLocalData(FLIGHT_SESSIONS_KEY, sessions);
+    created = await mutateLocalList<FlightSession, FlightSession>(FLIGHT_SESSIONS_KEY, (sessions) => {
+      sessions.unshift(fresh);
+      return { list: sessions, result: fresh };
+    });
   }
   // Reminder eine Stunde vor geplanter Startzeit (nur iOS/Android).
   schedulePreflightReminder({
@@ -1670,17 +1762,17 @@ export async function updateFlightSession(
       throw err;
     }
   } else {
-    const sessions = (await getLocalData<FlightSession[]>(FLIGHT_SESSIONS_KEY)) || [];
-    const index = sessions.findIndex((s) => s.id === id);
-    if (index !== -1) {
+    const raw = await mutateLocalList<FlightSession, FlightSession | null>(FLIGHT_SESSIONS_KEY, (sessions) => {
+      const index = sessions.findIndex((s) => s.id === id);
+      if (index === -1) return { list: null, result: null };
       sessions[index] = {
         ...sessions[index],
         ...updates,
         updatedAt: new Date().toISOString(),
       };
-      await saveLocalData(FLIGHT_SESSIONS_KEY, sessions);
-      updated = sessions[index];
-    }
+      return { list: sessions, result: sessions[index] };
+    });
+    updated = raw ? await hydrateBlobsOne(SESSION_BLOB_SPEC, raw) : null;
   }
   if (updated) {
     // Falls Planung/Phase angefasst wurde, Reminder neu setzen. Wenn Phase
@@ -1705,9 +1797,10 @@ export async function deleteFlightSession(id: string): Promise<void> {
   if (useServer()) {
     await Api.apiDeleteSession(id);
   } else {
-    const sessions = (await getLocalData<FlightSession[]>(FLIGHT_SESSIONS_KEY)) || [];
-    const filtered = sessions.filter((s) => s.id !== id);
-    await saveLocalData(FLIGHT_SESSIONS_KEY, filtered);
+    await mutateLocalList<FlightSession, void>(FLIGHT_SESSIONS_KEY, (sessions) => ({
+      list: sessions.filter((s) => s.id !== id),
+      result: undefined,
+    }));
   }
   // Reminder erst entfernen, nachdem die Session erfolgreich gelöscht wurde —
   // sonst könnten Fehler beim Löschen einen verwaisten Reminder hinterlassen.
@@ -1731,7 +1824,7 @@ export async function getLogbook(): Promise<LogbookEntry[]> {
       );
     }
   }
-  const entries = (await getLocalData<LogbookEntry[]>(LOGBOOK_KEY)) || [];
+  const entries = await hydrateBlobs(LOGBOOK_BLOB_SPEC, (await getLocalData<LogbookEntry[]>(LOGBOOK_KEY)) || []);
   return entries.sort(
     (a, b) => new Date(b.flightDate).getTime() - new Date(a.flightDate).getTime(),
   );
@@ -1769,15 +1862,15 @@ export async function createLogbookEntry(
   if (useServer()) {
     return Api.apiCreateLogbookEntry(entry as Partial<LogbookEntry>);
   }
-  const entries = (await getLocalData<LogbookEntry[]>(LOGBOOK_KEY)) || [];
   const newEntry: LogbookEntry = {
     ...entry,
     id: generateId(),
     createdAt: new Date().toISOString(),
   };
-  entries.unshift(newEntry);
-  await saveLocalData(LOGBOOK_KEY, entries);
-  return newEntry;
+  return mutateLocalList<LogbookEntry, LogbookEntry>(LOGBOOK_KEY, (entries) => {
+    entries.unshift(newEntry);
+    return { list: entries, result: newEntry };
+  });
 }
 
 export async function updateLogbookEntry(
@@ -1788,12 +1881,12 @@ export async function updateLogbookEntry(
     await Api.apiUpdateLogbookEntry(id, updates);
     return;
   }
-  const entries = (await getLocalData<LogbookEntry[]>(LOGBOOK_KEY)) || [];
-  const index = entries.findIndex((e) => e.id === id);
-  if (index !== -1) {
+  await mutateLocalList<LogbookEntry, void>(LOGBOOK_KEY, (entries) => {
+    const index = entries.findIndex((e) => e.id === id);
+    if (index === -1) return { list: null, result: undefined };
     entries[index] = { ...entries[index], ...updates };
-    await saveLocalData(LOGBOOK_KEY, entries);
-  }
+    return { list: entries, result: undefined };
+  });
 }
 
 export async function deleteLogbookEntry(id: string): Promise<void> {
@@ -1801,9 +1894,10 @@ export async function deleteLogbookEntry(id: string): Promise<void> {
     await Api.apiDeleteLogbookEntry(id);
     return;
   }
-  const entries = (await getLocalData<LogbookEntry[]>(LOGBOOK_KEY)) || [];
-  const filtered = entries.filter((e) => e.id !== id);
-  await saveLocalData(LOGBOOK_KEY, filtered);
+  await mutateLocalList<LogbookEntry, void>(LOGBOOK_KEY, (entries) => ({
+    list: entries.filter((e) => e.id !== id),
+    result: undefined,
+  }));
 }
 
 /**
@@ -2007,7 +2101,7 @@ export async function addDroneHistoryEntry(
   };
 
   history.push(newEntry);
-  await AsyncStorage.setItem(DRONE_HISTORY_KEY, JSON.stringify(history));
+  await setUserItem(DRONE_HISTORY_KEY, JSON.stringify(history));
   return newEntry;
 }
 
@@ -2027,7 +2121,7 @@ export async function deleteDroneHistoryEntry(droneId: string, entryId: string):
   if (!json) return;
   const history: DroneHistoryEntry[] = JSON.parse(json);
   const filtered = history.filter((entry) => !(entry.id === entryId && entry.droneId === droneId));
-  await AsyncStorage.setItem(DRONE_HISTORY_KEY, JSON.stringify(filtered));
+  await setUserItem(DRONE_HISTORY_KEY, JSON.stringify(filtered));
 }
 
 export interface MigrationResult {
@@ -2995,4 +3089,52 @@ export function enforceLicenseHierarchy(profile: PilotProfile): PilotProfile {
     return profile;
   }
   return { ...profile, licenseA1A3: a1a3, licenseA2: a2, licenseSTS: sts };
+}
+
+// ---------------------------------------------------------------------------
+// Speicher-Wartung beim App-Start (fire-and-forget, wirft nie)
+// ---------------------------------------------------------------------------
+
+/** Große Inline-Bilder alter Datensätze in Dateien auslagern und verwaiste Dateien entfernen. */
+async function compactBlobList(key: string, spec: BlobSpec): Promise<void> {
+  try {
+    const raw = await withKeyLock(key, async () => {
+      const list = (await getLocalDataForWrite<unknown[]>(key)) || [];
+      if (!Array.isArray(list)) return null;
+      if (hasInlineBlobs(spec, list)) {
+        await saveLocalData(key, list);
+        return (await getLocalDataForWrite<unknown[]>(key)) || [];
+      }
+      return list;
+    });
+    // Nur aufräumen, wenn die Liste sicher gelesen wurde.
+    if (Array.isArray(raw)) await collectBlobGarbage(spec, raw);
+  } catch (e) {
+    console.warn(`[storage] Wartung ${key} übersprungen:`, (e as Error)?.message);
+  }
+}
+
+let maintenancePromise: Promise<void> | null = null;
+
+/**
+ * Einmal pro App-Start: Caches aus AsyncStorage in den Datei-Cache
+ * verschieben, alte dataCache-Dateien löschen, Karten-Snapshots aus
+ * flight_sessions/logbook auslagern. Nutzerdaten werden nie entfernt.
+ */
+export function runStorageMaintenance(): Promise<void> {
+  if (maintenancePromise) return maintenancePromise;
+  maintenancePromise = (async () => {
+    try {
+      const r = await migrateCachesToFiles(AsyncStorage, fileCacheStorage);
+      if (r.moved.length || r.dropped.length) {
+        console.log(`[storage] Caches aus AsyncStorage: ${r.moved.length} verschoben, ${r.dropped.length} verworfen.`);
+      }
+    } catch {
+      // best-effort
+    }
+    await pruneFileCache(DATA_CACHE_PREFIX, 2 * DATA_CACHE_MAX_AGE_MS).catch(() => 0);
+    await compactBlobList(FLIGHT_SESSIONS_KEY, SESSION_BLOB_SPEC);
+    await compactBlobList(LOGBOOK_KEY, LOGBOOK_BLOB_SPEC);
+  })();
+  return maintenancePromise;
 }

@@ -19,6 +19,7 @@ import { getCheckItemLabel } from "@/lib/checklists";
 import { setFlightPlanningMode } from "@/lib/flightPlanningMode";
 import type { BriefingsStackParamList } from "@/navigation/BriefingsStackNavigator";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
+import { formatPlannedTimeRange } from "@/lib/planningDateTime";
 
 const DEPRECATED_CHECKLIST_IDS = ["registration", "insurance", "permissions"];
 
@@ -41,6 +42,7 @@ interface SessionDisplayItem {
   droneType?: "standard" | "fpv_only" | "hybrid_fpv" | "selfie";
   plannedDate?: string;
   plannedTime?: string;
+  plannedEndTime?: string;
   isExpired?: boolean;
   canCheckWeather?: boolean;
   session?: FlightSession;
@@ -228,6 +230,7 @@ function SessionCard({
                 "droneId",
                 "restrictionStatus",
                 "endTime",
+                "plannedEndTime",
               ]);
               if (HIDDEN_KEYS.has(key)) return null;
               if (key === "checklistCompleted" && Array.isArray(value) && value.length > 0) {
@@ -270,12 +273,8 @@ function SessionCard({
                 displayValue = value ? "Ja" : "Nein";
               }
               if (key === "plannedTime" && typeof value === "string") {
-                const [hours, minutes] = value.split(":").map(Number);
-                if (!isNaN(hours) && !isNaN(minutes)) {
-                  const endHours = (hours + 2) % 24;
-                  const endTime = `${endHours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}`;
-                  displayValue = `${value} - ${endTime}`;
-                }
+                const plannedEnd = (data as { plannedEndTime?: unknown }).plannedEndTime;
+                displayValue = formatPlannedTimeRange(value, typeof plannedEnd === "string" ? plannedEnd : undefined);
               }
               
               return (
@@ -411,13 +410,7 @@ function SessionCard({
               >
                 {item.plannedTime 
                   ? (() => {
-                      const [hours, minutes] = item.plannedTime.split(":").map(Number);
-                      let timeRange = item.plannedTime;
-                      if (!isNaN(hours) && !isNaN(minutes)) {
-                        const endHours = (hours + 2) % 24;
-                        const endTime = `${endHours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}`;
-                        timeRange = `${item.plannedTime} - ${endTime}`;
-                      }
+                      const timeRange = formatPlannedTimeRange(item.plannedTime, item.plannedEndTime);
                       let datePart = "";
                       if (item.plannedDate) {
                         const d = new Date(`${item.plannedDate}T00:00:00`);
@@ -845,6 +838,7 @@ export default function BriefingsScreen() {
           droneType: drone?.droneType,
           plannedDate,
           plannedTime,
+          plannedEndTime: session.planning?.plannedEndTime,
           isExpired,
           canCheckWeather,
           session,
@@ -1007,6 +1001,7 @@ export default function BriefingsScreen() {
         mapUrl: s.mapUrl,
         plannedDate: p.plannedDate,
         plannedTime: p.plannedTime,
+        endTime: p.plannedEndTime,
         radiusKm: p.radiusKm,
         recommendedVlosM: p.recommendedVlosM,
         vlosExceeded: p.vlosExceeded,

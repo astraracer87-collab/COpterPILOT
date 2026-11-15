@@ -49,6 +49,10 @@ export const KNOWN_DIRECTORIES: Record<string, string> = {
   obstacles: "Hindernisse",
   offline: "Offline-Pakete",
   documents: "Dokumente",
+  // fileCache.ts: re-fetchbare Abrufe (dipul-Layer, Wetter/NOTAM-Stände …), früher in AsyncStorage
+  "kv-cache": "Zwischenspeicher (Abrufe)",
+  // userBlobs.ts: ausgelagerte Karten-Snapshots aus Flug-Sessions und Logbuch
+  "user-blobs": "Karten-Snapshots (Flüge)",
 };
 
 /** UTF-8-Länge eines Strings in Byte (ohne TextEncoder, Ersatzpaare = 4 Byte). */

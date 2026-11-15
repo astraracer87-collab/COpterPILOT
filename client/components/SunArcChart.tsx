@@ -6,6 +6,7 @@ import { ThemedText } from "@/components/ThemedText";
 import { useTheme } from "@/hooks/useTheme";
 import { hourlySunArc, SunArcSample, formatSolarTime, computeSunElevation, calculateSolarTimes } from "@/lib/solar";
 import { buildSunMarkerTrack, localDayStart, normalizeSlotTimes, timeAtScrollOffset } from "@/lib/sunArcScrollSync";
+import { formatDurationMinutes, formatFlightWindowRange } from "@/lib/planningDateTime";
 
 /**
  * Kopplung an eine horizontal scrollende Stundentabelle: die Markierung folgt
@@ -40,7 +41,10 @@ interface Props {
   sunrise?: Date | null;
   sunset?: Date | null;
   dayLengthMinutes?: number | null;
-  /** Range-Modus: zwei verschiebbare Vertikale (Start/Ende) mit schattiertem Bereich. */
+  /** Range-Modus: zwei verschiebbare Vertikale (Start/Ende) mit schattiertem Bereich.
+   *  Die Zeitachse reicht im Range-Modus über Mitternacht bis zum Ende des
+   *  Folgetags: `rangeEnd` darf am Folgetag liegen (Über-Mitternacht-Flug),
+   *  `rangeStart` liegt immer am Tag `date`. */
   rangeStart?: Date;
   rangeEnd?: Date;
   /** Callback bei Drag (snapped auf snapMinutes). */
@@ -106,14 +110,30 @@ function SunArcChart({
     if (w > 0 && Math.abs(w - measured) > 1) setMeasured(w);
   };
   const { theme } = useTheme();
-  const samples: SunArcSample[] = useMemo(() => hourlySunArc(lat, lon, date, 15), [lat, lon, date]);
-
   const highlight = highlightTime ?? new Date();
   const isRangeMode = !!(rangeStart && rangeEnd && onRangeChange);
 
+  // Folgetag (12:00 lokal, DST-sicher) – im Range-Modus Teil der Achse.
+  const nextDayDate = useMemo(() => {
+    const b = date ?? new Date();
+    return new Date(b.getFullYear(), b.getMonth(), b.getDate() + 1, 12, 0, 0, 0);
+  }, [date]);
+  const samples: SunArcSample[] = useMemo(() => {
+    const first = hourlySunArc(lat, lon, date, 15);
+    if (!isRangeMode) return first;
+    // Range-Modus: Tag + Folgetag, damit Flüge über Mitternacht darstellbar sind.
+    return [...first, ...hourlySunArc(lat, lon, nextDayDate, 15).slice(1)];
+  }, [lat, lon, date, nextDayDate, isRangeMode]);
+  const nextSolar = useMemo(
+    () => (isRangeMode ? calculateSolarTimes(lat, lon, nextDayDate) : null),
+    [isRangeMode, lat, lon, nextDayDate],
+  );
+
   const dayStart = samples[0].time.getTime();
+  // Mitternacht zum Folgetag (lokal) – Grenze für den Start und Trennlinie.
+  const nextMidnight = new Date(nextDayDate.getFullYear(), nextDayDate.getMonth(), nextDayDate.getDate(), 0, 0, 0, 0).getTime();
+  // Ende der Achse: Tagesende bzw. (Range-Modus) Ende des Folgetags.
   const dayEnd = samples[samples.length - 1].time.getTime();
-  const dayRange = dayEnd - dayStart;
 
   const snapMs = snapMinutes * 60 * 1000;
 
@@ -133,7 +153,7 @@ function SunArcChart({
       vs = mid - MIN_VIEW / 2;
       ve = mid + MIN_VIEW / 2;
     }
-    // In die Tagesgrenzen schieben (Sun-Samples existieren nur 00:00–24:00).
+    // In die Achsgrenzen schieben (Sun-Samples: Tag bzw. Tag + Folgetag).
     if (vs < dayStart) { ve += dayStart - vs; vs = dayStart; }
     if (ve > dayEnd) { vs -= ve - dayEnd; ve = dayEnd; }
     vs = Math.max(dayStart, vs);
@@ -204,6 +224,7 @@ function SunArcChart({
   const twilightColor = "#FF8C00";
   const nightColor = "#3B4F74";
   const tempColor = "#FF453A";
+  const sunAxisColor = "#C98A00";
 
   const tempFiltered = useMemo(() => {
     if (!tempSeries || tempSeries.length === 0) return [];
@@ -255,21 +276,45 @@ function SunArcChart({
   const fmtHM = (d: Date | null | undefined) =>
     d ? `${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}` : "--:--";
 
-  const xSunrise = sunrise ? xFor(sunrise.getTime()) : null;
-  const xSunset = sunset ? xFor(sunset.getTime()) : null;
-  const showSunMarkers = inPlot(xSunrise) || inPlot(xSunset);
+  // Auf-/Untergänge im sichtbaren Fenster (Range-Modus inkl. Folgetag).
+  const sunMarks = (list: (Date | null | undefined)[]) =>
+    list
+      .filter((d): d is Date => d instanceof Date && Number.isFinite(d.getTime()))
+      .map((d) => ({ d, x: xFor(d.getTime()) }))
+      .filter((m) => inPlot(m.x));
+  const riseMarks = sunMarks([sunrise, nextSolar?.sunrise]);
+  const setMarks = sunMarks([sunset, nextSolar?.sunset]);
+  const sunMarkXs = [...riseMarks, ...setMarks].map((m) => m.x);
+  const nextDayLabel = nextDayDate.toLocaleDateString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit" });
+
+  // Sonnenhöhen-Beschriftung: Maximum, Horizont 0°, bürgerliche Dämmerung −6°
+  // und Minimum – nur Werte mit genug Abstand (keine überlappenden Labels).
+  const elevLabels = (() => {
+    const cands = [Math.round(maxElev), 0, -6, Math.round(minElev)];
+    const out: { v: number; y: number }[] = [];
+    for (const v of cands) {
+      if (v > maxElev + 0.5 || v < minElev - 0.5) continue;
+      const y = yFor(v);
+      if (out.some((o) => o.v === v || Math.abs(o.y - y) < 11)) continue;
+      out.push({ v, y });
+    }
+    return out;
+  })();
 
   // Stundenraster passend zum sichtbaren Fenster (statt fix 0/6/12/18/24).
   const hourTicks = useMemo(() => {
     if (!isRangeMode) return [0, 6, 12, 18, 24].map((h) => dayStart + h * 3600000);
     const stepH = viewRange / 3600000 > 8 ? 2 : 1;
     const ticks: number[] = [];
-    for (let h = 0; h <= 24; h += stepH) {
-      const t = dayStart + h * 3600000;
+    const base = new Date(dayStart);
+    for (let h = 0; h <= 48; h += stepH) {
+      // Lokale Stunde (Date normalisiert h >= 24 auf den Folgetag, DST-sicher).
+      const t = new Date(base.getFullYear(), base.getMonth(), base.getDate(), h, 0, 0, 0).getTime();
+      if (t > dayEnd + 1) break;
       if (t >= viewStart - 1 && t <= viewEnd + 1) ticks.push(t);
     }
     return ticks;
-  }, [isRangeMode, dayStart, viewStart, viewEnd, viewRange]);
+  }, [isRangeMode, dayStart, dayEnd, viewStart, viewEnd, viewRange]);
 
   // ====== RANGE MODE: drag handles ======
   const rangeStartT = rangeStart?.getTime() ?? dayStart;
@@ -304,7 +349,8 @@ function SunArcChart({
     const cb = cbRef.current;
     if (!cb) return;
     if (which === "start") {
-      const ns = Math.max(minStartRef.current, Math.min(t, valuesRef.current.rangeEndT - snapMs));
+      // Start bleibt am Planungstag (spätestens 23:45) und vor dem Ende.
+      const ns = Math.max(minStartRef.current, Math.min(t, valuesRef.current.rangeEndT - snapMs, nextMidnight - snapMs));
       if (ns !== valuesRef.current.rangeStartT) {
         if (ns !== lastSnapRef.current) {
           lastSnapRef.current = ns;
@@ -313,7 +359,9 @@ function SunArcChart({
         cb(new Date(ns), new Date(valuesRef.current.rangeEndT));
       }
     } else {
-      const ne = Math.min(dayEnd, Math.max(t, valuesRef.current.rangeStartT + snapMs));
+      // Ende darf über Mitternacht in den Folgetag (max. knapp 24 h Fenster).
+      const maxEnd = Math.min(dayEnd, valuesRef.current.rangeStartT + 24 * 60 * 60 * 1000 - snapMs);
+      const ne = Math.max(valuesRef.current.rangeStartT + snapMs, Math.min(t, maxEnd));
       if (ne !== valuesRef.current.rangeEndT) {
         if (ne !== lastSnapRef.current) {
           lastSnapRef.current = ne;
@@ -322,7 +370,7 @@ function SunArcChart({
         cb(new Date(valuesRef.current.rangeStartT), new Date(ne));
       }
     }
-  }, [xToTime, dayEnd, snapMs]);
+  }, [xToTime, dayEnd, nextMidnight, snapMs]);
 
   const panResponder = useMemo(() => PanResponder.create({
     onStartShouldSetPanResponder: () => isRangeMode,
@@ -342,6 +390,9 @@ function SunArcChart({
     onPanResponderTerminate: () => { draggingRef.current = null; lastSnapRef.current = -1; setFrozenView(null); },
   }), [isRangeMode, pickHandle, applyDrag]);
 
+  // Ende am Folgetag (Über-Mitternacht-Flug) → "+1"-Hinweis.
+  const endOnNextDay = isRangeMode && rangeEndT >= nextMidnight;
+  const rangeDurationMin = Math.max(0, Math.round((rangeEndT - rangeStartT) / 60000));
   const xRangeStart = isRangeMode ? xFor(rangeStartT) : 0;
   const xRangeEnd = isRangeMode ? xFor(rangeEndT) : 0;
 
@@ -378,36 +429,48 @@ function SunArcChart({
         </G>
 
         {/* Sonnenaufgang Marker: halbe Sonne über Horizont + Pfeil hoch */}
-        {xSunrise != null && inPlot(xSunrise) ? (
-          <>
+        {riseMarks.map(({ x, d }) => (
+          <G key={`rise-${d.getTime()}`}>
             <Path
-              d={`M${xSunrise - 5},${yHorizon} A5,5 0 0 1 ${xSunrise + 5},${yHorizon} Z`}
+              d={`M${x - 5},${yHorizon} A5,5 0 0 1 ${x + 5},${yHorizon} Z`}
               fill={sunColor}
             />
-            <Line x1={xSunrise - 7} y1={yHorizon} x2={xSunrise + 7} y2={yHorizon} stroke={twilightColor} strokeWidth={1.2} />
+            <Line x1={x - 7} y1={yHorizon} x2={x + 7} y2={yHorizon} stroke={twilightColor} strokeWidth={1.2} />
             {[-8, -5, -2].map((dy, i) => (
-              <Line key={`sr-r-${i}`} x1={xSunrise - 8 - i} y1={yHorizon - 3 + dy} x2={xSunrise - 6 - i} y2={yHorizon - 3 + dy} stroke={sunColor} strokeWidth={1} />
+              <Line key={`sr-r-${i}`} x1={x - 8 - i} y1={yHorizon - 3 + dy} x2={x - 6 - i} y2={yHorizon - 3 + dy} stroke={sunColor} strokeWidth={1} />
             ))}
-            <Path d={`M${xSunrise - 3},${yHorizon + 11} L${xSunrise},${yHorizon + 7} L${xSunrise + 3},${yHorizon + 11}`}
+            <Path d={`M${x - 3},${yHorizon + 11} L${x},${yHorizon + 7} L${x + 3},${yHorizon + 11}`}
               stroke={twilightColor} strokeWidth={1.5} fill="none" strokeLinecap="round" strokeLinejoin="round" />
-            <SvgText x={xSunrise} y={yHorizon + 22} fontSize={9} fontWeight="700" fill={twilightColor} textAnchor="middle">
-              {fmtHM(sunrise)}
+            <SvgText x={x} y={yHorizon + 22} fontSize={9} fontWeight="700" fill={twilightColor} textAnchor="middle">
+              {fmtHM(d)}
             </SvgText>
-          </>
-        ) : null}
+          </G>
+        ))}
         {/* Sonnenuntergang Marker: halbe Sonne sinkt + Pfeil runter */}
-        {xSunset != null && inPlot(xSunset) ? (
-          <>
+        {setMarks.map(({ x, d }) => (
+          <G key={`set-${d.getTime()}`}>
             <Path
-              d={`M${xSunset - 5},${yHorizon} A5,5 0 0 1 ${xSunset + 5},${yHorizon} Z`}
+              d={`M${x - 5},${yHorizon} A5,5 0 0 1 ${x + 5},${yHorizon} Z`}
               fill={twilightColor}
               opacity={0.85}
             />
-            <Line x1={xSunset - 7} y1={yHorizon} x2={xSunset + 7} y2={yHorizon} stroke={twilightColor} strokeWidth={1.2} />
-            <Path d={`M${xSunset - 3},${yHorizon + 7} L${xSunset},${yHorizon + 11} L${xSunset + 3},${yHorizon + 7}`}
+            <Line x1={x - 7} y1={yHorizon} x2={x + 7} y2={yHorizon} stroke={twilightColor} strokeWidth={1.2} />
+            <Path d={`M${x - 3},${yHorizon + 7} L${x},${yHorizon + 11} L${x + 3},${yHorizon + 7}`}
               stroke={twilightColor} strokeWidth={1.5} fill="none" strokeLinecap="round" strokeLinejoin="round" />
-            <SvgText x={xSunset} y={yHorizon + 22} fontSize={9} fontWeight="700" fill={twilightColor} textAnchor="middle">
-              {fmtHM(sunset)}
+            <SvgText x={x} y={yHorizon + 22} fontSize={9} fontWeight="700" fill={twilightColor} textAnchor="middle">
+              {fmtHM(d)}
+            </SvgText>
+          </G>
+        ))}
+
+        {/* Mitternacht: Trennlinie zum Folgetag mit Datums-Hinweis */}
+        {isRangeMode && inPlot(xFor(nextMidnight)) ? (
+          <>
+            <Line x1={xFor(nextMidnight)} y1={PADDING.top} x2={xFor(nextMidnight)} y2={height - PADDING.bottom}
+              stroke={theme.textSecondary} strokeWidth={1} strokeDasharray="2,3" opacity={0.7} />
+            <SvgText x={xFor(nextMidnight) + 3} y={PADDING.top + 12} fontSize={9} fontWeight="700"
+              fill={theme.textSecondary} textAnchor="start">
+              {`+1 Tag · ${nextDayLabel}`}
             </SvgText>
           </>
         ) : null}
@@ -416,10 +479,7 @@ function SunArcChart({
         {hourTicks.map((t) => {
           const x = xFor(t);
           if (!inPlot(x)) return null;
-          if (showSunMarkers) {
-            if (xSunrise != null && Math.abs(x - xSunrise) < 22) return null;
-            if (xSunset != null && Math.abs(x - xSunset) < 22) return null;
-          }
+          if (sunMarkXs.some((sx) => Math.abs(x - sx) < 22)) return null;
           const hh = new Date(t).getHours();
           return (
             <SvgText key={t} x={x} y={height - 8} fontSize={9} fill={theme.textTertiary} textAnchor="middle">
@@ -428,18 +488,22 @@ function SunArcChart({
           );
         })}
 
-        {/* Y-Achsen-Labels */}
-        <SvgText x={PADDING.left - 4} y={yHorizon + 3} fontSize={9} fill={theme.textTertiary} textAnchor="end">0°</SvgText>
-        <SvgText x={PADDING.left - 4} y={yFor(maxElev) + 3} fontSize={9} fill={theme.textTertiary} textAnchor="end">
-          {`${Math.round(maxElev)}°`}
-        </SvgText>
+        {/* Y-Achsen: links Sonnenhöhe (Grad über/unter Horizont), rechts
+            Temperatur (°C) – Einheiten und Farben trennen die beiden Skalen. */}
+        <SvgText x={2} y={10} fontSize={8} fill={sunAxisColor} textAnchor="start">Sonne</SvgText>
+        {elevLabels.map(({ v, y }) => (
+          <SvgText key={`elev-${v}`} x={PADDING.left - 4} y={y + 3} fontSize={9} fill={sunAxisColor} textAnchor="end">
+            {`${v < 0 ? "−" : ""}${Math.abs(v)}°`}
+          </SvgText>
+        ))}
         {tempBounds ? (
           <>
+            <SvgText x={width - 2} y={10} fontSize={8} fill={tempColor} textAnchor="end">Temp.</SvgText>
             <SvgText x={width - PADDING.right + 4} y={yForTemp(tempBounds.max) + 3} fontSize={9} fill={tempColor} textAnchor="start">
-              {`${tempBounds.max}°`}
+              {`${tempBounds.max}°C`}
             </SvgText>
             <SvgText x={width - PADDING.right + 4} y={yForTemp(tempBounds.min) + 3} fontSize={9} fill={tempColor} textAnchor="start">
-              {`${tempBounds.min}°`}
+              {`${tempBounds.min}°C`}
             </SvgText>
           </>
         ) : null}
@@ -468,7 +532,7 @@ function SunArcChart({
               stroke={theme.primary} strokeWidth={2} />
             <SvgText x={xRangeEnd} y={PADDING.top - 6} fontSize={10} fontWeight="800"
               fill={theme.primary} textAnchor="middle">
-              {`${fmtHM(rangeEnd!)} ◀`}
+              {`${fmtHM(rangeEnd!)}${endOnNextDay ? " +1" : ""} ◀`}
             </SvgText>
             {/* Handle-Kreise oben/unten */}
             <Circle cx={xRangeStart} cy={PADDING.top + 4} r={6} fill={lockStart ? theme.textTertiary : theme.primary}
@@ -555,9 +619,7 @@ function SunArcChart({
       ) : (
       <ThemedText style={[styles.caption, { color: theme.textTertiary }]}>
         {isRangeMode
-          ? `Flugzeit ${fmtHM(rangeStart!)}–${fmtHM(rangeEnd!)}${
-              dayLengthMinutes != null ? ` · ${Math.floor(dayLengthMinutes / 60)}h ${dayLengthMinutes % 60}min Tageslicht` : ""
-            }`
+          ? `Flugzeit ${formatFlightWindowRange(fmtHM(rangeStart!), fmtHM(rangeEnd!))} · ${formatDurationMinutes(rangeDurationMin)}`
           : `${formatSolarTime(highlight)} · Sonne ${hElev >= 0 ? `${hElev.toFixed(1)}° über` : `${Math.abs(hElev).toFixed(1)}° unter`} Horizont${
               highlightTempC != null ? ` · ${highlightTempC.toFixed(1)}°C` : ""
             }${dayLengthMinutes != null ? ` · ${Math.floor(dayLengthMinutes / 60)}h ${dayLengthMinutes % 60}min Tageslicht` : ""}`

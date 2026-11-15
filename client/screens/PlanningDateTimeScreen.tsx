@@ -22,7 +22,18 @@ import HourlyForecastTable from "@/components/HourlyForecastTable";
 import { getDrone, DEFAULT_LIMITS, type DroneProfile, type WeatherLimits } from "@/lib/storage";
 import { getFlightPlanningMode } from "@/lib/flightPlanningMode";
 import { getNightFlightRule } from "@/lib/countryInfo";
-import { dateForLocalTime, formatLocalDateKey, getDeviceTimeZone, parseLocalDateKey } from "@/lib/planningDateTime";
+import {
+  computeFlightWindow,
+  dateForLocalTime,
+  effectiveEndMinutes,
+  formatDurationMinutes,
+  formatFlightWindowRange,
+  formatHHMM,
+  formatLocalDateKey,
+  getDeviceTimeZone,
+  parseLocalDateKey,
+  windowDurationMinutes,
+} from "@/lib/planningDateTime";
 import type { FlightPlanningParamList } from "@/navigation/FlightPlanningNavigator";
 
 type NavigationProp = NativeStackNavigationProp<FlightPlanningParamList, "PlanningDateTime">;
@@ -34,11 +45,8 @@ function parseTime(s: string): number {
   return (h || 0) * 60 + (m || 0);
 }
 
-function fmtTime(min: number): string {
-  const h = Math.floor(min / 60) % 24;
-  const m = ((min % 60) + 60) % 60;
-  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
-}
+// Minuten (auch >= 1440 = Folgetag) → "HH:MM".
+const fmtTime = formatHHMM;
 
 interface HourCardData {
   ts: Date;
@@ -120,15 +128,26 @@ export default function PlanningDateTimeScreen() {
     return dateForLocalTime(plannedDate, plannedTime);
   }, [plannedDate, plannedTime]);
 
+  // Flugfenster: Ende <= Start = Folgetag (z. B. 23:30–03:00 = 3 h 30 min).
+  const flightWindow = useMemo(
+    () => computeFlightWindow(plannedDate, plannedTime, endTime),
+    [plannedDate, plannedTime, endTime],
+  );
+
   const endTimeObj = useMemo(() => {
     // Auch im Zeitmodus braucht der native Picker einen vollständigen Date-
-    // Wert. Er muss auf demselben lokalen Kalendertag wie die Planung liegen,
-    // sonst springt der Picker nach der Auswahl von morgen wieder auf heute.
-    return dateForLocalTime(plannedDate, endTime);
-  }, [plannedDate, endTime]);
+    // Wert. Er liegt auf dem Kalendertag des Endes (Planungstag bzw. Folgetag
+    // bei Über-Mitternacht-Flügen), sonst springt der Picker zurück.
+    return dateForLocalTime(flightWindow?.endDateKey ?? plannedDate, endTime);
+  }, [plannedDate, endTime, flightWindow?.endDateKey]);
 
   const startMin = useMemo(() => parseTime(plannedTime), [plannedTime]);
   const endMin = useMemo(() => parseTime(endTime), [endTime]);
+  const durationMin = windowDurationMinutes(startMin, endMin);
+  const endsNextDay = effectiveEndMinutes(startMin, endMin) > 1440;
+  // Hinweis, wenn eine Eingabe nicht übernommen bzw. angepasst werden musste
+  // (nie still ändern).
+  const [timeNotice, setTimeNotice] = useState<string | null>(null);
 
   const [nowTick, setNowTick] = useState(0);
   useEffect(() => {
@@ -139,9 +158,9 @@ export default function PlanningDateTimeScreen() {
     return formatLocalDateKey(new Date());
   }, [nowTick]);
   const isToday = plannedDate === todayStr;
-  // Slider/Modell laeuft auf 24h-Raster (0..1425, SNAP=15). Spaetestens
-  // erlaubter Start ist 1410, damit Ende=1425 (>=Start+15) gueltig bleibt.
-  const MAX_START_MIN = 1410;
+  // Start liegt immer am Planungstag (00:00–23:45, Raster 15 min); das Ende
+  // darf über Mitternacht in den Folgetag reichen.
+  const MAX_START_MIN = 1425;
   const minStartMin = useMemo(() => {
     if (!isToday) return 0;
     const now = new Date();
@@ -152,13 +171,13 @@ export default function PlanningDateTimeScreen() {
   useEffect(() => {
     if (!isToday) return;
     if (startMin < minStartMin) {
-      const duration = endMin > startMin ? endMin - startMin : 60;
-      const newStart = Math.min(minStartMin, MAX_START_MIN);
-      const newEnd = Math.min(1425, Math.max(newStart + 15, newStart + duration));
+      // Start ist inzwischen Vergangenheit: auf "jetzt" schieben, Dauer behalten.
+      const newStart = minStartMin;
       setPlannedTime(fmtTime(newStart));
-      setEndTime(fmtTime(newEnd));
+      setEndTime(fmtTime(newStart + durationMin));
+      setTimeNotice(`Startzeit lag in der Vergangenheit – auf ${fmtTime(newStart)} verschoben (Dauer ${formatDurationMinutes(durationMin)} beibehalten).`);
     }
-  }, [isToday, minStartMin, startMin, endMin]);
+  }, [isToday, minStartMin, startMin, durationMin]);
 
   const solarTimes: SolarTimes = useMemo(
     () => calculateSolarTimes(latitude, longitude, dateObj),
@@ -170,18 +189,16 @@ export default function PlanningDateTimeScreen() {
     return Math.max(0, Math.round((solarTimes.sunset.getTime() - solarTimes.sunrise.getTime()) / 60000));
   }, [solarTimes]);
 
-  const rangeStartDate = useMemo(() => {
-    const d = new Date(dateObj);
-    d.setHours(Math.floor(startMin / 60), startMin % 60, 0, 0);
-    return d;
-  }, [dateObj, startMin]);
-
-  const rangeEndDate = useMemo(() => {
-    const d = new Date(dateObj);
-    const eMin = endMin <= startMin ? Math.min(1425, startMin + 15) : endMin;
-    d.setHours(Math.floor(eMin / 60), eMin % 60, 0, 0);
-    return d;
-  }, [dateObj, endMin, startMin]);
+  // Chart-Bereich = echtes Flugfenster (Ende ggf. am Folgetag). Früher wurde
+  // ein Ende <= Start auf Start+15 min geklemmt (23:30–03:00 → 23:30–23:45).
+  const rangeStartDate = useMemo(
+    () => flightWindow?.start ?? dateForLocalTime(plannedDate, plannedTime),
+    [flightWindow, plannedDate, plannedTime],
+  );
+  const rangeEndDate = useMemo(
+    () => flightWindow?.end ?? new Date(rangeStartDate.getTime() + 60 * 60000),
+    [flightWindow, rangeStartDate],
+  );
 
   const minStartDate = useMemo(() => {
     if (!isToday) return undefined;
@@ -196,25 +213,25 @@ export default function PlanningDateTimeScreen() {
   );
 
   const handleRangeChange = (s: Date, e: Date) => {
+    // Das Ende kann am Folgetag liegen; als "HH:MM" < Start wird es wieder als
+    // Folgetag gelesen (Chart begrenzt das Fenster auf < 24 h).
     const sMin = s.getHours() * 60 + s.getMinutes();
     const eMin = e.getHours() * 60 + e.getMinutes();
+    setTimeNotice(null);
     handleSliderChange(sMin, eMin);
   };
 
-  const flightDurationLabel = useMemo(() => {
-    let diff = endMin - startMin;
-    if (diff <= 0) diff += 1440;
-    const dh = Math.floor(diff / 60);
-    const dm = diff % 60;
-    return `${dh}h${dm > 0 ? ` ${dm}min` : ""}`;
-  }, [startMin, endMin]);
+  const flightDurationLabel = useMemo(() => formatDurationMinutes(durationMin), [durationMin]);
+  const nextDayLabel = useMemo(() => {
+    const d = new Date(dateObj);
+    d.setDate(d.getDate() + 1);
+    return d.toLocaleDateString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit" });
+  }, [dateObj]);
 
   const setDurationMinutes = (mins: number) => {
-    const [sh, sm] = plannedTime.split(":").map(Number);
-    const startDate = new Date();
-    startDate.setHours(sh, sm, 0, 0);
-    const endDate = new Date(startDate.getTime() + mins * 60 * 1000);
-    setEndTime(`${String(endDate.getHours()).padStart(2, "0")}:${String(endDate.getMinutes()).padStart(2, "0")}`);
+    // Ende = Start + Dauer; über Mitternacht = Folgetag.
+    setEndTime(fmtTime(startMin + mins));
+    setTimeNotice(null);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
 
@@ -385,9 +402,13 @@ export default function PlanningDateTimeScreen() {
     const isToday = plannedDate === `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
     const minHour = isToday ? now.getHours() + 1 : 0;
     let best: { hour: number; score: number; reason: string } | null = null;
+    const planDay = parseLocalDateKey(plannedDate);
     for (const c of hourCards) {
       if (!c.slot) continue;
       if (c.daylight === "night") continue;
+      // Nur Stunden des Planungstags (Folgetag-Karten bei Über-Mitternacht-Flügen
+      // können nicht als Start übernommen werden).
+      if (planDay && formatLocalDateKey(c.ts) !== plannedDate) continue;
       if (c.hour < minHour) continue;
       const s = c.slot;
       const windKmh = s.windSpeed * 3.6;
@@ -442,7 +463,11 @@ export default function PlanningDateTimeScreen() {
     if (Platform.OS !== "web") {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     }
-    setPlannedTime(`${String(bestHour.hour).padStart(2, "0")}:00`);
+    // Dauer beibehalten, damit sich das Fenster nicht unbemerkt verlängert.
+    const newStart = bestHour.hour * 60;
+    setPlannedTime(fmtTime(newStart));
+    setEndTime(fmtTime(newStart + durationMin));
+    setTimeNotice(null);
   };
 
   const handleDateChange = (_event: DateTimePickerEvent, date?: Date) => {
@@ -456,17 +481,17 @@ export default function PlanningDateTimeScreen() {
   const handleStartTimeChange = (_event: DateTimePickerEvent, date?: Date) => {
     if (Platform.OS === "android") setShowStartPicker(false);
     if (date) {
-      let mins = date.getHours() * 60 + date.getMinutes();
+      const picked = date.getHours() * 60 + date.getMinutes();
+      let mins = picked;
       if (isToday && mins < minStartMin) mins = minStartMin;
-      mins = Math.min(mins, MAX_START_MIN);
-      const clamped = new Date(date);
-      clamped.setHours(Math.floor(mins / 60), mins % 60, 0, 0);
-      const newStart = `${String(clamped.getHours()).padStart(2, "0")}:${String(clamped.getMinutes()).padStart(2, "0")}`;
-      setPlannedTime(newStart);
-      const endMins = Math.min(1425, mins + 60);
-      const endDate = new Date(clamped);
-      endDate.setHours(Math.floor(endMins / 60), endMins % 60, 0, 0);
-      setEndTime(`${String(endDate.getHours()).padStart(2, "0")}:${String(endDate.getMinutes()).padStart(2, "0")}`);
+      setPlannedTime(fmtTime(mins));
+      // Ende wandert mit (Dauer bleibt) – darf über Mitternacht gehen.
+      setEndTime(fmtTime(mins + durationMin));
+      setTimeNotice(
+        mins !== picked
+          ? `${fmtTime(picked)} liegt in der Vergangenheit – Startzeit auf ${fmtTime(mins)} gesetzt.`
+          : null,
+      );
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
   };
@@ -474,7 +499,15 @@ export default function PlanningDateTimeScreen() {
   const handleEndTimeChange = (_event: DateTimePickerEvent, date?: Date) => {
     if (Platform.OS === "android") setShowEndPicker(false);
     if (date) {
-      setEndTime(`${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`);
+      const picked = date.getHours() * 60 + date.getMinutes();
+      if (picked === startMin) {
+        // Gleiche Uhrzeit wäre ein 24-h-Fenster – nicht übernehmen, sondern melden.
+        setTimeNotice(`Endzeit ${fmtTime(picked)} entspricht der Startzeit – bitte eine andere Endzeit wählen.`);
+        return;
+      }
+      setEndTime(fmtTime(picked));
+      // Ende vor Start = Folgetag: übernehmen und sichtbar machen.
+      setTimeNotice(null);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
   };
@@ -677,10 +710,27 @@ export default function PlanningDateTimeScreen() {
               >
                 <Feather name="clock" size={14} color={theme.primary} />
                 <ThemedText style={[styles.timeButtonText, { color: theme.text }]}>{endTime}</ThemedText>
+                {endsNextDay ? (
+                  <View testID="planning-end-next-day-badge" style={[styles.nextDayBadge, { backgroundColor: theme.primary }]}>
+                    <ThemedText style={styles.nextDayBadgeText}>+1</ThemedText>
+                  </View>
+                ) : null}
                 <Feather name={showEndPicker ? "chevron-up" : "chevron-down"} size={14} color={theme.textTertiary} />
               </Pressable>
             </View>
           </View>
+
+          {endsNextDay ? (
+            <ThemedText testID="planning-window-summary" style={[styles.windowSummary, { color: theme.textSecondary }]}>
+              {`Über Mitternacht: ${formatFlightWindowRange(plannedTime, endTime)} · Ende am ${nextDayLabel}`}
+            </ThemedText>
+          ) : null}
+          {timeNotice ? (
+            <View testID="planning-time-notice" style={[styles.timeNotice, { backgroundColor: theme.backgroundSecondary }]}>
+              <Feather name="info" size={13} color={theme.statusCaution} />
+              <ThemedText style={[styles.timeNoticeText, { color: theme.textSecondary }]}>{timeNotice}</ThemedText>
+            </View>
+          ) : null}
 
           {showStartPicker ? (
             <View style={styles.pickerContainer}>
@@ -1142,6 +1192,33 @@ const styles = StyleSheet.create({
   },
   timeButtonText: {
     ...Typography.body,
+    flex: 1,
+  },
+  nextDayBadge: {
+    borderRadius: 8,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+  },
+  nextDayBadgeText: {
+    color: "#FFFFFF",
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "800",
+  },
+  windowSummary: {
+    fontSize: 12,
+    marginTop: Spacing.xs,
+  },
+  timeNotice: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 6,
+    marginTop: Spacing.xs,
+    padding: Spacing.sm,
+    borderRadius: BorderRadius.sm,
+  },
+  timeNoticeText: {
+    fontSize: 12,
     flex: 1,
   },
   durationPill: {

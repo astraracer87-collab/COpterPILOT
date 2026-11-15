@@ -31,6 +31,7 @@ import { CommonActions } from "@react-navigation/native";
 import { buildRestrictionSessionPatch } from "@/lib/manualRestrictionFlow";
 import { notamChecks, replaceCheckCategories, type CheckResult } from "../../shared/checks";
 import { DataStandLines } from "@/components/DataStandLines";
+import { flightWindowLocalIso, formatFlightWindowRange, formatHHMM, parseHHMM } from "@/lib/planningDateTime";
 
 type NavigationProp = NativeStackNavigationProp<FlightPlanningParamList, "PlanningDetails">;
 type RouteParams = RouteProp<FlightPlanningParamList, "PlanningDetails">;
@@ -70,7 +71,9 @@ export default function PlanningDetailsScreen() {
     return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
   })();
   const plannedTime = route.params.plannedTime || "12:00";
-  const endTime = route.params.endTime || "13:00";
+  // Ohne übergebene Endzeit (z. B. Wetterprüfung aus Altbeständen): Start + 1 h,
+  // statt fix 13:00 – sonst würde ein Abendstart als 13-h-Nachtfenster gelesen.
+  const endTime = route.params.endTime || formatHHMM((parseHHMM(plannedTime) ?? 720) + 60);
   const [loading, setLoading] = useState(false);
   const [forecastWeather, setForecastWeather] = useState<WeatherSnapshot | null>(null);
   const [weatherWarnings, setWeatherWarnings] = useState<AssessmentWarning[]>([]);
@@ -266,8 +269,8 @@ export default function PlanningDetailsScreen() {
     
     setIsRefreshing(true);
     try {
-      const startIso = `${plannedDate}T${plannedTime}`;
-      const endIso = `${plannedDate}T${endTime}`;
+      // Ende <= Start = Folgetag (Über-Mitternacht-Flug).
+      const { startIso, endIso } = flightWindowLocalIso(plannedDate, plannedTime, endTime);
       const [result, hourlyResult, kpResult, notamResult] = await Promise.all([
         fetchWeatherForecastWithSource(latitude, longitude, startIso),
         fetchHourlyForecasts(latitude, longitude, startIso, endIso).catch(() => ({ slots: [] as HourlyForecastSlot[], source: "dipul" as const })),
@@ -350,8 +353,8 @@ export default function PlanningDetailsScreen() {
     
     setLoading(true);
     try {
-      const startIso = `${plannedDate}T${plannedTime}`;
-      const endIso = `${plannedDate}T${endTime}`;
+      // Ende <= Start = Folgetag (Über-Mitternacht-Flug).
+      const { startIso, endIso } = flightWindowLocalIso(plannedDate, plannedTime, endTime);
       const [result, hourlyResult, kpResult, notamResult] = await Promise.all([
         fetchWeatherForecastWithSource(latitude, longitude, startIso),
         fetchHourlyForecasts(latitude, longitude, startIso, endIso).catch(() => ({ slots: [] as HourlyForecastSlot[], source: "dipul" as const })),
@@ -454,6 +457,7 @@ export default function PlanningDetailsScreen() {
           planning: {
             plannedDate,
             plannedTime,
+            plannedEndTime: endTime,
             forecastWeather: forecastWeather || undefined,
             checklistCompleted: existingPlanning?.checklistCompleted || [],
             flightPurpose: existingPlanning?.flightPurpose,
@@ -494,6 +498,7 @@ export default function PlanningDetailsScreen() {
           planning: {
             plannedDate,
             plannedTime,
+            plannedEndTime: endTime,
             radiusKm: planningRadiusKm,
             recommendedVlosM: planningVlosM,
             vlosExceeded: currentVlosExceeded,
@@ -531,6 +536,7 @@ export default function PlanningDetailsScreen() {
             ...(existing?.planning ?? {}),
             plannedDate,
             plannedTime,
+            plannedEndTime: endTime,
             forecastWeather: forecastWeather || undefined,
             maxAltitude,
             radiusKm: planningRadiusKm ?? existing?.planning?.radiusKm,
@@ -675,7 +681,7 @@ export default function PlanningDetailsScreen() {
             <View style={styles.flightTimeSummaryRow}>
               <Feather name="clock" size={16} color={theme.primary} />
               <ThemedText style={styles.flightTimeSummaryText}>
-                {plannedTime} - {endTime} ({flightDurationLabel})
+                {formatFlightWindowRange(plannedTime, endTime, " - ")} ({flightDurationLabel})
               </ThemedText>
             </View>
           </View>
@@ -960,7 +966,7 @@ export default function PlanningDetailsScreen() {
           longitude={longitude}
           maxAltitude={maxAltitude}
           drone={drone}
-          subtitle={`${plannedTime} - ${endTime} Uhr`}
+          subtitle={formatFlightWindowRange(plannedTime, endTime, " - ").replace(/^(.*?)( \(\+1 Tag\))?$/, "$1 Uhr$2")}
         />
 
         {isFpvOnlyDrone && (!verbandsregelDE || maxAltitude > 30) ? (

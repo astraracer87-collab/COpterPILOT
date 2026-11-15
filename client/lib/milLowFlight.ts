@@ -1,6 +1,7 @@
 import type { DipulTempRestriction, DipulTempRestrictionsResult } from "@/lib/geozones";
 import { pointInPolygon } from "@/lib/geozones";
 import { calculateSolarTimes } from "@/lib/solar";
+import { computeFlightWindow, flightWindowSampleTimes } from "../../shared/flightWindow";
 import lfaGeoJson from "@/data/lfa-de.json";
 
 /**
@@ -701,4 +702,24 @@ export function isMilLowFlightLikelyActive(
   const d = new Date(iso);
   if (isNaN(d.getTime())) return true;
   return isMilLowFlightActiveAt(d, lat, lon);
+}
+
+/**
+ * Wie isMilLowFlightLikelyActive, prüft aber das GANZE Flugfenster
+ * (Start bis Ende, Ende <= Start = Folgetag): aktiv, sobald irgendein
+ * Zeitpunkt des Fensters in die Tageslichtphase fällt.
+ */
+export function isMilLowFlightLikelyActiveInWindow(
+  plannedDate?: string,
+  plannedTime?: string,
+  endTime?: string,
+  lat?: number,
+  lon?: number,
+): boolean {
+  if (!plannedDate || !plannedTime || !endTime) {
+    return isMilLowFlightLikelyActive(plannedDate, plannedTime, lat, lon);
+  }
+  const w = computeFlightWindow(plannedDate, plannedTime, endTime);
+  if (!w) return isMilLowFlightLikelyActive(plannedDate, plannedTime, lat, lon);
+  return flightWindowSampleTimes(w.start, w.end, 15).some((d) => isMilLowFlightActiveAt(d, lat, lon));
 }
