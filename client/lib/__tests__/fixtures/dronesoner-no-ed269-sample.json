@@ -1,0 +1,1286 @@
+[
+  {
+    "type": "COMMON",
+    "identifier": "86C2719",
+    "country": "NOR",
+    "name": "Notodden lufthavn",
+    "restriction": "REQ_AUTHORISATION",
+    "reason": [
+      "AIR_TRAFFIC"
+    ],
+    "message": "5 km-sone rundt lufthavn. Droneflyging krever tillatelse fra flygeledelsen (tårnet).",
+    "zoneAuthority": [
+      {
+        "name": "Avinor AS",
+        "purpose": "AUTHORIZATION",
+        "siteURL": "https://avinor.no/konsern/pa-flyplassen/drone/registerflygning"
+      }
+    ],
+    "geometry": [
+      {
+        "uomDimensions": "M",
+        "lowerLimit": 0,
+        "lowerVerticalReference": "AGL",
+        "upperLimit": 300,
+        "upperVerticalReference": "AGL",
+        "horizontalProjection": {
+          "type": "Polygon",
+          "coordinates": [
+            [
+              [
+                9.14211,
+                59.53651
+              ],
+              [
+                9.14877,
+                59.53369
+              ],
+              [
+                9.16846,
+                59.52613
+              ],
+              [
+                9.17563,
+                59.52365
+              ],
+              [
+                9.18324,
+                59.52153
+              ],
+              [
+                9.19122,
+                59.51981
+              ],
+              [
+                9.19949,
+                59.51849
+              ],
+              [
+                9.20798,
+                59.51759
+              ],
+              [
+                9.2166,
+                59.51711
+              ],
+              [
+                9.22527,
+                59.51707
+              ],
+              [
+                9.23391,
+                59.51746
+              ],
+              [
+                9.24243,
+                59.51827
+              ],
+              [
+                9.25075,
+                59.51951
+              ],
+              [
+                9.2588,
+                59.52115
+              ],
+              [
+                9.26649,
+                59.52319
+              ],
+              [
+                9.27375,
+                59.5256
+              ],
+              [
+                9.28052,
+                59.52836
+              ],
+              [
+                9.28672,
+                59.53144
+              ],
+              [
+                9.29229,
+                59.53481
+              ],
+              [
+                9.29719,
+                59.53845
+              ],
+              [
+                9.30137,
+                59.54231
+              ],
+              [
+                9.30478,
+                59.54636
+              ],
+              [
+                9.30739,
+                59.55057
+              ],
+              [
+                9.30918,
+                59.55488
+              ],
+              [
+                9.31012,
+                59.55926
+              ],
+              [
+                9.31022,
+                59.56366
+              ],
+              [
+                9.30947,
+                59.56805
+              ],
+              [
+                9.30787,
+                59.57238
+              ],
+              [
+                9.30544,
+                59.57661
+              ],
+              [
+                9.30221,
+                59.5807
+              ],
+              [
+                9.2982,
+                59.58461
+              ],
+              [
+                9.29345,
+                59.5883
+              ],
+              [
+                9.28801,
+                59.59174
+              ],
+              [
+                9.28193,
+                59.59489
+              ],
+              [
+                9.27527,
+                59.59772
+              ],
+              [
+                9.25557,
+                59.60529
+              ],
+              [
+                9.24839,
+                59.60778
+              ],
+              [
+                9.24076,
+                59.6099
+              ],
+              [
+                9.23276,
+                59.61162
+              ],
+              [
+                9.22447,
+                59.61295
+              ],
+              [
+                9.21596,
+                59.61385
+              ],
+              [
+                9.20731,
+                59.61432
+              ],
+              [
+                9.19861,
+                59.61436
+              ],
+              [
+                9.18995,
+                59.61397
+              ],
+              [
+                9.18141,
+                59.61316
+              ],
+              [
+                9.17306,
+                59.61192
+              ],
+              [
+                9.165,
+                59.61027
+              ],
+              [
+                9.1573,
+                59.60822
+              ],
+              [
+                9.15003,
+                59.60581
+              ],
+              [
+                9.14326,
+                59.60304
+              ],
+              [
+                9.13706,
+                59.59996
+              ],
+              [
+                9.13149,
+                59.59657
+              ],
+              [
+                9.1266,
+                59.59293
+              ],
+              [
+                9.12243,
+                59.58906
+              ],
+              [
+                9.11904,
+                59.58501
+              ],
+              [
+                9.11645,
+                59.5808
+              ],
+              [
+                9.11469,
+                59.57649
+              ],
+              [
+                9.11376,
+                59.57211
+              ],
+              [
+                9.11369,
+                59.5677
+              ],
+              [
+                9.11447,
+                59.56331
+              ],
+              [
+                9.11609,
+                59.55898
+              ],
+              [
+                9.11854,
+                59.55476
+              ],
+              [
+                9.1218,
+                59.55067
+              ],
+              [
+                9.12582,
+                59.54677
+              ],
+              [
+                9.13058,
+                59.54308
+              ],
+              [
+                9.13603,
+                59.53965
+              ],
+              [
+                9.14211,
+                59.53651
+              ]
+            ]
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "type": "COMMON",
+    "identifier": "73804A3",
+    "country": "NOR",
+    "name": "EN R117 Taraldrud",
+    "restriction": "REQ_AUTHORISATION",
+    "reason": [
+      "SENSITIVE"
+    ],
+    "message": "Tillatelse kan søkes fra politiet eller Luftfartstilsynet.",
+    "zoneAuthority": [
+      {
+        "name": "Luftfartstilsynet",
+        "purpose": "AUTHORIZATION",
+        "siteURL": "https://luftfartstilsynet.no/",
+        "phone": "+47 75 58 50 00"
+      }
+    ],
+    "geometry": [
+      {
+        "uomDimensions": "FT",
+        "lowerLimit": 0,
+        "lowerVerticalReference": "AGL",
+        "upperLimit": 2500,
+        "upperVerticalReference": "AMSL",
+        "horizontalProjection": {
+          "type": "Polygon",
+          "coordinates": [
+            [
+              [
+                10.83167,
+                59.79722
+              ],
+              [
+                10.84694,
+                59.79722
+              ],
+              [
+                10.84694,
+                59.81583
+              ],
+              [
+                10.83167,
+                59.81583
+              ],
+              [
+                10.83167,
+                59.79722
+              ]
+            ]
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "type": "COMMON",
+    "identifier": "FD3AB02",
+    "country": "NOR",
+    "name": "EN R204 Kårstø",
+    "restriction": "REQ_AUTHORISATION",
+    "reason": [
+      "SENSITIVE"
+    ],
+    "message": "All flyging er forbudt om ikke tillatelse er mottatt fra Kårstø via ENZV TWR. Se AIP Norge.",
+    "zoneAuthority": [
+      {
+        "name": "Luftfartstilsynet",
+        "purpose": "AUTHORIZATION",
+        "siteURL": "https://luftfartstilsynet.no/",
+        "phone": "+47 75 58 50 00"
+      }
+    ],
+    "geometry": [
+      {
+        "uomDimensions": "FT",
+        "lowerLimit": 0,
+        "lowerVerticalReference": "AGL",
+        "upperLimit": 1500,
+        "upperVerticalReference": "AMSL",
+        "horizontalProjection": {
+          "type": "Polygon",
+          "coordinates": [
+            [
+              [
+                5.53056,
+                59.26667
+              ],
+              [
+                5.52444,
+                59.28056
+              ],
+              [
+                5.48333,
+                59.28056
+              ],
+              [
+                5.47778,
+                59.26667
+              ],
+              [
+                5.53056,
+                59.26667
+              ]
+            ]
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "type": "COMMON",
+    "identifier": "00A2051",
+    "country": "NOR",
+    "name": "EN R122 Halden",
+    "restriction": "REQ_AUTHORISATION",
+    "reason": [
+      "SENSITIVE"
+    ],
+    "message": "All flyging i restriksjonsområdet er forbudt. Forbudet gjelder all luftfart, inkludert flyging med ubemannet luftfartøy og modellfly, med mindre særskilt tillatelse er gitt fra Norsk nukleær dekomm...",
+    "zoneAuthority": [
+      {
+        "name": "Luftfartstilsynet",
+        "purpose": "AUTHORIZATION",
+        "siteURL": "https://luftfartstilsynet.no/",
+        "phone": "+47 75 58 50 00"
+      }
+    ],
+    "geometry": [
+      {
+        "uomDimensions": "FT",
+        "lowerLimit": 0,
+        "lowerVerticalReference": "AGL",
+        "upperLimit": 2500,
+        "upperVerticalReference": "AMSL",
+        "horizontalProjection": {
+          "type": "Polygon",
+          "coordinates": [
+            [
+              [
+                11.40028,
+                59.1275
+              ],
+              [
+                11.39944,
+                59.12639
+              ],
+              [
+                11.40556,
+                59.12639
+              ],
+              [
+                11.405,
+                59.12778
+              ],
+              [
+                11.40028,
+                59.1275
+              ]
+            ]
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "type": "COMMON",
+    "identifier": "CC12313",
+    "country": "NOR",
+    "name": "Loen Skylift, Hoven (UAS-sone)",
+    "restriction": "REQ_AUTHORISATION",
+    "reason": [
+      "SENSITIVE"
+    ],
+    "message": "Droneforbud over Loen Skylift på Hoven. All flyging med droner og modellfly er forbudt uten særskilt tillatelse fra Loen Skylift eller Luftfartstilsynet. Forbudet skal ivareta sikkerheten for lufts...",
+    "zoneAuthority": [
+      {
+        "name": "Luftfartstilsynet",
+        "purpose": "AUTHORIZATION",
+        "siteURL": "https://luftfartstilsynet.no/",
+        "phone": "+47 75 58 50 00"
+      }
+    ],
+    "geometry": [
+      {
+        "uomDimensions": "FT",
+        "lowerLimit": 0,
+        "lowerVerticalReference": "AGL",
+        "upperLimit": 4500,
+        "upperVerticalReference": "AMSL",
+        "horizontalProjection": {
+          "type": "Polygon",
+          "coordinates": [
+            [
+              [
+                6.87222,
+                61.88611
+              ],
+              [
+                6.82778,
+                61.88611
+              ],
+              [
+                6.83611,
+                61.87083
+              ],
+              [
+                6.85833,
+                61.86806
+              ],
+              [
+                6.87222,
+                61.88611
+              ]
+            ]
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "type": "COMMON",
+    "identifier": "0355687",
+    "country": "NOR",
+    "name": "Bredtveit fengsel og forvaringsanstalt",
+    "restriction": "REQ_AUTHORISATION",
+    "reason": [
+      "SENSITIVE"
+    ],
+    "message": "Fengsel. Flyging med drone krever tillatelse fra stedlig leder i Kriminalomsorgen.",
+    "zoneAuthority": [
+      {
+        "name": "Kriminalomsorgen",
+        "purpose": "AUTHORIZATION",
+        "siteURL": "https://www.kriminalomsorgen.no/"
+      }
+    ],
+    "geometry": [
+      {
+        "uomDimensions": "M",
+        "lowerLimit": 0,
+        "lowerVerticalReference": "AGL",
+        "upperLimit": 300,
+        "upperVerticalReference": "AGL",
+        "horizontalProjection": {
+          "type": "Polygon",
+          "coordinates": [
+            [
+              [
+                10.86083,
+                59.95
+              ],
+              [
+                10.85806,
+                59.94972
+              ],
+              [
+                10.85694,
+                59.94889
+              ],
+              [
+                10.85667,
+                59.94861
+              ],
+              [
+                10.85722,
+                59.94833
+              ],
+              [
+                10.85944,
+                59.94806
+              ],
+              [
+                10.86,
+                59.94889
+              ],
+              [
+                10.86083,
+                59.95
+              ]
+            ]
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "type": "COMMON",
+    "identifier": "C917A6F",
+    "country": "NOR",
+    "name": "Aralden naturreservat",
+    "restriction": "REQ_AUTHORISATION",
+    "reason": [
+      "NATURE"
+    ],
+    "message": "Verneområde med droneforbud. Krever dispensasjon fra forvaltningsmyndighet.",
+    "zoneAuthority": [
+      {
+        "name": "Miljødirektoratet",
+        "purpose": "INFORMATION",
+        "siteURL": "https://www.miljodirektoratet.no/"
+      }
+    ],
+    "geometry": [
+      {
+        "uomDimensions": "M",
+        "lowerLimit": 0,
+        "lowerVerticalReference": "AGL",
+        "upperLimit": 300,
+        "upperVerticalReference": "AGL",
+        "horizontalProjection": {
+          "type": "Polygon",
+          "coordinates": [
+            [
+              [
+                4.77748,
+                61.67631
+              ],
+              [
+                4.77352,
+                61.67895
+              ],
+              [
+                4.76399,
+                61.6754
+              ],
+              [
+                4.76387,
+                61.67514
+              ],
+              [
+                4.76703,
+                61.67368
+              ],
+              [
+                4.77753,
+                61.67604
+              ],
+              [
+                4.77748,
+                61.67631
+              ]
+            ]
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "type": "COMMON",
+    "identifier": "41986E7",
+    "country": "NOR",
+    "name": "Gåsøy naturreservat",
+    "restriction": "REQ_AUTHORISATION",
+    "reason": [
+      "NATURE"
+    ],
+    "message": "Gåsøy naturreservat 🗓️ Obs: Forbudet gjelder muligens kun deler av året.Forbodet gjeld også bruk av modellfly.",
+    "zoneAuthority": [
+      {
+        "name": "Miljødirektoratet",
+        "purpose": "INFORMATION",
+        "siteURL": "https://www.miljodirektoratet.no/"
+      }
+    ],
+    "geometry": [
+      {
+        "uomDimensions": "M",
+        "lowerLimit": 0,
+        "lowerVerticalReference": "AGL",
+        "upperLimit": 300,
+        "upperVerticalReference": "AGL",
+        "horizontalProjection": {
+          "type": "Polygon",
+          "coordinates": [
+            [
+              [
+                4.93132,
+                61.66706
+              ],
+              [
+                4.94658,
+                61.65756
+              ],
+              [
+                4.94679,
+                61.65756
+              ],
+              [
+                4.95354,
+                61.66179
+              ],
+              [
+                4.95362,
+                61.66203
+              ],
+              [
+                4.94502,
+                61.66737
+              ],
+              [
+                4.94073,
+                61.67452
+              ],
+              [
+                4.93412,
+                61.67881
+              ],
+              [
+                4.93052,
+                61.67257
+              ],
+              [
+                4.93132,
+                61.66706
+              ]
+            ]
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "type": "COMMON",
+    "identifier": "9C8717E",
+    "country": "NOR",
+    "name": "Sogneoksen naturreservat",
+    "restriction": "REQ_AUTHORISATION",
+    "reason": [
+      "NATURE"
+    ],
+    "message": "Verneområde med droneforbud. Krever dispensasjon fra forvaltningsmyndighet.",
+    "zoneAuthority": [
+      {
+        "name": "Miljødirektoratet",
+        "purpose": "INFORMATION",
+        "siteURL": "https://www.miljodirektoratet.no/"
+      }
+    ],
+    "geometry": [
+      {
+        "uomDimensions": "M",
+        "lowerLimit": 0,
+        "lowerVerticalReference": "AGL",
+        "upperLimit": 300,
+        "upperVerticalReference": "AGL",
+        "horizontalProjection": {
+          "type": "Polygon",
+          "coordinates": [
+            [
+              [
+                4.75901,
+                60.94713
+              ],
+              [
+                4.76304,
+                60.94575
+              ],
+              [
+                4.76716,
+                60.94718
+              ],
+              [
+                4.76727,
+                60.94745
+              ],
+              [
+                4.76276,
+                60.94907
+              ],
+              [
+                4.75889,
+                60.94739
+              ],
+              [
+                4.75901,
+                60.94713
+              ]
+            ]
+          ]
+        }
+      },
+      {
+        "uomDimensions": "M",
+        "lowerLimit": 0,
+        "lowerVerticalReference": "AGL",
+        "upperLimit": 300,
+        "upperVerticalReference": "AGL",
+        "horizontalProjection": {
+          "type": "Polygon",
+          "coordinates": [
+            [
+              [
+                4.74555,
+                60.93976
+              ],
+              [
+                4.7493,
+                60.93844
+              ],
+              [
+                4.75487,
+                60.94038
+              ],
+              [
+                4.75499,
+                60.94063
+              ],
+              [
+                4.75277,
+                60.94168
+              ],
+              [
+                4.74545,
+                60.94005
+              ],
+              [
+                4.74555,
+                60.93976
+              ]
+            ]
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "type": "COMMON",
+    "identifier": "D6FB63A",
+    "country": "NOR",
+    "name": "Sortland",
+    "restriction": "REQ_AUTHORISATION",
+    "reason": [
+      "SENSITIVE"
+    ],
+    "message": "Forbud mot bruk av luftbårne sensorer (kamera). Krever tillatelse fra NSM.",
+    "zoneAuthority": [
+      {
+        "name": "Nasjonal sikkerhetsmyndighet",
+        "purpose": "AUTHORIZATION",
+        "siteURL": "https://nsm.no/"
+      }
+    ],
+    "geometry": [
+      {
+        "uomDimensions": "M",
+        "lowerLimit": 0,
+        "lowerVerticalReference": "AGL",
+        "upperLimit": 300,
+        "upperVerticalReference": "AGL",
+        "horizontalProjection": {
+          "type": "Polygon",
+          "coordinates": [
+            [
+              [
+                15.4195,
+                68.70431
+              ],
+              [
+                15.41564,
+                68.70435
+              ],
+              [
+                15.41548,
+                68.702
+              ],
+              [
+                15.41934,
+                68.70197
+              ],
+              [
+                15.4195,
+                68.70431
+              ]
+            ]
+          ]
+        }
+      }
+    ],
+    "restrictionConditions": [
+      "NO_PHOTOGRAPH"
+    ]
+  },
+  {
+    "type": "COMMON",
+    "identifier": "A0C4D87",
+    "country": "NOR",
+    "name": "ENR147",
+    "restriction": "REQ_AUTHORISATION",
+    "reason": [
+      "SENSITIVE"
+    ],
+    "message": "Aktiv iflg. NOTAM 13.11.2026 08:13–14.11.2026 20:00 (lokal tid). TEMPO RESTRICTED AREA ENR147 'INDRE OSLOFJORD' ACTIVATED PSN 595439N 0104213E - 595021N 0102832E - 594547N 0103040E - 594114N 010311...",
+    "zoneAuthority": [
+      {
+        "name": "Luftfartstilsynet",
+        "purpose": "INFORMATION",
+        "siteURL": "https://luftfartstilsynet.no/",
+        "phone": "+47 75 58 50 00"
+      }
+    ],
+    "geometry": [
+      {
+        "uomDimensions": "FT",
+        "lowerLimit": 0,
+        "lowerVerticalReference": "AGL",
+        "upperLimit": 3000,
+        "upperVerticalReference": "AMSL",
+        "horizontalProjection": {
+          "type": "Polygon",
+          "coordinates": [
+            [
+              [
+                10.74389,
+                59.90833
+              ],
+              [
+                10.70361,
+                59.91083
+              ],
+              [
+                10.47556,
+                59.83917
+              ],
+              [
+                10.51111,
+                59.76306
+              ],
+              [
+                10.52,
+                59.68722
+              ],
+              [
+                10.59806,
+                59.65389
+              ],
+              [
+                10.6125,
+                59.59444
+              ],
+              [
+                10.59583,
+                59.55778
+              ],
+              [
+                10.65167,
+                59.54917
+              ],
+              [
+                10.65417,
+                59.61
+              ],
+              [
+                10.62556,
+                59.66972
+              ],
+              [
+                10.58194,
+                59.74944
+              ],
+              [
+                10.62028,
+                59.81722
+              ],
+              [
+                10.6475,
+                59.845
+              ],
+              [
+                10.65722,
+                59.86833
+              ],
+              [
+                10.75833,
+                59.89361
+              ],
+              [
+                10.74389,
+                59.90833
+              ]
+            ]
+          ]
+        }
+      }
+    ],
+    "applicability": [
+      {
+        "permanent": "NO",
+        "startDateTime": "2026-11-13T07:13:00.00Z",
+        "endDateTime": "2026-11-14T19:00:00.00Z"
+      }
+    ]
+  },
+  {
+    "type": "COMMON",
+    "identifier": "5E2DA4D",
+    "country": "NOR",
+    "name": "Soendre Akershus Kai",
+    "restriction": "REQ_AUTHORISATION",
+    "reason": [
+      "SENSITIVE"
+    ],
+    "message": "Aktiv iflg. NOTAM 13.11.2026 08:17–14.11.2026 20:00 (lokal tid). TEMPO RESTRICTED AREA ENR148 'SOENDRE AKERSHUS KAI' ESTABLISHED PSN 595422N 0104406E, RADIUS 1NM. ALL FLYING PROHIBITED, INCLUDING U...",
+    "zoneAuthority": [
+      {
+        "name": "Luftfartstilsynet",
+        "purpose": "INFORMATION",
+        "siteURL": "https://luftfartstilsynet.no/",
+        "phone": "+47 75 58 50 00"
+      }
+    ],
+    "geometry": [
+      {
+        "uomDimensions": "FT",
+        "lowerLimit": 0,
+        "lowerVerticalReference": "AGL",
+        "upperLimit": 3000,
+        "upperVerticalReference": "AMSL",
+        "horizontalProjection": {
+          "type": "Polygon",
+          "coordinates": [
+            [
+              [
+                10.76754,
+                59.90287
+              ],
+              [
+                10.76818,
+                59.90611
+              ],
+              [
+                10.76754,
+                59.90936
+              ],
+              [
+                10.76565,
+                59.91248
+              ],
+              [
+                10.76259,
+                59.91535
+              ],
+              [
+                10.75846,
+                59.91788
+              ],
+              [
+                10.75343,
+                59.91994
+              ],
+              [
+                10.7477,
+                59.92148
+              ],
+              [
+                10.74147,
+                59.92243
+              ],
+              [
+                10.735,
+                59.92275
+              ],
+              [
+                10.72853,
+                59.92243
+              ],
+              [
+                10.7223,
+                59.92148
+              ],
+              [
+                10.71657,
+                59.91994
+              ],
+              [
+                10.71154,
+                59.91788
+              ],
+              [
+                10.70741,
+                59.91535
+              ],
+              [
+                10.70435,
+                59.91248
+              ],
+              [
+                10.70246,
+                59.90936
+              ],
+              [
+                10.70182,
+                59.90611
+              ],
+              [
+                10.70246,
+                59.90287
+              ],
+              [
+                10.70435,
+                59.89974
+              ],
+              [
+                10.70741,
+                59.89687
+              ],
+              [
+                10.71154,
+                59.89435
+              ],
+              [
+                10.71657,
+                59.89228
+              ],
+              [
+                10.7223,
+                59.89074
+              ],
+              [
+                10.72853,
+                59.88979
+              ],
+              [
+                10.735,
+                59.88947
+              ],
+              [
+                10.74147,
+                59.88979
+              ],
+              [
+                10.7477,
+                59.89074
+              ],
+              [
+                10.75343,
+                59.89228
+              ],
+              [
+                10.75846,
+                59.89435
+              ],
+              [
+                10.76259,
+                59.89687
+              ],
+              [
+                10.76565,
+                59.89974
+              ],
+              [
+                10.76754,
+                59.90287
+              ]
+            ]
+          ]
+        }
+      }
+    ],
+    "applicability": [
+      {
+        "permanent": "NO",
+        "startDateTime": "2026-11-13T07:17:00.00Z",
+        "endDateTime": "2026-11-14T19:00:00.00Z"
+      }
+    ]
+  },
+  {
+    "type": "COMMON",
+    "identifier": "7E91C22",
+    "country": "NOR",
+    "name": "END404 Setermoen",
+    "restriction": "CONDITIONAL",
+    "reason": [
+      "OTHER"
+    ],
+    "message": "Fareområde. MIL-aktivitet / MIL activity",
+    "zoneAuthority": [
+      {
+        "name": "Luftfartstilsynet",
+        "purpose": "INFORMATION",
+        "siteURL": "https://luftfartstilsynet.no/",
+        "phone": "+47 75 58 50 00"
+      }
+    ],
+    "geometry": [
+      {
+        "uomDimensions": "FT",
+        "lowerLimit": 0,
+        "lowerVerticalReference": "AGL",
+        "upperLimit": 25000,
+        "upperVerticalReference": "AMSL",
+        "horizontalProjection": {
+          "type": "Polygon",
+          "coordinates": [
+            [
+              [
+                18.59861,
+                68.81667
+              ],
+              [
+                18.28194,
+                68.86667
+              ],
+              [
+                18.18194,
+                68.81667
+              ],
+              [
+                18.08194,
+                68.7
+              ],
+              [
+                18.53194,
+                68.66667
+              ],
+              [
+                18.59861,
+                68.81667
+              ]
+            ]
+          ]
+        }
+      }
+    ],
+    "otherReasonInfo": "Danger area"
+  },
+  {
+    "type": "COMMON",
+    "identifier": "7BCFE9C",
+    "country": "NOR",
+    "name": "Etne",
+    "restriction": "CONDITIONAL",
+    "reason": [
+      "AIR_TRAFFIC"
+    ],
+    "message": "Luftsportsområde. Operatør: NLF Hang-/Para-gliderseksjonen, tlf. +47 23 01 04 50. Aktiviteten foregår i hovedsak i dagslys og under VMC.",
+    "zoneAuthority": [
+      {
+        "name": "Luftfartstilsynet",
+        "purpose": "INFORMATION",
+        "siteURL": "https://luftfartstilsynet.no/",
+        "phone": "+47 75 58 50 00"
+      }
+    ],
+    "geometry": [
+      {
+        "uomDimensions": "FT",
+        "lowerLimit": 0,
+        "lowerVerticalReference": "AGL",
+        "upperLimit": 9500,
+        "upperVerticalReference": "AMSL",
+        "horizontalProjection": {
+          "type": "Polygon",
+          "coordinates": [
+            [
+              [
+                9.89167,
+                60.7875
+              ],
+              [
+                9.70889,
+                60.88222
+              ],
+              [
+                9.64167,
+                60.85722
+              ],
+              [
+                9.85806,
+                60.77139
+              ],
+              [
+                9.89167,
+                60.7875
+              ]
+            ]
+          ]
+        }
+      }
+    ]
+  }
+]

@@ -1,0 +1,1344 @@
+{
+  "title": "Finnish UASZoneVersion 2026-11-15",
+  "description": "",
+  "features": [
+    {
+      "identifier": "EFAAUAS",
+      "country": "FIN",
+      "name": "UAS-ilmatilavyöhyke Aavahelukka",
+      "type": "COMMON",
+      "restriction": "REQ_AUTHORISATION",
+      "reason": [
+        "AIR_TRAFFIC"
+      ],
+      "applicability": [
+        {
+          "permanent": "YES",
+          "startDateTime": "2020-12-31T00:00:00.00Z",
+          "endDateTime": "2027-04-17T21:00:00.00Z",
+          "schedule": [
+            {
+              "day": [
+                "ANY"
+              ],
+              "startTime": "00:00:00Z",
+              "endTime": "23:59:59Z"
+            }
+          ]
+        }
+      ],
+      "zoneAuthority": [
+        {
+          "name": "Traficom"
+        }
+      ],
+      "extendedProperties": {
+        "exceptionPermit": "UAS-toiminta alueella on sallittua ainoastaan erikseen sopimalla lentopaikan pitäjän kanssa, tai toimimalla julkaistujen paikallisten toimintaohjeiden ja -menettelyjen mukaisesti."
+      },
+      "geometry": [
+        {
+          "uomDimensions": "M",
+          "upperVerticalReference": "AGL",
+          "lowerVerticalReference": "AGL",
+          "horizontalProjection": {
+            "type": "Polygon",
+            "coordinates": [
+              [
+                [
+                  23.9513888888889,
+                  67.6255555555556
+                ],
+                [
+                  24.0277777777778,
+                  67.5938888888889
+                ],
+                [
+                  23.9930555555556,
+                  67.5816666666667
+                ],
+                [
+                  23.9166666666667,
+                  67.6133333333333
+                ],
+                [
+                  23.9513888888889,
+                  67.6255555555556
+                ]
+              ]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "identifier": "EFETUASC",
+      "country": "FIN",
+      "name": "UAS-ilmatilavyöhyke C Enontekiö",
+      "type": "COMMON",
+      "restriction": "REQ_AUTHORISATION",
+      "reason": [
+        "AIR_TRAFFIC"
+      ],
+      "applicability": [
+        {
+          "permanent": "YES",
+          "startDateTime": "2020-12-31T00:00:00.00Z",
+          "endDateTime": "2027-04-17T21:00:00.00Z",
+          "schedule": [
+            {
+              "day": [
+                "ANY"
+              ],
+              "startTime": "00:00:00Z",
+              "endTime": "23:59:59Z"
+            }
+          ]
+        }
+      ],
+      "zoneAuthority": [
+        {
+          "name": "Traficom"
+        }
+      ],
+      "extendedProperties": {
+        "exceptionPermit": "https://droneinfo.fi/fi/uas-ilmatilavyohykkeet"
+      },
+      "geometry": [
+        {
+          "upperLimit": 120,
+          "lowerLimit": 50,
+          "uomDimensions": "M",
+          "upperVerticalReference": "AGL",
+          "lowerVerticalReference": "AGL",
+          "horizontalProjection": {
+            "type": "Polygon",
+            "coordinates": [
+              [
+                [
+                  23.4208333333333,
+                  68.44
+                ],
+                [
+                  23.6211111111111,
+                  68.3883333333333
+                ],
+                [
+                  23.4277777777778,
+                  68.2858333333333
+                ],
+                [
+                  23.2275,
+                  68.3358333333333
+                ],
+                [
+                  23.4208333333333,
+                  68.44
+                ]
+              ]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "identifier": "EFKKUASD",
+      "country": "FIN",
+      "name": "UAS-ilmatilavyöhyke D Kokkola-Pietarsaari",
+      "type": "COMMON",
+      "restriction": "REQ_AUTHORISATION",
+      "reason": [
+        "AIR_TRAFFIC"
+      ],
+      "applicability": [
+        {
+          "permanent": "YES",
+          "startDateTime": "2020-12-31T00:00:00.00Z",
+          "endDateTime": "2027-04-17T21:00:00.00Z",
+          "schedule": [
+            {
+              "day": [
+                "ANY"
+              ],
+              "startTime": "00:00:00Z",
+              "endTime": "23:59:59Z"
+            }
+          ]
+        }
+      ],
+      "zoneAuthority": [
+        {
+          "name": "Traficom"
+        }
+      ],
+      "extendedProperties": {
+        "exceptionPermit": "https://droneinfo.fi/fi/uas-ilmatilavyohykkeet?group=initial&limit=20&offset=0&query=&sort=created"
+      },
+      "geometry": [
+        {
+          "lowerLimit": 120,
+          "uomDimensions": "M",
+          "upperVerticalReference": "AGL",
+          "lowerVerticalReference": "AGL",
+          "horizontalProjection": {
+            "type": "Polygon",
+            "coordinates": [
+              [
+                [
+                  22.9422222222222,
+                  63.9225
+                ],
+                [
+                  23.4975,
+                  63.8763888888889
+                ],
+                [
+                  23.3366666666667,
+                  63.5047222222222
+                ],
+                [
+                  22.7880555555556,
+                  63.5508333333333
+                ],
+                [
+                  22.9422222222222,
+                  63.9225
+                ]
+              ]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "identifier": "EFUTUASC3",
+      "country": "FIN",
+      "name": "UAS-ilmatilavyöhyke C Utti la-su",
+      "type": "COMMON",
+      "restriction": "REQ_AUTHORISATION",
+      "reason": [
+        "AIR_TRAFFIC"
+      ],
+      "applicability": [
+        {
+          "permanent": "YES",
+          "startDateTime": "2020-12-31T00:00:00.00Z",
+          "endDateTime": "2027-04-21T00:00:00.00Z",
+          "schedule": [
+            {
+              "day": [
+                "SAT"
+              ],
+              "startTime": "00:00:00Z",
+              "endTime": "00:00:00Z"
+            },
+            {
+              "day": [
+                "SUN"
+              ],
+              "startTime": "00:00:00Z",
+              "endTime": "00:00:00Z"
+            }
+          ]
+        }
+      ],
+      "zoneAuthority": [
+        {
+          "name": "Traficom"
+        }
+      ],
+      "extendedProperties": {
+        "exceptionPermit": "ATS-elimen aukioloaikoina UAS-toiminta alueella on sallittua ainoastaan ilmaliikennepalvelun tarjoajan luvalla. ATS-elimen aukioloaikojen ulkopuolella UAS-toiminta on sallittua Liikenne- ja viestintäviraston luvalla tai Liikenne- ja viestintäviraston asettamilla erityisehdoilla. Ma-pe klo 8-16 (LMT) UAS-toiminta on aina luvanvaraista. Muina aikoina UAS-toiminta yli 50 m (AGL) korkeudella on luvanvaraista."
+      },
+      "geometry": [
+        {
+          "lowerLimit": 50,
+          "uomDimensions": "M",
+          "upperVerticalReference": "AGL",
+          "lowerVerticalReference": "AGL",
+          "horizontalProjection": {
+            "type": "Polygon",
+            "coordinates": [
+              [
+                [
+                  27.23611111111111,
+                  61.06305555555555
+                ],
+                [
+                  27.342499999999998,
+                  60.809999999999995
+                ],
+                [
+                  26.860000000000003,
+                  60.76083333333333
+                ],
+                [
+                  26.87777777777778,
+                  60.862500000000004
+                ],
+                [
+                  27.021944444444443,
+                  60.8775
+                ],
+                [
+                  26.999166666666667,
+                  60.930277777777775
+                ],
+                [
+                  26.854722222222225,
+                  60.915277777777774
+                ],
+                [
+                  26.810277777777777,
+                  61.01638888888889
+                ],
+                [
+                  27.23611111111111,
+                  61.06305555555555
+                ]
+              ]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "identifier": "FIN432",
+      "country": "FIN",
+      "name": "Kälviän lennokkikenttä UAS",
+      "type": "COMMON",
+      "restriction": "NO_RESTRICTION",
+      "reason": [
+        "SENSITIVE"
+      ],
+      "applicability": [
+        {
+          "permanent": "YES",
+          "startDateTime": "2024-04-17T21:00:00.00Z",
+          "endDateTime": "2027-04-17T21:00:00.00Z",
+          "schedule": [
+            {
+              "day": [
+                "ANY"
+              ],
+              "startTime": "00:00:00Z",
+              "endTime": "23:59:59Z"
+            }
+          ]
+        }
+      ],
+      "zoneAuthority": [
+        {
+          "name": "Traficom"
+        }
+      ],
+      "geometry": [
+        {
+          "upperLimit": 2000,
+          "uomDimensions": "FT",
+          "upperVerticalReference": "AMSL",
+          "lowerVerticalReference": "AMSL",
+          "horizontalProjection": {
+            "type": "Polygon",
+            "coordinates": [
+              [
+                [
+                  23.3977777777778,
+                  63.8633333333333
+                ],
+                [
+                  23.4088888888889,
+                  63.8619444444444
+                ],
+                [
+                  23.4044444444444,
+                  63.855
+                ],
+                [
+                  23.3933333333333,
+                  63.8563888888889
+                ],
+                [
+                  23.3977777777778,
+                  63.8633333333333
+                ]
+              ]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "identifier": "FIN435",
+      "country": "FIN",
+      "name": "Kilpilahden ratapiha UAS",
+      "type": "COMMON",
+      "restriction": "REQ_AUTHORISATION",
+      "reason": [
+        "SENSITIVE"
+      ],
+      "applicability": [
+        {
+          "permanent": "YES",
+          "startDateTime": "2024-04-17T21:00:00.00Z",
+          "endDateTime": "2027-04-17T21:00:00.00Z",
+          "schedule": [
+            {
+              "day": [
+                "ANY"
+              ],
+              "startTime": "00:00:00Z",
+              "endTime": "23:59:59Z"
+            }
+          ]
+        }
+      ],
+      "zoneAuthority": [
+        {
+          "name": "Traficom"
+        }
+      ],
+      "extendedProperties": {
+        "exceptionPermit": "Lennättäminen vyöhykkeellä voidaan tapauskohtaiseen harkintaan perustuen sallia Väyläviraston asettamilla erityisehdoilla. Kirjalliset yhteydenotot: Väyläviraston kirjaamo, kirjaamo(at)vayla.fi ja Atte Kanerva atte.kanerva(at)vayla.fi."
+      },
+      "geometry": [
+        {
+          "upperLimit": 120,
+          "uomDimensions": "FT",
+          "upperVerticalReference": "AMSL",
+          "lowerVerticalReference": "AMSL",
+          "horizontalProjection": {
+            "type": "Polygon",
+            "coordinates": [
+              [
+                [
+                  25.4608333333333,
+                  60.3141666666667
+                ],
+                [
+                  25.4672222222222,
+                  60.3116666666667
+                ],
+                [
+                  25.4683333333333,
+                  60.3111111111111
+                ],
+                [
+                  25.4730555555556,
+                  60.31
+                ],
+                [
+                  25.4802777777778,
+                  60.3075
+                ],
+                [
+                  25.4841666666667,
+                  60.3055555555556
+                ],
+                [
+                  25.4961111111111,
+                  60.3025
+                ],
+                [
+                  25.4958333333333,
+                  60.3022222222222
+                ],
+                [
+                  25.4919444444444,
+                  60.3027777777778
+                ],
+                [
+                  25.4866666666667,
+                  60.3038888888889
+                ],
+                [
+                  25.4722222222222,
+                  60.3086111111111
+                ],
+                [
+                  25.4669444444444,
+                  60.3111111111111
+                ],
+                [
+                  25.4605555555556,
+                  60.3141666666667
+                ],
+                [
+                  25.4608333333333,
+                  60.3141666666667
+                ]
+              ]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "identifier": "EFUTUASC3",
+      "country": "FIN",
+      "name": "UAS-ilmatilavyöhyke C utti ma-pe",
+      "type": "COMMON",
+      "restriction": "REQ_AUTHORISATION",
+      "reason": [
+        "AIR_TRAFFIC"
+      ],
+      "applicability": [
+        {
+          "permanent": "YES",
+          "startDateTime": "2020-12-31T00:00:00.00Z",
+          "endDateTime": "2027-04-21T00:00:00.00Z",
+          "schedule": [
+            {
+              "day": [
+                "FRI"
+              ],
+              "startTime": "00:00:00Z",
+              "endTime": "00:00:00Z"
+            },
+            {
+              "day": [
+                "MON"
+              ],
+              "startTime": "00:00:00Z",
+              "endTime": "00:00:00Z"
+            },
+            {
+              "day": [
+                "THU"
+              ],
+              "startTime": "00:00:00Z",
+              "endTime": "00:00:00Z"
+            },
+            {
+              "day": [
+                "TUE"
+              ],
+              "startTime": "00:00:00Z",
+              "endTime": "00:00:00Z"
+            },
+            {
+              "day": [
+                "WED"
+              ],
+              "startTime": "00:00:00Z",
+              "endTime": "00:00:00Z"
+            }
+          ]
+        }
+      ],
+      "zoneAuthority": [
+        {
+          "name": "Traficom"
+        }
+      ],
+      "extendedProperties": {
+        "exceptionPermit": "ATS-elimen aukioloaikoina UAS-toiminta alueella on sallittua ainoastaan ilmaliikennepalvelun tarjoajan luvalla. ATS-elimen aukioloaikojen ulkopuolella UAS-toiminta on sallittua Liikenne- ja viestintäviraston luvalla tai Liikenne- ja viestintäviraston asettamilla erityisehdoilla. Ma-pe klo 8-16 (LMT) UAS-toiminta on aina luvanvaraista. Muina aikoina UAS-toiminta yli 50 m (AGL) korkeudella on luvanvaraista."
+      },
+      "geometry": [
+        {
+          "uomDimensions": "M",
+          "upperVerticalReference": "AGL",
+          "lowerVerticalReference": "AGL",
+          "horizontalProjection": {
+            "type": "Polygon",
+            "coordinates": [
+              [
+                [
+                  27.23611111111111,
+                  61.06305555555555
+                ],
+                [
+                  27.342499999999998,
+                  60.809999999999995
+                ],
+                [
+                  26.860000000000003,
+                  60.76083333333333
+                ],
+                [
+                  26.87777777777778,
+                  60.862500000000004
+                ],
+                [
+                  27.021944444444443,
+                  60.8775
+                ],
+                [
+                  26.999166666666667,
+                  60.930277777777775
+                ],
+                [
+                  26.854722222222225,
+                  60.915277777777774
+                ],
+                [
+                  26.810277777777777,
+                  61.01638888888889
+                ],
+                [
+                  27.23611111111111,
+                  61.06305555555555
+                ]
+              ]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "identifier": "FIN629",
+      "country": "FIN",
+      "name": "Ilmajoki UAS",
+      "type": "COMMON",
+      "restriction": "REQ_AUTHORISATION",
+      "reason": [
+        "SENSITIVE"
+      ],
+      "applicability": [
+        {
+          "permanent": "YES",
+          "startDateTime": "2025-04-16T21:00:00.00Z",
+          "endDateTime": "2027-04-20T21:00:00.00Z",
+          "schedule": [
+            {
+              "day": [
+                "ANY"
+              ],
+              "startTime": "00:00:00Z",
+              "endTime": "23:59:59Z"
+            }
+          ]
+        }
+      ],
+      "zoneAuthority": [
+        {
+          "name": "Traficom"
+        }
+      ],
+      "extendedProperties": {
+        "exceptionPermit": "Maanpuolustuksen kohteiden kuvaaminen ja tutkiminen ilmasta ei ole sallittua ilman erillistä Pääesikunnan lupaa (http://puolustusvoimat.fi/ilmakuvauslupa). \n\nLennätyslupa alueelle: Logistiikkarykmentti, Operatiivinen osasto - opke.2logr@mil.fi."
+      },
+      "geometry": [
+        {
+          "upperLimit": 1000,
+          "uomDimensions": "FT",
+          "upperVerticalReference": "AMSL",
+          "lowerVerticalReference": "AMSL",
+          "horizontalProjection": {
+            "type": "Polygon",
+            "coordinates": [
+              [
+                [
+                  22.59111111111111,
+                  62.726111111111116
+                ],
+                [
+                  22.591388888888886,
+                  62.71472222222223
+                ],
+                [
+                  22.578611111111112,
+                  62.71222222222222
+                ],
+                [
+                  22.573888888888888,
+                  62.723333333333336
+                ],
+                [
+                  22.59111111111111,
+                  62.726111111111116
+                ]
+              ]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "identifier": "FIN712",
+      "country": "FIN",
+      "name": "Oulun uusi vankila UAS",
+      "type": "COMMON",
+      "restriction": "PROHIBITED",
+      "reason": [
+        "SENSITIVE"
+      ],
+      "applicability": [
+        {
+          "permanent": "YES",
+          "startDateTime": "2026-02-17T22:00:00.00Z",
+          "endDateTime": "2027-04-14T21:00:00.00Z",
+          "schedule": [
+            {
+              "day": [
+                "ANY"
+              ],
+              "startTime": "00:00:00Z",
+              "endTime": "23:59:59Z"
+            }
+          ]
+        }
+      ],
+      "zoneAuthority": [
+        {
+          "name": "Traficom"
+        }
+      ],
+      "geometry": [
+        {
+          "uomDimensions": "M",
+          "upperVerticalReference": "AGL",
+          "lowerVerticalReference": "AGL",
+          "horizontalProjection": {
+            "type": "Polygon",
+            "coordinates": [
+              [
+                [
+                  25.579722222222223,
+                  65.06083333333333
+                ],
+                [
+                  25.58361111111111,
+                  65.05972222222222
+                ],
+                [
+                  25.58,
+                  65.05805555555555
+                ],
+                [
+                  25.576666666666668,
+                  65.05916666666667
+                ],
+                [
+                  25.579722222222223,
+                  65.06083333333333
+                ]
+              ]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "identifier": "FIN713",
+      "country": "FIN",
+      "name": "Linnavuori UAS",
+      "type": "COMMON",
+      "restriction": "REQ_AUTHORISATION",
+      "reason": [
+        "SENSITIVE"
+      ],
+      "applicability": [
+        {
+          "permanent": "YES",
+          "startDateTime": "2026-04-15T21:00:00.00Z",
+          "endDateTime": "2027-04-14T21:00:00.00Z",
+          "schedule": [
+            {
+              "day": [
+                "ANY"
+              ],
+              "startTime": "00:00:00Z",
+              "endTime": "23:59:59Z"
+            }
+          ]
+        }
+      ],
+      "zoneAuthority": [
+        {
+          "name": "Traficom"
+        }
+      ],
+      "extendedProperties": {
+        "exceptionPermit": "UAS-toiminta rajoittavalla UAS-ilmatilavyöhykkeellä on sallittu ainoastaan maa-alueen omistavan toimijan yhteyshenkilön myöntämällä kirjallisella luvalla. Lupaa voidaan hakea ao. lennätysten yhteyshenkilöltä, esittäen keskeiset lennätystarpeeseen liittyvät tiedot kuten aika, alue ja tarveperuste. \n\nYhteystiedot:\nPatria Oyj, Site Manager\nPuh: +358 40 869 4244\nSähköposti: security@patriagroup.com"
+      },
+      "geometry": [
+        {
+          "upperLimit": 50,
+          "uomDimensions": "M",
+          "upperVerticalReference": "AGL",
+          "lowerVerticalReference": "AGL",
+          "horizontalProjection": {
+            "type": "Polygon",
+            "coordinates": [
+              [
+                [
+                  23.351111111111113,
+                  61.48916666666667
+                ],
+                [
+                  23.351111111111113,
+                  61.48861111111111
+                ],
+                [
+                  23.353333333333335,
+                  61.48861111111111
+                ],
+                [
+                  23.353333333333335,
+                  61.488055555555555
+                ],
+                [
+                  23.352777777777778,
+                  61.48777777777778
+                ],
+                [
+                  23.354166666666668,
+                  61.487500000000004
+                ],
+                [
+                  23.35611111111111,
+                  61.486666666666665
+                ],
+                [
+                  23.361666666666668,
+                  61.486666666666665
+                ],
+                [
+                  23.3625,
+                  61.486111111111114
+                ],
+                [
+                  23.364444444444445,
+                  61.486111111111114
+                ],
+                [
+                  23.36416666666667,
+                  61.48388888888889
+                ],
+                [
+                  23.35638888888889,
+                  61.48388888888889
+                ],
+                [
+                  23.354722222222225,
+                  61.483333333333334
+                ],
+                [
+                  23.351111111111113,
+                  61.483333333333334
+                ],
+                [
+                  23.351111111111113,
+                  61.48361111111111
+                ],
+                [
+                  23.350833333333334,
+                  61.48361111111111
+                ],
+                [
+                  23.350555555555555,
+                  61.48361111111111
+                ],
+                [
+                  23.347777777777775,
+                  61.4825
+                ],
+                [
+                  23.34472222222222,
+                  61.48166666666667
+                ],
+                [
+                  23.344166666666666,
+                  61.48166666666667
+                ],
+                [
+                  23.344166666666666,
+                  61.481944444444444
+                ],
+                [
+                  23.344166666666666,
+                  61.481944444444444
+                ],
+                [
+                  23.34361111111111,
+                  61.48305555555556
+                ],
+                [
+                  23.343333333333334,
+                  61.48361111111111
+                ],
+                [
+                  23.342777777777776,
+                  61.48388888888889
+                ],
+                [
+                  23.342499999999998,
+                  61.48416666666667
+                ],
+                [
+                  23.343333333333334,
+                  61.48388888888889
+                ],
+                [
+                  23.342777777777776,
+                  61.48416666666667
+                ],
+                [
+                  23.342499999999998,
+                  61.484722222222224
+                ],
+                [
+                  23.342499999999998,
+                  61.484722222222224
+                ],
+                [
+                  23.342777777777776,
+                  61.48555555555556
+                ],
+                [
+                  23.343055555555555,
+                  61.48583333333333
+                ],
+                [
+                  23.342499999999998,
+                  61.48638888888889
+                ],
+                [
+                  23.342777777777776,
+                  61.48694444444445
+                ],
+                [
+                  23.342777777777776,
+                  61.48722222222222
+                ],
+                [
+                  23.342777777777776,
+                  61.48777777777778
+                ],
+                [
+                  23.343333333333334,
+                  61.48888888888889
+                ],
+                [
+                  23.346666666666664,
+                  61.48888888888889
+                ],
+                [
+                  23.346666666666664,
+                  61.48916666666667
+                ],
+                [
+                  23.348055555555554,
+                  61.48916666666667
+                ],
+                [
+                  23.35,
+                  61.48861111111111
+                ],
+                [
+                  23.350555555555555,
+                  61.48861111111111
+                ],
+                [
+                  23.350555555555555,
+                  61.48916666666667
+                ],
+                [
+                  23.351111111111113,
+                  61.48916666666667
+                ]
+              ]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "identifier": "FIN744",
+      "country": "FIN",
+      "name": "Israelin suurlähetystö UAS",
+      "type": "COMMON",
+      "restriction": "PROHIBITED",
+      "reason": [
+        "SENSITIVE"
+      ],
+      "applicability": [
+        {
+          "permanent": "YES",
+          "startDateTime": "2026-08-04T21:00:00.00Z",
+          "endDateTime": "2050-04-13T21:00:00.00Z",
+          "schedule": [
+            {
+              "day": [
+                "ANY"
+              ],
+              "startTime": "00:00:00Z",
+              "endTime": "23:59:59Z"
+            }
+          ]
+        }
+      ],
+      "zoneAuthority": [
+        {
+          "name": "Traficom"
+        }
+      ],
+      "geometry": [
+        {
+          "upperLimit": 150,
+          "uomDimensions": "M",
+          "upperVerticalReference": "AGL",
+          "lowerVerticalReference": "AGL",
+          "horizontalProjection": {
+            "type": "Polygon",
+            "coordinates": [
+              [
+                [
+                  24.93638888888889,
+                  60.16888888888889
+                ],
+                [
+                  24.93722222222222,
+                  60.16833333333333
+                ],
+                [
+                  24.93611111111111,
+                  60.168055555555554
+                ],
+                [
+                  24.935555555555556,
+                  60.16861111111111
+                ],
+                [
+                  24.93638888888889,
+                  60.16888888888889
+                ]
+              ]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "identifier": "FIN748",
+      "country": "FIN",
+      "name": "Savonlinnan keskussairaala UAS",
+      "type": "COMMON",
+      "restriction": "REQ_AUTHORISATION",
+      "reason": [
+        "SENSITIVE"
+      ],
+      "applicability": [
+        {
+          "permanent": "YES",
+          "startDateTime": "2026-08-31T21:00:00.00Z",
+          "endDateTime": "2026-12-30T22:00:00.00Z",
+          "schedule": [
+            {
+              "day": [
+                "ANY"
+              ],
+              "startTime": "00:00:00Z",
+              "endTime": "23:59:59Z"
+            }
+          ]
+        }
+      ],
+      "zoneAuthority": [
+        {
+          "name": "Traficom"
+        }
+      ],
+      "extendedProperties": {
+        "exceptionPermit": "Lennätyslupaa UAS-ilmatilavyöhykkeelle voi hakea:\nValmiuspäällikkö Markku Pulkkinen\nPuh: +358403596739\nSähköposti: markku.pulkkinen@pelastustoimi.fi"
+      },
+      "geometry": [
+        {
+          "upperLimit": 120,
+          "uomDimensions": "M",
+          "upperVerticalReference": "AGL",
+          "lowerVerticalReference": "AGL",
+          "horizontalProjection": {
+            "type": "Polygon",
+            "coordinates": [
+              [
+                [
+                  28.855833333333333,
+                  61.87138888888889
+                ],
+                [
+                  28.855833333333333,
+                  61.87
+                ],
+                [
+                  28.852222222222224,
+                  61.87
+                ],
+                [
+                  28.852222222222224,
+                  61.87138888888889
+                ],
+                [
+                  28.855833333333333,
+                  61.87138888888889
+                ]
+              ]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "identifier": "FIN756",
+      "country": "FIN",
+      "name": "Uudenkaupungin Työvene UAS 2",
+      "type": "COMMON",
+      "restriction": "REQ_AUTHORISATION",
+      "reason": [
+        "SENSITIVE"
+      ],
+      "applicability": [
+        {
+          "permanent": "YES",
+          "startDateTime": "2026-10-11T21:00:00.00Z",
+          "schedule": [
+            {
+              "day": [
+                "ANY"
+              ],
+              "startTime": "00:00:00Z",
+              "endTime": "23:59:59Z"
+            }
+          ]
+        }
+      ],
+      "zoneAuthority": [
+        {
+          "name": "Traficom"
+        }
+      ],
+      "extendedProperties": {
+        "exceptionPermit": "Lupa lennätyksiin rajoittavalla UAS-ilmatilavyöhykkeellä voidaan sallia tapauskohtaiseen harkintaan perustuen kirjallisella luvalla. Yhteystiedot: permits@tyovene.fi."
+      },
+      "geometry": [
+        {
+          "upperLimit": 150,
+          "uomDimensions": "M",
+          "upperVerticalReference": "AGL",
+          "lowerVerticalReference": "AGL",
+          "horizontalProjection": {
+            "type": "Polygon",
+            "coordinates": [
+              [
+                [
+                  21.381944444444446,
+                  60.79833333333333
+                ],
+                [
+                  21.3775,
+                  60.79888888888889
+                ],
+                [
+                  21.377222222222223,
+                  60.8
+                ],
+                [
+                  21.377222222222223,
+                  60.80027777777777
+                ],
+                [
+                  21.3775,
+                  60.80027777777777
+                ],
+                [
+                  21.37777777777778,
+                  60.800555555555555
+                ],
+                [
+                  21.37777777777778,
+                  60.800555555555555
+                ],
+                [
+                  21.378055555555555,
+                  60.800555555555555
+                ],
+                [
+                  21.378333333333334,
+                  60.800555555555555
+                ],
+                [
+                  21.378055555555555,
+                  60.80083333333333
+                ],
+                [
+                  21.378055555555555,
+                  60.801111111111105
+                ],
+                [
+                  21.378055555555555,
+                  60.80138888888889
+                ],
+                [
+                  21.378055555555555,
+                  60.80138888888889
+                ],
+                [
+                  21.378055555555555,
+                  60.80138888888889
+                ],
+                [
+                  21.37777777777778,
+                  60.801944444444445
+                ],
+                [
+                  21.37777777777778,
+                  60.801944444444445
+                ],
+                [
+                  21.379444444444445,
+                  60.80222222222222
+                ],
+                [
+                  21.380555555555556,
+                  60.80166666666666
+                ],
+                [
+                  21.380833333333335,
+                  60.80138888888889
+                ],
+                [
+                  21.380833333333335,
+                  60.80138888888889
+                ],
+                [
+                  21.380277777777778,
+                  60.801111111111105
+                ],
+                [
+                  21.38,
+                  60.80083333333333
+                ],
+                [
+                  21.38,
+                  60.80083333333333
+                ],
+                [
+                  21.38,
+                  60.800555555555555
+                ],
+                [
+                  21.38,
+                  60.800555555555555
+                ],
+                [
+                  21.380277777777778,
+                  60.80027777777777
+                ],
+                [
+                  21.380555555555556,
+                  60.8
+                ],
+                [
+                  21.38138888888889,
+                  60.80027777777777
+                ],
+                [
+                  21.381666666666668,
+                  60.8
+                ],
+                [
+                  21.381944444444446,
+                  60.8
+                ],
+                [
+                  21.38277777777778,
+                  60.8
+                ],
+                [
+                  21.38277777777778,
+                  60.79972222222222
+                ],
+                [
+                  21.383333333333333,
+                  60.79944444444444
+                ],
+                [
+                  21.38361111111111,
+                  60.799166666666665
+                ],
+                [
+                  21.381944444444446,
+                  60.79833333333333
+                ]
+              ]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "identifier": "FIN760",
+      "country": "FIN",
+      "name": "Alakylä UAS",
+      "type": "COMMON",
+      "restriction": "NO_RESTRICTION",
+      "reason": [
+        "SENSITIVE"
+      ],
+      "applicability": [
+        {
+          "permanent": "YES",
+          "startDateTime": "2026-11-30T22:01:00.00Z",
+          "endDateTime": "2050-04-14T20:59:00.00Z",
+          "schedule": [
+            {
+              "day": [
+                "ANY"
+              ],
+              "startTime": "00:00:00Z",
+              "endTime": "23:59:59Z"
+            }
+          ]
+        }
+      ],
+      "zoneAuthority": [
+        {
+          "name": "Traficom"
+        }
+      ],
+      "geometry": [
+        {
+          "upperLimit": 120,
+          "uomDimensions": "M",
+          "upperVerticalReference": "AGL",
+          "lowerVerticalReference": "AGL",
+          "horizontalProjection": {
+            "type": "Polygon",
+            "coordinates": [
+              [
+                [
+                  25.86416666666667,
+                  65.26694444444445
+                ],
+                [
+                  25.911666666666665,
+                  65.14305555555556
+                ],
+                [
+                  25.73638888888889,
+                  65.1413888888889
+                ],
+                [
+                  25.586666666666666,
+                  65.05805555555555
+                ],
+                [
+                  25.55,
+                  65.05805555555555
+                ],
+                [
+                  25.442222222222224,
+                  65.06805555555555
+                ],
+                [
+                  25.86416666666667,
+                  65.26694444444445
+                ]
+              ]
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
