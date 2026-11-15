@@ -7,6 +7,15 @@ Quelle: `caa-slovenia.maps.arcgis.com/apps/webappviewer/index.html?id=2d42618566
 
 Vergleich: übrige Länder-Dokumente in `docs/`.
 
+
+> **Korrektur (2026-11-15, nach Integration):** Die oben genannte App
+> `2d42618…` ist die GAT-Karte (allgemeine Luftfahrt, Stand 2021). Die aktuelle
+> offizielle Drohnenkarte ist **„UAS GEO ZONES – May 2026“** (App
+> `25ba69037c264c5faa5381174f76f861`, WebMap `14c35a6c4d5a472ea2ed5b2a75abc690`,
+> Besitzer `CAA_SLO`). Die App nutzt deren 18 Zonen-Ebenen, siehe
+> `shared/slovenianGeozones.ts` (`SI_LAYERS`).
+
+
 ---
 
 ## 1. Kurzfassung
