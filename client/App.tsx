@@ -8,6 +8,7 @@ import { initEd269ImportFlags } from "@/lib/geozoneDirect/ed269Store";
 import { startGeozoneTileStore } from "@/lib/geozoneTiles/tileStore";
 import { startCountryUsage } from "@/lib/countryUsageData";
 import { CountryUsagePrompt } from "@/components/CountryUsagePrompt";
+import { DownloadActivityBar } from "@/components/DownloadActivityBar";
 
 // Übersetzungs-Cache der Behördentexte laden (offline) und neue Texte nachziehen
 startZoneTranslation();
@@ -174,6 +175,8 @@ function AuthGate({
     <NavigationContainer ref={navigationRef}>
       <RootStackNavigator />
       <CountryUsagePrompt />
+      {/* App-weite Download-Anzeige (über der Navigation, Safe-Area) */}
+      <DownloadActivityBar />
     </NavigationContainer>
   );
 }

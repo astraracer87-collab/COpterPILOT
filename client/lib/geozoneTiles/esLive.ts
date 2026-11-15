@@ -22,6 +22,7 @@ import { arcgisPage } from "../../../shared/geozoneKit/arcgis";
 import { TEMPORARY_ZONES_MAX_AGE_MS } from "../../../shared/geozoneSourceMeta";
 import { esZoneFromStored } from "./tileZones";
 import type { LngLatBBox } from "./tileStoreCore";
+import { trackDownload } from "../downloadActivity";
 
 export type EsFetchJson = (url: string, timeoutMs?: number) => Promise<any>;
 
@@ -92,7 +93,11 @@ export async function queryEsLiveZones(bbox: LngLatBBox, parts: EsTilePart[] = [
   const key = `${layers.map((l) => l.key).join(",")}|${q.join(",")}`;
   let hit = cache.get(key);
   if (!hit || now - hit.at > ES_LIVE_CACHE_MS) {
-    const results = await Promise.allSettled(layers.map((l) => fetchLayerBbox(l, bbox)));
+    // Längere Live-Abfragen erscheinen in der Download-Anzeige (kurze < 1 s nicht)
+    const results = await trackDownload(
+      { id: "es-live", iso: "ES", labelDe: "Geozonen für den Kartenausschnitt", kind: "live" },
+      () => Promise.allSettled(layers.map((l) => fetchLayerBbox(l, bbox))),
+    );
     const failed = layers.filter((_, i) => results[i].status === "rejected").map((l) => l.key);
     if (failed.length === layers.length) {
       const reason = (results[0] as PromiseRejectedResult).reason;

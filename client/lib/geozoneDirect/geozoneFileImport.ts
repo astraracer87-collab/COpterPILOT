@@ -6,6 +6,7 @@
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import { base64ToBytes } from "@/lib/base64";
+import { trackDownload } from "@/lib/downloadActivity";
 import { ED269_SOURCE_LABELS } from "@/lib/ed269";
 import { parseGeozoneImportBytes, type GeozoneImportFormat } from "../../../shared/geozoneImport";
 import { importEd269Dataset, type Ed269Dataset } from "./ed269Store";
@@ -45,8 +46,14 @@ export async function pickAndImportGeozoneFile(iso: string): Promise<GeozoneFile
     if (asset.size && asset.size > GEOZONE_IMPORT_MAX_BYTES) {
       return { ok: false, error: `Datei zu groß (max. ${Math.round(GEOZONE_IMPORT_MAX_BYTES / 1024 / 1024)} MB).` };
     }
-    const b64 = await FileSystem.readAsStringAsync(asset.uri, { encoding: FileSystem.EncodingType.Base64 });
-    return await importGeozoneBytes(iso, base64ToBytes(b64), fileName);
+    // Import-Verarbeitung in der Download-Anzeige (große Dateien dauern)
+    return await trackDownload(
+      { id: `import:${iso.toUpperCase()}`, iso, labelDe: "Geozonen-Import wird verarbeitet", kind: "import" },
+      async () => {
+        const b64 = await FileSystem.readAsStringAsync(asset.uri, { encoding: FileSystem.EncodingType.Base64 });
+        return importGeozoneBytes(iso, base64ToBytes(b64), fileName);
+      },
+    );
   } catch (e: any) {
     return { ok: false, error: e?.message ? String(e.message) : "Import fehlgeschlagen." };
   }

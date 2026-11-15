@@ -40,7 +40,7 @@ import type {
 import { useAuth } from "@/lib/auth";
 import { supplementalInfrastructureAsGeozones, infrastructureMapGeometry } from "@/lib/energyInfrastructureZones";
 import { useTiledGeozoneIsos } from "@/lib/geozoneTiles/useTiledGeozones";
-import { countryDisabledWarning, isGeozoneSourceEnabled, usageCountryLabel } from "@/lib/countryUsage";
+import { countryDisabledWarning, isGeozoneSourceEnabled, usageCountryLabel, usageIsoOf } from "@/lib/countryUsage";
 import { useCountryUsageMap } from "@/lib/useCountryUsage";
 import { EnableCountryButtons } from "@/components/EnableCountryButtons";
 
@@ -535,11 +535,12 @@ const MapPicker = forwardRef<MapPickerRef, MapPickerProps>(
     const countryUsageMap = useCountryUsageMap();
     const { lockedSet, lockedNames, disabledIsos } = useMemo(() => {
       const { locked } = splitCountriesByAccess(candidateCountries, entitlement);
+      // LI folgt CH: ein Hinweis „Schweiz / Liechtenstein“
       const disabled = candidateCountries.filter((iso) => !isGeozoneSourceEnabled(iso));
       return {
         lockedSet: new Set([...locked, ...disabled]),
         lockedNames: locked.map((iso) => countryName(iso)),
-        disabledIsos: disabled,
+        disabledIsos: [...new Set(disabled.map((iso) => usageIsoOf(iso)))],
       };
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [candidateCountries, entitlement, countryUsageMap]);

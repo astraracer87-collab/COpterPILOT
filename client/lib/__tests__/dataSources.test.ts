@@ -100,7 +100,6 @@ test("schriftliche Genehmigungen sind markiert", () => {
     "NL",
     "AT",
     "DK",
-    "EE",
     "IT",
     "LU",
     "IE",
@@ -120,7 +119,8 @@ test("schriftliche Genehmigungen sind markiert", () => {
   ]) {
     assert.ok(withPermission.has(iso), `${iso}: Freigabe nicht markiert`);
   }
-  for (const iso of ["DE", "FR", "CH", "FI", "NO", "SE", "GB"]) {
+  // EE: Freigabe von EANS nur mündlich, schriftliche Bestätigung ausstehend
+  for (const iso of ["DE", "FR", "CH", "FI", "NO", "SE", "GB", "EE"]) {
     assert.ok(
       !withPermission.has(iso),
       `${iso}: fälschlich als Freigabe markiert`,

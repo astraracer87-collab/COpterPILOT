@@ -362,12 +362,20 @@ function tokenFromResponse(body: any): DflightToken {
   };
 }
 
+export const DFLIGHT_DIRECT_GRANT_DISABLED_MESSAGE = "d-flight-Anmeldung per App nicht möglich – bitte melden";
+
 /** Keycloak-/Gateway-Fehler in eine verständliche deutsche Meldung übersetzen. */
 export function dflightLoginErrorMessage(status: number, body: any): DflightAuthError {
   const raw = typeof body === "string" ? body : JSON.stringify(body ?? "");
   const desc = String(body?.error_description ?? body?.message ?? "");
   if (status === 403 && /missing headers|malformed headers/i.test(raw)) {
     return new DflightAuthError("d-flight: Sicherheitsprüfung (CSRF) fehlgeschlagen", "csrf", status);
+  }
+  // Keycloak: Password-Grant (Direct Access Grants) für den Client abgeschaltet.
+  // Laut Doku (2026-11-15) funktioniert er; falls d-flight ihn sperrt, liegt es
+  // nicht an den Zugangsdaten des Nutzers.
+  if (body?.error === "unauthorized_client" || /direct access grants/i.test(desc)) {
+    return new DflightAuthError(DFLIGHT_DIRECT_GRANT_DISABLED_MESSAGE, "server", status);
   }
   if (/not fully set up/i.test(desc)) {
     return new DflightAuthError("d-flight-Konto ist noch nicht vollständig eingerichtet (bitte auf d-flight.it abschließen)", "credentials", status);
@@ -530,6 +538,30 @@ export async function dflightAuthorizedGet(url: string, timeoutMs: number = 120_
     return res;
   }
   throw new DflightAuthError("d-flight: Anfrage nicht autorisiert", "server");
+}
+
+/**
+ * GeoServer-WFS (/maps/wms): laut Doku („Anhang IT“) genügt der Bearer-Token,
+ * der CSRF-/Pre-Flight-Weg ist dort nicht nötig. Bei 401/403 einmal mit neuem
+ * Token UND (falls erhältlich) CSRF-Headern wiederholen. Liefert die Antwort
+ * unverändert (auch 401/403) – der Aufrufer entscheidet über die Meldung.
+ */
+export async function dflightBearerGet(url: string, timeoutMs: number = 120_000, accept = "application/json"): Promise<Response> {
+  let res: Response | null = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const token = await getDflightAccessToken(attempt > 0);
+    let csrf: Partial<DflightCsrfHeaders> = {};
+    if (attempt > 0) {
+      try {
+        csrf = await getDflightCsrfHeaders(true);
+      } catch {
+        // CSRF ist für den WFS nicht vorgeschrieben – ohne weiter versuchen.
+      }
+    }
+    res = await fetchWithTimeout(url, { headers: { Accept: accept, Authorization: `Bearer ${token}`, ...csrf } }, timeoutMs);
+    if (res.status !== 401 && res.status !== 403) return res;
+  }
+  return res!;
 }
 
 /** Nur für Tests: In-Memory-Zustand zurücksetzen. */

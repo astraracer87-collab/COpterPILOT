@@ -1,7 +1,9 @@
 /**
  * Einstellungen → Karten & Offline
  * Länder & Offline-Daten: je Land „Aus“ / „Online“ / „Offline“
- * (client/lib/countryUsage.ts). Bei „Offline“ festlegen, was auf dem Gerät
+ * (client/lib/countryUsage.ts). „Online“: Geozonen werden geladen und aktuell
+ * gehalten; Karte und Zusatzdaten nur bei Netz. Schweiz und Liechtenstein
+ * sind ein Eintrag („Schweiz / Liechtenstein“). Bei „Offline“ festlegen, was auf dem Gerät
  * gespeichert wird: Karte, Satellitenbilder (optional, sehr groß), Geozonen
  * (inkl. Teile wie DE-Wohngrundstücke, ES-Infrastruktur/Naturschutz),
  * Hindernisse. Gespeicherte Größe je Land und gesamt; „Alle deaktivierten
@@ -24,7 +26,9 @@ import {
   DETAIL_LABELS,
   defaultConfig,
   estimateSize,
+  estimateUsageSizes,
   formatMB,
+  formatUsageSizes,
   freeDiskMB,
   TILE_STORE_DOWNLOAD_MB,
   TILE_STORE_ES_PART_MB,
@@ -46,6 +50,7 @@ import { clearGoogleKey, getGoogleKey, setGoogleKey } from "@/lib/googleTiles";
 import { clearDeeplKey, getDeeplKey, setDeeplKey } from "@/lib/zoneTranslationStore";
 import { clearDflightCredentials, getDflightCredentials, setDflightCredentials } from "@/lib/geozoneDirect/dflightAuth";
 import { deleteEd269Dataset, loadStoredEd269Dataset, type Ed269ImportMeta } from "@/lib/geozoneDirect/ed269Store";
+import { getTilePartMeta, hasTiledGeozones } from "@/lib/geozoneTiles/tileStore";
 import { GEOZONE_IMPORT_FORMAT_LABELS, pickAndImportGeozoneFile } from "@/lib/geozoneDirect/geozoneFileImport";
 import { RO_ROMATSA_DRONES_URL } from "../../shared/romanianGeozones";
 import { MT_TMCAD_MAP_URL } from "../../shared/malteseGeozones";
@@ -99,8 +104,8 @@ type ImportInfo = (Ed269ImportMeta & { count: number }) | null;
 
 const USAGE_HINT: Record<CountryUsage, string> = {
   off: "Keine Abrufe und keine gespeicherten Daten. Liegt ein Flug in diesem Land, muss es aktiviert oder manuell geprüft werden.",
-  online: "Geozonen werden nur bei Bedarf für den betrachteten Bereich abgefragt (Landesdatensätze höchstens 24 Stunden zwischengespeichert). Ohne Internet keine Prüfung.",
-  offline: "Alle gewählten Daten werden gespeichert und automatisch aktuell gehalten (große Pakete nur im WLAN, außer mobile Daten sind erlaubt).",
+  online: "Geozonen werden geladen und aktuell gehalten; Karte und Zusatzdaten nur bei Netz. Große Geozonen-Pakete werden im WLAN geladen (außer mobile Daten sind erlaubt) – bis dahin wird online je Bereich abgefragt.",
+  offline: "Wie Online, zusätzlich Karte, Luftbild, Hindernisse und große Zusatzpakete auf dem Gerät – alles automatisch aktuell gehalten (große Pakete nur im WLAN, außer mobile Daten sind erlaubt).",
 };
 
 function bytesToMB(b: number): number {
@@ -378,10 +383,13 @@ export default function OfflineMapsScreen() {
       );
       return;
     }
-    if (next === "online" && prev === "offline" && deletable > 0) {
+    // Offline → Online: nur die Offline-Zusätze werden gelöscht, Geozonen bleiben
+    const geozoneBytes = (size?.datasetBytes ?? 0) + (getTilePartMeta(iso, "base")?.dataBytes ?? 0);
+    const extras = Math.max(0, deletable - geozoneBytes);
+    if (next === "online" && prev === "offline" && extras > 0) {
       Alert.alert(
         "Offline-Daten löschen",
-        `${label} wird nur noch online abgefragt. Gespeicherte Offline-Daten (ca. ${formatMB(bytesToMB(deletable))}) werden gelöscht.` +
+        `${label}: Karte, Luftbild, Hindernisse und große Zusatzpakete (ca. ${formatMB(bytesToMB(extras))}) werden gelöscht. Die Geozonen bleiben gespeichert und aktuell.` +
           (size?.importBytes ? " Importierte Geozonen bleiben erhalten." : ""),
         [
           { text: "Abbrechen", style: "cancel" },
@@ -594,7 +602,7 @@ export default function OfflineMapsScreen() {
             onChange={(v) => { setLargePacksMobile(v); setLargePacksOnMobile(v).catch(() => {}); }}
           />
           <ThemedText style={[styles.small, { color: theme.textSecondary, marginTop: Spacing.sm }]}>
-            Offline-Länder werden beim App-Start und alle 6 Stunden automatisch geprüft und aktualisiert.
+            Aktive Länder werden beim App-Start und alle 6 Stunden automatisch geprüft und aktualisiert (Online: Geozonen; Offline: alle gewählten Daten).
           </ThemedText>
           <Pressable
             onPress={() => { syncOfflineCountries("manual").then(() => refresh()).catch(() => {}); }}
@@ -603,7 +611,7 @@ export default function OfflineMapsScreen() {
             testID="sync-offline-countries"
           >
             {Object.values(syncState).some((x) => x.running) ? <ActivityIndicator size="small" color={theme.primary} /> : <Feather name="refresh-cw" size={16} color={theme.primary} />}
-            <ThemedText style={[styles.btnText, { color: theme.text }]}>Offline-Länder jetzt prüfen</ThemedText>
+            <ThemedText style={[styles.btnText, { color: theme.text }]}>Aktive Länder jetzt prüfen</ThemedText>
           </Pressable>
         </Card>
 
@@ -632,8 +640,9 @@ export default function OfflineMapsScreen() {
 
         <ThemedText style={[styles.sectionTitle, { color: theme.textSecondary, marginTop: Spacing["2xl"] }]} testID="countries-section-title">LÄNDER & OFFLINE-DATEN</ThemedText>
         <ThemedText style={[styles.small, styles.intro, { color: theme.textSecondary }]}>
-          Je Land festlegen: Aus (keine Daten, keine Prüfung), Online (Abfrage bei Bedarf) oder Offline (alles gespeichert und
-          automatisch aktualisiert). Karten und Luftbilder stammen von den amtlichen Vermessungsämtern – wo es keine frei
+          Je Land festlegen: Aus (keine Daten, keine Prüfung), Online (Geozonen werden geladen und aktuell gehalten; Karte und
+          Zusatzdaten nur bei Netz) oder Offline (zusätzlich Karte, Luftbild, Hindernisse und große Zusatzpakete auf dem Gerät).
+          Karten und Luftbilder stammen von den amtlichen Vermessungsämtern – wo es keine frei
           speicherbare amtliche Karte gibt, werden Geozonen und Hindernisse gespeichert und die Karte online angezeigt.
           {freeMB != null ? ` Freier Speicher: ${formatMB(freeMB)}.` : ""}
         </ThemedText>
@@ -695,7 +704,13 @@ export default function OfflineMapsScreen() {
                         ? `Aus · Import bleibt erhalten (Land deaktiviert) · ${formatMB(bytesToMB(size.importBytes))}`
                         : "Aus"
                       : usage === "online"
-                        ? `Online – Abfrage bei Bedarf${size && size.totalBytes > 0 ? ` · gespeichert ${formatMB(bytesToMB(size.totalBytes))}` : ""}`
+                        ? sync?.running
+                          ? "Online – Geozonen werden geladen …"
+                          : size && size.totalBytes > 0
+                            ? `Online – Geozonen gespeichert · ${formatMB(bytesToMB(size.totalBytes))}`
+                            : sync?.result?.status === "pending-wifi"
+                              ? "Online – Geozonen warten auf WLAN"
+                              : "Online – Geozonen werden geladen"
                         : `${st?.running ? "Wird geladen …" : syncing ? "Wird automatisch aktualisiert …" : sync?.result?.status === "pending-wifi" && !allDone ? "Wartet auf WLAN" : isSaved ? (allDone ? "Offline verfügbar" : "Teilweise gespeichert") : `ca. ${formatMB(est.totalMB)}`}` +
                           (size && size.totalBytes > 0 ? ` · gespeichert ${formatMB(bytesToMB(size.totalBytes))}` : "")}
                   </ThemedText>
@@ -717,12 +732,17 @@ export default function OfflineMapsScreen() {
                   </Pressable>
                 ))}
               </View>
+              <ThemedText style={[styles.small, { color: theme.textSecondary, marginTop: 4 }]} testID={`usage-sizes-${country.iso}`}>
+                {formatUsageSizes(estimateUsageSizes(c))}
+              </ThemedText>
 
               {open ? (
                 <View style={{ marginTop: Spacing.md, gap: Spacing.md }}>
                   <ThemedText style={[styles.small, { color: theme.textSecondary }]} testID={`usage-hint-${country.iso}`}>
                     {USAGE_HINT[usage]}
-                    {usage === "online" && country.iso === "CZ" ? " Tschechien: ohne Offline-Paket keine automatische Prüfung (nur Hinweis „manuell prüfen“)." : ""}
+                    {usage !== "off" && country.iso === "CZ" && !hasTiledGeozones("CZ")
+                      ? " Tschechien: Bis das Geozonen-Paket der ŘLP (ca. 36 MB) geladen ist, keine automatische Prüfung (Hinweis „manuell prüfen“)."
+                      : ""}
                   </ThemedText>
                   {usage === "off" && size?.importBytes ? (
                     <ThemedText style={[styles.small, { color: theme.textSecondary }]} testID={`import-kept-${country.iso}`}>

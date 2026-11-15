@@ -33,6 +33,7 @@ import {
 } from "@/lib/geozoneTiles/tileStore";
 import { bboxAround, DIPUL_WOHN_LAYER, TILE_STORE_OPTIONAL_PARTS, type LngLatBBox } from "@/lib/geozoneTiles/tileStoreCore";
 import { queryEsLiveZones } from "@/lib/geozoneTiles/esLive";
+import { trackDownload } from "@/lib/downloadActivity";
 import { geozoneTruncationHint } from "../../shared/checks/builders";
 import {
   queryChRestIdentifyFrom,
@@ -1551,14 +1552,18 @@ async function queryGeozonesForCountry(
       report?.({ status: "missing", note: "Gerät offline – kein Offline-Paket und kein gespeicherter Stand" });
       return [];
     }
-    const zones = await queryDipulGeozones(lat, lon, radiusKm, onDipulSourceStatus);
+    // Längere Live-Abfragen erscheinen in der Download-Anzeige (kurze < 1 s nicht)
+    const zones = await trackDownload(
+      { id: "de-live", iso: "DE", labelDe: "Geozonen für den Bereich", kind: "live" },
+      () => queryDipulGeozones(lat, lon, radiusKm, onDipulSourceStatus),
+    );
     putOfflineResult("geozones-live", key, zones).catch(() => {});
     return zones;
   }
 
-  // CZ: Zonen nur aus dem Offline-Paket -> ohne Paket keine automatische Prüfung.
+  // CZ: Zonen nur aus dem Geozonen-Paket (bei aktivem Land automatisch geladen) -> bis dahin keine automatische Prüfung.
   if (config.featureInfoType === "tiles") {
-    report?.({ status: "missing", note: "Offline-Paket nicht geladen" });
+    report?.({ status: "missing", note: "Geozonen-Paket noch nicht geladen (wird bei aktivem Land automatisch geladen, große Pakete im WLAN)" });
     return [];
   }
 

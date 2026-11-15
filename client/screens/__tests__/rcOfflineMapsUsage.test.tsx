@@ -126,7 +126,14 @@ test("Abschnitt „Länder & Offline-Daten“ mit Aus/Online/Offline für alle L
   expect(text).toContain("Gespeichert gesamt: 322 MB");
   expect(text).toMatch(/Offline verfügbar|Teilweise gespeichert|ca\. .*· gespeichert 320 MB/);
   expect(text).toContain("Aus · Import bleibt erhalten (Land deaktiviert) · 2,0 MB");
-  expect(text).toContain("Online – Abfrage bei Bedarf");
+  // Online: Geozonen werden geladen und gehalten (AT noch ohne gespeicherte Daten)
+  expect(text).toContain("Online – Geozonen werden geladen");
+  expect(text).toContain("Geozonen werden geladen und aktuell gehalten; Karte und");
+  // Schweiz und Liechtenstein: ein Eintrag mit einer Auswahl
+  expect(text).toContain("Schweiz / Liechtenstein");
+  expect(tree.root.findAllByProps({ testID: "usage-CH-online" }).length).toBeGreaterThan(0);
+  expect(tree.root.findAllByProps({ testID: "usage-LI-online" }).length).toBe(0);
+  expect(tree.root.findAllByProps({ testID: "country-status-LI" }).length).toBe(0);
   expect(tree.root.findAllByProps({ testID: "cleanup-disabled-countries" }).length).toBeGreaterThan(0);
   act(() => tree.unmount());
 });
@@ -169,5 +176,16 @@ test("Pack-Optionen nur bei „Offline“; Wechsel auf Online ohne Bestätigung,
     await (alert.mock.calls[0][2] as any[]).find((b) => b.text === "Bereinigen").onPress();
   });
   expect(mockCleanup).toHaveBeenCalled();
+  act(() => tree.unmount());
+});
+
+test("CZ aktiv ohne Geozonen-Paket: Hinweis „manuell prüfen“ nur bis das Paket geladen ist", async () => {
+  __setCountryUsageForTests({ DE: "offline", CZ: "online" });
+  const tree = await render();
+  const czHead = tree.root.findAll((n) => typeof n.props.onPress === "function" && n.findAllByType(Text).some((t) => t.props.children === "Tschechien"))[0];
+  await act(async () => czHead.props.onPress());
+  const hint = allText(tree);
+  expect(hint).toContain("Bis das Geozonen-Paket der ŘLP");
+  expect(hint).toContain("manuell prüfen");
   act(() => tree.unmount());
 });

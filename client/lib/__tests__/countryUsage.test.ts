@@ -1,8 +1,9 @@
 // Länder-Nutzung (Aus/Online/Offline, client/lib/countryUsage.ts +
 // countryUsageData.ts): Speicherung, Standard, Migration, „Aus“ ohne Abruf und
-// mit gelöschten Daten (geteilte Daten und Importe bleiben), „Online“ ohne
-// dauerhaftes Paket, „Offline“ mit automatischer Aktualisierung beim Start,
-// Abdeckung „deaktiviert“ → CAUTION mit Aktion.
+// mit gelöschten Daten (geteilte Daten und Importe bleiben), „Online“ mit
+// gespeicherten, aktuell gehaltenen Basis-Geozonen, „Offline“ mit allen
+// Paketen, automatische Aktualisierung beim Start, LI folgt CH, Abdeckung
+// „deaktiviert“ → CAUTION mit Aktion.
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import * as nodeFs from "node:fs";
@@ -22,7 +23,10 @@ import {
   needsCountryPrompt,
   setCountryUsage,
   USAGE_COUNTRIES,
+  usageCountryLabel,
+  countryDisabledWarning,
 } from "../countryUsage";
+import { geozoneCountryName } from "../../../shared/countryEntitlements";
 import {
   __setCountryDataEnvForTests,
   applyCountryUsage,
@@ -32,7 +36,6 @@ import {
   probeStoredDataIsos,
   startCountryUsage,
   stopCountryUsage,
-  sweepOnlineCaches,
   syncOfflineCountries,
   type CountryDataEnv,
 } from "../countryUsageData";
@@ -128,14 +131,14 @@ describe("Länder-Nutzung: Speicherung, Standard, Migration", () => {
     await loadCountryUsage(async () => ["AT", "NO", "CH"]);
     assert.deepEqual(
       ["DE", "AT", "NO", "CH", "LI", "FR"].map((i) => getCountryUsage(i)),
-      ["offline", "offline", "offline", "offline", "off", "off"],
+      ["offline", "offline", "offline", "offline", "offline", "off"],
     );
   });
 
   it("Migration erkennt Pakete, ED-269-Bestände, Kachelspeicher und Importe (Datensatz-ISO → App-Land)", async () => {
-    __setCountryDataEnvForTests({ storedDataIsos: async () => ["AT", "mt", "XX", "CZ"] });
+    __setCountryDataEnvForTests({ storedDataIsos: async () => ["AT", "mt", "XX", "CZ", "LI"] });
     try {
-      assert.deepEqual((await probeStoredDataIsos()).sort(), ["AT", "CZ", "MT"]);
+      assert.deepEqual((await probeStoredDataIsos()).sort(), ["AT", "CH", "CZ", "MT"], "LI-Daten zählen für die Schweiz");
     } finally {
       __setCountryDataEnvForTests(null);
     }
@@ -165,16 +168,40 @@ describe("Länder-Nutzung: Speicherung, Standard, Migration", () => {
     assert.equal(isGeozoneSourceEnabled("AT"), true);
   });
 
-  it("gemeinsamer Datensatz CH/LI ist aktiv, solange eines der Länder aktiv ist", () => {
-    __setCountryUsageForTests({ CH: "off", LI: "online" });
-    assert.equal(isGeozoneSourceEnabled("CH"), true);
-    assert.equal(isGeozoneSourceEnabled("LI"), true);
-    __setCountryUsageForTests({ CH: "online", LI: "off" });
-    assert.equal(isGeozoneSourceEnabled("CH"), true);
-    assert.equal(isGeozoneSourceEnabled("LI"), false, "LI direkt angesprochen bleibt aus");
-    __setCountryUsageForTests({ CH: "off", LI: "off" });
-    assert.equal(isGeozoneSourceEnabled("CH"), false);
-    assert.deepEqual(defaultCountryUsage(["li"]).LI, "offline");
+  it("Liechtenstein folgt immer der Schweiz: keine eigene Einstellung, gemeinsamer Name", async () => {
+    assert.ok(!USAGE_COUNTRIES.some((c) => c.iso === "LI"), "kein eigener Eintrag für LI");
+    assert.equal(USAGE_COUNTRIES.find((c) => c.iso === "CH")?.label, "Schweiz / Liechtenstein");
+    assert.equal(usageCountryLabel("LI"), "Schweiz / Liechtenstein");
+    assert.equal(usageCountryLabel("CH"), "Schweiz / Liechtenstein");
+    // Hinweis „deaktiviert“ (Karte/Planung/GPS in LI bei CH aus) und Datenstand-Zeilen
+    assert.equal(countryDisabledWarning(usageCountryLabel("LI")), "Geozonen für Schweiz / Liechtenstein sind deaktiviert – Land aktivieren oder manuell prüfen.");
+    assert.equal(geozoneCountryName("LI"), "Schweiz / Liechtenstein");
+    assert.equal(geozoneCountryName("CH"), "Schweiz / Liechtenstein");
+    assert.equal(geozoneCountryName("AT"), "Österreich");
+    for (const u of ["off", "online", "offline"] as const) {
+      __setCountryUsageForTests({ CH: u });
+      assert.equal(getCountryUsage("LI"), u);
+      assert.equal(isCountryEnabled("LI"), u !== "off");
+      assert.equal(isGeozoneSourceEnabled("LI"), u !== "off");
+      assert.equal(isGeozoneSourceEnabled("CH"), u !== "off");
+    }
+    // Einstellen über LI setzt die Schweiz (eine Einstellung, keine doppelten Daten)
+    __resetCountryUsageForTests(memStorage());
+    await loadCountryUsage(async () => []);
+    await setCountryUsage("LI", "online");
+    assert.equal(getCountryUsage("CH"), "online");
+    assert.equal(defaultCountryUsage(["li"]).CH, "offline");
+    assert.equal(defaultCountryUsage(["li"]).LI, undefined);
+  });
+
+  it("frühere eigene LI-Einstellung: die stärkere Stufe gilt für Schweiz / Liechtenstein", async () => {
+    const st = memStorage({
+      [COUNTRY_USAGE_STORAGE_KEY]: JSON.stringify({ v: 1, usage: { DE: "offline", CH: "off", LI: "online" }, prompted: true }),
+    });
+    __resetCountryUsageForTests(st);
+    await loadCountryUsage(async () => []);
+    assert.equal(getCountryUsage("CH"), "online");
+    assert.equal(getCountryUsage("LI"), "online");
   });
 });
 
@@ -221,11 +248,12 @@ describe("Länder-Nutzung: Daten löschen (geteilte Daten und Importe bleiben)",
   let tmp = "";
   const env = (): Partial<CountryDataEnv> => ({
     deletePacks: async (iso) => void log.push(`packs:${iso}`),
+    deleteOfflineExtras: async (iso) => void log.push(`extras:${iso}`),
     deleteLegacyPack: async (iso) => void log.push(`legacy:${iso}`),
     deleteTileStore: async (iso) => void log.push(`tiles:${iso}`),
     deleteLiveResults: async (iso) => void log.push(`live:${iso}`),
-    syncCountry: async (iso) => {
-      log.push(`sync:${iso}`);
+    syncCountry: async (iso, _allowLarge, _onProgress, mode) => {
+      log.push(`sync:${iso}:${mode}`);
       return { iso, status: "current" };
     },
     isOffline: () => false,
@@ -236,7 +264,7 @@ describe("Länder-Nutzung: Daten löschen (geteilte Daten und Importe bleiben)",
     __setEd269FsForTests(nodeFsModule(tmp) as any);
     __resetEd269StoreForTests();
     __resetCountryUsageForTests(memStorage());
-    __setCountryUsageForTests({ DE: "offline", AT: "offline", CH: "offline", LI: "offline", MT: "offline", NO: "online" });
+    __setCountryUsageForTests({ DE: "offline", AT: "offline", CH: "offline", MT: "offline", NO: "online" });
     __setCountryDataEnvForTests(env());
   });
   afterEach(() => {
@@ -267,14 +295,13 @@ describe("Länder-Nutzung: Daten löschen (geteilte Daten und Importe bleiben)",
     assert.ok(log.includes("tiles:DE"));
   });
 
-  it("LI aus, CH aktiv: gemeinsamer BAZL-Bestand bleibt; danach CH aus: gelöscht", async () => {
+  it("Schweiz / Liechtenstein aus (auch über LI): BAZL-Bestand und alte LI-Pakete gelöscht – keine doppelten Daten", async () => {
     writeDownloaded("ch");
     const r = await applyCountryUsage("LI", "off");
-    assert.equal(r?.keptShared, true);
-    assert.equal(nodeFs.existsSync(datasetFile("ch")), true);
-    assert.ok(log.includes("packs:LI"));
-    await applyCountryUsage("CH", "off");
+    assert.equal(r?.iso, "CH");
+    assert.equal(getCountryUsage("CH"), "off");
     assert.equal(nodeFs.existsSync(datasetFile("ch")), false);
+    assert.ok(log.includes("packs:CH") && log.includes("packs:LI"));
   });
 
   it("Import bleibt bei „Aus“ und „bereinigen“ erhalten, wird nicht genutzt und gilt nach dem Einschalten wieder (ohne Neu-Import)", async () => {
@@ -301,39 +328,40 @@ describe("Länder-Nutzung: Daten löschen (geteilte Daten und Importe bleiben)",
     assert.equal(q.zones.length, 1);
   });
 
-  it("„Online“ (von offline): Offline-Pakete gelöscht, kleiner Bestand bleibt als Zwischenspeicher, keine Synchronisation", async () => {
+  it("„Online“ (von offline): nur Offline-Zusätze gelöscht, Geozonen-Bestand bleibt und wird als Basis aktuell gehalten", async () => {
     writeDownloaded("at");
     await applyCountryUsage("AT", "online");
-    assert.deepEqual(log, ["packs:AT", "legacy:AT"]);
+    assert.deepEqual(log, ["extras:AT"], "weder Bestand noch Kachelspeicher gelöscht");
     assert.equal(nodeFs.existsSync(datasetFile("at")), true);
     log = [];
     await syncOfflineCountries("periodic");
-    assert.ok(!log.includes("sync:AT"), "Online-Land wird nicht offline synchronisiert");
-    assert.ok(log.includes("sync:DE"));
+    assert.ok(log.includes("sync:AT:base"), "Online-Land: Basis-Geozonen werden synchronisiert");
+    assert.ok(log.includes("sync:NO:base"));
+    assert.ok(log.includes("sync:DE:full"));
   });
 
-  it("„Online“-Zwischenspeicher: ED-269-Bestand nach 24 h gelöscht, Import und Offline-Länder bleiben", async () => {
-    __setCountryUsageForTests({ AT: "online", NO: "online", MT: "online", DE: "offline" });
+  it("„Online“ hat keine 24-h-Grenze mehr: alter Bestand bleibt beim Start erhalten", async () => {
+    __setCountryUsageForTests({ AT: "online", DE: "offline" });
     writeDownloaded("at", Date.now() - 30 * H);
-    writeDownloaded("no", Date.now() - 2 * H);
-    await importEd269Dataset("MT", [POLY as any], { source: "Test", importedAt: Date.now() - 48 * H, fileName: "m.geojson" });
-    // Dateizeiten wie gespeichert (ohne Speicher-Spiegel)
     const old = (Date.now() - 30 * H) / 1000;
     nodeFs.utimesSync(datasetFile("at"), old, old);
-    nodeFs.utimesSync(datasetFile("mt"), old, old);
     __resetEd269StoreForTests();
-    // Standard-datasetInfo (Speicher/Dateizeit, ohne die Datei zu lesen)
-    __setCountryDataEnvForTests(env());
-    const removed = await sweepOnlineCaches();
-    assert.deepEqual(removed, ["AT"]);
-    assert.equal(nodeFs.existsSync(datasetFile("at")), false);
-    assert.equal(nodeFs.existsSync(datasetFile("no")), true);
-    assert.equal(nodeFs.existsSync(datasetFile("mt")), true);
+    await syncOfflineCountries("start");
+    assert.equal(nodeFs.existsSync(datasetFile("at")), true);
+    assert.ok(log.includes("sync:AT:base"));
+  });
+
+  it("aus → online lädt sofort die Basis-Geozonen", async () => {
+    __setCountryUsageForTests({ FR: "off", DE: "offline" });
+    await applyCountryUsage("FR", "online");
+    for (let i = 0; i < 50 && !log.includes("sync:FR:base"); i++) await new Promise((r) => setTimeout(r, 5));
+    assert.ok(log.includes("sync:FR:base"));
+    assert.ok(!log.some((l) => l.startsWith("extras:") || l.startsWith("packs:")));
   });
 });
 
 describe("Länder-Nutzung „Offline“: automatische Aktualisierung", () => {
-  let synced: { iso: string; allowLarge: boolean }[] = [];
+  let synced: { iso: string; allowLarge: boolean; mode?: string }[] = [];
   let offline = false;
   let wifi = true;
   let mobile = false;
@@ -349,8 +377,8 @@ describe("Länder-Nutzung „Offline“: automatische Aktualisierung", () => {
       isWifi: async () => wifi,
       largePacksOnMobile: async () => mobile,
       datasetInfo: async () => null,
-      syncCountry: async (iso, allowLarge, onProgress) => {
-        synced.push({ iso, allowLarge });
+      syncCountry: async (iso, allowLarge, onProgress, mode) => {
+        synced.push({ iso, allowLarge, mode });
         onProgress({ key: `${iso}:geo:vector`, percentage: 100, state: "complete" });
         return { iso, status: "updated" };
       },
@@ -362,10 +390,10 @@ describe("Länder-Nutzung „Offline“: automatische Aktualisierung", () => {
     __resetCountryUsageForTests(undefined);
   });
 
-  it("App-Start: alle Offline-Länder werden geprüft (große Pakete im WLAN erlaubt), Fortschritt sichtbar", async () => {
+  it("App-Start: alle aktiven Länder werden geprüft (Offline vollständig, Online Basis-Geozonen; große Pakete im WLAN erlaubt), Fortschritt sichtbar", async () => {
     startCountryUsage(0);
-    for (let i = 0; i < 50 && synced.length < 2; i++) await new Promise((r) => setTimeout(r, 5));
-    assert.deepEqual(synced.map((s) => s.iso).sort(), ["DE", "NO"]);
+    for (let i = 0; i < 50 && synced.length < 3; i++) await new Promise((r) => setTimeout(r, 5));
+    assert.deepEqual(synced.map((s) => `${s.iso}:${s.mode}`).sort(), ["AT:base", "DE:full", "NO:full"]);
     assert.ok(synced.every((s) => s.allowLarge));
     const st = getOfflineSyncState();
     assert.equal(st.DE?.result?.status, "updated");
@@ -380,7 +408,7 @@ describe("Länder-Nutzung „Offline“: automatische Aktualisierung", () => {
     synced = [];
     mobile = true;
     await syncOfflineCountries("periodic");
-    assert.ok(synced.length === 2 && synced.every((s) => s.allowLarge));
+    assert.ok(synced.length === 3 && synced.every((s) => s.allowLarge));
   });
 
   it("Gerät offline: keine Synchronisation", async () => {

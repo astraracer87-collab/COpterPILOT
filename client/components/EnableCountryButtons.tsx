@@ -8,7 +8,7 @@ import React, { useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { applyCountryUsage } from "@/lib/countryUsageData";
-import { ENABLE_COUNTRY_ACTION_LABEL, usageCountryLabel } from "@/lib/countryUsage";
+import { ENABLE_COUNTRY_ACTION_LABEL, usageCountryLabel, usageIsoOf } from "@/lib/countryUsage";
 
 export function EnableCountryButtons({
   isos,
@@ -22,7 +22,8 @@ export function EnableCountryButtons({
   onEnabled?: (iso: string) => void;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
-  const unique = [...new Set(isos.map((i) => i.toUpperCase()))];
+  // LI folgt CH: ein Knopf „Schweiz / Liechtenstein“
+  const unique = [...new Set(isos.map((i) => usageIsoOf(i)))];
   if (unique.length === 0) return null;
   return (
     <View style={[styles.wrap, style]}>

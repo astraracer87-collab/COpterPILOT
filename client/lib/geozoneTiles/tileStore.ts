@@ -72,7 +72,8 @@ import { setCountryAccessAvailable } from "../../../shared/countryDetection";
 import { zoneEndedLongAgo } from "../../../shared/ed269Restriction";
 import { TEMPORARY_ZONES_MAX_AGE_MS } from "../../../shared/geozoneSourceMeta";
 import { loadLargePacksOnMobile, mayDownloadLargePack } from "../geozoneSources/largePackSetting";
-import { awaitCountryUsage, isGeozoneSourceOffline } from "../countryUsage";
+import { awaitCountryUsage, isGeozoneSourceEnabled } from "../countryUsage";
+import { beginDownload, endDownload, progressDownload } from "../downloadActivity";
 
 // ---------------------------------------------------------------------------
 // Umgebung (Dateisystem, Netz)
@@ -847,7 +848,33 @@ export async function fetchCzPublication(): Promise<CzPublication | null> {
 
 const running = new Map<string, Promise<TilePartProgress>>();
 
+const PART_LABELS: Record<string, string> = {
+  base: "Geozonen",
+  wohn: "Geozonen – Wohngrundstücke",
+  infra: "Geozonen – Infrastruktur",
+  enp: "Geozonen – Naturschutz",
+};
+
 async function downloadPart(
+  iso: TileStoreIso,
+  part: TileStorePart,
+  src: PartSource,
+  onProgress: (p: TilePartProgress) => void,
+  shouldStop: () => boolean,
+): Promise<TilePartProgress> {
+  // Download-Anzeige (app-weit), auch während die Auftragsliste bzw. das CZ-ZIP geladen wird
+  const activityId = beginDownload({ id: `tiles:${iso}:${part}`, iso, labelDe: PART_LABELS[part] ?? "Geozonen", kind: "geozones" });
+  try {
+    return await downloadPartInner(iso, part, src, (p) => {
+      if (p.total > 0) progressDownload(activityId, { doneItems: p.done, totalItems: p.total });
+      onProgress(p);
+    }, shouldStop);
+  } finally {
+    endDownload(activityId);
+  }
+}
+
+async function downloadPartInner(
   iso: TileStoreIso,
   part: TileStorePart,
   src: PartSource,
@@ -1080,8 +1107,8 @@ export async function refreshDueTileStores(): Promise<void> {
   await awaitCountryUsage();
   for (const iso of tiledGeozoneIsos()) {
     try {
-      // Länder-Nutzung: nur Offline-Länder halten ihr Paket aktuell
-      if (!isGeozoneSourceOffline(iso)) continue;
+      // Länder-Nutzung: aktive Länder (online/offline) halten ihr Paket aktuell
+      if (!isGeozoneSourceEnabled(iso)) continue;
       if (!(await tileStoreRefreshDue(iso))) continue;
       // Teil A: große Pakete nur im WLAN, außer „auch über mobile Daten“ ist erlaubt
       if (!mayDownloadLargePack(await env.isWifi(), await loadLargePacksOnMobile())) return;

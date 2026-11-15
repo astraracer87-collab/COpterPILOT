@@ -32,7 +32,7 @@ import { useTiledGeozoneIsos } from "@/lib/geozoneTiles/useTiledGeozones";
 import CtrInfoCard from "@/components/CtrInfoCard";
 import AirportWeatherSheet from "@/components/AirportWeatherSheet";
 import { geozoneTruncationHint } from "../../shared/checks/builders";
-import { countryDisabledWarning, isGeozoneSourceEnabled, usageCountryLabel } from "@/lib/countryUsage";
+import { countryDisabledWarning, isGeozoneSourceEnabled, usageCountryLabel, usageIsoOf } from "@/lib/countryUsage";
 import { useCountryUsageMap } from "@/lib/useCountryUsage";
 import { EnableCountryButtons } from "@/components/EnableCountryButtons";
 
@@ -1284,11 +1284,12 @@ export default function TrafficMapView({
   const { lockedSet, lockedNames, disabledIsos } = useMemo(() => {
     const isos = countryListKey ? countryListKey.split(",").filter(Boolean) : [];
     const { locked } = splitCountriesByAccess(isos, entitlement);
+    // LI folgt CH: ein Hinweis „Schweiz / Liechtenstein“
     const disabled = isos.filter((iso) => !isGeozoneSourceEnabled(iso));
     return {
       lockedSet: new Set([...locked, ...disabled]),
       lockedNames: locked.map((iso) => countryName(iso)),
-      disabledIsos: disabled,
+      disabledIsos: [...new Set(disabled.map((iso) => usageIsoOf(iso)))],
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [countryListKey, entitlement, countryUsageMap]);

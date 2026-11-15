@@ -13,11 +13,13 @@ import {
   type ProximityAlert,
   type ApproachingAircraft,
 } from "@/lib/proximityAlarm";
+import { decideProximityAlarm, filterDismissedThreats, ALARM_SETTINGS_REFRESH_MS } from "@/lib/radarAlertLogic";
+import { isBackgroundMonitorActive } from "@/lib/radarMonitor";
 import { recordBatchFromAlerts, isRecording, recordAircraftEvent, getRecording } from "@/lib/trafficRecorder";
 import type { AircraftState } from "@/lib/opensky";
 
-const ALARM_COOLDOWN_MS = 3000;
-const SETTINGS_REFRESH_MS = 5000;
+// Sperrzeiten/Schwellen: radarAlertLogic.ts (gemeinsam mit der Hintergrund-Überwachung)
+const SETTINGS_REFRESH_MS = ALARM_SETTINGS_REFRESH_MS;
 
 export function useProximityAlarm(
   aircraft: AircraftState[],
@@ -53,6 +55,14 @@ export function useProximityAlarm(
 
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (nextState) => {
+      // Hintergrund-Überwachung übernimmt (radarMonitor.ts): Sprachalarm des
+      // Screens beenden, sonst liefe er ohne neue Daten weiter.
+      if (nextState === "background" && isBackgroundMonitorActive()) {
+        stopAlarmSound();
+        currentLevel.current = "none";
+        pendingClear.current = false;
+        pendingDowngrade.current = false;
+      }
       if (nextState === "active") {
         stopAlarmSound();
         currentLevel.current = "none";
@@ -130,24 +140,9 @@ export function useProximityAlarm(
     const rawAlerts = checkProximityAlerts(aircraft, userLat, userLon, alarmSettings, pilotElevationMSL);
     const rawApproaching = checkApproachingAircraft(aircraft, userLat, userLon, alarmSettings, pilotElevationMSL);
 
-    // Auto-Rehabilitation: ICAOs aus dem Dismiss-Set entfernen, wenn das
-    // Flugzeug nicht mehr in irgendeiner Schutz-/Approach-Zone ist.
-    if (dismissedIcaos.current.size > 0) {
-      const stillThreat = new Set<string>();
-      for (const a of rawAlerts) stillThreat.add(a.aircraft.icao24);
-      for (const a of rawApproaching) stillThreat.add(a.aircraft.icao24);
-      for (const icao of Array.from(dismissedIcaos.current)) {
-        if (!stillThreat.has(icao)) dismissedIcaos.current.delete(icao);
-      }
-    }
-
-    // Bedrohungen, die der User explizit weggedrückt hat, herausfiltern.
-    const alerts = dismissedIcaos.current.size === 0
-      ? rawAlerts
-      : rawAlerts.filter((a) => !dismissedIcaos.current.has(a.aircraft.icao24));
-    const approaching = dismissedIcaos.current.size === 0
-      ? rawApproaching
-      : rawApproaching.filter((a) => !dismissedIcaos.current.has(a.aircraft.icao24));
+    // Auto-Rehabilitation + Filter weggedrückter Bedrohungen (gemeinsame
+    // Logik mit der Hintergrund-Überwachung, radarAlertLogic.ts).
+    const { alerts, approaching } = filterDismissedThreats(rawAlerts, rawApproaching, dismissedIcaos.current);
 
     setActiveAlerts(alerts);
     setApproachingAircraft(approaching);
@@ -158,68 +153,57 @@ export function useProximityAlarm(
       recordBatchFromAlerts(zoneAlerts, approachIcaos, aircraft);
     }
 
-    const hasCritical = alerts.some((a) => a.level === "critical");
-    const hasWarning = alerts.some((a) => a.level === "warning");
-    const newLevel = hasCritical ? "critical" : hasWarning ? "warning" : "none";
+    const now = Date.now();
+    const decision = decideProximityAlarm(
+      { currentLevel: currentLevel.current, lastAlarmTime: lastAlarmTime.current },
+      alerts,
+      approaching,
+      now,
+      dismissed,
+    );
+    const newLevel = decision.newLevel;
 
     if (newLevel !== "none") {
       setAlarmLevel(newLevel);
     }
 
-    if (newLevel !== "none" && !dismissed) {
-      const now = Date.now();
-      const escalated = newLevel === "critical" && currentLevel.current !== "critical";
-      if (newLevel === "critical" && pendingDowngrade.current) {
-        pendingDowngrade.current = false;
-        if (downgradeTimer.current) {
-          clearTimeout(downgradeTimer.current);
-          downgradeTimer.current = null;
-        }
+    if (newLevel === "critical" && pendingDowngrade.current && !dismissed) {
+      pendingDowngrade.current = false;
+      if (downgradeTimer.current) {
+        clearTimeout(downgradeTimer.current);
+        downgradeTimer.current = null;
       }
-      const closestAlert = hasCritical
-        ? alerts.find((a) => a.level === "critical")
-        : alerts.find((a) => a.level === "warning");
-      const closestAlt = closestAlert?.altitudeM ?? null;
+    }
 
-      if ((now - lastAlarmTime.current > ALARM_COOLDOWN_MS && currentLevel.current === "none") || escalated) {
-        lastAlarmTime.current = now;
-        setAlarmActive(true);
-        setAlarmLevel(newLevel);
-        currentLevel.current = newLevel;
-        if (newLevel === "critical") {
-          triggerCriticalAlarm(alarmSettings, closestAlt);
-        } else {
-          triggerWarningAlarm(alarmSettings, closestAlt);
-        }
-      } else if (currentLevel.current !== "none") {
-        updateAlarmAltitude(closestAlt);
-        if (currentLevel.current === "critical" && newLevel === "warning") {
-          if (!pendingDowngrade.current) {
-            pendingDowngrade.current = true;
-            if (downgradeTimer.current) clearTimeout(downgradeTimer.current);
-            downgradeTimer.current = setTimeout(() => {
-              if (pendingDowngrade.current) {
-                pendingDowngrade.current = false;
-                stopAlarmSound();
-                triggerWarningAlarm(alarmSettings, closestAlt);
-                setAlarmLevel("warning");
-                currentLevel.current = "warning";
-              }
-            }, 5000);
-          }
+    if (decision.action === "trigger") {
+      lastAlarmTime.current = now;
+      setAlarmActive(true);
+      setAlarmLevel(decision.level);
+      currentLevel.current = decision.level;
+      if (decision.level === "critical") {
+        triggerCriticalAlarm(alarmSettings, decision.altitudeM);
+      } else {
+        triggerWarningAlarm(alarmSettings, decision.altitudeM);
+      }
+    } else if (decision.action === "update") {
+      const closestAlt = decision.altitudeM;
+      updateAlarmAltitude(closestAlt);
+      if (decision.downgrade) {
+        if (!pendingDowngrade.current) {
+          pendingDowngrade.current = true;
+          if (downgradeTimer.current) clearTimeout(downgradeTimer.current);
+          downgradeTimer.current = setTimeout(() => {
+            if (pendingDowngrade.current) {
+              pendingDowngrade.current = false;
+              stopAlarmSound();
+              triggerWarningAlarm(alarmSettings, closestAlt);
+              setAlarmLevel("warning");
+              currentLevel.current = "warning";
+            }
+          }, 5000);
         }
       }
-    } else if (newLevel === "none" && approaching.length > 0 && !dismissed) {
-      const now = Date.now();
-      if (currentLevel.current === "none" && now - lastAlarmTime.current > ALARM_COOLDOWN_MS * 3) {
-        lastAlarmTime.current = now;
-        setAlarmActive(true);
-        setAlarmLevel("warning");
-        currentLevel.current = "warning";
-        const closestApproach = approaching[0];
-        triggerWarningAlarm(alarmSettings, closestApproach?.altitudeM ?? null);
-      }
-    } else if (newLevel === "none") {
+    } else if (decision.action === "clear") {
       if (pendingDowngrade.current) {
         pendingDowngrade.current = false;
         if (downgradeTimer.current) {

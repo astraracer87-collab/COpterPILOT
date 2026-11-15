@@ -6,11 +6,16 @@
 //            Datei-Importe bleiben auf dem Gerät, werden aber nicht genutzt.
 //            Liegt ein geprüfter Ort in einem deaktivierten Land, meldet die
 //            Abdeckung „deaktiviert“ (≥ CAUTION, manuelle Bestätigung).
-// - online:  nur Live-Abfragen für den betrachteten Ausschnitt; ED-269-Länder
-//            laden ihren (kleinen) Landesbestand bei Bedarf und behalten ihn
-//            höchstens 24 h als Zwischenspeicher (ONLINE_CACHE_MAX_AGE_MS).
-// - offline: alles gespeichert und automatisch aktuell gehalten
+// - online:  die Basis-Geozonen des Landes (ED-269-Landesdatei bzw. Teil
+//            „base“ des Kachelspeichers DE/FR/CZ/ES) werden vollständig
+//            geladen, gespeichert und automatisch aktuell gehalten (große
+//            Pakete nur im WLAN, außer mobile Daten sind erlaubt). Karte,
+//            Luftbild, Hindernisse und große Zusatzteile nur bei Netz (live).
+// - offline: zusätzlich Karte, Luftbild, Hindernisse und große Zusatzteile
+//            (DE-Wohngrundstücke, ES-Infrastruktur/Naturschutz) auf dem Gerät
 //            (countryUsageData.ts: syncOfflineCountries).
+// Liechtenstein hat keine eigene Einstellung: es folgt immer der Schweiz
+// (USAGE_ALIASES, Anzeige „Schweiz / Liechtenstein“).
 //
 // Standard: DE = offline, alle anderen = aus; das Land der GPS-Position wird
 // beim ersten Start einmalig vorgeschlagen. Bestehende Installationen: Länder
@@ -36,15 +41,30 @@ export const COUNTRY_USAGE_LABELS: Record<CountryUsage, string> = {
   offline: "Offline",
 };
 
-/** Alle Länder der App (Reihenfolge der Einstellungen). */
-export const USAGE_COUNTRIES: { iso: string; label: string }[] = OFFLINE_APP_COUNTRIES;
+/**
+ * Länder ohne eigene Einstellung (Product Owner): Liechtenstein folgt immer
+ * der Schweiz (gleicher BAZL-Datensatz, gleiche swisstopo-Kacheln). Intern
+ * bleibt CH der Schlüssel, LI ist Alias.
+ */
+export const USAGE_ALIASES: Readonly<Record<string, string>> = { LI: "CH" };
+
+/** Gemeinsamer Anzeigename je Einstellungs-Land (CH = „Schweiz / Liechtenstein“). */
+export const USAGE_LABEL_OVERRIDES: Readonly<Record<string, string>> = { CH: "Schweiz / Liechtenstein" };
+
+/** Einstellungs-Land eines Landes (LI → CH, sonst unverändert, Großbuchstaben). */
+export function usageIsoOf(iso: string | null | undefined): string {
+  const up = String(iso || "").toUpperCase();
+  return USAGE_ALIASES[up] ?? up;
+}
+
+/** Alle Länder der Einstellung (Reihenfolge der Einstellungen; LI steckt in CH). */
+export const USAGE_COUNTRIES: { iso: string; label: string }[] = OFFLINE_APP_COUNTRIES
+  .filter((c) => !USAGE_ALIASES[c.iso])
+  .map((c) => ({ iso: c.iso, label: USAGE_LABEL_OVERRIDES[c.iso] ?? c.label }));
 const USAGE_ISOS = new Set(USAGE_COUNTRIES.map((c) => c.iso));
 
 /** Standard für neue Installationen: Deutschland offline. */
 export const DEFAULT_OFFLINE_ISOS: readonly string[] = ["DE"];
-
-/** „Online“-Länder: ED-269-Landesbestand höchstens so lange auf dem Gerät. */
-export const ONLINE_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 export const COUNTRY_USAGE_STORAGE_KEY = "@copterpilot/country_usage_v1";
 
@@ -97,7 +117,7 @@ function isUsage(v: unknown): v is CountryUsage {
 
 /** Standardbelegung: DEFAULT_OFFLINE_ISOS + Länder mit Daten → offline, sonst aus. */
 export function defaultCountryUsage(withData: readonly string[] = []): Record<string, CountryUsage> {
-  const data = new Set(withData.map((i) => String(i).toUpperCase()));
+  const data = new Set(withData.map((i) => usageIsoOf(i)));
   const out: Record<string, CountryUsage> = {};
   for (const { iso } of USAGE_COUNTRIES) {
     out[iso] = DEFAULT_OFFLINE_ISOS.includes(iso) || data.has(iso) ? "offline" : "off";
@@ -112,6 +132,13 @@ function normalize(raw: unknown): StoredUsage | null {
   const usage: Record<string, CountryUsage> = {};
   // Später hinzugekommene Länder: aus
   for (const { iso } of USAGE_COUNTRIES) usage[iso] = isUsage(r.usage[iso]) ? r.usage[iso] : "off";
+  // Frühere eigene Einstellung eines Alias-Landes (LI): die stärkere Stufe gilt
+  // für das gemeinsame Land (offline > online > aus).
+  const rank: Record<CountryUsage, number> = { off: 0, online: 1, offline: 2 };
+  for (const [alias, main] of Object.entries(USAGE_ALIASES)) {
+    const a = (r.usage as Record<string, unknown>)[alias];
+    if (isUsage(a) && usage[main] && rank[a] > rank[usage[main]]) usage[main] = a;
+  }
   return { v: 1, usage, prompted: r.prompted === true };
 }
 
@@ -178,7 +205,7 @@ export function isCountryUsageLoaded(): boolean {
 
 /** Nutzung eines App-Landes; null = Einstellung noch nicht geladen bzw. kein App-Land. */
 export function getCountryUsage(iso: string | null | undefined): CountryUsage | null {
-  const up = String(iso || "").toUpperCase();
+  const up = usageIsoOf(iso);
   if (!state || !USAGE_ISOS.has(up)) return null;
   return state.usage[up] ?? "off";
 }
@@ -193,24 +220,21 @@ export function isCountryEnabled(iso: string | null | undefined): boolean {
   return getCountryUsage(iso) !== "off";
 }
 
-/** App-Länder, deren Zonen im Datensatz dieser Quelle stecken (CH → CH, LI). */
+/** Einstellungs-Länder, deren Zonen im Datensatz dieser Quelle stecken (CH → CH; LI folgt CH). */
 export function countriesOfSource(sourceIso: string | null | undefined): string[] {
   const src = resolveGeozoneSourceIso(sourceIso);
   const meta = getOwnGeozoneSourceMeta(src);
-  return [src, ...(meta?.aliases ?? [])].filter((i) => USAGE_ISOS.has(i));
+  return [...new Set([src, ...(meta?.aliases ?? [])].map((i) => usageIsoOf(i)))].filter((i) => USAGE_ISOS.has(i));
 }
 
 /**
  * Darf die Geozonen-Quelle dieses Landes genutzt werden? Ein gemeinsamer
- * Datensatz (CH-BAZL mit LI) ist aktiv, solange eines seiner Länder aktiviert
- * ist. Nicht geladen bzw. Quelle ohne App-Land → true.
+ * Datensatz ist aktiv, solange eines seiner Einstellungs-Länder aktiviert ist
+ * (LI folgt immer CH). Nicht geladen bzw. Quelle ohne App-Land → true.
  */
 export function isGeozoneSourceEnabled(iso: string | null | undefined): boolean {
   if (!state) return true;
   const own = String(iso || "").toUpperCase();
-  // Ein direkt als App-Land angesprochenes Land, das selbst aus ist, bleibt aus
-  // (z. B. LI aus, CH an: Abfragen „für LI“ sind deaktiviert).
-  if (USAGE_ISOS.has(own) && resolveGeozoneSourceIso(own) !== own && getCountryUsage(own) === "off") return false;
   const list = countriesOfSource(own);
   if (list.length === 0) return true;
   return list.some((c) => getCountryUsage(c) !== "off");
@@ -231,7 +255,7 @@ export function countriesWithUsage(usage: CountryUsage): string[] {
 
 /** Nutzung setzen und speichern (ohne Datenbereinigung – siehe applyCountryUsage). */
 export async function setCountryUsage(iso: string, usage: CountryUsage): Promise<void> {
-  const up = String(iso || "").toUpperCase();
+  const up = usageIsoOf(iso);
   if (!USAGE_ISOS.has(up) || !isUsage(usage)) return;
   if (!state) await loadCountryUsage();
   if (!state) return;
@@ -261,9 +285,9 @@ export function onCountryUsageChange(l: () => void): () => void {
   };
 }
 
-/** Deutscher Ländername der App-Liste. */
+/** Deutscher Ländername der Einstellung (CH und LI: „Schweiz / Liechtenstein“). */
 export function usageCountryLabel(iso: string | null | undefined): string {
-  const up = String(iso || "").toUpperCase();
+  const up = usageIsoOf(iso);
   return USAGE_COUNTRIES.find((c) => c.iso === up)?.label ?? up;
 }
 

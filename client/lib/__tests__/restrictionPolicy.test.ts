@@ -38,7 +38,13 @@ import { normalizeSwissEd269, normalizeSwissActivityZones, stripBom } from "../.
 import { cleanBelgianGeometry } from "../../../shared/belgianGeozones";
 import { normalizeBulgarianZones, normalizeBulgarianBulatsaZonesWithStats } from "../../../shared/bulgarianGeozones";
 import { normalizeCyprusZones } from "../../../shared/cypriotGeozones";
-import { normalizeItalianZones } from "../../../shared/italianGeozones";
+import {
+  IT_WFS_LAYER_NFZ,
+  IT_WFS_LAYER_NOTAM,
+  IT_WFS_LAYER_ZONES,
+  normalizeItalianWfs,
+  normalizeItalianZones,
+} from "../../../shared/italianGeozones";
 import { norwayFeaturesFromBody } from "../geozoneDirect/norwaySource";
 import { normalizeLatvianZones } from "../../../shared/latvianGeozones";
 import { normalizeSpanishFeatures, type EsRawFeature } from "../../../shared/spanishGeozones";
@@ -204,6 +210,18 @@ const FIXTURE_SOURCES: { fixture: string[]; iso: string; features: () => any[] }
   },
   { fixture: ["cy-dca-arcgis-sample.json"], iso: "CY", features: () => normalizeCyprusZones(json("cy-dca-arcgis-sample.json")) },
   { fixture: ["dflight-it-ed269-sample.json"], iso: "IT", features: () => normalizeItalianZones(json("dflight-it-ed269-sample.json"), NOW) },
+  {
+    fixture: ["dflight-it-wfs-sample.json"],
+    iso: "IT",
+    features: () => {
+      const wfs = json("dflight-it-wfs-sample.json");
+      return [
+        ...normalizeItalianWfs(wfs.ATM09_INFO, IT_WFS_LAYER_ZONES, NOW),
+        ...normalizeItalianWfs(wfs.NO_FLY_ZONE, IT_WFS_LAYER_NFZ, NOW),
+        ...normalizeItalianWfs(wfs.NOTAM, IT_WFS_LAYER_NOTAM, NOW),
+      ];
+    },
+  },
   { fixture: ["dronesoner-no-ed269-sample.json"], iso: "NO", features: () => norwayFeaturesFromBody(json("dronesoner-no-ed269-sample.json")) },
   { fixture: ["drz-lv-ed269-sample.json"], iso: "LV", features: () => normalizeLatvianZones(json("drz-lv-ed269-sample.json"), NOW) },
   {

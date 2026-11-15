@@ -380,6 +380,24 @@ describe("CZ tile store", () => {
     assert.deepEqual(atPoint.map((z) => z.name), ["Vinařský rybník"]);
   });
 
+  it("Download-Anzeige: „Tschechien – Geozonen“ mit Fortschritt während des Pakets (inkl. ZIP), danach beendet", async () => {
+    const { getActiveDownloads, downloadFraction } = await import("../downloadActivity");
+    const seen: string[] = [];
+    const fractions: number[] = [];
+    await downloadTileStore("CZ", {
+      onProgress: () => {
+        for (const t of getActiveDownloads()) {
+          seen.push(`${t.id}|${t.iso}|${t.labelDe}`);
+          const f = downloadFraction(t);
+          if (f != null) fractions.push(f);
+        }
+      },
+    });
+    assert.ok(seen.includes("tiles:CZ:base|CZ|Geozonen"), seen.join(","));
+    assert.ok(fractions.some((f) => f > 0 && f <= 1));
+    assert.equal(getActiveDownloads().length, 0);
+  });
+
   it("detects a new ŘLP publication folder", async () => {
     await downloadTileStore("CZ", {});
     assert.equal(await tileStoreRefreshDue("CZ"), false);

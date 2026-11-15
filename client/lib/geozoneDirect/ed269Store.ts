@@ -29,6 +29,7 @@ import {
 } from "../../../shared/geozoneSourceMeta";
 import { setCountryAccessAvailable } from "../../../shared/countryDetection";
 import { awaitCountryUsage, isGeozoneSourceEnabled } from "../countryUsage";
+import { trackDownload } from "../downloadActivity";
 
 // Upstream-Daten ändern sich selten; der Server hat täglich synchronisiert.
 
@@ -191,7 +192,11 @@ function download(iso: string): Promise<Ed269Dataset | null> {
   if (running) return running;
   const p = (async () => {
     try {
-      const features = await fetchEd269CountryFeatures(iso);
+      // Download-Anzeige (app-weit): „Lädt: Österreich – Geozonen …“
+      const features = await trackDownload(
+        { id: `ed269:${iso}`, iso: iso.toUpperCase(), labelDe: "Geozonen", kind: "geozones" },
+        () => fetchEd269CountryFeatures(iso),
+      );
       const ds: Ed269Dataset = { iso, fetchedAt: Date.now(), version: STORE_FORMAT_VERSION, features };
       remember(iso, ds);
       lastFailureAt.delete(iso);

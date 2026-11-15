@@ -76,6 +76,8 @@ import {
   DataSource,
 } from "@/lib/opensky";
 import { getMarkerPinColor } from "@/lib/markerColors";
+import { fetchRadarAreaData } from "@/lib/radarAreaCheck";
+import { useRadarBackgroundMonitor } from "@/hooks/useRadarBackgroundMonitor";
 import { getAgencyTag, agencyTagColor } from "@/lib/agencyTag";
 
 type StandaloneRouteParams = {
@@ -147,6 +149,18 @@ export default function StandaloneLiveTrafficScreen() {
   const [showAllGeozones, setShowAllGeozones] = useState(false);
   const [maxReachableAltitudeM, setMaxReachableAltitudeM] = useState(120);
   const [detectedCountryIso, setDetectedCountryIso] = useState<string | undefined>(overrideCountry);
+  // Hintergrund-Überwachung: Verkehr, Geozonen, NOTAM laufen weiter, wenn
+  // die App in den Hintergrund geht (z. B. DJI Fly im Vordergrund).
+  useRadarBackgroundMonitor({
+    enabled: hasLiveTraffic && Platform.OS === "android",
+    latitude,
+    longitude,
+    followGps: !isCustomLocation,
+    radiusKm,
+    raRadiusKm,
+    countryIso: detectedCountryIso,
+    pilotElevationMSL: pilotElevation,
+  });
   // Teil A: Geozonen-Bestände bei Länderwechsel laut GPS (inkl. Nachbarn im
   // Umkreis) im Hintergrund prüfen; neue Daten → Hinweise neu laden.
   const geozoneReval = useGeozoneRevalidation({
@@ -587,50 +601,14 @@ export default function StandaloneLiveTrafficScreen() {
     const checkAlerts = async () => {
       if (!appActiveRef.current) return;
       try {
-        const [weatherData, kp, kpTl, notamResult, zones, dipulResult, luTsaNotams] = await Promise.all([
-          fetchWeather(qLat, qLon, 1440).catch(() => null),
-          fetchKpIndex().catch(() => null),
-          fetchKpTimeline().catch(() => [] as KpTimeEntry[]),
-          fetchNotams(qLat, qLon).catch(() => ({ notams: [] as NotamData[], total: 0, queriedCodes: [] as string[], failed: true })),
-          queryGeozonesInArea(qLat, qLon, raRadiusKm, detectedCountryIso).catch((e) => { console.warn("[checkAlerts] geozone query failed:", e?.message || e); return [] as GeozoneFeatureInfo[]; }),
-          fetchNearbyTempRestrictionsRaw(qLat, qLon, raRadiusKm).catch(() => ({ active: [] as DipulTempRestriction[], upcoming: [] as DipulTempRestriction[] })),
-          detectedCountryIso === "LU" ? fetchLuTsaAsNotams(qLat, qLon, raRadiusKm).catch(() => []) : Promise.resolve([]),
-        ]);
+        // Gemeinsame Gebietsprüfung (auch für die Hintergrund-Überwachung)
+        const area = await fetchRadarAreaData(qLat, qLon, raRadiusKm, detectedCountryIso);
         if (cancelled) return;
-        const milNearby = getActiveOrUpcomingNearbyMilLowFlight(dipulResult, qLat, qLon, raRadiusKm);
-        dipulResult.active = [...dipulResult.active, ...milNearby.active];
-        dipulResult.upcoming = [...dipulResult.upcoming, ...milNearby.upcoming];
-        const combinedNotams = [...notamResult.notams, ...luTsaNotams as unknown as NotamData[]];
-        const { geozones: permZones, tempRestrictions } = separateTempRestrictions(zones);
-        const allDipul = [...dipulResult.active, ...dipulResult.upcoming];
+        const { weatherData, kp, kpTimeline: kpTl, notamResult, combinedNotams, tempRestrictions, allDipul, permZones, notamUnknown, flags } = area;
         const f = weatherData?.forecasts?.[0];
-        const currentKpValue = kpTl.length > 0 ? getKpForHour(kpTl, new Date()) : kp?.value ?? null;
-        const isCritical = !!(f && (
-          f.windSpeed > 10 ||
-          (f.windGust != null && f.windGust > 12) ||
-          f.rain > 0.5 ||
-          f.snow > 0.5 ||
-          f.temperature < -5 ||
-          (f.visibility != null && f.visibility < 500)
-        )) || !!(currentKpValue != null && currentKpValue >= 6);
-        const isCaution = !isCritical && !!(f && (
-          f.windSpeed > 7 ||
-          (f.windGust != null && f.windGust > 9) ||
-          f.rain > 0.1 ||
-          f.snow > 0.1 ||
-          f.temperature < 0 ||
-          f.cloudCover > 80 ||
-          (f.visibility != null && f.visibility < 1000)
-        )) || (!isCritical && !!(currentKpValue != null && currentKpValue >= 3));
-        const wStatus: "ok" | "caution" | "critical" | "unknown" = !f ? "unknown" : isCritical ? "critical" : isCaution ? "caution" : "ok";
-        setWeatherStatus(wStatus);
-        const weatherCritical = isCritical;
-        // Fehlgeschlagene NOTAM-Abfrage ist KEIN "alles frei": Hinweis-Flag setzen.
-        const notamUnknown = notamCountOrUnknown(notamResult) === null;
+        setWeatherStatus(flags.weatherStatus);
         setSidePanelNotamUnknown(notamUnknown);
-        const notamCritical = notamUnknown || combinedNotams.some((n) => getNotamSeverity(n) === "high") || tempRestrictions.length > 0 || allDipul.some((d) => d.status === "active");
-        const geozoneCritical = permZones.length > 0;
-        setAlertFlags({ wetter: weatherCritical, notam: notamCritical, geozone: geozoneCritical });
+        setAlertFlags({ wetter: flags.wetter, notam: flags.notam, geozone: flags.geozone });
         if (f) setSidePanelWeather(f);
         if (weatherData?.forecasts) setSidePanelForecasts(weatherData.forecasts);
         setSidePanelKp(kp);

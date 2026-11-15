@@ -20,7 +20,7 @@ import { Spacing, Typography, BorderRadius, Colors } from "@/constants/theme";
 import type { FlightPlanningParamList } from "@/navigation/FlightPlanningNavigator";
 import { isZoneActiveInContext, ed269InactiveInfoText, type ZoneTimeContext } from "@/lib/ed269";
 import { uncoveredGeozoneSources, geozoneCoverageWarning, sourceCoverageWarning, type GeozoneSourceCoverage } from "@/lib/geozoneCoverage";
-import { countryName } from "../../shared/countryEntitlements";
+import { countryName, geozoneCountryName } from "../../shared/countryEntitlements";
 import { queryGeozonesInAreaWithCoverage, GeozoneFeatureInfo, DipulGeozoneSourceStatus, separateTempRestrictions, getCountryGeozoneConfig, getCountriesInRadius, DipulTempRestriction, DipulTempRestrictionsResult, fetchNearbyTempRestrictionsRaw, loadRadarSettings, saveRadarSettings } from "@/lib/geozones";
 import { GEOZONE_VECTOR_MAX_FEATURES } from "@/lib/geozoneZoom";
 import { getTilePartMeta } from "@/lib/geozoneTiles/tileStore";
@@ -428,12 +428,12 @@ export default function PlanningRestrictionsScreen() {
   const errorGap = error && !hasManualRestriction;
   const hasCoverageGap = !loading && (errorGap || unresolvedCoverageGaps.length > 0);
   // Datenstand je Land (Quellen-Registry, B5): „Stand: vor X h“
-  const geozoneDataAges = formatCoverageDataAges(coverageSources, (iso) => countryName(iso) || iso);
+  const geozoneDataAges = formatCoverageDataAges(coverageSources, (iso) => geozoneCountryName(iso) || iso);
   // B7/S7: gekürzte Zonenliste sichtbar machen (statt stiller Kürzung).
-  const geozoneTruncation = formatCoverageTruncation(coverageSources, (iso) => countryName(iso) || iso, GEOZONE_VECTOR_MAX_FEATURES);
+  const geozoneTruncation = formatCoverageTruncation(coverageSources, (iso) => geozoneCountryName(iso) || iso, GEOZONE_VECTOR_MAX_FEATURES);
   const coverageGapWarnings = errorGap
-    ? [geozoneCoverageWarning(countryName(countryIso) || countryIso || "den Standort")]
-    : unresolvedCoverageGaps.map((g) => sourceCoverageWarning(g, countryName(g.iso) || g.iso));
+    ? [geozoneCoverageWarning(geozoneCountryName(countryIso) || countryIso || "den Standort")]
+    : unresolvedCoverageGaps.map((g) => sourceCoverageWarning(g, geozoneCountryName(g.iso) || g.iso));
   // Beschränkungen ohne Abdeckungslücke (die Lücke ist ein eigener
   // Abdeckungs-Befund der Prüfkette).
   const hasZoneRestrictions =
@@ -583,7 +583,7 @@ export default function PlanningRestrictionsScreen() {
       queryFailed: error,
       primaryIso: countryIso,
       resolvedIsos: hasManualRestriction && countryIso ? [countryIso] : [],
-      countryLabel: (iso) => countryName(iso) || iso,
+      countryLabel: (iso) => geozoneCountryName(iso) || iso,
     }),
     ...complianceChecks({ alphaTangoMissingAcknowledged: alphaTango }, "planning"),
   ];
@@ -1187,7 +1187,7 @@ export default function PlanningRestrictionsScreen() {
           <DataStandLines
             testID="planning-geozone-refresh"
             extraLines={revalidation.pendingWifi.map((iso) => ({
-              text: `${countryName(iso) || iso}: Neue Fassung verfügbar – wird im WLAN geladen`,
+              text: `${geozoneCountryName(iso) || iso}: Neue Fassung verfügbar – wird im WLAN geladen`,
               tone: "offline" as const,
             }))}
             onRefresh={revalidation.refreshNow}

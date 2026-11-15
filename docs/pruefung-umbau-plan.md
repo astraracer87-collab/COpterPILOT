@@ -767,3 +767,225 @@ sind.
   Karte/Prüfung (Abfragen laufen über den Datensatz CH). Energie-Infrastruktur-
   Feeds und NOTAM-Abrufe sind nicht nach Land gesperrt. Vor dem Laden der
   Einstellung (erste Millisekunden nach dem Start) gilt jedes Land als aktiv.
+
+## Stand Download-Anzeige, „Online“ mit Basis-Geozonen, CZ, LI, Hindernisse (2026-11-15)
+
+Product-Owner-Entscheidungen; ersetzen die abweichenden Punkte aus „Stand
+Länder-Nutzung“ (24-h-Zwischenspeicher, CZ online „manuell prüfen“, LI als
+eigenes Land, Hindernisse außerhalb gespeicherter Länder).
+
+- **Download-Anzeige** (client/lib/downloadActivity.ts, RN-frei): zentrale
+  Erfassung `beginDownload({ id, iso?, labelDe, kind, totalBytes?/totalItems? })`,
+  `progressDownload`, `endDownload`, `trackDownload(task, fn)` (endet auch bei
+  Fehler), `subscribeDownloadActivity`. Gleiche id mehrfach = ein Eintrag mit
+  Zähler. Kurze Aufgaben (< 1 s, `DOWNLOAD_DISPLAY_DELAY_MS`) werden erfasst,
+  aber nicht angezeigt; nach 1 s meldet ein Timer die Sichtbarkeit. Text
+  `formatDownloadActivity`: „Lädt: Deutschland – Geozonen 45 %“, ohne
+  bekannten Fortschritt „…“, mehrere „Lädt 3 Aufgaben …“. Keine Rückfrage vor
+  Downloads. Anzeige: components/DownloadActivityBar.tsx, einmal in App.tsx in
+  der NavigationContainer nach dem Stack (liegt darüber), kleine dunkle Pille
+  oben rechts (Querformat, Safe-Area oben/rechts), Tippen → Einstellungen →
+  Länder & Offline-Daten (`Main › SettingsTab › RcOfflineMaps`).
+  Angebunden: Karten-/Luftbild-/Geozonen-Bildkacheln je Paket
+  (offlineMaps `pack:<key>`), Hindernisse beim Länder-Download
+  (`obstacles:<ISO>`, Gesamtfortschritt) und bei Bedarf für den Kartenausschnitt
+  (`obstacles-live`), ED-269-Downloads inkl. Revalidierung und automatischer
+  Synchronisation (ed269Store `ed269:<iso>`), Kachelspeicher DE/FR/CZ/ES je Teil
+  inkl. CZ-ZIP und Auftragsliste (`tiles:<ISO>:<part>`), Datei-Import
+  (Verarbeitung, `import:<ISO>`), lange Live-Abfragen ES (ENAIRE je Ausschnitt)
+  und DE (dipul-WFS ohne Paket). Die automatische Länder-Synchronisation
+  erscheint über diese Einzel-Downloads.
+- **„Online“ = Basis-Geozonen geladen und gehalten** (Product Owner, ersetzt
+  „nur live“): Für jedes aktive Land (online UND offline) wird die Basis
+  vollständig geladen, gespeichert und automatisch aktualisiert – ED-269-
+  Landesdatei (auch bei Ländern mit zusätzlichen Bildkacheln wie CH/NL, die
+  BAZL-Datei deckt LI ab) bzw. Teil „base“ des Kachelspeichers (DE, FR, CZ,
+  ES Luftfahrt). `syncOfflineCountries` (Alias `syncActiveCountries`) prüft
+  beim Start und alle 6 h alle aktiven Länder: offline → `autoSyncCountry(…,
+  "full")`, online → `autoSyncCountry(…, "base")` (`baseConfig`, `baseOnly`:
+  keine Konfiguration gespeichert, nichts gelöscht, keine Karte/Hindernisse).
+  `refreshDueTileStores` hält auch Online-Länder aktuell. Die 24-h-Grenze
+  (`sweepOnlineCaches`, `ONLINE_CACHE_MAX_AGE_MS`) ist entfallen. Große
+  Basis-Pakete (DE ≈ 205 MB, FR ≈ 80 MB, CZ ≈ 36 MB Download) weiter nur im
+  WLAN bzw. mit „Große Pakete auch über mobile Daten laden“; bis dahin gelten
+  die bisherigen Live-Pfade (DE dipul-WFS, FR WMS, ES ENAIRE je Ausschnitt).
+  Nur „Offline“ ergänzt Karte, Luftbild, Geozonen-Bildkacheln, Hindernisse und
+  große Zusatzteile (DE-Wohngrundstücke, ES-Infrastruktur/Naturschutz); online
+  werden diese Zusatzteile weiter live je Bereich abgefragt.
+  Umschalten: aus → online lädt sofort die Basis; offline → online löscht nur
+  die Zusätze (`deleteCountryExtras`, Bestätigung nennt Karte, Luftbild,
+  Hindernisse, Zusatzpakete; Geozonen bleiben); → aus löscht wie bisher alles
+  Herunterladbare (Importe bleiben).
+  Einstellungstexte: Online „Geozonen werden geladen und aktuell gehalten;
+  Karte und Zusatzdaten nur bei Netz“, Offline „zusätzlich Karte, Luftbild,
+  Hindernisse und große Zusatzpakete auf dem Gerät“; Status „Online – Geozonen
+  gespeichert · Größe“ / „… werden geladen“ / „… warten auf WLAN“; Knopf
+  „Aktive Länder jetzt prüfen“; GPS-Vorschlag mit denselben Texten.
+- **CZ**: Der Range-Teilabruf des ŘLP-ZIP entfällt (Product Owner). Bei
+  aktivem Land (online/offline) wird das vollständige ED-318-Paket geladen
+  (106 Kachel-Dateien, ≈ 36 MB, Indexseite → Veröffentlichungsordner) und
+  genutzt. Nur bis es geladen ist (z. B. wartet auf WLAN): Abdeckung „missing“
+  („Geozonen-Paket noch nicht geladen …“), Hinweis „manuell prüfen“
+  (accessGate "pack" unverändert), Einstellungen: „Tschechien: Bis das
+  Geozonen-Paket der ŘLP (ca. 36 MB) geladen ist, keine automatische Prüfung“.
+- **Liechtenstein folgt immer der Schweiz** (Product Owner): ein Eintrag
+  „Schweiz / Liechtenstein“ mit einer Auswahl, einem Status, einer Größe
+  (`USAGE_ALIASES = { LI: "CH" }`, `usageIsoOf`, `USAGE_LABEL_OVERRIDES`;
+  offlineCountries ohne LI). Intern bleibt CH der Schlüssel, LI Alias:
+  `getCountryUsage("LI")` = CH, `setCountryUsage/applyCountryUsage("LI")`
+  setzen CH; eine frühere eigene LI-Einstellung wird beim Laden übernommen
+  (stärkere Stufe gilt). CH-Pakete decken LI ab (Kartenzellen in LI gehören
+  zum CH-Paket); „Aus“ löscht auch alte LI-Pakete (`withAliases`). Gemeinsamer
+  Name überall: Hinweis „Geozonen für Schweiz / Liechtenstein sind deaktiviert
+  …“ (Karte/Radar, ein Hinweis statt zwei), GPS-Vorschlag, Knopf „Land
+  aktivieren“, Datenstand-/Abdeckungszeilen in Planung und Pre-Check
+  (`geozoneCountryName` in shared/countryEntitlements.ts) und Download-Anzeige.
+- **Hindernisse nur in aktiven Ländern** (client/lib/obstacleCountryFilter.ts):
+  `loadObstacleTile` lädt bzw. liefert eine Kachel nur, wenn ihre Mitte oder
+  eine Ecke in einem aktiven Land liegt (Grenzkacheln zählen, sobald eine Ecke
+  aktiv ist); liegt kein Prüfpunkt in einem bekannten Land (offenes Meer),
+  wird geladen. Für „Aus“-Länder keine Overpass-Abfragen, weder für den
+  Kartenausschnitt noch als Paket.
+- **Tests**: client/lib/__tests__/downloadActivity.test.ts (begin/progress/end,
+  mehrere Aufgaben, Verzögerung, Zähler, Fehlerpfad, CH/LI-Name, ED-269-
+  Download erfasst, Hindernis-Kachelfilter inkl. Grenze), geozoneTileStore
+  (CZ-Paket in der Anzeige mit Fortschritt), countryUsage.test.ts (LI folgt
+  CH inkl. Migration und Hinweistext, online → nur Zusätze gelöscht, Basis-
+  Sync für Online-Länder, keine 24-h-Grenze, aus → online lädt sofort),
+  components/__tests__/downloadActivityBar.test.tsx (Rendering, < 1 s
+  unsichtbar, Prozent, mehrere Aufgaben, Safe-Area, Tippen → Einstellungen),
+  components/__tests__/obstaclesActiveCountries.test.tsx (DE aus: kein fetch),
+  screens/__tests__/rcOfflineMapsCountries.test.tsx (CZ/ES/AT/CH online nur
+  Basis, ohne WLAN „wartet“, offline → online behält Basis, Karten-Paket in
+  der Anzeige, ein Eintrag Schweiz / Liechtenstein, CH lädt BAZL-Datei),
+  screens/__tests__/rcOfflineMapsUsage.test.tsx (Texte, kein LI-Eintrag,
+  CZ-Hinweis).
+- **Offen / zu bestätigen**: Online-Länder laden jetzt große Basis-Pakete
+  (DE ≈ 205 MB) im WLAN automatisch – Speicherbedarf für Pilotinnen mit vielen
+  Online-Ländern beachten. Die Anzeige läuft nur bei geöffneter App (keine
+  Hintergrund-Downloads). Hindernis-Kacheln außerhalb der Länder-Erkennung
+  (Meer) werden weiter geladen. Neu geladene ED-269-Dateien für CH/NL beim
+  Offline-Paket (bisher nur bei Bedarf) – Größe CH ≈ 18 MB. Alte LI-Pakete
+  (Karte/Hindernisse unter „LI:“) werden erst mit „Aus“ für Schweiz /
+  Liechtenstein entfernt.
+
+## Stand Größen-Schätzung in der Länderauswahl (2026-11-15)
+
+- Unter der Auswahl Aus / Online / Offline jedes Landes steht vor der Wahl
+  der geschätzte Speicherbedarf je Stufe, z. B. „Online ≈ 240 MB · Offline ≈
+  1,1 GB“ (`usage-sizes-<ISO>`, auch bei „Aus“). Länder ohne ladbaren
+  Bestand (nur Bildkacheln/live bzw. nur Datei-Import, z. B. MT/GR/HU):
+  „Online: kein Download · Offline ≈ …“.
+- client/lib/offlineMaps.ts: `estimateBaseGeozonesMB(iso)` = Basis-Geozonen
+  (= „Online“): Kachelspeicher Teil „base“ (`TILE_STORE_MB`: DE 240, FR 115,
+  CZ 85, ES 10 MB Gerätegröße) bzw. ED-269-Landesdatei
+  (`VECTOR_GEO_MB_BY_ISO`: CH/LI 18, NL 23, LV 13, HR 4 MB, sonst 3 MB;
+  Werte aus den Quellen-Kommentaren in geozoneDirect/). `estimateUsageSizes(c)`
+  = Online + Karte, Luftbild, Hindernisse, Geozonen-Bildkacheln und
+  Zusatzteile (DE-Wohngrundstücke 175 MB, ES-Infrastruktur 75 MB /
+  Naturschutz 160 MB) laut aktuell gewählten Paket-Optionen – solange keine
+  gewählt sind, `defaultConfig`. Ändert man eine Option (z. B. Wohngebiete
+  ab), ändert sich die Offline-Schätzung sofort. Die Basis zählt bei
+  „Offline“ immer mit. Format deutsch (`formatMB`: „205 MB“, „1,1 GB“).
+  Die Teilgrößen je Paket-Option standen schon an den Schaltern.
+- Hinweis: die Schätzungen sind Gerätegrößen (entpackt + Index); die
+  Download-Größen (DE ≈ 205 MB, ES-Teile 23/177/380 MB) stehen weiter bei
+  den Optionen. ES-Gerätegrößen sind nicht auf dem Gerät gemessen (s. o.).
+- Tests: client/screens/__tests__/rcOfflineMapsSizes.test.tsx.
+
+## Stand Hintergrund-Radar (2026-11-15)
+
+Product Owner: Ist das Live-Radar aktiv und geht die App in den Hintergrund
+(z. B. DJI Fly im Vordergrund), laufen Verkehrsabfrage und Warnungen weiter.
+
+- **Bibliothek**: `react-native-background-actions` 4.1.0 (exakt gepinnt,
+  veröffentlicht 07.04.2026; Abhängigkeit eventemitter3 4.0.7). Gewählt statt
+  `@notifee/react-native` 9.1.8 (seit 12/2024 ohne Release, bringt ein
+  vorkompiliertes Core-AAR mit lokalem Maven-Repo mit): ein kleiner
+  `HeadlessJsTaskService` in Java, keine Google Play Services, kein eigenes
+  Config-Plugin nötig. Der Dienst hält die JS-Laufzeit und ihre Timer im
+  Hintergrund aktiv (RN pausiert Timer im Hintergrund sonst).
+- **Manifest** (plugins/withRadarForegroundService.js, in app.json):
+  Dienst `com.asterinet.react.bgactions.RNBackgroundActionsTask` mit
+  `foregroundServiceType="location|dataSync"`, `exported=false`;
+  Berechtigungen FOREGROUND_SERVICE, FOREGROUND_SERVICE_LOCATION,
+  FOREGROUND_SERVICE_DATA_SYNC, POST_NOTIFICATIONS, WAKE_LOCK (die
+  HeadlessJsTaskService hält eine Wake-Lock), VIBRATE. `expo prebuild
+  --platform android --no-install` (temporäre Kopie) erzeugt genau diesen
+  Eintrag.
+- **Diensttyp (Android 14)**: „location“, weil der Dienst die GPS-Position
+  fortschreibt; Voraussetzung: erteilte Vordergrund-Standortberechtigung und
+  Start aus der sichtbaren App (Radar im Fokus). **Kein
+  ACCESS_BACKGROUND_LOCATION**: ein Vordergrunddienst vom Typ „location“, der
+  gestartet wird, während die App sichtbar ist, darf ab Android 10 mit der
+  Vordergrund-Berechtigung weiter orten. Ohne Standort-Berechtigung bzw. bei
+  manuell gesetztem Standort (Langdruck/Planung) „dataSync“ (Android 15:
+  ≤ 6 h/Tag – unkritisch bei 4-h-Ende).
+- **Ablauf** (Kern RN-frei: client/lib/radarMonitor.ts; Android-Verdrahtung:
+  client/lib/radarMonitorNative.ts; Screen-Anbindung:
+  client/hooks/useRadarBackgroundMonitor.ts): Start, sobald das Radar im
+  Fokus ist und eine Position hat (Android, Zugriff „live_traffic“, Einstellung
+  „Im Hintergrund weiter überwachen“ – Standard an, TCAS-Einstellungen,
+  AsyncStorage `@copterpilot/radar_background_monitor_v1`). Daueranzeige
+  „COpter Pilot – Luftraumüberwachung aktiv“. Stopp beim Verlassen des Radars
+  (Fokusverlust; der App-Wechsel in den Hintergrund ist kein Verlassen), beim
+  Ausschalten der Einstellung, über die Daueranzeige oder automatisch nach
+  **4 h** mit Hinweis „Luftraumüberwachung beendet – Nach 4 Stunden
+  automatisch beendet …“.
+- **Stopp-Aktion**: Die Bibliothek kann keine Aktions-Knöpfe an der
+  Daueranzeige zeigen. Tippen öffnet die App über den Deep Link
+  `copterpilot://radar-monitor/stop` mit der Rückfrage „Überwachung im
+  Hintergrund beenden?“ (Weiter überwachen / Beenden).
+- **Schleife**: Im Vordergrund arbeitet wie bisher der Radar-Screen (der
+  Dienst wartet nur); im Hintergrund alle **2 s** (wie im Vordergrund; die
+  Doku nennt kein anderes Intervall) Verkehr (`fetchNearbyAircraft`) und alle
+  **120 s** Gebiet (Geozonen/NOTAM/Temporärbeschränkungen/Wetter,
+  `fetchRadarAreaData`, client/lib/radarAreaCheck.ts – derselbe Abruf, den
+  der Screen jetzt nutzt). Mit Diensttyp „location“ hält der Dienst eine
+  Positionsüberwachung (LocationManager über lib/location.ts) offen und
+  prüft am aktuellen Standort.
+- **Gemeinsame Warnlogik** (client/lib/radarAlertLogic.ts, RN-frei): Erkennung
+  `checkProximityAlerts`/`checkApproachingAircraft` (aus proximityAlarm.ts
+  verschoben, dort re-exportiert), Entscheidung `decideProximityAlarm`
+  (Sperrzeit 3 s, reiner Anflug 9 s, RA-Eskalation sofort, Herabstufung,
+  Entwarnung) – useProximityAlarm nutzt sie jetzt ebenfalls
+  (`filterDismissedThreats` für weggedrückte Flugzeuge); Gebiet
+  `computeRadarAreaFlags` (gleiche Schwellen wie zuvor im Screen) und für den
+  Hintergrund `decideAreaAlerts` (nur neu hinzugekommene Geozonen bzw.
+  NOTAM/Beschränkungen melden; NOTAM-Status „unbekannt“ einmal je Ausfall).
+- **Warnungen im Hintergrund**: lokale Benachrichtigungen über
+  expo-notifications (lokal ohne FCM; nur Push-Tokens bräuchten Firebase),
+  Kanal „radar-alerts“ (Wichtigkeit MAX, Standard-Ton, Vibration), Texte
+  „RA – Luftfahrzeug sehr nah!“, „TA – Verkehr in der Nähe“, „Luftfahrzeug
+  im Anflug“ (Rufzeichen · Abstand · Höhe), „Geozone im Warnradius“, „NOTAM /
+  Beschränkung aktiv“; dazu der Sprachalarm aus proximityAlarm.ts gemäß
+  TA/RA-Audio-Einstellung, beendet bei Entwarnung. POST_NOTIFICATIONS wird
+  beim Start angefragt (Android 13+). Beim Wechsel in den Hintergrund
+  beendet der Screen seinen Sprachalarm (der Dienst übernimmt), zurück im
+  Vordergrund setzt der Dienst seinen Alarmzustand zurück.
+- **Tests**: client/lib/__tests__/radarAlertLogic.test.ts (Schwellen,
+  Sperrzeiten, Eskalation, Entwarnung, Dismiss, Gebiets-Flags, nur Neues
+  melden), client/lib/__tests__/radarMonitor.test.ts (Start/Stopp mit
+  nachgebautem Dienst, Einstellung aus, Diensttyp, Stopp während des Starts,
+  Startfehler, Vorder-/Hintergrund, GPS-Fortschreibung, 4-h-Ende, gleiche
+  Auslösungen Vorder-/Hintergrund, Gebiet alle 120 s),
+  client/lib/__tests__/radarForegroundPlugin.test.ts (Manifest-Ausgabe,
+  idempotent), client/screens/__tests__/radarBackgroundService.test.tsx
+  (Optionen an die Bibliothek, Kanal/Benachrichtigung, Schalter in den
+  TCAS-Einstellungen).
+- **Nur auf dem Gerät prüfbar** (DJI RC Pro 2): Dienst startet unter der
+  Neuen Architektur (RN 0.86, Interop für das alte NativeModule
+  `RNBackgroundActions`, Headless-JS-Task im bridgeless Modus); Timer und
+  `fetch` laufen mit DJI Fly im Vordergrund weiter; GPS-Updates im
+  Hintergrund (LocationManager) mit Typ „location“; Daueranzeige sichtbar,
+  Tippen → Rückfrage; Benachrichtigungen mit Ton/Vibration, auch über DJI
+  Fly (Heads-up), Sprachausgabe im Hintergrund; Android-Version der RC
+  (POST_NOTIFICATIONS erst ab 13, Diensttyp-Pflicht erst ab 14);
+  Akkuverbrauch über 4 h; aggressive Hersteller-Akkuoptimierung, die den
+  Dienst beenden könnte.
+- **Offen / zu bestätigen**: Kein Aktions-Knopf „Beenden“ direkt an der
+  Daueranzeige (Bibliotheksgrenze). Nach „Beenden“ über die Daueranzeige
+  startet die Überwachung erst beim nächsten Öffnen des Radars wieder.
+  Hintergrund-Meldungen für Geozonen/NOTAM melden nur Neues (der Vordergrund
+  markiert die Reiter bei jeder Prüfung). Die Gebietsprüfung nutzt den
+  RA-Radius aus den globalen TCAS-Einstellungen wie der Screen.

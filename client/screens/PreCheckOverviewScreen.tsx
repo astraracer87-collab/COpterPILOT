@@ -74,7 +74,7 @@ import { detectBundeslandFromCoordinates } from "@/lib/countryMaps";
 import { fetchHourlyForecasts, type HourlyForecastSlot } from "@/lib/weather";
 import HourlyForecastTable from "@/components/HourlyForecastTable";
 import { useAuth } from "@/lib/auth";
-import { splitCountriesByAccess, countryName } from "../../shared/countryEntitlements";
+import { splitCountriesByAccess, countryName, geozoneCountryName } from "../../shared/countryEntitlements";
 
 type RouteParams = RouteProp<FlightCheckParamList, "PreCheckOverview">;
 type NavigationProp = NativeStackNavigationProp<FlightCheckParamList, "PreCheckOverview">;
@@ -433,12 +433,12 @@ export default function PreCheckOverviewScreen() {
   // ist unbekannt und darf nicht als "keine Zonen" (GO) durchgehen.
   const hasCoverageGap = !geozoneLoading && (geozoneError || coverageGaps.length > 0);
   // Datenstand je Land (Quellen-Registry, B5): „Stand: vor X h“
-  const geozoneDataAges = formatCoverageDataAges(coverageSources, (iso) => countryName(iso) || iso);
+  const geozoneDataAges = formatCoverageDataAges(coverageSources, (iso) => geozoneCountryName(iso) || iso);
   // B7/S7: gekürzte Zonenliste sichtbar machen (statt stiller Kürzung).
-  const geozoneTruncation = formatCoverageTruncation(coverageSources, (iso) => countryName(iso) || iso, GEOZONE_VECTOR_MAX_FEATURES);
+  const geozoneTruncation = formatCoverageTruncation(coverageSources, (iso) => geozoneCountryName(iso) || iso, GEOZONE_VECTOR_MAX_FEATURES);
   const coverageGapWarnings = geozoneError
     ? []
-    : coverageGaps.map((g) => sourceCoverageWarning(g, countryName(g.iso) || g.iso));
+    : coverageGaps.map((g) => sourceCoverageWarning(g, geozoneCountryName(g.iso) || g.iso));
   // Prüfkette (B4): dieselbe Zonen-Auswahl/Einstufung wie die Planung
   // (evaluateZones), Zeitbezug "precheck" (jetzt ODER geplant). Einstufung über
   // die Policy-Tabelle: Info-Zonen (NO_RESTRICTION) brauchen keine Bestätigung,
@@ -481,7 +481,7 @@ export default function PreCheckOverviewScreen() {
       sources: coverageSources,
       queryFailed: geozoneError,
       primaryIso: detectCountryFromCoordinates(latitude, longitude),
-      countryLabel: (iso) => countryName(iso) || iso,
+      countryLabel: (iso) => geozoneCountryName(iso) || iso,
     }),
     ...notamChecks({
       context: "precheck",
@@ -969,7 +969,7 @@ export default function PreCheckOverviewScreen() {
                 { kind: "weather", origin: hourlyOffline },
               ]}
               extraLines={revalidation.pendingWifi.map((iso) => ({
-                text: `${countryName(iso) || iso}: Neue Fassung verfügbar – wird im WLAN geladen`,
+                text: `${geozoneCountryName(iso) || iso}: Neue Fassung verfügbar – wird im WLAN geladen`,
                 tone: "offline" as const,
               }))}
               onRefresh={() => {

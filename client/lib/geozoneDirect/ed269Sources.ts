@@ -74,7 +74,8 @@ export const DK_NATURE_ZONES_URL =
   "https://trafikstyrelsen.maps.arcgis.com/sharing/rest/content/items/ff657943724944faaf19807380f5e24a/data";
 export const DK_NATURE_ZONES_FALLBACK_URL =
   "https://services-eu1.arcgis.com/Zvx25KS6sGRl9LIx/arcgis/rest/services/NaturOmraader2024v2/FeatureServer/0/query?where=1%3D1&outFields=*&outSR=4326&f=geojson";
-// Estland: öffentlich, freie Nutzung von EANS bestätigt (2026-11-15).
+// Estland: öffentlich; Freigabe von EANS mündlich erteilt, schriftliche
+// Bestätigung ausstehend (Stand 2026-11-15).
 // Quelle: EANS (Lennuliiklusteeninduse AS) / Transpordiamet, utm.eans.ee
 export const EE_GEOZONES_URL = "https://utm.eans.ee/avm/utm/uas.geojson";
 // Litauen (Oro navigacija) – gleiche Frequentis-Plattform wie AT/EE, ohne Anmeldung.
@@ -218,6 +219,43 @@ async function fetchAustria(): Promise<GeoFeature[]> {
 }
 
 // ---------------------------------------------------------------------------
+// Frequentis-AVM-Systemzonen (AT, EE, LT – Registry-Flag frequentisAvm)
+// ---------------------------------------------------------------------------
+/** Ab dieser bbox-Ausdehnung gilt ein PROHIBITED-Polygon als „Welt-Polygon“. */
+export const FREQUENTIS_WORLD_SPAN_LON_DEG = 90;
+export const FREQUENTIS_WORLD_SPAN_LAT_DEG = 45;
+
+/** LT: weltumspannende Zone „Outside Lithuania“ (docs/lithuania-ans-api-integration.md §6). */
+export function isLithuaniaOutsideZone(f: GeoFeature | null | undefined): boolean {
+  const name = String((f?.properties as Record<string, unknown> | undefined)?.name ?? "").trim();
+  return name.toLowerCase() === "outside lithuania";
+}
+
+/**
+ * true für Features, die kein Pilot sehen soll: `hidden === true` (AT sys_*,
+ * Landes-/Systemgeometrie) und PROHIBITED-Polygone mit Welt-bbox (> 90° Länge
+ * oder > 45° Breite, z. B. „Outside Lithuania“). Wird schon beim Abruf
+ * verworfen – vor der Nähe-Begrenzung (1200 nächste Zonen) der Abfrage.
+ */
+export function isFrequentisSystemFeature(f: GeoFeature | null | undefined): boolean {
+  if (!f) return true;
+  const p = (f.properties as Record<string, any>) || {};
+  if (p.hidden === true) return true;
+  if (isLithuaniaOutsideZone(f)) return true;
+  const raw = p.originalRestriction ?? p.restriction;
+  const restriction = String((raw && typeof raw === "object" ? raw.type : raw) ?? "").trim().toUpperCase();
+  if (restriction !== "PROHIBITED") return false;
+  const bb = Array.isArray(f.bbox) && f.bbox.length === 4 ? f.bbox : computeBbox(f.geometry);
+  if (!bb) return false;
+  return bb[2] - bb[0] > FREQUENTIS_WORLD_SPAN_LON_DEG || bb[3] - bb[1] > FREQUENTIS_WORLD_SPAN_LAT_DEG;
+}
+
+/** Frequentis-Systemfeatures verwerfen (siehe isFrequentisSystemFeature). */
+export function dropFrequentisSystemFeatures(features: GeoFeature[]): GeoFeature[] {
+  return features.filter((f) => !isFrequentisSystemFeature(f));
+}
+
+// ---------------------------------------------------------------------------
 // Litauen (Oro navigacija) – Feed und Schema wie Österreich,
 // siehe docs/lithuania-ans-api-integration.md.
 // ---------------------------------------------------------------------------
@@ -225,7 +263,10 @@ async function fetchLithuania(): Promise<GeoFeature[]> {
   const body = await fetchJson(frequentisAvmUrl(LT_GEOZONES_URL));
   const raw: GeoFeature[] = Array.isArray(body?.features) ? body.features : [];
   if (raw.length === 0) throw new Error("Oro navigacija lieferte keine Zonen");
-  return finalize(raw, "lt").map((feature) => ({
+  // „Outside Lithuania“: weltumspannendes PROHIBITED-Polygon (Litauen als
+  // Aussparung) – würde jede Nachbarregion rot färben (Doku §6, Falle 1).
+  const kept = raw.filter((f) => !isLithuaniaOutsideZone(f));
+  return finalize(kept, "lt").map((feature) => ({
     ...feature,
     properties: { ...((feature.properties as Record<string, any>) || {}), source: LT_GEOZONE_SOURCE_LABEL },
   }));
@@ -497,7 +538,14 @@ export async function fetchEd269CountryFeatures(iso: string): Promise<GeoFeature
   const fetcher = ED269_DIRECT_COUNTRIES.includes(key.toLowerCase()) ? ED269_FETCHERS[key] : undefined;
   if (!fetcher) throw new Error(`Kein Vektor-Geozonen-Feed für ${iso}`);
   let features = await fetcher();
-  if (getGeozoneSourceMeta(key)?.frequentisPlaceholder) {
+  const meta = getGeozoneSourceMeta(key);
+  if (meta?.frequentisAvm) {
+    // hidden (AT sys_*) und Welt-Polygone schon hier verwerfen, nicht erst in
+    // der Anzeige: sonst verdrängen sie echte Zonen aus der 1200er-Liste.
+    // (AT-Landesgrenze aus sys_1/sys_2 wird nicht separat gespeichert – kein Nutzer.)
+    features = dropFrequentisSystemFeatures(features);
+  }
+  if (meta?.frequentisPlaceholder) {
     // Frequentis-AVM (AT/LT): MATZ/MCTR mit Platzhalter-Enddatum 2100 = dauerhaft
     features = features.map((feature) => ({
       ...feature,

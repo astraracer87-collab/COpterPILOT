@@ -10,15 +10,18 @@
 //              Mit einem anderen aktiven Land geteilte Daten bleiben (LI/CH:
 //              BAZL-Datensatz und swisstopo-Kacheln; Hindernis-Kacheln anderer
 //              Offline-Länder).
-//   * online:  Offline-Pakete (Karten, Luftbild, Kachelspeicher, Hindernisse)
-//              löschen; der kleine ED-269-Landesbestand bleibt als
-//              Zwischenspeicher höchstens 24 h (sweepOnlineCaches).
+//   * online:  (von offline) nur die Offline-Zusätze löschen (Karten, Luftbild,
+//              Geozonen-Bildkacheln, Hindernisse, große Zusatzteile DE-wohn/
+//              ES-infra/enp); die Basis-Geozonen (ED-269-Landesdatei bzw.
+//              Kachelspeicher „base“) bleiben und werden aktuell gehalten.
+//              (von aus) Basis-Geozonen laden.
 //   * offline: Pakete laden (automatische Synchronisation, große Pakete nur im
 //              WLAN bzw. mit Erlaubnis für mobile Daten).
 // - cleanupDisabledCountries(): „Alle deaktivierten Länder bereinigen“.
-// - syncOfflineCountries(): beim App-Start und regelmäßig (6 h) alle Offline-
-//   Länder prüfen und aktualisieren (Teil-A-Regeln), Fortschritt für die
-//   Einstellungen (onOfflineSyncChange).
+// - syncOfflineCountries(): beim App-Start und regelmäßig (6 h) alle AKTIVEN
+//   Länder prüfen und aktualisieren (Teil-A-Regeln): „offline“ vollständig,
+//   „online“ nur die Basis-Geozonen. Fortschritt für die Einstellungen
+//   (onOfflineSyncChange).
 //
 // RN-frei: die echten Speicher-Funktionen werden lazy geladen; Tests ersetzen
 // die Umgebung (__setCountryDataEnvForTests).
@@ -28,11 +31,11 @@ import {
   countriesWithUsage,
   getCountryUsage,
   isGeozoneSourceEnabled,
-  isGeozoneSourceOffline,
   loadCountryUsage,
-  ONLINE_CACHE_MAX_AGE_MS,
   setCountryUsage,
+  USAGE_ALIASES,
   USAGE_COUNTRIES,
+  usageIsoOf,
   type CountryUsage,
 } from "./countryUsage";
 import { getGeozoneSourceMeta, resolveGeozoneSourceIso } from "../../shared/geozoneSourceMeta";
@@ -55,6 +58,11 @@ export interface OfflineSyncCountryResult {
 export interface CountryDataEnv {
   /** Offline-Pakete eines Landes löschen (Kacheln, Kachelspeicher, Hindernisse, Konfiguration; geteilte Daten bleiben). */
   deletePacks(iso: string): Promise<void>;
+  /**
+   * Nur die Offline-Zusätze löschen (Karte, Luftbild, Geozonen-Bildkacheln,
+   * Hindernisse, große Zusatzteile, Konfiguration) – Basis-Geozonen bleiben.
+   */
+  deleteOfflineExtras(iso: string): Promise<void>;
   /** Altes Offline-Paket (offlineStore: Zonen + NOTAMs) löschen. */
   deleteLegacyPack(iso: string): Promise<void>;
   /** Heruntergeladenen ED-269-Bestand löschen, Import behalten. */
@@ -71,8 +79,16 @@ export interface CountryDataEnv {
   isOffline(): boolean;
   isWifi(): Promise<boolean>;
   largePacksOnMobile(): Promise<boolean>;
-  /** Ein Offline-Land prüfen/aktualisieren (offlineMaps.autoSyncCountry). */
-  syncCountry(iso: string, allowLarge: boolean, onProgress: (p: OfflineSyncProgress) => void): Promise<OfflineSyncCountryResult>;
+  /**
+   * Ein aktives Land prüfen/aktualisieren (offlineMaps.autoSyncCountry):
+   * mode "full" = alles der Offline-Konfiguration, "base" = nur Basis-Geozonen.
+   */
+  syncCountry(
+    iso: string,
+    allowLarge: boolean,
+    onProgress: (p: OfflineSyncProgress) => void,
+    mode?: "full" | "base",
+  ): Promise<OfflineSyncCountryResult>;
 }
 
 // Lazy-Module (statische require-Pfade für Metro; unter tsx ohne RN-Graph).
@@ -110,6 +126,9 @@ export function liveResultKeyBelongsTo(key: string, iso: string, detect: (lat: n
 const defaultEnv: CountryDataEnv = {
   async deletePacks(iso) {
     await offlineMapsMod()?.deleteCountry(iso);
+  },
+  async deleteOfflineExtras(iso) {
+    await offlineMapsMod()?.deleteCountryExtras(iso);
   },
   async deleteLegacyPack(iso) {
     await offlineStoreMod()?.deleteOfflinePack(iso);
@@ -161,10 +180,10 @@ const defaultEnv: CountryDataEnv = {
   async largePacksOnMobile() {
     return (await largePackMod()?.loadLargePacksOnMobile()) ?? false;
   },
-  async syncCountry(iso, allowLarge, onProgress) {
+  async syncCountry(iso, allowLarge, onProgress, mode = "full") {
     const maps = offlineMapsMod();
     if (!maps) return { iso, status: "skipped" };
-    return maps.autoSyncCountry(iso, allowLarge, onProgress);
+    return maps.autoSyncCountry(iso, allowLarge, onProgress, mode);
   },
 };
 
@@ -176,7 +195,6 @@ export function __setCountryDataEnvForTests(e: Partial<CountryDataEnv> | null): 
   syncState = {};
   syncRunning = null;
   lastSyncAt = 0;
-  knownImports.clear();
 }
 
 /** Migration: Länder mit gespeicherten Daten (Datensatz-ISOs → App-Länder). */
@@ -185,8 +203,8 @@ export async function probeStoredDataIsos(): Promise<string[]> {
   const out = new Set<string>();
   const appIsos = new Set(USAGE_COUNTRIES.map((c) => c.iso));
   for (const iso of raw) {
-    const up = String(iso).toUpperCase();
-    // Ein gemeinsamer Datensatz (CH-BAZL) zählt für das Hauptland; LI nur mit eigener Konfiguration.
+    // LI (eigene alte Konfiguration) zählt für die Schweiz
+    const up = usageIsoOf(iso);
     if (appIsos.has(up)) out.add(up);
   }
   return [...out];
@@ -200,17 +218,28 @@ export interface PurgeResult {
   keptShared: boolean;
 }
 
+/** Einstellungs-Land und seine Alias-Länder (CH → CH, LI). */
+function withAliases(iso: string): string[] {
+  return [iso, ...Object.entries(USAGE_ALIASES).filter(([, main]) => main === iso).map(([a]) => a)];
+}
+
 /**
  * Daten eines Landes löschen. "off": alles Herunterladbare (Import bleibt);
- * "online": nur Offline-Pakete (ED-269-Zwischenspeicher bleibt ≤ 24 h).
+ * "online": nur die Offline-Zusätze (Basis-Geozonen bleiben und werden
+ * weiter aktuell gehalten).
  */
 export async function purgeCountryData(iso: string, mode: "off" | "online"): Promise<PurgeResult> {
-  const up = String(iso || "").toUpperCase();
+  const up = usageIsoOf(iso);
   const source = resolveGeozoneSourceIso(up);
   const result: PurgeResult = { iso: up, keptImport: false, keptShared: false };
-  await env.deletePacks(up).catch(() => {});
-  await env.deleteLegacyPack(up).catch(() => {});
-  if (mode === "online") return result;
+  if (mode === "online") {
+    for (const i of withAliases(up)) await env.deleteOfflineExtras(i).catch(() => {});
+    return result;
+  }
+  for (const i of withAliases(up)) {
+    await env.deletePacks(i).catch(() => {});
+    await env.deleteLegacyPack(i).catch(() => {});
+  }
   // Gemeinsamer Datensatz (LI im CH-BAZL-Bestand): nur löschen, wenn kein Land
   // der Quelle mehr aktiv ist.
   if (isGeozoneSourceEnabled(source) && countriesOfSource(source).some((c) => c !== up)) {
@@ -223,7 +252,7 @@ export async function purgeCountryData(iso: string, mode: "off" | "online"): Pro
     }
     if (meta?.offline === "tile-store") await env.deleteTileStore(source).catch(() => {});
   }
-  await env.deleteLiveResults(up).catch(() => {});
+  for (const i of withAliases(up)) await env.deleteLiveResults(i).catch(() => {});
   return result;
 }
 
@@ -231,14 +260,18 @@ export async function purgeCountryData(iso: string, mode: "off" | "online"): Pro
  * Nutzung setzen und Daten anpassen. Rückgabe: Ergebnis der Bereinigung (off/
  * online) bzw. null. Bestätigungen fragt die Oberfläche vorher ab.
  */
-export async function applyCountryUsage(iso: string, usage: CountryUsage): Promise<PurgeResult | null> {
+export async function applyCountryUsage(rawIso: string, usage: CountryUsage): Promise<PurgeResult | null> {
   await loadCountryUsage();
+  const iso = usageIsoOf(rawIso);
   const prev = getCountryUsage(iso);
   await setCountryUsage(iso, usage);
   if (usage === "off") return purgeCountryData(iso, "off");
-  if (usage === "online" && prev === "offline") return purgeCountryData(iso, "online");
-  if (usage === "offline" && prev !== "offline") void syncOfflineCountries("enabled", [iso]).catch(() => {});
-  return null;
+  const purged = usage === "online" && prev === "offline" ? await purgeCountryData(iso, "online") : null;
+  // Aktiviert (aus → online/offline) bzw. auf offline erweitert: sofort laden
+  if (prev !== usage && !(usage === "online" && prev === "offline")) {
+    void syncOfflineCountries("enabled", [iso]).catch(() => {});
+  }
+  return purged;
 }
 
 /** „Alle deaktivierten Länder bereinigen“. */
@@ -247,31 +280,6 @@ export async function cleanupDisabledCountries(): Promise<PurgeResult[]> {
   const out: PurgeResult[] = [];
   for (const iso of countriesWithUsage("off")) out.push(await purgeCountryData(iso, "off"));
   return out;
-}
-
-/**
- * „Online“-Länder: ED-269-Bestand älter als 24 h vom Gerät löschen (Import
- * bleibt). Datensätze, die ein Offline-Land mitnutzt (CH für LI), bleiben.
- */
-const knownImports = new Set<string>();
-export async function sweepOnlineCaches(): Promise<string[]> {
-  await loadCountryUsage();
-  const removed: string[] = [];
-  const now = env.now();
-  const sources = new Set(countriesWithUsage("online").map((i) => resolveGeozoneSourceIso(i)));
-  for (const source of sources) {
-    const meta = getGeozoneSourceMeta(source);
-    if (meta?.offline !== "ed269-store") continue;
-    if (isGeozoneSourceOffline(source)) continue;
-    if (knownImports.has(source)) continue;
-    const info = await env.datasetInfo(source).catch(() => null);
-    if (!info || info.imported) continue;
-    if (now - info.fetchedAt < ONLINE_CACHE_MAX_AGE_MS) continue;
-    const r = await env.deleteDownloadedDataset(source).catch(() => ({ keptImport: false }));
-    if (r.keptImport) knownImports.add(source);
-    else removed.push(source);
-  }
-  return removed;
 }
 
 // ---------------------------------------------------------------------------
@@ -320,8 +328,9 @@ function patchSync(iso: string, fn: (s: OfflineSyncCountryState) => OfflineSyncC
 }
 
 /**
- * Alle (bzw. die genannten) Offline-Länder prüfen und aktualisieren. Offline
- * passiert nichts; große Pakete nur im WLAN bzw. mit Erlaubnis.
+ * Alle (bzw. die genannten) aktiven Länder prüfen und aktualisieren: Offline-
+ * Länder vollständig, Online-Länder nur die Basis-Geozonen. Gerät offline →
+ * nichts; große Pakete nur im WLAN bzw. mit Erlaubnis.
  */
 export async function syncOfflineCountries(reason: OfflineSyncReason, only?: string[]): Promise<OfflineSyncCountryResult[]> {
   if (syncRunning) {
@@ -330,18 +339,22 @@ export async function syncOfflineCountries(reason: OfflineSyncReason, only?: str
   }
   const run = (async () => {
     await loadCountryUsage();
-    const offline = countriesWithUsage("offline");
-    const isos = only ? only.map((i) => i.toUpperCase()).filter((i) => offline.includes(i)) : offline;
+    const active = [...countriesWithUsage("offline"), ...countriesWithUsage("online")];
+    const isos = only ? only.map((i) => usageIsoOf(i)).filter((i) => active.includes(i)) : active;
     if (env.isOffline()) return isos.map((iso) => ({ iso, status: "skipped" as const, message: "Gerät offline" }));
     const allowLarge = (await env.isWifi().catch(() => false)) || (await env.largePacksOnMobile().catch(() => false));
     const results: OfflineSyncCountryResult[] = [];
     for (const iso of isos) {
-      if (getCountryUsage(iso) !== "offline") continue;
+      const usage = getCountryUsage(iso);
+      if (usage !== "offline" && usage !== "online") continue;
       patchSync(iso, (s) => ({ ...s, running: true }));
       let r: OfflineSyncCountryResult;
       try {
-        r = await env.syncCountry(iso, allowLarge, (p) =>
-          patchSync(iso, (s) => ({ ...s, packs: { ...s.packs, [p.key]: p } })),
+        r = await env.syncCountry(
+          iso,
+          allowLarge,
+          (p) => patchSync(iso, (s) => ({ ...s, packs: { ...s.packs, [p.key]: p } })),
+          usage === "offline" ? "full" : "base",
         );
       } catch (e: any) {
         r = { iso, status: "failed", message: String(e?.message || e) };
@@ -362,22 +375,20 @@ export async function syncOfflineCountries(reason: OfflineSyncReason, only?: str
 
 let timer: ReturnType<typeof setInterval> | null = null;
 
+/** Gleiche Funktion unter sprechendem Namen: alle aktiven Länder synchronisieren. */
+export const syncActiveCountries = syncOfflineCountries;
+
 /**
- * Beim App-Start: Einstellung laden (Migration), „online“-Zwischenspeicher
- * aufräumen, Offline-Länder prüfen und danach alle 6 h erneut.
+ * Beim App-Start: Einstellung laden (Migration), aktive Länder prüfen und
+ * danach alle 6 h erneut.
  */
 export function startCountryUsage(startDelayMs = 20_000): void {
   void loadCountryUsage().catch(() => {});
   setTimeout(() => {
-    void (async () => {
-      await sweepOnlineCaches().catch(() => []);
-      await syncOfflineCountries("start").catch(() => []);
-    })();
+    void syncOfflineCountries("start").catch(() => []);
   }, startDelayMs);
   if (timer) clearInterval(timer);
   timer = setInterval(() => {
-    // „Online“-Zwischenspeicher alle 15 min prüfen (höchstens 24 h auf dem Gerät)
-    void sweepOnlineCaches().catch(() => []);
     if (env.now() - lastSyncAt < OFFLINE_SYNC_INTERVAL_MS - 60_000) return;
     void syncOfflineCountries("periodic").catch(() => []);
   }, 15 * 60 * 1000);

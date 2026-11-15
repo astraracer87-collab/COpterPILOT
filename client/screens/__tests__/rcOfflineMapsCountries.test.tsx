@@ -6,8 +6,11 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import {
+  autoSyncCountry,
   defaultConfig,
   deleteCountry,
+  deleteCountryExtras,
+  loadOfflineConfigs,
   estimateSize,
   offlineCountries,
   startCountryDownload,
@@ -39,6 +42,12 @@ jest.mock("expo-file-system/legacy", () => ({
 const mockRefreshEd269 = jest.fn(async (_iso: string) => true);
 jest.mock("@/lib/geozoneDirect/ed269Store", () => ({
   refreshEd269Dataset: (iso: string) => mockRefreshEd269(iso),
+}));
+
+// Automatische Synchronisation (ED-269 nach Teil-A-Regeln) ohne Netz-/NetInfo-Graph
+const mockRevalidate = jest.fn(async (isos: string[], _p: string) => isos.map((iso) => ({ iso, action: "refreshed" })));
+jest.mock("@/lib/geozoneSources/revalidate", () => ({
+  revalidateGeozoneSources: (isos: string[], p: string) => mockRevalidate(isos, p),
 }));
 
 const mockDownloadTileStore = jest.fn(async (iso: string, opts: any) => {
@@ -105,7 +114,6 @@ describe("offlineCountries", () => {
       "GR",
       "RO",
       "MT",
-      "LI",
       "IS",
       "CY",
       "BG",
@@ -264,7 +272,11 @@ describe("tiled vector geozones (DE/FR/CZ) and Liechtenstein", () => {
     }
     expect(byIso.DE.geozoneAttribution?.label).toBe("dipul, CC-BY-ND 4.0");
     expect(byIso.DE.geozoneAttribution?.url).toBe("https://creativecommons.org/licenses/by-nd/4.0/legalcode.de");
-    expect(byIso.LI.geozoneKind).toBe("vector");
+    // Liechtenstein: kein eigener Eintrag – „Schweiz / Liechtenstein“ (gleiche Daten)
+    expect(byIso.LI).toBeUndefined();
+    expect(byIso.CH.label).toBe("Schweiz / Liechtenstein");
+    // CH: Bildkacheln (Zusatz-Ebenen) + BAZL-Landesdatei (deckt LI ab)
+    expect(byIso.CH.geozoneKind).toBe("tiles");
     expect(defaultConfig("LI").geozones).toBe(true);
     expect(defaultConfig("DE").wohngebiete).toBe(true);
   });
@@ -341,5 +353,78 @@ describe("tiled vector geozones (DE/FR/CZ) and Liechtenstein", () => {
     expect(mockDownloadTileStore).toHaveBeenLastCalledWith("DE", expect.objectContaining({ wohn: false }));
     await deleteCountry("DE");
     expect(mockDeleteTileStore).toHaveBeenCalledWith("DE", undefined);
+  });
+});
+
+describe("Länder-Nutzung „online“: Basis-Geozonen werden geladen und gehalten", () => {
+  it("CZ online: lädt das ED-318-Paket (nur Teil „base“), keine Karte, keine Hindernisse, keine Konfiguration", async () => {
+    const r = await autoSyncCountry("CZ", true, () => {}, "base");
+    expect(r.status).toBe("updated");
+    expect(mockDownloadTileStore).toHaveBeenCalledWith("CZ", expect.objectContaining({ parts: [], wohn: false }));
+    expect(mockDownloadAsync).not.toHaveBeenCalled();
+    expect((await loadOfflineConfigs()).map((c) => c.iso)).not.toContain("CZ");
+  });
+
+  it("CZ online ohne WLAN (mobile Daten nicht erlaubt): wartet auf WLAN", async () => {
+    const r = await autoSyncCountry("CZ", false, () => {}, "base");
+    expect(r.status).toBe("pending-wifi");
+    expect(mockDownloadTileStore).not.toHaveBeenCalled();
+  });
+
+  it("ES online: nur Luftfahrt-Teil („base“), Infrastruktur/Naturschutz nicht gespeichert", async () => {
+    await autoSyncCountry("ES", true, () => {}, "base");
+    expect(mockDownloadTileStore).toHaveBeenCalledWith("ES", expect.objectContaining({ parts: [] }));
+  });
+
+  it("AT online: ED-269-Landesdatei wird geladen und aktuell gehalten (Teil-A-Regeln, keine 24-h-Grenze)", async () => {
+    mockRevalidate.mockClear();
+    const r = await autoSyncCountry("AT", true, () => {}, "base");
+    expect(r.status).toBe("updated");
+    expect(mockRevalidate).toHaveBeenCalledWith(["AT"], "map");
+    expect(mockDownloadAsync).not.toHaveBeenCalled();
+  });
+
+  it("offline → online: Zusätze (Karte, Wohngrundstücke, Hindernisse) gelöscht, Basis-Kachelspeicher bleibt", async () => {
+    await startCountryDownload({ ...defaultConfig("DE"), map: false, obstacles: false }, () => {}, () => {}, () => false);
+    mockDeleteTileStore.mockClear();
+    await deleteCountryExtras("DE");
+    expect(mockDeleteTileStore).toHaveBeenCalledWith("DE", "wohn");
+    expect(mockDeleteTileStore).not.toHaveBeenCalledWith("DE", "base");
+    expect(mockDeleteTileStore).not.toHaveBeenCalledWith("DE", undefined);
+    expect((await loadOfflineConfigs()).map((c) => c.iso)).not.toContain("DE");
+  });
+
+  it("Karten-Paket meldet sich bei der Download-Anzeige an und ab", async () => {
+    const { getActiveDownloads } = jest.requireActual("@/lib/downloadActivity");
+    const seen: string[] = [];
+    let n = 0;
+    await startCountryDownload(
+      { ...defaultConfig("AT"), obstacles: false, geozones: false },
+      (p) => {
+        if (p.state === "active") for (const t of getActiveDownloads()) seen.push(`${t.iso}|${t.labelDe}`);
+      },
+      () => {},
+      () => ++n > 3,
+    );
+    expect(seen).toContain("AT|Karte");
+    expect(getActiveDownloads()).toEqual([]);
+  });
+});
+
+
+describe("Schweiz / Liechtenstein: ein Eintrag, BAZL-Datei deckt beide ab", () => {
+  it("CH offline lädt die BAZL-Landesdatei (inkl. LI) zusätzlich zu den Bildkacheln", async () => {
+    const packs: any[] = [];
+    let checks = 0;
+    // nach der Landesdatei anhalten (Bildkacheln hier nicht laden)
+    await startCountryDownload({ ...defaultConfig("CH"), map: false, obstacles: false, geozones: true }, (p) => packs.push(p), () => {}, () => checks++ > 0);
+    expect(mockRefreshEd269).toHaveBeenCalledWith("CH");
+    expect(packs.some((p) => p.key === "CH:geo:vector" && p.state === "complete")).toBe(true);
+  });
+  it("CH online (Basis) lädt nur die BAZL-Landesdatei", async () => {
+    mockRevalidate.mockClear();
+    await autoSyncCountry("CH", true, () => {}, "base");
+    expect(mockRevalidate).toHaveBeenCalledWith(["CH"], "map");
+    expect(mockDownloadAsync).not.toHaveBeenCalled();
   });
 });

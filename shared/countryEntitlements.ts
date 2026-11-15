@@ -65,6 +65,19 @@ export function countryName(iso: string | null | undefined): string {
   return BOOKABLE_COUNTRIES.find((c) => c.iso === up)?.name ?? up;
 }
 
+/** Anzeigename der Schweiz in Geozonen-/Länder-Hinweisen: LI folgt immer CH (gleiche Daten). */
+export const CH_LI_GEOZONE_LABEL = "Schweiz / Liechtenstein";
+
+/**
+ * Ländername für Geozonen-Hinweise (Abdeckung, Datenstand, „deaktiviert“):
+ * Schweiz und Liechtenstein erscheinen gemeinsam als „Schweiz / Liechtenstein“.
+ */
+export function geozoneCountryName(iso: string | null | undefined): string {
+  const up = normalizeCountryIso(iso);
+  if (up === "CH" || up === "LI") return CH_LI_GEOZONE_LABEL;
+  return countryName(iso);
+}
+
 /**
  * Parst die einem (Produkt- oder Subscription-)Metadaten-Objekt zugeordneten
  * Länder. Berücksichtigt drei Schlüssel:

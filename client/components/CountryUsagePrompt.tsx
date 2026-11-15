@@ -42,8 +42,8 @@ export function CountryUsagePrompt(): null {
               Alert.alert(
                 "Land erkannt",
                 `Du bist in ${label}. Geozonen für ${label} sind derzeit deaktiviert.\n\n` +
-                  "Online: Zonen werden bei Bedarf für den betrachteten Bereich abgefragt.\n" +
-                  "Offline: alle Daten des Landes werden gespeichert und automatisch aktualisiert (große Pakete im WLAN).\n\n" +
+                  "Online: Geozonen werden geladen und aktuell gehalten; Karte und Zusatzdaten nur bei Netz.\n" +
+                  "Offline: zusätzlich Karte, Luftbild, Hindernisse und große Zusatzpakete auf dem Gerät (große Pakete im WLAN).\n\n" +
                   "Später änderbar unter Einstellungen → Länder & Offline-Daten.",
                 [
                   { text: "Nicht jetzt", style: "cancel" },

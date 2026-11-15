@@ -1,0 +1,101 @@
+{
+  "_hinweis": "HANDGEBAUT – kein Live-Abruf. Feldnamen exakt nach docs/dflight-it-api-integration.md, Anhang IT (ATM09_INFO: id, name, quota_max, type, rule, regola, subtype, lower_limit_m, upper_limit_m, valid_from, valid_to, priority, designator, title_rule, titolo_regola, note; Höhen in Metern; Höhenklassen 0/25/45/60/120 m). Hülle wie GeoServer-WFS 2.0 GeoJSON (numberMatched/numberReturned). Werte konstruiert; NO_FLY_ZONE/NOTAM-Felder sind in der Doku nicht beschrieben (Annahmen). Durch eine echte Fixture ersetzen, sobald ein eingeloggter Abruf vorliegt.",
+  "ATM09_INFO": {
+    "type": "FeatureCollection",
+    "numberMatched": 4,
+    "numberReturned": 4,
+    "timeStamp": "2026-11-15T10:00:00.000Z",
+    "crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:EPSG::4326" } },
+    "features": [
+      {
+        "type": "Feature",
+        "id": "ATM09_INFO.101",
+        "geometry_name": "geom",
+        "geometry": { "type": "Polygon", "coordinates": [[[12.20, 41.78], [12.30, 41.78], [12.30, 41.84], [12.20, 41.84], [12.20, 41.78]]] },
+        "properties": {
+          "id": 101, "name": "LIRF - FIUMICINO", "quota_max": 0, "type": "ATM09", "subtype": "ROSSO",
+          "rule": "UAS operations not allowed", "regola": "Operazioni UAS non consentite",
+          "lower_limit_m": 0, "upper_limit_m": 0, "valid_from": "2026-10-29T00:00:00Z", "valid_to": null,
+          "priority": 1, "designator": "LIRF_0", "title_rule": "No operations", "titolo_regola": "Nessuna operazione", "note": null
+        }
+      },
+      {
+        "type": "Feature",
+        "id": "ATM09_INFO.102",
+        "geometry_name": "geom",
+        "geometry": { "type": "Polygon", "coordinates": [[[12.30, 41.78], [12.40, 41.78], [12.40, 41.84], [12.30, 41.84], [12.30, 41.78]]] },
+        "properties": {
+          "id": 102, "name": "LIRF - FIUMICINO", "quota_max": 25, "type": "ATM09", "subtype": "ARANCIONE",
+          "rule": "Operations allowed up to 25 m AGL", "regola": "Operazioni consentite fino a 25 m AGL",
+          "lower_limit_m": 0, "upper_limit_m": 25, "valid_from": "2026-10-29T00:00:00Z", "valid_to": null,
+          "priority": 2, "designator": "LIRF_25", "title_rule": "Max height 25 m", "titolo_regola": "Altezza massima 25 m", "note": "AIRAC 29/10/2026"
+        }
+      },
+      {
+        "type": "Feature",
+        "id": "ATM09_INFO.103",
+        "geometry_name": "geom",
+        "geometry": { "type": "Polygon", "coordinates": [[[41.78, 12.40], [41.78, 12.50], [41.84, 12.50], [41.84, 12.40], [41.78, 12.40]]] },
+        "properties": {
+          "id": 103, "name": "LIRF - FIUMICINO", "quota_max": 60, "type": "ATM09", "subtype": "GIALLO",
+          "rule": "Operations allowed up to 60 m AGL", "regola": "Operazioni consentite fino a 60 m AGL",
+          "lower_limit_m": 0, "upper_limit_m": 60, "valid_from": "2026-10-29", "valid_to": "",
+          "priority": 3, "designator": "LIRF_60", "title_rule": "Max height 60 m", "titolo_regola": "Altezza massima 60 m", "note": null
+        }
+      },
+      {
+        "type": "Feature",
+        "id": "ATM09_INFO.104",
+        "geometry_name": "geom",
+        "geometry": { "type": "Polygon", "coordinates": [[[9.20, 45.40], [9.30, 45.40], [9.30, 45.50], [9.20, 45.50], [9.20, 45.40]]] },
+        "properties": {
+          "id": 104, "name": "LIML - LINATE (scaduta)", "quota_max": 45, "type": "ATM09", "subtype": "GIALLO",
+          "rule": "Operations allowed up to 45 m AGL", "regola": "Operazioni consentite fino a 45 m AGL",
+          "lower_limit_m": 0, "upper_limit_m": 45, "valid_from": "2025-01-01T00:00:00Z", "valid_to": "2026-10-28T23:59:00Z",
+          "priority": 3, "designator": "LIML_45", "title_rule": "Max height 45 m", "titolo_regola": "Altezza massima 45 m", "note": null
+        }
+      }
+    ]
+  },
+  "NO_FLY_ZONE": {
+    "type": "FeatureCollection",
+    "numberMatched": 2,
+    "numberReturned": 2,
+    "features": [
+      {
+        "type": "Feature",
+        "id": "NO_FLY_ZONE.9001",
+        "geometry": { "type": "Polygon", "coordinates": [[[12.45, 41.89], [12.47, 41.89], [12.47, 41.91], [12.45, 41.91], [12.45, 41.89]]] },
+        "properties": {
+          "id": 9001, "name": "Evento Piazza San Pietro", "valid_from": "2026-11-15T08:00:00Z", "valid_to": "2026-11-16T20:00:00Z",
+          "lower_limit_m": 0, "upper_limit_m": 150, "description": "Divieto temporaneo di sorvolo UAS"
+        }
+      },
+      {
+        "type": "Feature",
+        "id": "NO_FLY_ZONE.9002",
+        "geometry": { "type": "Polygon", "coordinates": [[[9.18, 45.46], [9.20, 45.46], [9.20, 45.48], [9.18, 45.48], [9.18, 45.46]]] },
+        "properties": {
+          "id": 9002, "name": "Evento concluso", "valid_from": "2026-11-01T08:00:00Z", "valid_to": "2026-11-02T20:00:00Z",
+          "lower_limit_m": 0, "upper_limit_m": 120, "description": "Divieto temporaneo"
+        }
+      }
+    ]
+  },
+  "NOTAM": {
+    "type": "FeatureCollection",
+    "numberMatched": 1,
+    "numberReturned": 1,
+    "features": [
+      {
+        "type": "Feature",
+        "id": "NOTAM.18",
+        "geometry": { "type": "Point", "coordinates": [14.25, 40.85] },
+        "properties": {
+          "id": 18, "notam": "W1234/26", "div": "2026-11-14T00:00:00Z", "dfv": "2026-11-30T23:59:00Z", "radius": 2000,
+          "text": "UAS ACTIVITY PROHIBITED WI 2KM RADIUS CENTERED 404900N 0141500E"
+        }
+      }
+    ]
+  }
+}

@@ -13,6 +13,9 @@
 import * as FileSystem from "expo-file-system/legacy";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { FT_M } from "../../shared/heights";
+import { obstacleTileInActiveCountry } from "./obstacleCountryFilter";
+import { trackDownload } from "./downloadActivity";
+import { awaitCountryUsage } from "./countryUsage";
 
 export const OBSTACLE_TILE_ZOOM = 10;
 const CACHE_DIR = `${FileSystem.documentDirectory}obstacles/`;
@@ -301,8 +304,19 @@ async function overpassDirect(query: string, timeoutMs: number): Promise<any> {
   throw lastErr ?? new Error("Overpass nicht erreichbar");
 }
 
-/** Lädt eine Kachel (Gerät → sonst Internet). force = immer neu laden. */
-export async function loadObstacleTile(x: number, y: number, opts: { force?: boolean; allowNetwork?: boolean } = {}): Promise<TileData | null> {
+/**
+ * Lädt eine Kachel (Gerät → sonst Internet). force = immer neu laden.
+ * Kacheln in deaktivierten Ländern (Nutzung „Aus“) werden weder geladen noch
+ * geliefert (obstacleTileInActiveCountry). `track: false` = keine eigene
+ * Download-Anzeige (der Aufrufer zeigt den Gesamtfortschritt).
+ */
+export async function loadObstacleTile(
+  x: number,
+  y: number,
+  opts: { force?: boolean; allowNetwork?: boolean; track?: boolean } = {},
+): Promise<TileData | null> {
+  await awaitCountryUsage();
+  if (!obstacleTileInActiveCountry(tileBounds(x, y, OBSTACLE_TILE_ZOOM))) return null;
   const key = tileKey(x, y);
   const cached = await readTile(key);
   const fresh = cached && Date.now() - cached.t < MAX_AGE_MS;
@@ -315,7 +329,11 @@ export async function loadObstacleTile(x: number, y: number, opts: { force?: boo
   if (!opts.force && failedAt && Date.now() - failedAt < 120000) return cached;
   const p = (async () => {
     try {
-      const json = await overpass(overpassQuery(tileBounds(x, y, OBSTACLE_TILE_ZOOM)));
+      const query = overpassQuery(tileBounds(x, y, OBSTACLE_TILE_ZOOM));
+      const json =
+        opts.track === false
+          ? await overpass(query)
+          : await trackDownload({ id: "obstacles-live", labelDe: "Hindernisse für den Kartenausschnitt", kind: "obstacles" }, () => overpass(query));
       const data: TileData = { t: Date.now(), fc: toFeatureCollection(json) };
       await writeTile(key, data);
       return data;

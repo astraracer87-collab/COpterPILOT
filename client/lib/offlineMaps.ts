@@ -35,6 +35,8 @@ import { isTileStoreIso, type TileStorePart } from "@/lib/geozoneTiles/tileStore
 import { OBSTACLE_TILE_ZOOM, deleteObstacleTiles, hasObstacleTile, loadObstacleTile, tilesForBounds } from "@/lib/obstacles";
 import { revalidateGeozoneSources } from "@/lib/geozoneSources/revalidate";
 import type { OfflineSyncCountryResult, OfflineSyncProgress } from "@/lib/countryUsageData";
+import { USAGE_ALIASES, USAGE_LABEL_OVERRIDES, usageIsoOf } from "@/lib/countryUsage";
+import { beginDownload, endDownload, progressDownload } from "@/lib/downloadActivity";
 
 export type DetailLevel = 11 | 12 | 13 | 14 | 15;
 
@@ -75,8 +77,14 @@ const GEO_KB_PER_TILE = 6;
 const OBSTACLE_KB_PER_TILE = 120;
 /** Vektor-Geozonen (ED-269-Datei eines Landes) – grobe Größe */
 const VECTOR_GEO_MB = 3;
-/** BAZL-Datei (CH, deckt LI mit ab) ist deutlich größer (~18 MB) */
-const VECTOR_GEO_MB_BY_ISO: Record<string, number> = { CH: 18, LI: 18 };
+/**
+ * Typische Größen der ED-269-Landesdateien (Gerätecache, unkomprimiertes
+ * JSON), soweit deutlich über dem Standardwert – Stand 15.11.2026 laut
+ * Quellen-Kommentaren in geozoneDirect/: CH BAZL ≈ 18 MB (deckt LI ab),
+ * NL GoDrone ≈ 23 MB, LV ≈ 13 MB, HR ≈ 3,7 MB. Alle übrigen ED-269-Länder
+ * liegen bei ≤ 3 MB (FI ≈ 1,7 MB, GB-KML ≈ 2 MB, …) → VECTOR_GEO_MB.
+ */
+export const VECTOR_GEO_MB_BY_ISO: Record<string, number> = { CH: 18, LI: 18, NL: 23, LV: 13, HR: 4 };
 /**
  * Gekachelter Vektor-Speicher (geozoneTiles/): gemessene Gerätegrößen
  * (komprimierte Datensätze + Index), Stand 15.11.2026:
@@ -187,10 +195,16 @@ export function geozoneOfflineKind(iso: string): GeozoneOfflineKind {
   return "none";
 }
 
-/** Alle Länder der App – jedes ist wählbar (mindestens Hindernisse). */
+/**
+ * Alle Länder der Einstellung – jedes ist wählbar (mindestens Hindernisse).
+ * Liechtenstein hat keinen eigenen Eintrag: es steckt in „Schweiz /
+ * Liechtenstein“ (gleiche Daten; die CH-Pakete decken LI mit ab).
+ */
 export function offlineCountries(): OfflineCountryInfo[] {
   const out: OfflineCountryInfo[] = [];
-  for (const c of OFFLINE_APP_COUNTRIES) {
+  for (const raw of OFFLINE_APP_COUNTRIES) {
+    if (USAGE_ALIASES[raw.iso]) continue;
+    const c = { iso: raw.iso, label: USAGE_LABEL_OVERRIDES[raw.iso] ?? raw.label };
     const bounds = countryOfflineBounds(c.iso);
     if (!bounds) continue;
     const p = getMapProvider(c.iso);
@@ -365,6 +379,47 @@ export function estimateSize(c: CountryOfflineConfig): SizeEstimate {
   return { mapMB, satMB, geoMB, wohnMB, esInfraMB, esEnpMB, obstaclesMB, totalMB: mapMB + satMB + geoMB + obstaclesMB };
 }
 
+/**
+ * Basis-Geozonen eines Landes (= was „Online“ lädt und hält): ED-269-
+ * Landesdatei bzw. Teil „base“ des Kachelspeichers. 0 bei Ländern ohne
+ * speicherbaren Bestand (nur Bildkacheln/live oder nur Datei-Import).
+ */
+export function estimateBaseGeozonesMB(iso: string): number {
+  const offline = getGeozoneSourceMeta(iso)?.offline;
+  const src = resolveGeozoneSourceIso(iso);
+  if (offline === "tile-store") return TILE_STORE_MB[src] ?? TILE_STORE_MB[iso] ?? 0;
+  if (offline === "ed269-store") return VECTOR_GEO_MB_BY_ISO[iso] ?? VECTOR_GEO_MB_BY_ISO[src] ?? VECTOR_GEO_MB;
+  return 0;
+}
+
+export interface UsageSizeEstimate {
+  /** „Online“: nur Basis-Geozonen */
+  onlineMB: number;
+  /** „Offline“: Basis + Karte/Luftbild/Geozonen-Bildkacheln/Hindernisse/Zusatzteile laut Konfiguration */
+  offlineMB: number;
+}
+
+/**
+ * Geschätzter Speicherbedarf je Nutzungsstufe, bevor sie gewählt wird.
+ * `c` = aktuelle Paket-Optionen des Landes (bzw. defaultConfig, solange
+ * keine gewählt sind). Die Basis zählt bei „Offline“ immer (sie wird für
+ * jedes aktive Land gehalten), auch wenn „Geozonen“ abgewählt ist.
+ */
+export function estimateUsageSizes(c: CountryOfflineConfig): UsageSizeEstimate {
+  const base = estimateBaseGeozonesMB(c.iso);
+  const est = estimateSize(c);
+  const kind = geozoneOfflineKind(c.iso);
+  // Geozonen-Anteil über die Basis hinaus: Bildkacheln (WMS/XYZ) bzw. Zusatzteile des Kachelspeichers
+  const geoExtras = kind === "tiles" ? est.geoMB : kind === "tilestore" ? est.wohnMB + est.esInfraMB + est.esEnpMB : 0;
+  return { onlineMB: base, offlineMB: base + est.mapMB + est.satMB + est.obstaclesMB + geoExtras };
+}
+
+/** „Online ≈ 205 MB · Offline ≈ 1,1 GB“ (Länder ohne Basis: „Online: kein Download“) */
+export function formatUsageSizes(s: UsageSizeEstimate): string {
+  const online = s.onlineMB > 0 ? `Online ≈ ${formatMB(s.onlineMB)}` : "Online: kein Download";
+  return `${online} · Offline ≈ ${formatMB(s.offlineMB)}`;
+}
+
 export function formatMB(mb: number): string {
   if (mb >= 1024) return `${(mb / 1024).toFixed(1).replace(".", ",")} GB`;
   if (mb >= 10) return `${Math.round(mb)} MB`;
@@ -449,7 +504,8 @@ function plansFor(c: CountryOfflineConfig): PackPlan[] {
   const bounds = countryOfflineBounds(c.iso);
   if (!bounds) return [];
   const plans: PackPlan[] = [];
-  const inCountry = (iso: string) => iso === c.iso;
+  // CH-Pakete decken Liechtenstein mit ab (LI folgt CH)
+  const inCountry = (iso: string) => usageIsoOf(iso) === usageIsoOf(c.iso);
   if (c.map && p?.map) {
     plans.push({
       key: `${c.iso}:map`,
@@ -470,7 +526,7 @@ function plansFor(c: CountryOfflineConfig): PackPlan[] {
         bounds: s.bounds,
         minZoom: Math.max(SAT_MIN_ZOOM, s.minzoom ?? 0),
         maxZoom: Math.min(c.satMaxZoom, s.maxzoom),
-        cellFilter: (iso, region) => iso === c.iso && (!s.region || region === s.region),
+        cellFilter: (iso, region) => inCountry(iso) && (!s.region || region === s.region),
       });
     }
   }
@@ -629,6 +685,12 @@ export interface CountryDownloadOptions {
    */
   auto?: boolean;
   allowLarge?: boolean;
+  /**
+   * Länder-Nutzung „online“: nur die Basis-Geozonen (ED-269-Landesdatei bzw.
+   * Kachelspeicher „base“) laden; keine Konfiguration speichern, nichts
+   * anderes löschen.
+   */
+  baseOnly?: boolean;
 }
 
 export interface CountryDownloadSummary {
@@ -672,25 +734,32 @@ async function runCountryDownload(
   const summary: CountryDownloadSummary = { pendingWifi: false, failed: false, updated: false };
   const auto = opts.auto === true;
   const allowLarge = !auto || opts.allowLarge === true;
-  const list = (await loadOfflineConfigs()).filter((x) => x.iso !== c.iso);
-  await saveOfflineConfigs([...list, c]);
+  const baseOnly = opts.baseOnly === true;
+  if (!baseOnly) {
+    const list = (await loadOfflineConfigs()).filter((x) => x.iso !== c.iso);
+    await saveOfflineConfigs([...list, c]);
+  }
 
-  const plans = plansFor(c);
-  const vectorGeo = c.geozones && geozoneOfflineKind(c.iso) === "vector";
+  const plans = baseOnly ? [] : plansFor(c);
+  // ED-269-Landesdatei auch bei Ländern, die zusätzlich Geozonen-Bildkacheln
+  // speichern (CH inkl. LI, NL …): sie ist die Basis der automatischen Prüfung.
+  const vectorGeo = c.geozones && getGeozoneSourceMeta(c.iso)?.offline === "ed269-store";
   const storeGeo = c.geozones && geozoneOfflineKind(c.iso) === "tilestore";
-  const storeParts: TileStorePart[] = storeGeo ? storePartsFor(c) : [];
+  const storeParts: TileStorePart[] = storeGeo ? (baseOnly ? ["base"] : storePartsFor(c)) : [];
   const wanted = new Set(plans.map((p) => p.key));
   if (vectorGeo) wanted.add(vectorGeoKey(c.iso));
   for (const part of storeParts) wanted.add(storeGeoKey(c.iso, part));
   const progress = await loadProgress();
   const levels = await loadLevels();
 
-  // abgewählte Teile entfernen
-  for (const key of Object.keys(progress)) {
-    if (key.startsWith(`${c.iso}:`) && !wanted.has(key)) await dropPack(progress, levels, key);
+  // abgewählte Teile entfernen (nicht im Basis-Modus: dort wird nur ergänzt)
+  if (!baseOnly) {
+    for (const key of Object.keys(progress)) {
+      if (key.startsWith(`${c.iso}:`) && !wanted.has(key)) await dropPack(progress, levels, key);
+    }
+    await saveProgress(progress);
+    await saveLevels(levels);
   }
-  await saveProgress(progress);
-  await saveLevels(levels);
 
   // Vektor-Geozonen (ED-269): ganze Landesdatei in den Gerätecache laden
   if (vectorGeo && !shouldStop()) {
@@ -780,8 +849,18 @@ async function runCountryDownload(
     levels[hash] = Math.max(levels[hash] ?? 0, plan.maxZoom);
     await saveLevels(levels);
 
-    const report = (state: PackProgress["state"], error?: string) =>
+    // Download-Anzeige (app-weit)
+    const activityId = beginDownload({
+      id: `pack:${plan.key}`,
+      iso: c.iso,
+      labelDe: plan.kind === "map" ? "Karte" : plan.kind === "sat" ? "Luftbild" : "Geozonen-Kacheln",
+      kind: plan.kind === "map" ? "map" : plan.kind === "sat" ? "satellite" : "geozones",
+      totalItems: st.total,
+    });
+    const report = (state: PackProgress["state"], error?: string) => {
+      progressDownload(activityId, { doneItems: st.done, totalItems: st.total });
       onPack({ key: plan.key, kind: plan.kind, percentage: st.total ? (st.done / st.total) * 100 : 100, bytes: st.bytes, state, error });
+    };
     report("active");
 
     const it = planTiles(plan);
@@ -820,29 +899,39 @@ async function runCountryDownload(
       report("error", e?.message);
       summary.failed = true;
       return summary;
+    } finally {
+      endDownload(activityId);
     }
   }
 
   // Hindernisse: Kachel für Kachel, schonend für die OSM-Server
-  if (c.obstacles && !shouldStop()) {
+  if (c.obstacles && !baseOnly && !shouldStop()) {
     const bounds = countryOfflineBounds(c.iso);
     if (bounds) {
       const tiles = tilesForBounds(...bounds, OBSTACLE_TILE_ZOOM);
       let done = 0;
       onObstacles(0, tiles.length);
-      for (const t of tiles) {
-        if (shouldStop()) break;
-        if (!(await hasObstacleTile(t.x, t.y))) {
-          if (!allowLarge) {
-            summary.pendingWifi = true;
-            break;
+      let activityId: string | null = null;
+      try {
+        for (const t of tiles) {
+          if (shouldStop()) break;
+          if (!(await hasObstacleTile(t.x, t.y))) {
+            if (!allowLarge) {
+              summary.pendingWifi = true;
+              break;
+            }
+            // Anzeige erst, wenn wirklich geladen wird
+            activityId ??= beginDownload({ id: `obstacles:${c.iso}`, iso: c.iso, labelDe: "Hindernisse", kind: "obstacles", totalItems: tiles.length });
+            await loadObstacleTile(t.x, t.y, { force: true, track: false });
+            summary.updated = true;
+            await new Promise((r) => setTimeout(r, 1200));
           }
-          await loadObstacleTile(t.x, t.y, { force: true });
-          summary.updated = true;
-          await new Promise((r) => setTimeout(r, 1200));
+          done++;
+          if (activityId) progressDownload(activityId, { doneItems: done });
+          onObstacles(done, tiles.length);
         }
-        done++;
-        onObstacles(done, tiles.length);
+      } finally {
+        if (activityId) endDownload(activityId);
       }
     }
   }
@@ -860,10 +949,12 @@ export async function autoSyncCountry(
   rawIso: string,
   allowLarge: boolean,
   onProgress: (p: OfflineSyncProgress) => void,
+  mode: "full" | "base" = "full",
 ): Promise<OfflineSyncCountryResult> {
   const iso = rawIso.toUpperCase();
   if (activeDownloads.has(iso)) return { iso, status: "skipped", message: "Download läuft bereits" };
-  const c = (await loadOfflineConfigs()).find((x) => x.iso === iso) ?? defaultConfig(iso);
+  const c = mode === "base" ? baseConfig(iso) : (await loadOfflineConfigs()).find((x) => x.iso === iso) ?? defaultConfig(iso);
+  if (mode === "base" && !c.geozones) return { iso, status: "current" };
   // Speicherplatz grob prüfen (wie beim Laden aus den Einstellungen)
   if (allowLarge) {
     const free = await freeDiskMB();
@@ -885,7 +976,7 @@ export async function autoSyncCountry(
     (done, total) =>
       onProgress({ key: `${iso}:obstacles`, label: "Hindernisse", percentage: total ? (done / total) * 100 : 100, state: done >= total ? "complete" : "active" }),
     () => false,
-    { auto: true, allowLarge },
+    { auto: true, allowLarge, baseOnly: mode === "base" },
   );
   if (r.failed) return { iso, status: "failed", message: "Aktualisierung fehlgeschlagen – erneut versuchen" };
   if (r.pendingWifi) return { iso, status: "pending-wifi", message: "Große Daten werden im WLAN geladen" };
@@ -922,6 +1013,60 @@ async function downloadStorePacks(
   return results.some((r) => r.state === "error");
 }
 
+/**
+ * Länder-Nutzung „online“: nur die Basis-Geozonen (ED-269-Landesdatei bzw.
+ * Kachelspeicher „base“) – keine Karte, kein Luftbild, keine Hindernisse,
+ * keine großen Zusatzteile. Geozonen-Bildkacheln (WMS/XYZ) zählen nicht dazu.
+ */
+export function baseConfig(iso: string): CountryOfflineConfig {
+  const offline = getGeozoneSourceMeta(iso)?.offline;
+  return {
+    ...defaultConfig(iso),
+    map: false,
+    satellite: false,
+    obstacles: false,
+    geozones: offline === "ed269-store" || offline === "tile-store",
+    wohngebiete: false,
+    esInfra: false,
+    esEnp: false,
+  };
+}
+
+/**
+ * Offline → online: nur die Offline-Zusätze löschen (Karte, Luftbild,
+ * Geozonen-Bildkacheln, Hindernisse, große Zusatzteile, Konfiguration). Die
+ * Basis-Geozonen (ED-269-Landesdatei, Kachelspeicher „base“) bleiben.
+ */
+export async function deleteCountryExtras(iso: string): Promise<void> {
+  const progress = await loadProgress();
+  const levels = await loadLevels();
+  const keep = new Set([vectorGeoKey(iso), storeGeoKey(iso, "base")]);
+  for (const key of Object.keys(progress)) {
+    if (key.startsWith(`${iso}:`) && !keep.has(key)) await dropPack(progress, levels, key);
+  }
+  await saveProgress(progress);
+  await saveLevels(levels);
+  if (isTileStoreIso(iso)) {
+    for (const part of ["wohn", "infra", "enp"] as TileStorePart[]) {
+      if (getTilePartMeta(iso, part)) await deleteTileStore(iso, part).catch(() => {});
+    }
+  }
+  await deleteCountryObstacles(iso, (await loadOfflineConfigs()).filter((x) => x.iso !== iso));
+  await saveOfflineConfigs((await loadOfflineConfigs()).filter((x) => x.iso !== iso));
+}
+
+/** Hindernis-Kacheln im Länder-Rechteck löschen – außer sie gehören zu einem anderen Offline-Land. */
+async function deleteCountryObstacles(iso: string, others: CountryOfflineConfig[]): Promise<void> {
+  const bounds = countryOfflineBounds(iso);
+  if (!bounds) return;
+  const keep = new Set<string>();
+  for (const other of others) {
+    const ob = countryOfflineBounds(other.iso);
+    if (ob && other.obstacles) for (const t of tilesForBounds(...ob, OBSTACLE_TILE_ZOOM)) keep.add(`${t.x}_${t.y}`);
+  }
+  await deleteObstacleTiles(tilesForBounds(...bounds, OBSTACLE_TILE_ZOOM).filter((t) => !keep.has(`${t.x}_${t.y}`)));
+}
+
 export async function pauseCountryDownload(_iso: string): Promise<void> {
   // Der Download prüft shouldStop(); hier nichts weiter zu tun.
 }
@@ -937,16 +1082,8 @@ export async function deleteCountry(iso: string): Promise<void> {
   if (isTileStoreIso(iso)) await deleteTileStore(iso).catch(() => {});
 
   const list = (await loadOfflineConfigs()).filter((x) => x.iso !== iso);
-  const bounds = countryOfflineBounds(iso);
-  if (bounds) {
-    // Hindernis-Kacheln, die auch zu einem anderen Offline-Land gehören, behalten
-    const keep = new Set<string>();
-    for (const other of list) {
-      const ob = countryOfflineBounds(other.iso);
-      if (ob && other.obstacles) for (const t of tilesForBounds(...ob, OBSTACLE_TILE_ZOOM)) keep.add(`${t.x}_${t.y}`);
-    }
-    await deleteObstacleTiles(tilesForBounds(...bounds, OBSTACLE_TILE_ZOOM).filter((t) => !keep.has(`${t.x}_${t.y}`)));
-  }
+  // Hindernis-Kacheln, die auch zu einem anderen Offline-Land gehören, behalten
+  await deleteCountryObstacles(iso, list);
   await saveOfflineConfigs(list);
 }
 

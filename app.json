@@ -63,6 +63,7 @@
       "expo-font",
       "@maplibre/maplibre-react-native",
       "./plugins/withReleaseSigning",
+      "./plugins/withRadarForegroundService",
       "expo-secure-store"
     ],
     "experiments": {

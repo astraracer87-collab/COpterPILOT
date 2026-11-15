@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from "react";
-import { View, StyleSheet, ScrollView, Pressable, Switch } from "react-native";
+import { View, StyleSheet, ScrollView, Pressable, Switch, Platform } from "react-native";
 import Slider from "@react-native-community/slider";
 import { useFocusEffect } from "@react-navigation/native";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
@@ -11,6 +11,7 @@ import { Card } from "@/components/Card";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, Typography, BorderRadius } from "@/constants/theme";
 import { getSettings, saveSettings, Settings, DEFAULT_PROXIMITY_ALARM } from "@/lib/storage";
+import { getRadarBackgroundEnabled, setRadarBackgroundEnabled } from "@/lib/radarMonitorNative";
 
 function formatRadius(meters: number): string {
   if (meters >= 1000) {
@@ -30,9 +31,12 @@ export default function TcasSettingsScreen() {
   const tabBarHeight = useBottomTabBarHeight();
   const [settings, setSettings] = useState<Settings | null>(null);
 
+  const [backgroundOn, setBackgroundOn] = useState(true);
+
   const loadSettings = useCallback(async () => {
     const data = await getSettings();
     setSettings(data);
+    setBackgroundOn(await getRadarBackgroundEnabled());
   }, []);
 
   useFocusEffect(
@@ -90,6 +94,30 @@ export default function TcasSettingsScreen() {
             />
           </View>
         </Card>
+        {Platform.OS === "android" ? (
+          <Card style={[styles.menuItem, styles.menuItemSpacing]}>
+            <View style={styles.switchRow}>
+              <Feather name="radio" size={20} color={theme.primary} />
+              <View style={styles.switchContent}>
+                <ThemedText style={styles.menuText}>Im Hintergrund weiter überwachen</ThemedText>
+                <ThemedText style={[styles.switchDescription, { color: theme.textSecondary }]}>
+                  Radar-Warnungen (Verkehr, Geozonen, NOTAM) laufen weiter, wenn eine andere App wie DJI Fly im Vordergrund ist.
+                  Daueranzeige „Luftraumüberwachung aktiv“; endet beim Verlassen des Radars oder nach 4 Stunden.
+                </ThemedText>
+              </View>
+              <Switch
+                value={backgroundOn}
+                onValueChange={async (value) => {
+                  setBackgroundOn(value);
+                  await setRadarBackgroundEnabled(value);
+                }}
+                trackColor={{ false: theme.backgroundSecondary, true: theme.primary }}
+                thumbColor="#FFFFFF"
+                testID="toggle-radar-background"
+              />
+            </View>
+          </Card>
+        ) : null}
         <Card style={[styles.menuItem, styles.menuItemSpacing, { flexDirection: "column", alignItems: "stretch" }]}>
           <View style={styles.sliderHeader}>
             <Feather name="arrow-down" size={16} color={theme.primary} />

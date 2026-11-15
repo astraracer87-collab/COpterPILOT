@@ -110,6 +110,13 @@ export interface GeozoneSourceMeta {
    * normalisiert (wirkt nur auf MATZ/MCTR mit genau diesem Muster).
    */
   frequentisPlaceholder?: boolean;
+  /**
+   * Frequentis-AVM-Feed (AT, EE, LT): beim Abruf `hidden`-Features (AT
+   * sys_*) und weltumspannende PROHIBITED-Polygone (LT „Outside Lithuania“,
+   * bbox > 90° Länge oder > 45° Breite) verwerfen – siehe
+   * dropFrequentisSystemFeatures (client/lib/geozoneDirect/ed269Sources.ts).
+   */
+  frequentisAvm?: boolean;
   /** Zeitgesteuerte applicability-Einträge (permanent NO + Zeitfenster) zählen als NOTAM-artig */
   notamFromApplicability?: boolean;
   /** Live-Zonen (`_live`, nicht permanent) zählen als NOTAM-artig (BE skeyes) */
@@ -278,6 +285,7 @@ export const GEOZONE_SOURCE_META: readonly GeozoneSourceMeta[] = [
     vectorMinZoom: 7, // = GEOZONE_TILE_MIN_ZOOM
     loadsFullCountry: true,
     frequentisPlaceholder: true,
+    frequentisAvm: true,
     notamFromApplicability: true,
     notamListOrder: 2,
     provider: "Austro Control – Dronespace",
@@ -315,9 +323,10 @@ export const GEOZONE_SOURCE_META: readonly GeozoneSourceMeta[] = [
     iso: "EE",
     labelDe: "Estland",
     ...vector,
+    frequentisAvm: true,
     provider: "EANS (Lennuliiklusteeninduse AS) / Transpordiamet",
-    license: "Öffentliche Daten, freie Nutzung von EANS schriftlich bestätigt",
-    writtenPermission: true,
+    license: "Öffentliche Daten; Freigabe von EANS mündlich erteilt, schriftliche Bestätigung ausstehend",
+    writtenPermission: false,
     url: "https://utm.eans.ee",
   },
   {
@@ -371,6 +380,8 @@ export const GEOZONE_SOURCE_META: readonly GeozoneSourceMeta[] = [
     labelDe: "Polen",
     ...vector,
     provider: "Polska Agencja Żeglugi Powietrznej (PAŻP / PANSA) – DroneMap",
+    license:
+      "Schriftliche Freigabe von PAŻP/PANSA, vom Product Owner bestätigt (2026-11-15), für den dokumentierten Umfang: statische Zonen über /v1/zones und KML, Zonentypen (/v1/zones/types), Aktivierungen und NOTAM-Endpunkte wie dokumentiert",
     writtenPermission: true,
     url: "https://dronemap.pansa.pl",
   },
@@ -380,6 +391,7 @@ export const GEOZONE_SOURCE_META: readonly GeozoneSourceMeta[] = [
     labelDe: "Litauen",
     ...vector,
     frequentisPlaceholder: true,
+    frequentisAvm: true,
     provider: "Oro navigacija (Lithuanian ANS)",
     writtenPermission: true,
     url: "https://utm.ans.lt",
@@ -394,7 +406,9 @@ export const GEOZONE_SOURCE_META: readonly GeozoneSourceMeta[] = [
     url: "https://www.caa.co.uk",
   },
   {
-    // d-flight: ED-269-Download nur mit eigenem Zugang (verschlüsselt auf dem Gerät).
+    // d-flight: GeoServer-WFS (ATM09_INFO, NO_FLY_ZONE, NOTAM) nur mit eigenem
+    // Zugang (Zugangsdaten verschlüsselt auf dem Gerät); ED-269-Download nur
+    // als optionaler erster Versuch (für Rolle USER gesperrt).
     iso: "IT",
     labelDe: "Italien",
     kind: "login",
@@ -403,9 +417,13 @@ export const GEOZONE_SOURCE_META: readonly GeozoneSourceMeta[] = [
     accessGate: "login",
     accessHint: "d-flight-Zugang fehlt oder Anmeldung fehlgeschlagen",
     provider: "d-flight S.p.A. (Gruppo ENAV)",
+    usage:
+      "UAS-Geozonen (ENAC ATM-09), temporäre Flugverbotszonen und drohnenrelevante NOTAMs per GeoServer-WFS – Abruf auf dem Gerät mit dem eigenen d-flight-Konto des Nutzers.",
+    license:
+      "Schriftliche Freigabe von d-flight, vom Product Owner bestätigt (2026-11-15), für den dokumentierten Umfang: Jeder Nutzer verwendet sein eigenes d-flight-Konto zum persönlichen Gebrauch; die Daten werden nicht weitergegeben",
     writtenPermission: true,
     url: "https://www.d-flight.it",
-    note: "Abruf nur mit eigenem d-flight-Zugang des Nutzers.",
+    note: "Abruf nur mit eigenem d-flight-Zugang des Nutzers (persönlicher Gebrauch, keine Weitergabe der Daten).",
   },
   {
     iso: "IS",
@@ -497,7 +515,9 @@ export const GEOZONE_SOURCE_META: readonly GeozoneSourceMeta[] = [
     url: "https://dronesoner.no",
   },
   {
-    // ŘLP ČR: ED-318-Kacheln nur über das Offline-Paket „Geozonen“.
+    // ŘLP ČR: ED-318-Kacheln nur über das Geozonen-Paket (ZIP ≈ 36 MB). Es
+    // wird bei aktivem Land (online UND offline) automatisch geladen; bis
+    // dahin „manuell prüfen“ (accessGate "pack").
     iso: "CZ",
     labelDe: "Tschechien",
     kind: "tiled",
@@ -505,7 +525,7 @@ export const GEOZONE_SOURCE_META: readonly GeozoneSourceMeta[] = [
     offline: "tile-store",
     vectorMinZoom: 10,
     accessGate: "pack",
-    accessHint: "Offline-Paket nicht geladen",
+    accessHint: "Geozonen-Paket noch nicht geladen",
     provider: "Řízení letového provozu ČR (ŘLP ČR / ANS CR)",
     usage: "Drohnen-Geozonen (ED-318) als Offline-Kachelspeicher.",
     writtenPermission: true,

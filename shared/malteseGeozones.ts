@@ -7,7 +7,7 @@
 // automatisierter Bezug erst mit Datenfreigabe). Der Nutzer exportiert die
 // gerenderten Zonen am PC (export_tmcad_geozonen.js) und importiert die Datei.
 //
-// Zwei Dateiformate werden erkannt:
+// Drei Dateiformate werden erkannt:
 //  1. Roh-Export (`malta_geozonen_roh_<datum>.geojson`, Layer „operator-zones“):
 //     zoneId, name (inkl. Kontakt-E-Mail), type, forbidden (1/true), minHeight,
 //     maxHeight, maxPilots, cost, center („lon,lat“), radius (m), archived …
@@ -15,18 +15,25 @@
 //     land "MT", zone_id, name, typ_code, verboten, min_hoehe, max_hoehe,
 //     max_piloten, kosten, kreis_mitte_lon/lat, kreis_radius_m, archiviert,
 //     quelle, stand.
+//  3. normalisiertes Übergabe-Schema (Doku §6a): label (ohne Kontakt),
+//     kontakt_email, auto_limit_m und die Rohwerte unter
+//     _raw{zoneId, name, maxHeight, minHeight, type, forbidden, radius, …}.
 // Kreiszonen liegen bereits als angenäherte Polygone vor.
 //
 // Beschränkung: forbidden/verboten → PROHIBITED, sonst REQ_AUTHORISATION
 // (Flug nur mit Genehmigung/Absprache – vorsichtig, die Quelle kennt nur
 // „verboten“ oder nicht).
 //
-// ⚠️ Höhen: Die Quelle nennt WEDER Einheit NOCH Bezug (Werte 60–8800, laut
-// Doku „vermutlich ft“). Der Bezug bleibt deshalb leer (UNKNOWN – der
-// Höhenfilter blendet solche Zonen nie aus) und die Meter werden jeweils
-// VORSICHTIG gewählt: Untergrenze als ft (kleinerer Wert → Zone reicht tiefer),
-// Obergrenze als m (größerer Wert → Zone reicht höher). Angezeigt wird der
-// Rohwert mit Hinweis „Einheit nicht angegeben“.
+// ⚠️ Höhen (Doku §6a): `maxHeight` (60/120/400/1200/8800 …) ist die
+// LUFTRAUMDECKE (vermutlich ft), KEIN Drohnenlimit und keine Zonen-Obergrenze.
+// Die Zone gilt daher ohne Obergrenze (unbegrenzt); `maxHeight` erscheint nur
+// als Info „Luftraumdecke X ft“. Die Untergrenze (minHeight, Einheit/Bezug
+// nicht angegeben) wird weiterhin VORSICHTIG als ft gelesen (kleinerer Wert →
+// Zone reicht tiefer) und ohne Bezug (UNKNOWN – nie ausgeblendet) geführt.
+// Die 9 LUQA-Flughafenzonen nennen im Namen „Auto Authorised maximum XX m
+// AGL“ → `auto_limit_m` und Hinweis „Auto-Freigabe bis XX m AGL“. Das ist
+// eine automatische FREIGABE (Antrag nötig), keine genehmigungsfreie Höhe:
+// die Zone bleibt REQ_AUTHORISATION, es wird KEIN maxFlightHeightAglM gesetzt.
 //
 // Bewusst frei von React-Native-Importen (unter tsx/Node testbar).
 import { ftToM } from "./geozoneKit/heights";
@@ -51,12 +58,37 @@ function num(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-/** Roh-Export (zoneId + forbidden/maxHeight/center) oder normalisierte Datei (land MT + zone_id)? */
-export function maltaImportVariant(props: Record<string, any> | null | undefined): "raw" | "normalized" | null {
+export type MaltaImportVariant = "raw" | "normalized" | "handover";
+
+function rawObject(p: Record<string, any>): Record<string, any> | null {
+  return p._raw && typeof p._raw === "object" && !Array.isArray(p._raw) ? (p._raw as Record<string, any>) : null;
+}
+
+/**
+ * Roh-Export (zoneId + forbidden/maxHeight/center), normalisierte Datei
+ * (land MT + zone_id) oder Übergabe-Schema (label/kontakt_email/auto_limit_m
+ * + _raw{maxHeight,minHeight,type,…})?
+ */
+export function maltaImportVariant(props: Record<string, any> | null | undefined): MaltaImportVariant | null {
   const p = props ?? {};
+  const r = rawObject(p);
+  if (r && ("maxHeight" in r || "minHeight" in r || "forbidden" in r || "zoneId" in r || "type" in r || "radius" in r)) {
+    return "handover";
+  }
+  if ("label" in p && ("kontakt_email" in p || "auto_limit_m" in p)) return "handover";
   if (String(p.land ?? "").toUpperCase() === "MT" && "zone_id" in p) return "normalized";
   if ("zoneId" in p && ("forbidden" in p || "maxHeight" in p || "minHeight" in p || "center" in p)) return "raw";
   return null;
+}
+
+const AUTO_LIMIT_RE = /auto[\s-]*authori[sz]ed\s+(?:maximum|max\.?)\s*(?:of\s*)?(\d{1,4}(?:[.,]\d+)?)\s*m(?:etres|eters)?\s*AGL/i;
+
+/** „Auto Authorised maximum XX m AGL“ aus dem Namenstext (LUQA-Zonen) → Meter, sonst null. */
+export function parseMaltaAutoLimitM(text: unknown): number | null {
+  const m = String(text ?? "").match(AUTO_LIMIT_RE);
+  if (!m) return null;
+  const n = Number(m[1].replace(",", "."));
+  return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 /** Bezeichnung und Kontakt trennen („Victoria Health Centre  Contact a@gov.mt“). */
@@ -84,20 +116,33 @@ export function normalizeMalteseFeature(f: any, idx = 0): MtFeature | null {
   const p = f.properties || {};
   const variant = maltaImportVariant(p);
   if (!variant) return null;
-  const raw = variant === "raw";
-  if (truthy(raw ? p.archived : p.archiviert)) return null;
-  if (raw && p.visible === false) return null;
+  // Einheitliche Sicht auf die drei Formate (siehe Kopf).
+  const r = rawObject(p) ?? {};
+  const pick = (raw: unknown, normalized: unknown, handover: unknown): unknown =>
+    variant === "raw" ? raw : variant === "normalized" ? normalized : handover;
+  if (truthy(pick(p.archived, p.archiviert, p.archiviert ?? p.archived ?? r.archived))) return null;
+  if ((variant === "raw" ? p.visible : variant === "handover" ? p.visible ?? r.visible : undefined) === false) return null;
 
-  const zoneId = String((raw ? p.zoneId : p.zone_id) ?? "").trim() || `MT-${idx + 1}`;
-  const forbidden = truthy(raw ? p.forbidden : p.verboten);
-  const minH = num(raw ? p.minHeight : p.min_hoehe);
-  const maxH = num(raw ? p.maxHeight : p.max_hoehe);
-  const maxPilots = num(raw ? p.maxPilots : p.max_piloten);
-  const cost = num(raw ? p.cost : p.kosten);
-  const radius = num(raw ? p.radius : p.kreis_radius_m);
-  const typeCode = raw ? p.type : p.typ_code;
-  const { name, contact, email } = splitMaltaName(p.name);
+  const zoneId =
+    String(pick(p.zoneId, p.zone_id, p.zone_id ?? p.zoneId ?? p.id ?? r.zoneId ?? r._id) ?? "").trim() || `MT-${idx + 1}`;
+  const forbidden = truthy(pick(p.forbidden, p.verboten, p.verboten ?? p.forbidden ?? r.forbidden));
+  const minH = num(pick(p.minHeight, p.min_hoehe, r.minHeight ?? p.min_hoehe));
+  const maxH = num(pick(p.maxHeight, p.max_hoehe, r.maxHeight ?? p.max_hoehe));
+  const maxPilots = num(pick(p.maxPilots, p.max_piloten, r.maxPilots ?? p.max_piloten));
+  const cost = num(pick(p.cost, p.kosten, r.cost ?? p.kosten));
+  const radius = num(pick(p.radius, p.kreis_radius_m, r.radius ?? p.kreis_radius_m));
+  const typeCode = pick(p.type, p.typ_code, r.type ?? p.typ_code);
+  // Originaltext (Name inkl. Kontakt) – im Übergabe-Schema unter _raw.name.
+  const original = String(pick(p.name, p.name, r.name ?? p.name ?? p.label) ?? "").trim();
+  const split = splitMaltaName(original);
+  const label = variant === "handover" ? String(p.label ?? "").replace(/\s+/g, " ").trim() : "";
+  const name = label || split.name;
+  const handoverEmail = variant === "handover" ? String(p.kontakt_email ?? "").trim() : "";
+  const email = handoverEmail || split.email;
+  const contact = split.contact || handoverEmail;
+  const autoLimitM = num(variant === "handover" ? p.auto_limit_m : null) ?? parseMaltaAutoLimitM(original || name);
   const restriction = forbidden ? "PROHIBITED" : "REQ_AUTHORISATION";
+  const lowerGnd = minH == null || minH <= 0;
 
   const lines: string[] = [`Malta-Geozone (Transport Malta / iDronect)${typeCode != null && typeCode !== "" ? ` · Typ-Code ${typeCode}` : ""}`];
   lines.push(
@@ -105,15 +150,22 @@ export function normalizeMalteseFeature(f: any, idx = 0): MtFeature | null {
       ? "Flugverbot für Drohnen (in der Quelle als „forbidden“ markiert)."
       : "Flug nur mit Genehmigung/Absprache – Bedingungen bei Transport Malta (TMCAD) bzw. dem genannten Kontakt klären.",
   );
-  if (minH != null || maxH != null) {
-    lines.push(`Höhe laut Quelle: ${minH == null || minH <= 0 ? "GND" : fmtRaw(minH)} bis ${fmtRaw(maxH)} – Einheit und Bezug nicht angegeben (vermutlich ft).`);
+  if (!forbidden && autoLimitM != null) {
+    lines.push(
+      `Hinweis: Auto-Freigabe bis ${fmtRaw(autoLimitM)} m AGL – automatische Freigabe nach Antrag, kein genehmigungsfreier Flug.`,
+    );
   }
+  lines.push(
+    lowerGnd
+      ? "Höhe: ab Boden ohne Obergrenze."
+      : `Höhe: ab ${fmtRaw(minH)} (Einheit und Bezug nicht angegeben, vermutlich ft) ohne Obergrenze.`,
+  );
+  if (maxH != null) lines.push(`Luftraumdecke ${fmtRaw(maxH)} ft (laut Quelle, vermutlich ft) – kein Drohnen-Höhenlimit.`);
   if (radius != null && radius > 0) lines.push(`Kreiszone mit Radius ca. ${Math.round(radius)} m.`);
   if (maxPilots != null && maxPilots > 0) lines.push(`Höchstzahl gleichzeitiger Piloten: ${maxPilots}.`);
   if (cost != null && cost > 0) lines.push(`Gebühr laut Quelle: ${cost}.`);
   if (contact) lines.push(`Kontakt: ${contact}`);
   lines.push(sourceLineDe("Transport Malta CAD / iDronect (manueller Export)", MT_GEOZONE_ATTRIBUTION));
-  const original = String(p.name ?? "").trim();
   const message = messageWithOriginal(lines, original && original !== name ? original : null);
 
   const props: Record<string, any> = {
@@ -129,12 +181,15 @@ export function normalizeMalteseFeature(f: any, idx = 0): MtFeature | null {
     attribution: MT_GEOZONE_ATTRIBUTION,
     contactEmail: email,
     mtImportVariant: variant,
-    // Untergrenze vorsichtig als ft, Obergrenze vorsichtig als m (siehe Kopf); Bezug leer = UNKNOWN.
-    lowerMeters: minH == null || minH <= 0 ? 0 : round1(ftToM(minH)),
-    lowerReference: minH == null || minH <= 0 ? "AGL" : undefined,
-    upperMeters: maxH == null ? undefined : round1(maxH),
-    altitudeText: `${minH == null || minH <= 0 ? "GND" : fmtRaw(minH)} – ${maxH == null ? "UNL" : fmtRaw(maxH)} (Einheit unbekannt)`,
-    heightUnitUnknown: true,
+    // Untergrenze vorsichtig als ft (Bezug leer = UNKNOWN); KEINE Obergrenze:
+    // maxHeight ist die Luftraumdecke, nicht das Zonenvolumen (siehe Kopf).
+    lowerMeters: lowerGnd ? 0 : round1(ftToM(minH as number)),
+    lowerReference: lowerGnd ? "AGL" : undefined,
+    altitudeText: lowerGnd ? "GND – UNL" : `${fmtRaw(minH)} – UNL (Einheit unbekannt)`,
+    heightUnitUnknown: lowerGnd ? undefined : true,
+    airspaceCeilingFt: maxH ?? undefined,
+    // LUQA: automatische Freigabe bis X m AGL – nur Info, keine Höhen-Freigabe.
+    auto_limit_m: autoLimitM ?? undefined,
   };
   for (const k of Object.keys(props)) if (props[k] === undefined) delete props[k];
   return { type: "Feature", geometry: { type: g.type, coordinates: g.coordinates }, properties: props };

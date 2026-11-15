@@ -7,7 +7,12 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { parseGeozoneImport, GEOZONE_IMPORT_ONLY_ISOS } from "../../../shared/geozoneImport";
-import { maltaImportVariant, normalizeMalteseImport, splitMaltaName } from "../../../shared/malteseGeozones";
+import {
+  maltaImportVariant,
+  normalizeMalteseImport,
+  parseMaltaAutoLimitM,
+  splitMaltaName,
+} from "../../../shared/malteseGeozones";
 import { isDagrImportFeature, normalizeGreekDagrImport, parseDagrDate } from "../../../shared/greekGeozones";
 import {
   GR_GEOZONE_TILE_URL,
@@ -107,19 +112,95 @@ describe("Malta – Import des Browser-Exports (echte Fixture)", () => {
     assert.equal(a.properties.restriction, "PROHIBITED");
     assert.equal(a.properties.zoneId, "MT-BNtjEqFyvU2BOxsUGtXrBksm");
     assert.equal(a.properties.lowerMeters, 0);
-    assert.equal(a.properties.upperMeters, 60); // Obergrenze vorsichtig als m
-    assert.equal(a.properties.upperReference, undefined); // Bezug unbekannt
-    assert.equal(a.properties.altitudeText, "GND – 60 (Einheit unbekannt)");
+    // maxHeight 60 = Luftraumdecke (ft), keine Zonen-Obergrenze → unbegrenzt
+    assert.equal(a.properties.upperMeters, undefined);
+    assert.equal(a.properties.upperReference, undefined);
+    assert.equal(a.properties.airspaceCeilingFt, 60);
+    assert.equal(a.properties.altitudeText, "GND – UNL");
+    assert.equal(a.properties.auto_limit_m, undefined);
     assert.equal(a.properties.contactEmail, "carmen.ogilvie-galea@gov.mt");
     assert.match(a.properties.message, /^Malta-Geozone \(Transport Malta \/ iDronect\) · Typ-Code 1\nFlugverbot für Drohnen/);
-    assert.match(a.properties.message, /Höhe laut Quelle: GND bis 60 – Einheit und Bezug nicht angegeben \(vermutlich ft\)\./);
+    assert.match(a.properties.message, /Höhe: ab Boden ohne Obergrenze\./);
+    assert.match(a.properties.message, /Luftraumdecke 60 ft \(laut Quelle, vermutlich ft\) – kein Drohnen-Höhenlimit\./);
+    assert.doesNotMatch(a.properties.message, /Auto-Freigabe/);
     assert.match(a.properties.message, /Kreiszone mit Radius ca\. 98 m\./);
     assert.match(a.properties.message, /Originaltext der Behörde:\nVictoria Health Centre {2}Contact/);
     assert.equal(b.properties.name, "Sir Paul Boffa Hospital");
     const infos = parseEd269ToGeozoneInfo(normalizeMalteseImport(mtRaw.features) as any[], "MT");
     assert.equal(infos.length, 2);
     assert.equal(infos[0].restriction, "PROHIBITED");
-    assert.equal(infos[0].upper?.ref, "UNKNOWN");
+    assert.equal(infos[0].upper?.m, null); // unbegrenzt
+  });
+
+  // Handgebaute LUQA-Zone: Namensmuster laut docs/idronect-mt-api-integration.md
+  // §6a („Auto Authorised maximum XX m AGL“), Werte konstruiert.
+  const luqaGeometry = mtRaw.features[1].geometry;
+  const luqaName = "LUQA Zone 3 - Auto Authorised maximum 30 m AGL - Contact: atm@maltats.com";
+
+  it("LUQA: Auto-Freigabe bis XX m AGL als Hinweis, bleibt REQ_AUTHORISATION, keine Höhenfreigabe", () => {
+    const [z] = normalizeMalteseImport([
+      {
+        type: "Feature",
+        geometry: luqaGeometry,
+        properties: { zoneId: "LUQA3", name: luqaName, minHeight: 0, maxHeight: 400, forbidden: 0, type: 1, archived: false },
+      },
+    ]);
+    assert.equal(parseMaltaAutoLimitM(luqaName), 30);
+    assert.equal(parseMaltaAutoLimitM("Victoria Health Centre"), null);
+    assert.equal(z.properties.restriction, "REQ_AUTHORISATION");
+    assert.equal(z.properties.auto_limit_m, 30);
+    assert.equal(z.properties.maxFlightHeightAglM, undefined);
+    assert.equal(z.properties.upperMeters, undefined);
+    assert.equal(z.properties.airspaceCeilingFt, 400);
+    assert.match(z.properties.message, /Hinweis: Auto-Freigabe bis 30 m AGL/);
+    assert.match(z.properties.message, /Luftraumdecke 400 ft/);
+    const [info] = parseEd269ToGeozoneInfo([z] as any[], "MT");
+    assert.equal(info.restriction, "REQ_AUTHORISATION");
+    assert.ok(!info.maxFlightHeightAglM);
+  });
+
+  it("Übergabe-Schema (label, kontakt_email, auto_limit_m, _raw) wird erkannt", () => {
+    const handover = {
+      type: "FeatureCollection",
+      features: [
+        {
+          type: "Feature",
+          geometry: luqaGeometry,
+          properties: {
+            label: "LUQA Zone 3 - Auto Authorised maximum 30 m AGL",
+            kontakt_email: "atm@maltats.com",
+            auto_limit_m: 30,
+            _raw: { zoneId: "LUQA3", name: luqaName, maxHeight: 400, minHeight: 0, type: 1, forbidden: 0, radius: 0 },
+          },
+        },
+        {
+          type: "Feature",
+          geometry: mtRaw.features[0].geometry,
+          properties: {
+            label: "Victoria Health Centre",
+            kontakt_email: "carmen.ogilvie-galea@gov.mt",
+            auto_limit_m: null,
+            _raw: { ...mtRaw.features[0].properties },
+          },
+        },
+      ],
+    };
+    assert.equal(maltaImportVariant(handover.features[0].properties), "handover");
+    assert.equal(maltaImportVariant({ label: "x", kontakt_email: "a@b.mt" }), "handover");
+    const res = parseGeozoneImport(handover, { iso: "MT", now: NOW });
+    assert.equal(res.format, "mt-tmcad");
+    const [luqa, victoria] = res.features;
+    assert.equal(luqa.properties.zoneId, "MT-LUQA3");
+    assert.equal(luqa.properties.name, "LUQA Zone 3 - Auto Authorised maximum 30 m AGL");
+    assert.equal(luqa.properties.contactEmail, "atm@maltats.com");
+    assert.equal(luqa.properties.restriction, "REQ_AUTHORISATION");
+    assert.equal(luqa.properties.auto_limit_m, 30);
+    assert.equal(luqa.properties.airspaceCeilingFt, 400);
+    assert.equal(victoria.properties.zoneId, "MT-BNtjEqFyvU2BOxsUGtXrBksm");
+    assert.equal(victoria.properties.name, "Victoria Health Centre");
+    assert.equal(victoria.properties.restriction, "PROHIBITED");
+    assert.equal(victoria.properties.upperMeters, undefined);
+    assert.equal(victoria.properties.auto_limit_m, undefined);
   });
 
   it("nicht verboten → Genehmigung; Untergrenze vorsichtig als ft; archivierte entfallen", () => {
