@@ -260,10 +260,11 @@ class MainActivity : Activity() {
             val top = Ui.row(this)
             top.addView(Ui.smallButton(this, "‹ Zurück") { showHome() })
             top.addView(Ui.label(this, "   $heading", Ui.TEXT, 16f, bold = true), Ui.lp(0, WRAP_CONTENT, 1f))
+            top.addView(Ui.label(this, "Schritt ${(current + 1).coerceAtMost(steps.size)}/${steps.size}", Ui.TEXT2, 12f))
             host.addView(top)
-            // Feste Fortschrittszeile: Punkte links, „Schritt X/Y“ rechts
+            // Feste Fortschrittszeile mit Punkten je Schritt
             host.addView(progressLine(steps, current), Ui.lp(topDp = Ui.dpi(this, 10f)))
-            // Aktueller Schritt füllt die Höhe → unten bündig mit dem Protokoll
+            // Aktueller Schritt (natürliche Höhe, scrollbar)
             if (current < steps.size)
                 host.addView(activeCard(current + 1, steps[current]) {
                     // Logging passiert im Weiter-Klick, NICHT in der Render-Funktion
@@ -271,12 +272,10 @@ class MainActivity : Activity() {
                     if (current < steps.size) Log.step("Schritt ${current + 1}: ${steps[current].title}")
                     else Log.ok("Ablauf abgeschlossen: $heading")
                     draw(); refreshStatus()
-                }, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f).apply { topMargin = Ui.dpi(this@MainActivity, 10f) })
-            else {
+                }, Ui.lp(topDp = Ui.dpi(this, 10f)))
+            else
                 host.addView(Ui.bigButton(this, "Fertig", Ui.GREEN) { showHome() }, Ui.lp(topDp = Ui.dpi(this, 10f)))
-                host.addView(View(this), LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
-            }
-            showLeft(host)
+            showLeftScroll(host)
         }
         // Start des Ablaufs ins Protokoll (außerhalb der Render-Funktion)
         Log.step("Ablauf gestartet: $heading")
@@ -296,8 +295,6 @@ class MainActivity : Activity() {
             row.addView(Ui.label(this, sym, color, 16f, bold = true))
             if (i < steps.size - 1) row.addView(Ui.label(this, " ─ ", Ui.BORDER, 14f))
         }
-        row.addView(View(this), Ui.lp(0, WRAP_CONTENT, 1f))
-        row.addView(Ui.label(this, "Schritt ${(current + 1).coerceAtMost(steps.size)}/${steps.size}", Ui.TEXT2, 12f))
         return row
     }
 
