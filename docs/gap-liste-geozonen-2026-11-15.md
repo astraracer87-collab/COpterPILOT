@@ -29,7 +29,7 @@ Test: F = Fixture im Repo, F+ = neue Fixture von EU-IP nötig, G = nur Gerät/EU
 | PL | FEHLT | Aktivierungen `/v1/activ/timeslices`, `/activations`, `/v1/notams` (Join über Zonenname, `acts.H24`). Laut Doku §9.3 erst nach schriftlicher PANSA-Freigabe. | nach Freigabe | M · F+ |
 | PL | prüfen | Höhenbezug `/v1/zones` laut Doku ft AMSL, Plausibilität spricht eher für AGL. Bis geklärt: „unbekannt“ (nie ausblenden). | gegen `/v1/zones/filtered?max_height=` prüfen | S · G |
 | MT | FEHLT | Online per DDP `Zones.getFilteredZones({managedZones:true})` über WebSocket (`wss://tmcad.idronect.com/websocket`); auf dem Gerät machbar; Headless/US bekam „no access“ → nur Gerätetest. | DDP-Client, Import bleibt Rückfall. | M · F / G |
-| MT | FEHLT | `auto_limit_m` aus Namenstext nur bei 9 LUQA-Zonen; sonst flächig nach `forbidden`. `maxHeight` = Luftraumdecke in ft (Beschriftung korrigieren). Normalisiertes Übergabe-Schema (`_raw`) wird nicht erkannt. | Parser + Beschriftung + Schema-Variante | S · F |
+| MT | BUG/FEHLT | `maxHeight` ist die Luftraumdecke (ft), der Code nimmt sie als Obergrenze (`shared/malteseGeozones.ts` upperMeters = maxH) → Zone künstlich begrenzt. `auto_limit_m` nur bei den 9 LUQA-Zonen; sonst flächig nach `forbidden`. Normalisiertes Übergabe-Schema (`_raw`) wird nicht erkannt. | Nicht-LUQA: Obergrenze weglassen (unbegrenzt), `maxHeight` nur als Info „Luftraumdecke X ft“; LUQA: Hinweis „Auto-Freigabe bis X m AGL“, Zone bleibt REQ_AUTHORISATION; Schema-Variante ergänzen. | S · F |
 | GB | FEHLT | AIXM 5.1 (NATS, 1.069) statt Google-KML (Bögen vereinfacht → Lücken FRZ/RPZ). | AIRAC-Dateiname, SHA-256, Parser mit ArcByCenterPoint/CircleByCenterPoint-Verdichtung, `gml:pos` lat/lon tauschen, FRZ+RPZ gruppieren; KML Rückfall. | L · F+ |
 | SI | BUG/Robustheit | Dienste fest verdrahtet; CAA tauscht Dienste → Abruf bricht. | Layer zur Laufzeit aus Web-Map `14c35a6c…/data` lesen. | M · F+ |
 | SK | FEHLT | Live-Reservierungen `Hosted/Reservation_(Public)2/FeatureServer/0` (Join airspace↔IDENT_TXT) → R/TRA nur aktiv, wenn gebucht. Name `(Public)` vs `(Public)2` prüfen. | | M · F+ |
@@ -65,6 +65,12 @@ Test: F = Fixture im Repo, F+ = neue Fixture von EU-IP nötig, G = nur Gerät/EU
 | SK | „VFR Manual, LPS SR, š. p.“ | – | ergänzen |
 | SE | „LFV / Transportstyrelsen“ + Datenstand | CC BY 4.0 | Datenstand anzeigen |
 | PT | ProCiv eigene Freigabe | – | nicht einbinden |
+
+## Hosting-Falle (falls später statische Dateien)
+
+`.github/workflows/android-apk.yml` löscht bei jedem Push den Release „latest“
+samt Anhängen. Datendateien nie dort ablegen, sondern eigener Release-Tag
+(z. B. `geodata`, `gh release upload geodata <datei> --clobber`).
 
 ## Server-Frage (Entscheidung PO: ohne Server)
 
