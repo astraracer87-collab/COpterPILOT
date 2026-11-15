@@ -6,6 +6,9 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Switch, TextInput, View } from "react-native";
 import { useHeaderHeight } from "@react-navigation/elements";
+import { useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import type { SettingsStackParamList } from "@/navigation/SettingsStackNavigator";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { Feather } from "@expo/vector-icons";
 import { ThemedText } from "@/components/ThemedText";
@@ -59,6 +62,7 @@ export default function OfflineMapsScreen() {
   const { theme } = useTheme();
   const headerHeight = useHeaderHeight();
   const tabBarHeight = useSafeTabBarHeight();
+  const navigation = useNavigation<NativeStackNavigationProp<SettingsStackParamList>>();
   const countries = offlineCountries();
   const [configs, setConfigs] = useState<Record<string, CountryOfflineConfig>>({});
   const [saved, setSaved] = useState<Set<string>>(new Set());
@@ -423,6 +427,15 @@ export default function OfflineMapsScreen() {
           wo es keine frei speicherbare amtliche Karte gibt, werden Geozonen und Hindernisse gespeichert und die Karte online angezeigt.
           {freeMB != null ? ` Freier Speicher: ${formatMB(freeMB)}.` : ""}
         </ThemedText>
+        <Pressable
+          onPress={() => navigation.navigate("DataSources")}
+          hitSlop={6}
+          style={[styles.row, styles.intro, { gap: 6 }]}
+          testID="offline-maps-sources-link"
+        >
+          <Feather name="info" size={14} color={theme.primary} />
+          <ThemedText style={[styles.small, { color: theme.primary }]}>Quellen & Lizenzen der Karten und Geozonen</ThemedText>
+        </Pressable>
 
         {countries.map((country) => {
           const c = configs[country.iso];

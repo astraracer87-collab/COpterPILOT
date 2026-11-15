@@ -577,6 +577,13 @@ export default function SettingsScreen() {
           </View>
           <Feather name="chevron-right" size={20} color={theme.textTertiary} />
         </Card>
+        <Card style={styles.menuItem} onPress={() => navigation.navigate("DataSources")} testID="menu-data-sources">
+          <View style={styles.menuRow}>
+            <Feather name="database" size={20} color={theme.primary} />
+            <ThemedText style={styles.menuText}>Datenquellen & Lizenzen</ThemedText>
+          </View>
+          <Feather name="chevron-right" size={20} color={theme.textTertiary} />
+        </Card>
         <Card style={styles.menuItem} onPress={() => navigation.navigate("LegalDocument", { doc: "imprint" })}>
           <View style={styles.menuRow}>
             <Feather name="briefcase" size={20} color={theme.primary} />

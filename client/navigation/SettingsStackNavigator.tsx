@@ -16,6 +16,7 @@ import EasaReferenceScreen from "@/screens/EasaReferenceScreen";
 import EasaRulesScreen from "@/screens/EasaRulesScreen";
 import OfflineMapsScreen from "@/screens/OfflineMapsScreen";
 import RcOfflineMapsScreen from "@/screens/RcOfflineMapsScreen";
+import DataSourcesScreen from "@/screens/DataSourcesScreen";
 import CountryInfoScreen from "@/screens/CountryInfoScreen";
 import CountryDetailScreen from "@/screens/CountryDetailScreen";
 import DflightItalyGuideScreen from "@/screens/DflightItalyGuideScreen";
@@ -59,6 +60,7 @@ export type SettingsStackParamList = {
   EasaRules: undefined;
   OfflineMaps: undefined;
   RcOfflineMaps: undefined;
+  DataSources: undefined;
   CountryInfo: undefined;
   CountryDetail: { iso: string };
   DflightItalyGuide: { droneId?: string } | undefined;
@@ -214,6 +216,11 @@ export default function SettingsStackNavigator() {
         name="RcOfflineMaps"
         component={RcOfflineMapsScreen}
         options={{ headerTitle: "Karten & Offline" }}
+      />
+      <Stack.Screen
+        name="DataSources"
+        component={DataSourcesScreen}
+        options={{ headerTitle: "Datenquellen & Lizenzen" }}
       />
       <Stack.Screen
         name="OfflineMaps"
