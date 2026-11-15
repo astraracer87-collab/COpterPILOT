@@ -249,3 +249,53 @@ NOTAM/AUP) erst nach schriftlicher PANSA-Freigabe automatisiert beziehen, bis
 dahin Hinweis + Link auf DroneMap. (Die interne API ist nicht dokumentiert und
 gilt laut DroneTrake/unmannedairspace ausdrücklich **nicht** als veröffentlichte
 Daten – darum Freigabe einholen, wie bei GR/SK.)
+
+---
+
+## 10. JSON-Endpunkt `/v1/zones` (reicher als KML) + fertiges Skript
+
+Neben dem KML-Weg (§2) gibt die API die Zonen auch als **JSON mit fertigem
+GeoJSON-Polygon** – das ist der **reichste** Weg und Basis des beiliegenden
+Skripts.
+
+**Werkzeug im Repo:** [`docs/tools/poland/pansa_geozones.py`](tools/poland/pansa_geozones.py)
+(nur Python-Stdlib). Login → `/v1/zones` + `/v1/zones/types` + Aktivierungen →
+eine normalisierte GeoJSON-FeatureCollection. `PANSA_API_KEY` per Env setzbar.
+```bash
+python3 pansa_geozones.py -o pansa_geozones.geojson          # live
+python3 pansa_geozones.py --dump-dir dump/ -o pansa.geojson  # + Rohdaten sichern
+python3 pansa_geozones.py --from-dir dump/ -o pansa.geojson  # offline
+```
+
+### Endpunkte (JSON, Hülle immer `{ "properties":[...], "status":200 }`)
+| Pfad | Inhalt | Umfang |
+|---|---|---|
+| `/v1/zones` | **alle Zonen mit `geojson`-Polygon** | 3.170, ~7,6 MB |
+| `/v1/zones/types` | 34 Typen + Beschreibung (Kategorie DRA-P/R/I) | |
+| `/v1/activ/timeslices` | Aktivierungszeiträume (AIXM) | ~890 |
+| `/v1/activ/activations` | Tagesaktivierungen AUP/UUP | ~300 |
+| `/v1/notams` | NOTAMs mit `zonename` | ~140 |
+| `/v1/zones/filtered?lon=&lat=&range=&max_height=` | Zonen an Punkt (m AGL) | serverseitige „darf ich hier?" |
+
+### Zone-Felder (`/v1/zones`)
+- `uid` (Primärschlüssel), `name` (= Join-Schlüssel für Aktivierungen, **nicht**
+  die UID!), `type` → `/v1/zones/types` → Kategorie, `min`/`max` = **Fuß AMSL**
+  (×0,3048 → m; für „120 m AGL?" Geländehöhe/DEM nötig), `description.en/pl`,
+  `contact`, `start`/`stop` (befristete Zonen), `acts:{H24:true}` = dauerhaft aktiv.
+- **Kreise:** Geometrie liegt als Polygon vor, Original in
+  `etc.primitive:{type:"CIRCLE",centre:[lon,lat],radius:<m>}` → für saubere
+  Darstellung Kreis selbst rendern.
+- **Flugplatz-Ringe** (`CTR1KM`/`CTR6KM`/`ATZ…`/`MCTR2KM`): `etc.master` =
+  Mutterzone (z. B. `"CTR EPKK"`).
+- **RPA-Sektoren** (316): Ampel `etc.status` (RED/YELLOW/BLUE/GREEN) +
+  `etc.custom_color` → Farben übernehmen (kodieren erlaubte Höhe/Bedingung).
+
+### Aktivität (Join über **Zonenname**)
+`active_now = acts.H24` **oder** ein Fenster aus timeslices/activations/notams
+enthält „jetzt"; `valid_now` aus `zone.start`/`stop`. → Zonen 1×/Tag
+(`modified` vergleichen), Aktivierungen + NOTAMs **stündlich**.
+
+### Wenn es bricht
+Login `400` → API-Key im neuen `main.*.js` (`this.apiKey=`) nachsehen, per Env
+setzen. Daten `400` → beide Header nötig (`x-api-key` **und** Bearer). `401` →
+Token (1 h) abgelaufen, neu einloggen. Neue Typen → `category:null` (grau).
