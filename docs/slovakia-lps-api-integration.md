@@ -55,10 +55,29 @@ GET https://gis.lps.sk/server/rest/services/VFRM/VFRM_popup/MapServer/5/query
 | `WORKHR_CODE`/`WORKHRRMK_TXT` | | Betriebszeiten |
 | `ICAO_TXT`, `MIL_CODE`, `COMNAME_TXT`, `REMARKS_TXT` | | Zusatz |
 
-- Geometrie: Polygon (WGS84). Höhen in FT, Bezug `MSL`/… → in Meter umrechnen.
-- `TYPE_CODE` → Beschränkung: `P`/`PROTECT` → `PROHIBITED`; `R`/`RAS`/`TRA`/
+- Geometrie: Polygon (WGS84). Höhen in FT, Bezug `MSL`/`SFC`/`STD` (FL) → in
+  Meter umrechnen.
+- `TYPE_CODE` → Beschränkung: `P`/`PROTECT` → `PROHIBITED`; `R`/`TRA`/
   `TSA`/`CTR`/`TMA-P` → `REQ_AUTHORISATION`/`RESTRICTED`; `A` → Info. Mit der
   Fachseite abstimmen.
+
+### ⚠️ Wichtig: `TYPE_CODE="RAS"` ist gemischt – NICHT pauschal behandeln
+Die 68 `RAS`-Gebiete unterteilen sich über `LOCALTYPE_TXT`:
+
+| `LOCALTYPE_TXT` | Anzahl | Untergrenze | Drohnenrelevant |
+|---|---|---|---|
+| `MRVA` | 35 | 2000–11600 ft **MSL** | **nein** – Radar-Mindestvektorhöhen (Lotsen-Konstrukt) |
+| `ATZ` | 23 | 0 ft **SFC** | **ja** – Flugplatzverkehrszonen |
+| `RMZ` | 5 | 0 ft **SFC** | **ja** – Funkpflichtzonen |
+| `NPZ` | 4 | FL95 / FL245 | **nein** – Flugflächen, weit über Drohnenhöhe |
+
+- **Nicht** nach `TYPE_CODE="RAS"` filtern – das würde die 23 ATZ + 5 RMZ
+  (boden­basierte, drohnenrelevante Zonen) versehentlich mitlöschen.
+- **Empfohlen:** über den vorhandenen **Höhen-/Erreichbarkeitsfilter**
+  (`shared/geozoneAltitudeFilter.ts`, 120 m) ausschließen – MRVA (≥ 2000 ft
+  MSL) und NPZ (FL95+) fallen automatisch raus, ATZ/RMZ (0 ft SFC) bleiben.
+  Robuster als eine Typ-Liste und für alle Länder einheitlich.
+- Falls explizit gewünscht: nur `LOCALTYPE_TXT ∈ {MRVA, NPZ}` ausschließen.
 
 ---
 
