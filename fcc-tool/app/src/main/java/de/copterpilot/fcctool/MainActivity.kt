@@ -175,9 +175,8 @@ class MainActivity : Activity() {
     private fun showHome() {
         detachLog()
         val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        col.addView(Ui.label(this, "Wofür möchtest du etwas einstellen?", Ui.TEXT, 15f, bold = true))
 
-        // Mittlerer Bereich: Knöpfe links, Protokoll rechts – exakt gleiche Ober-/Unterkante.
+        // Band: Knöpfe links, Protokoll rechts – exakt gleiche Ober-/Unterkante.
         val mid = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         val buttons = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         buttons.addView(Ui.tallModeButton(this,
@@ -190,7 +189,7 @@ class MainActivity : Activity() {
             Ui.BLUE, R.drawable.fpv_goggle) { showGoggleMenu() }, Ui.lp(MATCH_PARENT, 0, 1f, topDp = Ui.dpi(this, 12f)))
         mid.addView(buttons, LinearLayout.LayoutParams(0, MATCH_PARENT, 1.1f))
         mid.addView(logCardView, LinearLayout.LayoutParams(0, MATCH_PARENT, 1f).apply { leftMargin = Ui.dpi(this@MainActivity, 12f) })
-        col.addView(mid, Ui.lp(MATCH_PARENT, 0, 1f, topDp = Ui.dpi(this, 12f)))
+        col.addView(mid, Ui.lp(MATCH_PARENT, 0, 1f))
 
         col.addView(Ui.smallButton(this, "Erweitert") { showAdvanced() }, Ui.lp(topDp = Ui.dpi(this, 12f)))
         body.removeAllViews(); body.addView(col, android.widget.FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
