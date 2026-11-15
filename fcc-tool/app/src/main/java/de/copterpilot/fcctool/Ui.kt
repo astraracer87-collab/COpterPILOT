@@ -158,7 +158,7 @@ object Ui {
             box.addView(android.widget.ImageView(ctx).apply {
                 setImageResource(imageRes); scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
                 adjustViewBounds = true; contentDescription = title
-            }, LinearLayout.LayoutParams(WRAP_CONTENT, dp(ctx, 92f)))
+            }, LinearLayout.LayoutParams(WRAP_CONTENT, dp(ctx, 84f)))
         }
         box.addView(TextView(ctx).apply {
             text = title; setTextColor(accent); textSize = 20f; typeface = Typeface.DEFAULT_BOLD

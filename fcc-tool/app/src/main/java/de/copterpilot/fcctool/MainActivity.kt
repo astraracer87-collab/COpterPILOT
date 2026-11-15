@@ -98,6 +98,8 @@ class MainActivity : Activity() {
             text = "  ·  DJI RC Pro 2"; setTextColor(Ui.TEXT2); textSize = 13f
         })
         header.addView(titleWrap, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+        header.addView(Ui.smallButton(this, "Erweitert") { showAdvanced() },
+            LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply { rightMargin = d(10f) })
         statusPill = Ui.badge(this)
         header.addView(statusPill)
         root.addView(header, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
@@ -202,8 +204,6 @@ class MainActivity : Activity() {
             "z. B. Avata 2 – über eine Datei auf der SD-Karte der Goggle",
             Ui.BLUE, R.drawable.fpv_goggle) { showGoggleMenu() },
             LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f).apply { topMargin = Ui.dpi(this@MainActivity, 12f) })
-        buttons.addView(Ui.smallButton(this, "Erweitert") { showAdvanced() },
-            LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply { topMargin = Ui.dpi(this@MainActivity, 12f) })
 
         val mid = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         mid.addView(buttons, LinearLayout.LayoutParams(0, MATCH_PARENT, 1.1f))
@@ -250,6 +250,7 @@ class MainActivity : Activity() {
         val primary: String,
         val run: (advance: () -> Unit) -> Unit,
         val secondary: Pair<String, (advance: () -> Unit) -> Unit>? = null,
+        val secondaryBig: Boolean = false,
     )
 
     private fun showWizard(heading: String, steps: List<WizStep>) {
@@ -297,7 +298,10 @@ class MainActivity : Activity() {
         card.addView(Ui.label(this, s.desc, Ui.TEXT2, 13f), Ui.lp(topDp = Ui.dpi(this, 6f)))
         card.addView(Ui.bigButton(this, s.primary, Ui.BLUE) { s.run(advance) }, Ui.lp(topDp = Ui.dpi(this, 12f)))
         s.secondary?.let { (label, act) ->
-            card.addView(Ui.smallButton(this, label) { act(advance) }, Ui.lp(topDp = Ui.dpi(this, 8f)))
+            if (s.secondaryBig)
+                card.addView(Ui.bigButton(this, label, Ui.SURFACE2) { act(advance) }, Ui.lp(topDp = Ui.dpi(this, 10f)))
+            else
+                card.addView(Ui.smallButton(this, label) { act(advance) }, Ui.lp(topDp = Ui.dpi(this, 8f)))
         }
         return card
     }
@@ -342,14 +346,15 @@ class MainActivity : Activity() {
     private fun showGoggleWizard() {
         val steps = ArrayList<WizStep>()
         steps += WizStep("Goggle-Modell wählen",
-            "Je nach Goggle wird eine andere Datei geschrieben. Aktuell: ${sdVariant.label}.",
-            "Weiter", { adv -> adv() },
-            "Modell ändern" to { _: () -> Unit -> chooseVariant { showGoggleWizard() } })
+            "Wähle dein Goggle-Modell – danach wird die passende FCC-Datei geschrieben.",
+            "Goggles 2 / 3 / N3 / Integra", { adv -> sdVariant = SdCard.Variant.HAM; adv() },
+            "Goggles V1 / V2" to { adv: () -> Unit -> sdVariant = SdCard.Variant.NACO; adv() },
+            secondaryBig = true)
         steps += WizStep("SD-Karte in die Fernsteuerung",
             "Schalte die Goggle aus, nimm ihre microSD-Karte heraus und stecke sie in die Fernsteuerung.",
             "SD-Karte ist eingelegt – weiter", { adv -> adv() })
         steps += WizStep("FCC-Datei schreiben",
-            "Die App schreibt die Datei „${sdVariant.fileName}“ auf die Karte. Gleich die SD-Karte als Speicherort auswählen.",
+            "Die App schreibt die passende FCC-Datei auf die Karte. Gleich die SD-Karte als Speicherort auswählen.",
             "Datei schreiben", { adv ->
                 sdAction = { uri ->
                     bg {
@@ -451,11 +456,6 @@ class MainActivity : Activity() {
 
     // ------------------------------------------------------------- SD-Karte / Dialoge
 
-    private fun chooseVariant(after: () -> Unit) {
-        val items = SdCard.Variant.entries.map { it.label }.toTypedArray()
-        AlertDialog.Builder(this).setTitle("Welches Goggle-Modell?")
-            .setItems(items) { _, i -> sdVariant = SdCard.Variant.entries[i]; after() }.show()
-    }
 
     private fun pickSdCard() {
         try { startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE), REQ_SD) }
