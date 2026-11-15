@@ -115,6 +115,9 @@ import {
 } from "@/lib/geozoneZoom";
 import { buildVectorGeozoneTileUrlFrom } from "@/lib/geozoneTileUrl";
 import { deRestrictionForLayer, restrictionFromText } from "../../shared/restrictionPolicy";
+import { buildCountryGeozoneConfigs, getSourceDataStatus } from "@/lib/geozoneSources/registry";
+import type { CountryGeozoneConfig } from "@/lib/geozoneSources/wmsConfigs";
+import { resolveGeozoneSourceIso } from "../../shared/geozoneSourceMeta";
 export {
   LEAFLET_WMS_BBOX_FN_JS,
   GEOZONE_TILE_BBOX_PLACEHOLDER,
@@ -133,359 +136,21 @@ export {
   COUNTRY_WMS_MAX_NATIVE_ZOOM,
 } from "@/lib/geozoneZoom";
 
-export type CountryIsoWithGeozones = "DE" | "CH" | "LU" | "NL" | "FR" | "AT" | "BE" | "DK" | "EE" | "FI" | "NO" | "SE" | "IE" | "PT" | "ES" | "PL" | "LT" | "IT" | "GB" | "IS" | "CY" | "HR" | "SI" | "HU" | "BG" | "LV" | "CZ" | "SK" | "RO";
+// Typen und WMS-Konfigurationen (DE/CH/LU/NL/FR/HU) leben React-Native-frei in
+// geozoneSources/wmsConfigs.ts; die Länderliste kommt aus der Quellen-Registry.
+export type { CountryIsoWithGeozones, CountryGeozoneConfig } from "@/lib/geozoneSources/wmsConfigs";
 
-export interface CountryGeozoneConfig {
-  iso: CountryIsoWithGeozones;
-  wmsBaseUrl: string;
-  wmsVersion: string;
-  layers: GeozoneLayer[];
-  // "tiles": nur Offline-Kachelspeicher (geozoneTiles/, z. B. CZ ED-318)
-  featureInfoType: "wms-plain" | "rest-json" | "ogc-features" | "wfs-json" | "wms-fr" | "ed269-cached" | "tiles" | "none";
-  restIdentifyUrl?: string;
-  restIdentifyLayers?: string[];
-  alwaysVisibleLayerIds: string[];
-  forceEnabledLayerIds: string[];
-  // Höchste Zoomstufe, die der WMS-Server tatsächlich rendert. Wird als
-  // `maximumNativeZ` an `WMSTile` übergeben, damit die Karte beim weiteren
-  // Hineinzoomen die letzte echte Kachel hochskaliert, statt leere Kacheln
-  // nachzuladen. Web-Mercator-Scale pro Zoom (256px): 559082264 / 2^z.
-  // Beispiel FR (DGAC `TRANSPORTS.DRONES.RESTRICTIONS`): MinScaleDenominator
-  // 17061.84. WMS-Scale z15 = 17062.4 (>= Grenze -> rendert noch), z16 = 8531
-  // (< Grenze -> flächig leer). Empirisch bestätigt; letzte zuverlässig
-  // gerenderte Stufe ist daher Zoom 15. Der konkrete Wert kommt aus dem
-  // geteilten Modul (COUNTRY_WMS_MAX_NATIVE_ZOOM), siehe geozoneZoom.ts.
-  wmsMaxNativeZoom?: number;
-}
-
-export const COUNTRY_GEOZONE_CONFIGS: Record<string, CountryGeozoneConfig> = {
-  DE: {
-    iso: "DE",
-    wmsBaseUrl: "https://uas-betrieb.de/geoservices/dipul/wms",
-    wmsVersion: "1.1.1",
-    layers: GEOZONE_LAYERS,
-    featureInfoType: "wms-plain",
-    alwaysVisibleLayerIds: ["kontrollzonen", "flugbeschraenkungsgebiete", "temporaere_betriebseinschraenkungen", "flughaefen", "flugplaetze"],
-    forceEnabledLayerIds: ["flugplaetze"],
-  },
-  CH: {
-    iso: "CH",
-    wmsBaseUrl: "https://wms.geo.admin.ch/",
-    wmsVersion: "1.3.0",
-    layers: CH_GEOZONE_LAYERS,
-    // Drohnen-Einschränkungen und Aktivitätszonen als Vektoren aus der BAZL-
-    // ED-269-Datei (offline nutzbar); WMS/REST nur noch für Zusatz-Ebenen.
-    featureInfoType: "ed269-cached",
-    restIdentifyUrl: "https://api3.geo.admin.ch/rest/services/api/MapServer/identify",
-    restIdentifyLayers: ["ch.bazl.landschaftsruhezonen", "ch.bazl.wohngebiete-aulav"],
-    alwaysVisibleLayerIds: [],
-    forceEnabledLayerIds: [],
-  },
-  LU: {
-    iso: "LU",
-    wmsBaseUrl: "https://wms.geoportail.lu/public_map_layers/service",
-    wmsVersion: "1.1.1",
-    layers: LU_GEOZONE_LAYERS,
-    // Zonen als Vektoren (ED-269 CC0, sonst OGC-Features) – offline nutzbar.
-    // Die WMS-Ebenen bleiben abschaltbar erhalten, standardmäßig aus.
-    featureInfoType: "ed269-cached",
-    alwaysVisibleLayerIds: [],
-    forceEnabledLayerIds: [],
-  },
-  NL: {
-    iso: "NL",
-    wmsBaseUrl: "https://service.pdok.nl/lvnl/drone-no-flyzones/wms/v1_0",
-    wmsVersion: "1.3.0",
-    layers: NL_GEOZONE_LAYERS,
-    // Zonen als Vektoren aus GoDrone (ED-269-Pfad); WMS nur noch für Natur-Ebenen.
-    featureInfoType: "ed269-cached",
-    alwaysVisibleLayerIds: ["nl_nnn"],
-    forceEnabledLayerIds: [],
-  },
-  FR: {
-    iso: "FR",
-    wmsBaseUrl: "https://data.geopf.fr/wms-r/wms",
-    wmsVersion: "1.3.0",
-    layers: FR_GEOZONE_LAYERS,
-    featureInfoType: "wms-fr",
-    alwaysVisibleLayerIds: ["fr_restrictions"],
-    forceEnabledLayerIds: ["fr_restrictions"],
-    // DGAC-Layer rendert zuverlässig bis Web-Mercator-Zoom 15 (WMS-Scale
-    // 17062.4 >= MinScaleDenominator 17061.84); erst ab Zoom 16 (Scale 8531 <
-    // Grenze) kommen flächig leere Kacheln. maximumNativeZ=15 lässt WMSTile erst
-    // ab z16 hochskalieren (geprüft: z15=echte Geometrie, z16=leer). Frühere
-    // 14er-Grenze skalierte schon bei z15 die groben z14-Kacheln hoch -> Block-
-    // Raster über FR. Wert aus dem geteilten Modul, damit Web nicht driftet.
-    wmsMaxNativeZoom: COUNTRY_WMS_MAX_NATIVE_ZOOM.FR,
-  },
-  HU: {
-    // Ungarn (HungaroControl / MyDroneSpace): NUR Bild-Overlay aus dem
-    // öffentlichen WMTS (XYZ-Vorlage am Layer, kein WMS). Keine Zonenabfrage
-    // (featureInfoType "none"); die Vektor-API braucht einen Login. HU steht
-    // deshalb NICHT in OWN_MAP_DATA_COUNTRIES – der Hinweis zur manuellen
-    // Prüfung bleibt.
-    iso: "HU",
-    wmsBaseUrl: "",
-    wmsVersion: "1.3.0",
-    layers: HU_GEOZONE_LAYERS,
-    featureInfoType: "none",
-    alwaysVisibleLayerIds: ["hu_aixm"],
-    forceEnabledLayerIds: [],
-    wmsMaxNativeZoom: COUNTRY_WMS_MAX_NATIVE_ZOOM.HU,
-  },
-  AT: {
-    // Österreich (Austro Control / Dronespace) liefert KEIN WMS. Die ED-269-
-    // GeoJSON-Zonen werden serverseitig zwischengespeichert und als native
-    // Vektor-Polygone gerendert (kein WMS-/Kachel-Overlay). Deshalb keine
-    // WMS-Layer und featureInfoType "ed269-cached".
-    iso: "AT",
-    wmsBaseUrl: "",
-    wmsVersion: "1.3.0",
-    layers: [],
-    featureInfoType: "ed269-cached",
-    alwaysVisibleLayerIds: [],
-    forceEnabledLayerIds: [],
-  },
-  BE: {
-    // Belgien (skeyes/BCAA "Droneguide") liefert KEIN WMS. Die ED-269-GeoJSON-
-    // Zonen werden – wie bei Österreich – serverseitig zwischengespeichert und
-    // als native Vektor-Polygone gerendert. Solange keine gültige Quelle
-    // hinterlegt ist (Standard-Endpoint antwortet aktuell mit 401), liefert der
-    // Cache schlicht keine Zonen; die Karte bleibt stabil.
-    iso: "BE",
-    wmsBaseUrl: "",
-    wmsVersion: "1.3.0",
-    layers: [],
-    featureInfoType: "ed269-cached",
-    alwaysVisibleLayerIds: [],
-    forceEnabledLayerIds: [],
-  },
-  DK: {
-    // Dänemark (Trafikstyrelsen) liefert KEIN WMS. Die GeoJSON-Zonen (Punkt +
-    // Bufferzone bzw. Polygon) werden serverseitig zu Kreis-Polygonen
-    // aufbereitet, deutsch normalisiert (Farve -> Beschränkung) und – wie bei
-    // Österreich/Belgien – als native Vektor-Polygone gerendert (kein WMS-/
-    // Kachel-Overlay). Konfigurierbar über GEOZONES_DK_URL.
-    iso: "DK",
-    wmsBaseUrl: "",
-    wmsVersion: "1.3.0",
-    layers: [],
-    featureInfoType: "ed269-cached",
-    alwaysVisibleLayerIds: [],
-    forceEnabledLayerIds: [],
-  },
-  EE: {
-    // Estland (EANS / Transpordiamet): ED-269-Vektorzonen von utm.eans.ee
-    // (gleiche Plattform wie Dronespace AT), inkl. NOTAM-Zonen. Kein WMS.
-    iso: "EE",
-    wmsBaseUrl: "",
-    wmsVersion: "1.3.0",
-    layers: [],
-    featureInfoType: "ed269-cached",
-    alwaysVisibleLayerIds: [],
-    forceEnabledLayerIds: [],
-  },
-  IE: {
-    // Irland (IAA): ED-269-GeoJSON, Dateiname mit Datum wird von der IAA-Seite gelesen.
-    iso: "IE",
-    wmsBaseUrl: "",
-    wmsVersion: "1.3.0",
-    layers: [],
-    featureInfoType: "ed269-cached",
-    alwaysVisibleLayerIds: [],
-    forceEnabledLayerIds: [],
-  },
-  SE: {
-    // Schweden (LFV / Transportstyrelsen, CC BY 4.0): ED-318-UAS-Zonen plus
-    // WFS-Lufträume (CTR/TIZ/ATZ, 5-km-/1-km-Zonen, R/D, AIP SUP, NOTAM).
-    iso: "SE",
-    wmsBaseUrl: "",
-    wmsVersion: "1.3.0",
-    layers: [],
-    featureInfoType: "ed269-cached",
-    alwaysVisibleLayerIds: [],
-    forceEnabledLayerIds: [],
-  },
-  PT: {
-    // Portugal (ANAC – DNT): ED-269-Direktdownload, ohne Anmeldung.
-    iso: "PT",
-    wmsBaseUrl: "",
-    wmsVersion: "1.3.0",
-    layers: [],
-    featureInfoType: "ed269-cached",
-    alwaysVisibleLayerIds: [],
-    forceEnabledLayerIds: [],
-  },
-  ES: {
-    // Spanien (ENAIRE): ED-318-Zonen über ArcGIS-REST/WFS, ohne Anmeldung.
-    iso: "ES",
-    wmsBaseUrl: "",
-    wmsVersion: "1.3.0",
-    layers: [],
-    featureInfoType: "ed269-cached",
-    alwaysVisibleLayerIds: [],
-    forceEnabledLayerIds: [],
-  },
-  PL: {
-    // Polen (PANSA DroneMap): KML-Download mit öffentlichem Plugin-Schlüssel.
-    iso: "PL",
-    wmsBaseUrl: "",
-    wmsVersion: "1.3.0",
-    layers: [],
-    featureInfoType: "ed269-cached",
-    alwaysVisibleLayerIds: [],
-    forceEnabledLayerIds: [],
-  },
-  LT: {
-    // Litauen (Oro navigacija): ED-269-Feed wie Dronespace AT, ohne Anmeldung.
-    iso: "LT",
-    wmsBaseUrl: "",
-    wmsVersion: "1.3.0",
-    layers: [],
-    featureInfoType: "ed269-cached",
-    alwaysVisibleLayerIds: [],
-    forceEnabledLayerIds: [],
-  },
-  GB: {
-    // Vereinigtes Königreich (CAA): UK-AIP-KML (Danger/Prohibited/Restricted
-    // Areas inkl. Flugplatz-FRZ) über Google My Maps, ohne Anmeldung.
-    iso: "GB",
-    wmsBaseUrl: "",
-    wmsVersion: "1.3.0",
-    layers: [],
-    featureInfoType: "ed269-cached",
-    alwaysVisibleLayerIds: [],
-    forceEnabledLayerIds: [],
-  },
-  IT: {
-    // Italien (d-flight / ENAV): ED-269-Download, nur mit eigenem d-flight-Zugang
-    // (in den Einstellungen eingetragen, verschlüsselt auf dem Gerät).
-    iso: "IT",
-    wmsBaseUrl: "",
-    wmsVersion: "1.3.0",
-    layers: [],
-    featureInfoType: "ed269-cached",
-    alwaysVisibleLayerIds: [],
-    forceEnabledLayerIds: [],
-  },
-  IS: {
-    // Island (Samgöngustofa / ISAVIA): WFS-Zonen, ohne Anmeldung, ohne Höhengrenzen (gelten in jeder Höhe).
-    iso: "IS",
-    wmsBaseUrl: "",
-    wmsVersion: "1.3.0",
-    layers: [],
-    featureInfoType: "ed269-cached",
-    alwaysVisibleLayerIds: [],
-    forceEnabledLayerIds: [],
-  },
-  CY: {
-    // Zypern (DCA / AMC Cyprus): öffentlicher ArcGIS-FeatureServer, ohne Anmeldung.
-    iso: "CY",
-    wmsBaseUrl: "",
-    wmsVersion: "1.3.0",
-    layers: [],
-    featureInfoType: "ed269-cached",
-    alwaysVisibleLayerIds: [],
-    forceEnabledLayerIds: [],
-  },
-  HR: {
-    // Kroatien (Croatia Control / AMC): anonymer SignalR-Hub, Gebiete mit AUP-Aktivierungszeiten und Drohnenzonen.
-    iso: "HR",
-    wmsBaseUrl: "",
-    wmsVersion: "1.3.0",
-    layers: [],
-    featureInfoType: "ed269-cached",
-    alwaysVisibleLayerIds: [],
-    forceEnabledLayerIds: [],
-  },
-  SI: {
-    // Slowenien (CAA Slovenia): öffentliche ArcGIS-Drohnenkarte „UAS GEO ZONES“ (Mai 2026), 18 Ebenen.
-    iso: "SI",
-    wmsBaseUrl: "",
-    wmsVersion: "1.3.0",
-    layers: [],
-    featureInfoType: "ed269-cached",
-    alwaysVisibleLayerIds: [],
-    forceEnabledLayerIds: [],
-  },
-  BG: {
-    // Bulgarien (CAA / BULATSA): öffentlicher GeoServer-WFS, ohne Anmeldung.
-    iso: "BG",
-    wmsBaseUrl: "",
-    wmsVersion: "1.3.0",
-    layers: [],
-    featureInfoType: "ed269-cached",
-    alwaysVisibleLayerIds: [],
-    forceEnabledLayerIds: [],
-  },
-  LV: {
-    // Lettland (LGS): offizielle ED-269-Datei von drz.lv, ohne Anmeldung.
-    iso: "LV",
-    wmsBaseUrl: "",
-    wmsVersion: "1.3.0",
-    layers: [],
-    featureInfoType: "ed269-cached",
-    alwaysVisibleLayerIds: [],
-    forceEnabledLayerIds: [],
-  },
-  SK: {
-    // Slowakei: Drohnenzonen des Dopravný úrad (KML) plus Lufträume der LPS SR (ArcGIS), ohne Anmeldung.
-    iso: "SK",
-    wmsBaseUrl: "",
-    wmsVersion: "1.3.0",
-    layers: [],
-    featureInfoType: "ed269-cached",
-    alwaysVisibleLayerIds: [],
-    forceEnabledLayerIds: [],
-  },
-  RO: {
-    // Rumänien (ROMATSA): Server für Android nicht erreichbar (veraltete TLS-
-    // DH-Parameter) – Zonen NUR per Datei-Import (Offline-Einstellungen) im
-    // ED-269-Gerätecache. Ohne Import hasOwnMap("RO") = false.
-    iso: "RO",
-    wmsBaseUrl: "",
-    wmsVersion: "1.3.0",
-    layers: [],
-    featureInfoType: "ed269-cached",
-    alwaysVisibleLayerIds: [],
-    forceEnabledLayerIds: [],
-  },
-  FI: {
-    // Finnland (Traficom): ED-269-Vektorzonen, eine Datei, offline nutzbar.
-    iso: "FI",
-    wmsBaseUrl: "",
-    wmsVersion: "1.3.0",
-    layers: [],
-    featureInfoType: "ed269-cached",
-    alwaysVisibleLayerIds: [],
-    forceEnabledLayerIds: [],
-  },
-  NO: {
-    // Norwegen (Luftfartstilsynet / dronesoner.no): ED-269-Vektorzonen, täglich neu.
-    iso: "NO",
-    wmsBaseUrl: "",
-    wmsVersion: "1.3.0",
-    layers: [],
-    featureInfoType: "ed269-cached",
-    alwaysVisibleLayerIds: [],
-    forceEnabledLayerIds: [],
-  },
-  CZ: {
-    // Tschechien (ŘLP ČR): ED-318-Kacheln, nur über das Offline-Paket
-    // „Geozonen“ (geozoneTiles/). Ohne gespeicherten Bestand keine Zonen –
-    // hasOwnMap("CZ") ist dann false (Hinweis zur manuellen Prüfung).
-    iso: "CZ",
-    wmsBaseUrl: "",
-    wmsVersion: "1.3.0",
-    layers: [],
-    featureInfoType: "tiles",
-    alwaysVisibleLayerIds: [],
-    forceEnabledLayerIds: [],
-  },
-};
+/**
+ * Geozonen-Konfiguration je Land – aus der Quellen-Registry
+ * (client/lib/geozoneSources/registry.ts): WMS-Länder mit ihrer WMS-
+ * Konfiguration, alle übrigen Quellen als Vektor-Länder ("ed269-cached",
+ * CZ ohne WMS: "tiles").
+ */
+export const COUNTRY_GEOZONE_CONFIGS: Record<string, CountryGeozoneConfig> = buildCountryGeozoneConfigs();
 
 export function getCountryGeozoneConfig(countryIso?: string): CountryGeozoneConfig {
-  const iso = countryIso?.toUpperCase() === "LI" ? "CH" : countryIso?.toUpperCase(); // Liechtenstein steckt im BAZL-Datensatz
+  // Aliase aus der Registry (Liechtenstein steckt im BAZL-Datensatz)
+  const iso = countryIso ? resolveGeozoneSourceIso(countryIso) : undefined;
   if (iso && COUNTRY_GEOZONE_CONFIGS[iso]) {
     return COUNTRY_GEOZONE_CONFIGS[iso];
   }
@@ -917,7 +582,7 @@ export async function queryEd269CachedFeaturesWithStatus(
   if (hasTiledGeozones(iso)) {
     if (fullCountry || maxValidityDays) return { zones: [], status: "ok" };
     const tiled = await queryTiledGeozones(iso, bboxAround(lat, lon, radiusKm), { limit, layers: opts?.layers });
-    return tiled ? { zones: tiled, status: "ok" } : { zones: [], status: "missing", note: "Offline-Paket nicht lesbar" };
+    return tiled ? { zones: tiled, ...storedDataReport(iso) } : { zones: [], status: "missing", note: "Offline-Paket nicht lesbar" };
   }
   // Offline: zuerst das gespeicherte Paket nutzen (die Geometrie-/Radius-
   // Filterung erledigt ohnehin queryGeozonesInArea nachgelagert). Nur wenn kein
@@ -933,6 +598,15 @@ export async function queryEd269CachedFeaturesWithStatus(
     if (off && off.length) return { zones: off as GeozoneFeatureInfo[], status: "stale", note: "aus Offline-Paket" };
   }
   return r;
+}
+
+/**
+ * Abdeckungs-Meldung für einen gespeicherten Bestand (Kachelspeicher): Stand
+ * und "stale" laut Registry-Policy (getSourceDataStatus).
+ */
+function storedDataReport(iso: string): { status: GeozoneSourceStatus; fetchedAt?: number } {
+  const st = getSourceDataStatus(iso);
+  return { status: st.stale ? "stale" : "ok", ...(st.fetchedAt != null ? { fetchedAt: st.fetchedAt } : {}) };
 }
 
 export const TEMP_RESTRICTION_LAYER_LABEL = "Temporäre Beschränkungen";
@@ -1716,6 +1390,8 @@ async function queryGeozonesForCountry(
   if (hasTiledGeozones(config.iso)) {
     const tiled = await queryTiledGeozones(config.iso, bboxAround(lat, lon, radiusKm));
     if (tiled) {
+      // Datenalter des Pakets (Registry-Policy: ab 28 Tagen "stale" → CAUTION)
+      report?.(storedDataReport(config.iso));
       if (config.iso !== "DE") return tiled;
       // Modellflugplätze/Hängegleiter gibt es nicht im dipul-WFS: online per WMS ergänzen
       onDipulSourceStatus?.({ mode: "vector", approximateLayers: [] });

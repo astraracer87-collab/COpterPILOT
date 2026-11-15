@@ -27,11 +27,13 @@ import {
   ed318Text,
   ed318ZonesToFeatures,
 } from "./ed318Pure";
+import { GEOZONE_IMPORT_ONLY_SOURCE_ISOS } from "./geozoneSourceMeta";
 
 export const RO_GEOZONE_SOURCE_LABEL = "ROMATSA (Datei-Import)";
 export const RO_ROMATSA_DRONES_URL = "https://flightplan.romatsa.ro/init/drones";
-/** Länder ohne erreichbaren Online-Feed: Geozonen nur per Datei-Import. */
-export const GEOZONE_IMPORT_ONLY_ISOS = ["RO"];
+/** Länder ohne erreichbaren Online-Feed: Geozonen nur per Datei-Import
+ * (Registry: kind "import-only"). */
+export const GEOZONE_IMPORT_ONLY_ISOS: string[] = [...GEOZONE_IMPORT_ONLY_SOURCE_ISOS];
 
 export type GeozoneImportFormat = "ed269" | "ed318" | "geojson";
 

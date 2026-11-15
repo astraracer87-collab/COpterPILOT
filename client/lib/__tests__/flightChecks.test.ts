@@ -10,6 +10,8 @@ import {
   geozoneChecks,
   legacyGeozoneChecks,
   coverageChecks,
+  formatCoverageDataAges,
+  formatDataAgeDe,
   notamChecks,
   officialMapCrossCheckChecks,
   complianceChecks,
@@ -158,7 +160,8 @@ describe("geozoneChecks", () => {
 describe("coverageChecks / notamChecks / crossCheck / compliance", () => {
   const label = (iso: string) => ({ DE: "Deutschland", AT: "Österreich" } as Record<string, string>)[iso] ?? iso;
 
-  it("missing/error/unsupported/partial → unknown; ok → nichts; stale → info mit Datenalter", () => {
+  it("missing/error/unsupported/partial → unknown; ok ohne Stand → nichts; stale → CAUTION mit Datenalter (B5)", () => {
+    const now = Date.UTC(2026, 10, 3);
     const res = coverageChecks({
       context: "planning",
       sources: [
@@ -168,15 +171,59 @@ describe("coverageChecks / notamChecks / crossCheck / compliance", () => {
         { iso: "PL", status: "ok" },
       ],
       countryLabel: label,
+      now,
     });
     assert.deepEqual(res.map((x) => [x.id, x.severity]), [
       ["coverage:DE:partial", "unknown"],
-      ["coverage:AT:stale", "info"],
+      ["coverage:AT:stale", "caution"],
       ["coverage:CZ:missing", "unknown"],
     ]);
     assert.match(res[0].title, /Deutschland unvollständig: Wohngrundstücke/);
-    assert.deepEqual(res[1].dataAge, { fetchedAt: "2026-11-01T00:00:00.000Z", stale: true });
+    assert.deepEqual(res[1].dataAge, { fetchedAt: "2026-11-01T00:00:00.000Z", stale: true, ageMs: 2 * 86_400_000 });
+    assert.match(res[1].title, /Österreich nicht aktuell \(Stand: vor 48 h|Österreich nicht aktuell \(Stand: vor 2 Tagen/);
     assert.equal(aggregate(res).verdict, "caution");
+  });
+
+  it("veraltete Daten allein ergeben CAUTION; aktuelle Daten nur Info „Stand: vor X h“", () => {
+    const now = Date.UTC(2026, 10, 15, 12);
+    const stale = coverageChecks({
+      context: "precheck",
+      sources: [{ iso: "AT", status: "stale", fetchedAt: now - 30 * 3_600_000 }],
+      countryLabel: label,
+      now,
+    });
+    assert.equal(stale[0].severity, "caution");
+    assert.equal(aggregate(stale).verdict, "caution");
+    const fresh = coverageChecks({
+      context: "precheck",
+      sources: [{ iso: "AT", status: "ok", fetchedAt: now - 5 * 3_600_000 }],
+      countryLabel: label,
+      now,
+    });
+    assert.deepEqual(fresh.map((x) => [x.id, x.severity]), [["coverage:AT:age", "info"]]);
+    assert.match(fresh[0].title, /^Geozonen-Daten Österreich: Stand: vor 5 h \(/);
+    assert.deepEqual(fresh[0].dataAge, { fetchedAt: new Date(now - 5 * 3_600_000).toISOString(), stale: false, ageMs: 5 * 3_600_000 });
+    assert.equal(aggregate(fresh).verdict, "go");
+  });
+
+  it("formatDataAgeDe / formatCoverageDataAges", () => {
+    assert.equal(formatDataAgeDe(0), "vor 1 Min.");
+    assert.equal(formatDataAgeDe(25 * 60_000), "vor 25 Min.");
+    assert.equal(formatDataAgeDe(3 * 3_600_000), "vor 3 h");
+    assert.equal(formatDataAgeDe(47 * 3_600_000), "vor 47 h");
+    assert.equal(formatDataAgeDe(30 * 86_400_000), "vor 30 Tagen");
+    const now = Date.UTC(2026, 10, 15, 12);
+    const line = formatCoverageDataAges(
+      [
+        { iso: "AT", status: "ok", fetchedAt: now - 3 * 3_600_000 },
+        { iso: "DE", status: "stale", fetchedAt: now - 30 * 86_400_000 },
+        { iso: "CZ", status: "missing" },
+        { iso: "PL", status: "ok" },
+      ],
+      label,
+      now,
+    );
+    assert.match(line, /^Österreich: Stand: vor 3 h \(\d\d\.\d\d\.2026\) · Deutschland: Stand: vor 30 Tagen \(\d\d\.\d\d\.2026\) – veraltet$/);
   });
 
   it("manuell geklärtes Land und Abfragefehler", () => {

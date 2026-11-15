@@ -8,6 +8,9 @@
 // Reines Modul (kein React Native).
 
 import type { CheckContext, CheckOverride, CheckResult, CheckTip } from "./types";
+import { GEOZONE_IMPORT_ONLY_SOURCE_ISOS } from "../geozoneSourceMeta";
+
+const isImportOnlyIso = (iso: string) => GEOZONE_IMPORT_ONLY_SOURCE_ISOS.includes(String(iso).toUpperCase());
 
 // ---------------------------------------------------------------------------
 // Texte (einzige Quelle; client/lib/assessment.ts und notams.ts re-exportieren)
@@ -254,6 +257,38 @@ function formatDateDe(ms: number): string {
   return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()}`;
 }
 
+/** Datenalter kurz auf Deutsch: „vor 12 Min.“, „vor 5 h“, „vor 3 Tagen“. */
+export function formatDataAgeDe(ageMs: number): string {
+  const min = Math.max(0, Math.floor(ageMs / 60_000));
+  if (min < 60) return `vor ${Math.max(1, min)} Min.`;
+  const h = Math.floor(min / 60);
+  if (h < 48) return `vor ${h} h`;
+  const days = Math.floor(h / 24);
+  return `vor ${days} Tagen`;
+}
+
+/** „Stand: vor 5 h (14.11.2026)“ */
+export function formatDataStandDe(fetchedAt: number, now: number = Date.now()): string {
+  return `Stand: ${formatDataAgeDe(now - fetchedAt)} (${formatDateDe(fetchedAt)})`;
+}
+
+/**
+ * Kurzzeile mit dem Datenstand je Land für Planung und Pre-Check, z. B.
+ * „Österreich: Stand: vor 3 h (15.11.2026) · Deutschland: Stand: vor 30 Tagen
+ * (16.10.2026) – veraltet“. Nur Quellen mit bekanntem Stand (gespeicherte
+ * Daten); Live-Abfragen ohne Stand fehlen. "" ohne Einträge.
+ */
+export function formatCoverageDataAges(
+  sources: readonly CoverageSourceLike[],
+  countryLabel: (iso: string) => string,
+  now: number = Date.now(),
+): string {
+  return sources
+    .filter((s) => (s.status === "ok" || s.status === "stale" || s.status === "partial") && s.fetchedAt && Number.isFinite(s.fetchedAt))
+    .map((s) => `${countryLabel(s.iso) || s.iso}: ${formatDataStandDe(s.fetchedAt as number, now)}${s.status === "stale" ? " – veraltet" : ""}`)
+    .join(" · ");
+}
+
 export interface CoverageCheckInput {
   context: CheckContext;
   /** Quellen aus queryGeozonesInAreaWithCoverage (alle, auch ok/stale). */
@@ -267,17 +302,21 @@ export interface CoverageCheckInput {
   resolvedIsos?: string[];
   /** Ländername (deutsch) für den Text. */
   countryLabel?: (iso: string) => string;
+  /** Prüfzeitpunkt (ms) für das Datenalter; Standard: jetzt. */
+  now?: number;
 }
 
 /**
  * Abdeckungs-Befunde: fehlende/fehlerhafte/nicht unterstützte Quellen und
  * unvollständige Länder (z. B. DE ohne Wohngrundstücke) → "unknown"
- * (≥ CAUTION); veraltete Daten → Info mit Datenalter (wie bisher: zählen als
- * abgedeckt).
+ * (≥ CAUTION); veraltete Daten (älter als staleWarnAfterMs der Quellen-
+ * Registry, shared/geozoneSourceMeta.ts) → CAUTION mit Datenalter; aktuelle
+ * gespeicherte Daten → Info „Stand: vor X h“ je Land (B5).
  */
 export function coverageChecks(input: CoverageCheckInput): CheckResult[] {
   const label = (iso: string) => (input.countryLabel?.(iso) || iso || "den Standort");
   const resolved = new Set((input.resolvedIsos ?? []).map((s) => s.toUpperCase()));
+  const now = input.now ?? Date.now();
   const out: CheckResult[] = [];
   const primary = (input.primaryIso || "").toUpperCase();
   if (input.queryFailed) {
@@ -296,18 +335,38 @@ export function coverageChecks(input: CoverageCheckInput): CheckResult[] {
   }
   for (const s of input.sources) {
     const iso = String(s.iso || "").toUpperCase();
-    if (s.status === "ok") continue;
-    const dataAge = s.fetchedAt && Number.isFinite(s.fetchedAt)
-      ? { fetchedAt: new Date(s.fetchedAt).toISOString(), stale: s.status === "stale" }
+    const hasAge = !!s.fetchedAt && Number.isFinite(s.fetchedAt);
+    const dataAge = hasAge
+      ? {
+          fetchedAt: new Date(s.fetchedAt as number).toISOString(),
+          stale: s.status === "stale",
+          ageMs: Math.max(0, now - (s.fetchedAt as number)),
+        }
       : undefined;
+    if (s.status === "ok") {
+      // Datenstand je Land sichtbar machen (nur gespeicherte Bestände).
+      if (dataAge) {
+        out.push({
+          id: `coverage:${iso}:age`,
+          category: "coverage",
+          severity: "info",
+          title: `Geozonen-Daten ${label(iso)}: ${formatDataStandDe(s.fetchedAt as number, now)}`,
+          detail: s.note ?? "",
+          dataAge,
+          context: input.context,
+        });
+      }
+      continue;
+    }
     if (s.status === "stale") {
       out.push({
         id: `coverage:${iso}:stale`,
         category: "coverage",
-        severity: "info",
-        title: `Geozonen-Daten für ${label(iso)} nicht aktuell${s.fetchedAt ? ` (Stand ${formatDateDe(s.fetchedAt)})` : ""} – vor dem Start online aktualisieren.`,
+        severity: "caution",
+        title: `Geozonen-Daten für ${label(iso)} nicht aktuell${hasAge ? ` (${formatDataStandDe(s.fetchedAt as number, now)})` : ""} – ${isImportOnlyIso(iso) ? "bitte aktuelle Datei neu importieren." : "vor dem Start online aktualisieren."}`,
         detail: s.note ?? "",
-        dataAge: dataAge ?? undefined,
+        dataAge,
+        emphasis: "caution",
         context: input.context,
       });
       continue;

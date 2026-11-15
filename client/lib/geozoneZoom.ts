@@ -6,6 +6,7 @@
 // Analog zu ctrAltitude.ts / firDetection.ts / geozoneTileUrl.ts. Vorher war
 // GEOZONE_VECTOR_MIN_ZOOM in geozones.ts definiert und in MapPage.tsx als
 // VECTOR_MIN_ZOOM dupliziert, weil geozones.ts React-Native-Importe zieht.
+import { FULL_COUNTRY_VECTOR_ISOS, VECTOR_MIN_ZOOM_BY_ISO } from "../../shared/geozoneSourceMeta";
 
 // Minimale Zoomstufe, ab der native Karten Geozonen-/WMS-Kachel-Overlays
 // rendern dürfen. Darunter (Übersichts-/Kontinentebene, ~z3-z6) werden die
@@ -28,16 +29,17 @@ export const GEOZONE_TILE_MIN_ZOOM = 7;
 // dänische Zonen tatsächlich gezeichnet werden.
 export const GEOZONE_VECTOR_MIN_ZOOM = 9;
 
-// Pro-Land-Override der Vektor-Mindestzoomstufe.
+// Pro-Land-Override der Vektor-Mindestzoomstufe – aus der Quellen-Registry
+// (shared/geozoneSourceMeta.ts, Feld `vectorMinZoom`).
 //
 // BE/AT: An die WMS-Kachel-Schwelle (GEOZONE_TILE_MIN_ZOOM, z7) gekoppelt statt
 // an den generischen Vektor-Default (z9). Grund: Beide laden ihren kompletten
 // Landesbestand (BE ~288, AT ~291 Zonen, jeweils weit unter dem Feature-Deckel
-// 1200) ohnehin in einem kleinen, gedeckelten Request
-// (GEOZONE_VECTOR_FULL_COUNTRY_ISOS), daher ist ein frühes Anzeigen ungefährlich
-// (kein Timeout-Risiko wie bei DK). So erscheinen belgische UND österreichische
-// Zonen ab derselben Zoomstufe wie die WMS-Nachbarländer (FR/NL/DE) und nicht
-// erst deutlich später — kein fälschlicher "Hineinzoomen"-Hinweis mehr.
+// 1200) ohnehin in einem kleinen, gedeckelten Request (`loadsFullCountry`),
+// daher ist ein frühes Anzeigen ungefährlich (kein Timeout-Risiko wie bei DK).
+// So erscheinen belgische UND österreichische Zonen ab derselben Zoomstufe wie
+// die WMS-Nachbarländer (FR/NL/DE) und nicht erst deutlich später — kein
+// fälschlicher "Hineinzoomen"-Hinweis mehr.
 //
 // DK: KEIN Override — bleibt beim höheren Default (z9), weil seine bbox-Abfrage
 // bei weiter Sicht sonst eine landesweite Massenabfrage (~1700 Zonen) ins
@@ -47,13 +49,7 @@ export const GEOZONE_VECTOR_MIN_ZOOM = 9;
 // (DE ≈ 83 000 Zonen, teils MB-große Polygone) – Vektor-Zeichnung erst ab z10;
 // darunter bleibt online das WMS-Bild (CZ: Hinweis „Hineinzoomen“ entfällt,
 // da CZ kein WMS hat – unter z10 einfach keine Zonen).
-export const GEOZONE_VECTOR_COUNTRY_MIN_ZOOM: Record<string, number> = {
-  BE: GEOZONE_TILE_MIN_ZOOM,
-  AT: GEOZONE_TILE_MIN_ZOOM,
-  DE: 10,
-  FR: 10,
-  CZ: 10,
-};
+export const GEOZONE_VECTOR_COUNTRY_MIN_ZOOM: Record<string, number> = { ...VECTOR_MIN_ZOOM_BY_ISO };
 
 // Liefert die Vektor-Mindestzoomstufe für ein Land (pro-Land-Override oder Default).
 export function getVectorMinZoom(iso: string): number {
@@ -91,16 +87,12 @@ export function isVectorZoneDrawSuppressed(
   return !zone.informationalOnly && !isTemp && isRasterTiledVectorCountry(zone.country ?? "");
 }
 
-// Länder, deren Vektor-Geozonen-Datensatz klein genug ist, um beim Herauszoomen
-// den GESAMTEN Landesbestand zu laden (ohne bbox-Radius-Begrenzung), statt nur die
-// Zonen nahe der Bildmitte. Sonst erschienen beim Rauszoomen nur zentrumsnahe
-// Zonen. Belgiens ~288 Zonen liegen weit unter dem Feature-Deckel (1200).
-const GEOZONE_VECTOR_FULL_COUNTRY_ISOS = new Set<string>(["BE", "AT"]);
-
-// True, wenn für dieses Land beim Herauszoomen der gesamte Landesbestand statt
-// eines bbox-Radius geladen werden soll (siehe GEOZONE_VECTOR_FULL_COUNTRY_ISOS).
+// True, wenn für dieses Land beim Herauszoomen der GESAMTE Landesbestand statt
+// eines bbox-Radius geladen werden soll (Registry-Flag `loadsFullCountry`, BE/AT):
+// Datensatz klein genug (Belgiens ~288 Zonen weit unter dem Feature-Deckel 1200),
+// sonst erschienen beim Rauszoomen nur zentrumsnahe Zonen.
 export function loadsFullCountryVectorZones(iso: string): boolean {
-  return GEOZONE_VECTOR_FULL_COUNTRY_ISOS.has((iso || "").toUpperCase());
+  return FULL_COUNTRY_VECTOR_ISOS.includes((iso || "").toUpperCase());
 }
 
 // Obergrenze (km) für den bbox-Radius, mit dem Vektor-Zonen abgefragt werden.

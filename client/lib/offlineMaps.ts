@@ -27,11 +27,11 @@ import {
 import { COUNTRY_GEOZONE_CONFIGS, buildGeozoneTileUrls, getAllDefaultEnabledLayerNames, getAllLayerNames } from "@/lib/geozones";
 import { detectCountryFromCoordinates } from "../../shared/countryDetection";
 import { detectBundeslandFromCoordinates } from "@/lib/countryMaps";
-import { isEd269DirectCountry } from "@/lib/geozoneDirect/ed269Sources";
 import { refreshEd269Dataset } from "@/lib/geozoneDirect/ed269Store";
-import { GEOZONE_IMPORT_ONLY_ISOS } from "../../shared/geozoneImport";
+import { getGeozoneSourceMeta } from "../../shared/geozoneSourceMeta";
+import { getGeozoneSource } from "@/lib/geozoneSources/registry";
 import { deleteTileStore, downloadTileStore, getTilePartMeta, loadTileStoreMeta } from "@/lib/geozoneTiles/tileStore";
-import { TILE_STORE_ATTRIBUTION, isTileStoreIso, type TileStorePart } from "@/lib/geozoneTiles/tileStoreCore";
+import { isTileStoreIso, type TileStorePart } from "@/lib/geozoneTiles/tileStoreCore";
 import { OBSTACLE_TILE_ZOOM, deleteObstacleTiles, hasObstacleTile, loadObstacleTile, tilesForBounds } from "@/lib/obstacles";
 
 export type DetailLevel = 11 | 12 | 13 | 14 | 15;
@@ -155,13 +155,17 @@ export interface OfflineCountryInfo {
   note?: string;
 }
 
-/** Wie werden die Geozonen eines Landes offline gespeichert? */
+/**
+ * Wie werden die Geozonen eines Landes offline gespeichert? Offline-Strategie
+ * aus der Quellen-Registry (Aliase wie LI → CH-Datensatz aufgelöst); Länder
+ * mit WMS-/XYZ-Kacheln speichern zusätzlich bzw. stattdessen die Kacheln.
+ */
 export function geozoneOfflineKind(iso: string): GeozoneOfflineKind {
-  if (isTileStoreIso(iso)) return "tilestore";
+  const offline = getGeozoneSourceMeta(iso)?.offline;
+  if (offline === "tile-store") return "tilestore";
   if (geozoneTemplates(iso).length > 0) return "tiles";
-  // Liechtenstein steckt im Schweizer BAZL-Datensatz (ed269Store: li -> ch)
-  if (isEd269DirectCountry(iso) || String(iso).toUpperCase() === "LI") return "vector";
-  if (GEOZONE_IMPORT_ONLY_ISOS.includes(String(iso).toUpperCase())) return "import";
+  if (offline === "ed269-store") return "vector";
+  if (offline === "import") return "import";
   return "none";
 }
 
@@ -182,7 +186,7 @@ export function offlineCountries(): OfflineCountryInfo[] {
       hasSatellite: !!p?.satellite?.length,
       hasGeozones: geozoneKind !== "none",
       geozoneKind,
-      geozoneAttribution: isTileStoreIso(c.iso) ? TILE_STORE_ATTRIBUTION[c.iso] : undefined,
+      geozoneAttribution: getGeozoneSource(c.iso)?.tileAttribution,
       note: hasMap ? undefined : noOfflineBasemapNote(c.label, geozoneKind !== "none"),
     });
   }
@@ -617,7 +621,9 @@ export async function startCountryDownload(
         percentage: progress[key] ? 100 : 0,
         bytes: 0,
         state: "error",
-        error: c.iso === "IT" ? "d-flight-Zugang fehlt oder Anmeldung fehlgeschlagen" : "Geozonen konnten nicht geladen werden",
+        error: getGeozoneSourceMeta(c.iso)?.accessGate === "login"
+          ? getGeozoneSourceMeta(c.iso)?.accessHint ?? "Zugang fehlt oder Anmeldung fehlgeschlagen"
+          : "Geozonen konnten nicht geladen werden",
       });
     }
   }

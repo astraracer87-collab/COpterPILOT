@@ -1,26 +1,6 @@
-import { GODRONE_GEOZONE_SOURCE_LABEL } from "../../shared/dutchGeozones";
+import { ed269SourceLabels } from "./geozoneSources/registry";
 import { translateTextDe, translateZoneNameDe } from "../../shared/zoneTranslate";
-import { EANS_GEOZONE_SOURCE_LABEL } from "../../shared/estonianGeozones";
-import { CH_GEOZONE_SOURCE_LABEL } from "../../shared/swissGeozones";
-import { FI_GEOZONE_SOURCE_LABEL } from "../../shared/finnishGeozones";
-import { NO_GEOZONE_SOURCE_LABEL } from "../../shared/norwegianGeozones";
-import { IE_GEOZONE_SOURCE_LABEL, LU_GEOZONE_SOURCE_LABEL } from "../../shared/irishLuxGeozones";
-import { SE_GEOZONE_SOURCE_LABEL } from "../../shared/swedishGeozones";
-import { PT_GEOZONE_SOURCE_LABEL } from "../../shared/portugueseGeozones";
-import { ES_GEOZONE_SOURCE_LABEL } from "../../shared/spanishGeozones";
-import { PL_GEOZONE_SOURCE_LABEL } from "../../shared/polishGeozones";
-import { IT_GEOZONE_SOURCE_LABEL } from "../../shared/italianGeozones";
-import { SK_GEOZONE_SOURCE_LABEL } from "../../shared/slovakGeozones";
-import { RO_GEOZONE_SOURCE_LABEL } from "../../shared/geozoneImport";
-import { LV_GEOZONE_SOURCE_LABEL } from "../../shared/latvianGeozones";
-import { BG_GEOZONE_SOURCE_LABEL } from "../../shared/bulgarianGeozones";
-import { SI_GEOZONE_SOURCE_LABEL } from "../../shared/slovenianGeozones";
-import { HR_GEOZONE_SOURCE_LABEL } from "../../shared/croatianGeozones";
-import { CY_GEOZONE_SOURCE_LABEL } from "../../shared/cypriotGeozones";
-import { IS_GEOZONE_SOURCE_LABEL } from "../../shared/icelandicGeozones";
-import { GB_GEOZONE_SOURCE_LABEL } from "../../shared/ukGeozones";
 import type { GeozoneFeatureInfo } from "@/lib/geozones";
-import { DANISH_GEOZONE_SOURCE_LABEL } from "../../shared/danishGeozones";
 import { belgianAltitudeMeters } from "../../shared/belgianGeozones";
 import { normalizeAltitudeReference, type AltitudeReference } from "../../shared/geozoneAltitudeFilter";
 import {
@@ -104,35 +84,10 @@ export const ED269_RESTRICTION_LABELS: Record<Restriction, string> = Object.from
   RESTRICTIONS.map((r) => [r, RESTRICTION_POLICY[r].labelDe]),
 ) as Record<Restriction, string>;
 
-// Quellen-/Anbieterbezeichnung je Land für ED-269-Vektorzonen (Popup-Untertitel).
-export const ED269_SOURCE_LABELS: Record<string, string> = {
-  AT: "Austro Control (ED-269)",
-  BE: "skeyes / Droneguide (ED-269)",
-  DK: DANISH_GEOZONE_SOURCE_LABEL,
-  NL: GODRONE_GEOZONE_SOURCE_LABEL,
-  EE: EANS_GEOZONE_SOURCE_LABEL,
-  CH: CH_GEOZONE_SOURCE_LABEL,
-  LI: CH_GEOZONE_SOURCE_LABEL,
-  FI: FI_GEOZONE_SOURCE_LABEL,
-  NO: NO_GEOZONE_SOURCE_LABEL,
-  IE: IE_GEOZONE_SOURCE_LABEL,
-  LU: LU_GEOZONE_SOURCE_LABEL,
-  SE: SE_GEOZONE_SOURCE_LABEL,
-  PT: PT_GEOZONE_SOURCE_LABEL,
-  ES: ES_GEOZONE_SOURCE_LABEL,
-  PL: PL_GEOZONE_SOURCE_LABEL,
-  LT: "Oro navigacija (ED-269)",
-  IT: IT_GEOZONE_SOURCE_LABEL,
-  SK: SK_GEOZONE_SOURCE_LABEL,
-  LV: LV_GEOZONE_SOURCE_LABEL,
-  BG: BG_GEOZONE_SOURCE_LABEL,
-  SI: SI_GEOZONE_SOURCE_LABEL,
-  HR: HR_GEOZONE_SOURCE_LABEL,
-  CY: CY_GEOZONE_SOURCE_LABEL,
-  IS: IS_GEOZONE_SOURCE_LABEL,
-  GB: GB_GEOZONE_SOURCE_LABEL,
-  RO: RO_GEOZONE_SOURCE_LABEL,
-};
+// Quellen-/Anbieterbezeichnung je Land für ED-269-Vektorzonen (Popup-Untertitel)
+// – abgeleitet aus der Quellen-Registry (client/lib/geozoneSources/registry.ts,
+// Feld sourceLabel; alle Länder des ED-269-Gerätecaches inkl. Aliase wie LI).
+export const ED269_SOURCE_LABELS: Record<string, string> = ed269SourceLabels();
 
 // Wandelt einen ED-269-Höhenwert in Meter um (shared/heights.ts parseHeight):
 // SFC/GND -> 0, UNL/UNLIMITED -> unbegrenzt (undefined), Zahlen mit Maßeinheit

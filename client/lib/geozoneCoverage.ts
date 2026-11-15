@@ -12,7 +12,8 @@
 import { detectCountryFromCoordinates } from "./countryMaps";
 import { parseEd269ToGeozoneInfo } from "./ed269";
 import type { GeozoneFeatureInfo } from "./geozones";
-import { getEd269Dataset, ED269_REFRESH_AFTER_MS } from "./geozoneDirect/ed269Store";
+import { getEd269Dataset } from "./geozoneDirect/ed269Store";
+import { isSourceDataStale, resolveGeozoneSourceIso } from "../../shared/geozoneSourceMeta";
 import { queryEd269Features } from "./geozoneDirect/ed269Query";
 
 // Sowohl die Radius- (getCountriesInRadius) als auch die Viewport-Abdeckung
@@ -23,11 +24,12 @@ import { queryEd269Features } from "./geozoneDirect/ed269Query";
 // Grenzen weit ins Nachbarland reichen (z. B. die FR-Box über die belgische
 // Grenze) und so fremde Zonen/Texte in die Flugbereichsliste mischen würden.
 
-// Liechtenstein hat keinen eigenen Geozonen-Datensatz: seine Zonen stehen im
-// Schweizer BAZL-Datensatz (CH). Ein als „LI“ erkannter Punkt zählt daher für
-// die Abdeckung als CH, damit Karte und Zonencheck die BAZL-Zonen laden.
-function liToCh(iso: string | null): string | null {
-  return iso && iso.toUpperCase() === "LI" ? "CH" : iso;
+// Aliase aus der Quellen-Registry: Liechtenstein hat keinen eigenen
+// Geozonen-Datensatz, seine Zonen stehen im Schweizer BAZL-Datensatz (CH). Ein
+// als „LI“ erkannter Punkt zählt daher für die Abdeckung als CH, damit Karte
+// und Zonencheck die BAZL-Zonen laden.
+function datasetIso(iso: string | null): string | null {
+  return iso ? resolveGeozoneSourceIso(iso) : iso;
 }
 
 // Fragt den ED-269-Bestand (AT/BE/DK) für die per bbox abgesteckte Umgebung ab
@@ -143,8 +145,8 @@ export async function queryEd269CachedFeaturesWithStatusFrom(
     const ds = await getEd269Dataset(iso, { forceRefresh });
     if (!ds) return { zones: [], status: "missing", note: "kein Datenbestand auf dem Gerät" };
     const fetchedAt = ds.fetchedAt > 0 ? ds.fetchedAt : undefined;
-    const status: GeozoneSourceStatus =
-      Date.now() - (ds.fetchedAt || 0) > ED269_REFRESH_AFTER_MS ? "stale" : "ok";
+    // Altersschwelle laut Registry-Policy (staleWarnAfterMs)
+    const status: GeozoneSourceStatus = isSourceDataStale(iso, ds.fetchedAt) ? "stale" : "ok";
     let bbox: [number, number, number, number] | undefined;
     if (!fullCountry) {
       const kmToDegLat = 1 / 111.32;
@@ -189,7 +191,7 @@ export function getCountriesInRadius(
 
   const found: string[] = [];
   const add = (raw: string | null) => {
-    const iso = liToCh(raw);
+    const iso = datasetIso(raw);
     if (isSupported(iso)) {
       const up = iso.toUpperCase();
       if (!found.includes(up)) found.push(up);
@@ -258,7 +260,7 @@ export function getViewportCountries(
 
   const found: string[] = [];
   const add = (raw: string | null) => {
-    const iso = liToCh(raw);
+    const iso = datasetIso(raw);
     if (isSupported(iso) && !found.includes(iso)) found.push(iso);
   };
 

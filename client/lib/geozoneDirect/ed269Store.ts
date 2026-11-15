@@ -1,4 +1,4 @@
-// Geräte-Cache der ED-269-Vektor-Geozonen (AT/BE/DK) – ersetzt den früheren
+// Geräte-Cache der ED-269-Vektor-Geozonen (Registry: offline "ed269-store"/"import") – ersetzt den früheren
 // serverseitigen Datensatz-Cache (server/datasetCache.ts + Tagesabgleich).
 //
 // - Pro Land eine JSON-Datei im Dokumentenverzeichnis (expo-file-system/legacy),
@@ -13,14 +13,20 @@
 // geozoneCoverage.ts) unter tsx/Node ohne nativen Modulgraphen testbar bleibt –
 // dort läuft der Cache dann rein im Speicher.
 import {
+  ED269_BUNDLED_FALLBACKS,
   fetchEd269CountryFeatures,
-  getBelgianBundledFeatures,
   isEd269DirectCountry,
   roundFeatureCoords,
   type GeoFeature,
 } from "./ed269Sources";
 import { finalizeDirectFeatures } from "./directFetchUtil";
 import { GEOZONE_IMPORT_ONLY_ISOS } from "../../../shared/geozoneImport";
+import {
+  ED269_STORE_REFRESH_MS,
+  geozoneRefreshPolicy,
+  getGeozoneSourceMeta,
+  resolveGeozoneSourceIso,
+} from "../../../shared/geozoneSourceMeta";
 import { setCountryAccessAvailable } from "../../../shared/countryDetection";
 
 // Upstream-Daten ändern sich selten; der Server hat täglich synchronisiert.
@@ -41,10 +47,9 @@ function isStoreCountry(iso: string): boolean {
   return isEd269DirectCountry(iso) || isImportOnly(iso);
 }
 
-// Liechtenstein steckt im Schweizer BAZL-Datensatz.
+// Aliase aus der Registry (Liechtenstein steckt im Schweizer BAZL-Datensatz).
 function cacheKey(iso: string | null | undefined): string {
-  const c = String(iso || "").toLowerCase();
-  return c === "li" ? "ch" : c;
+  return resolveGeozoneSourceIso(iso).toLowerCase();
 }
 
 type DownloadHook = (iso: string, features: GeoFeature[]) => unknown;
@@ -55,7 +60,8 @@ export function onEd269Downloaded(hook: DownloadHook): () => void {
   return () => downloadHooks.delete(hook);
 }
 
-export const ED269_REFRESH_AFTER_MS = 24 * 60 * 60 * 1000;
+// Aktualisierungsintervall laut Registry-Policy (maxAgeMs, je Land; Standard 24 h).
+export const ED269_REFRESH_AFTER_MS = ED269_STORE_REFRESH_MS;
 // Nach einem fehlgeschlagenen Download nicht bei jedem Karten-Pan erneut
 // versuchen (offline!), sondern frühestens nach dieser Pause.
 const RETRY_AFTER_FAILURE_MS = 5 * 60 * 1000;
@@ -206,7 +212,8 @@ function download(iso: string): Promise<Ed269Dataset | null> {
 }
 
 function isFresh(ds: Ed269Dataset, now: number): boolean {
-  return ds.version === STORE_FORMAT_VERSION && now - ds.fetchedAt < ED269_REFRESH_AFTER_MS;
+  const maxAgeMs = geozoneRefreshPolicy(ds.iso)?.maxAgeMs ?? ED269_REFRESH_AFTER_MS;
+  return ds.version === STORE_FORMAT_VERSION && now - ds.fetchedAt < maxAgeMs;
 }
 
 function mayRetry(iso: string, now: number): boolean {
@@ -257,8 +264,8 @@ export async function getEd269Dataset(
     return ds;
   }
 
-  // Belgien: gebündelte Basisdaten sofort liefern, Download im Hintergrund.
-  if (iso === "be") {
+  // Gebündelte Basisdaten (BE) sofort liefern, Download im Hintergrund.
+  if (getGeozoneSourceMeta(iso)?.bundledFallback) {
     const bundled = fallbackDataset(iso);
     if (bundled) {
       if (mayRetry(iso, now)) void download(iso);
@@ -271,11 +278,12 @@ export async function getEd269Dataset(
   return fresh ?? fallbackDataset(iso);
 }
 
-// Rückfall ohne Netz und ohne Gerätebestand: für Belgien die gebündelten
-// Basisdaten (wird nicht gespeichert, damit ein späterer Download greift).
+// Rückfall ohne Netz und ohne Gerätebestand: gebündelte Basisdaten (Registry-
+// Flag bundledFallback, BE; wird nicht gespeichert, damit ein späterer Download greift).
 function fallbackDataset(iso: string): Ed269Dataset | null {
-  if (iso !== "be") return null;
-  const features = getBelgianBundledFeatures();
+  const bundled = getGeozoneSourceMeta(iso)?.bundledFallback ? ED269_BUNDLED_FALLBACKS[resolveGeozoneSourceIso(iso)] : undefined;
+  if (!bundled) return null;
+  const features = bundled();
   if (features.length === 0) return null;
   const ds: Ed269Dataset = { iso, fetchedAt: 0, version: STORE_FORMAT_VERSION, features };
   // Im Speicher halten (fetchedAt 0 => gilt als veraltet, Refresh folgt).

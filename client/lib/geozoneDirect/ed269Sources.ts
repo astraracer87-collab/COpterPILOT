@@ -1,4 +1,4 @@
-// Direkter Abruf der ED-269-/GeoJSON-Geozonen-Quellen pro Land (AT/BE/DK) –
+// Direkter Abruf der ED-269-/GeoJSON-Geozonen-Quellen pro Land –
 // Portierung des früheren Server-Tagesabgleichs (server/dataSync.ts:
 // syncGeozonesForCountry). Das Backend existiert nicht mehr; die App lädt die
 // öffentlichen Upstream-Feeds selbst (React Native kennt kein CORS).
@@ -10,6 +10,7 @@ import {
   normalizeDanishNatureFeatures,
 } from "../../../shared/danishGeozones";
 import { normalizeAustrianEd269Placeholder } from "../../../shared/ed269Restriction";
+import { ED269_FETCH_ISOS, getGeozoneSourceMeta, resolveGeozoneSourceIso } from "../../../shared/geozoneSourceMeta";
 import { normalizeEstonianProps } from "../../../shared/estonianGeozones";
 import { fetchSwitzerland } from "./switzerlandSource";
 import { fetchFinland } from "./finlandSource";
@@ -50,10 +51,11 @@ export type GeoFeature = {
   bbox?: [number, number, number, number];
 };
 
-// Länder, deren Geozonen als ED-269-/GeoJSON-Vektordaten vorliegen (kein WMS).
-// NL kommt aus GoDrone (LVNL). DE/CH/LU/FR werden über ihre WMS-/WFS-Pfade
-// abgefragt.
-export const ED269_DIRECT_COUNTRIES = ["at", "be", "dk", "nl", "ee", "ch", "fi", "no", "ie", "lu", "se", "pt", "es", "pl", "lt", "it", "gb", "is", "cy", "hr", "si", "bg", "lv", "sk"] as const;
+// Länder, deren Geozonen als ED-269-/GeoJSON-Vektordaten mit automatischem
+// Abruf vorliegen (kein WMS) – aus der Quellen-Registry (kind "ed269-vector"
+// bzw. "login"), kleingeschrieben. NL kommt aus GoDrone (LVNL); DE/FR/CZ nutzen
+// den Kachelspeicher, HU nur ein Bild-Overlay, RO nur den Datei-Import.
+export const ED269_DIRECT_COUNTRIES: readonly string[] = ED269_FETCH_ISOS.map((iso) => iso.toLowerCase());
 
 export function isEd269DirectCountry(iso: string): boolean {
   return (ED269_DIRECT_COUNTRIES as readonly string[]).includes(String(iso || "").toLowerCase());
@@ -210,10 +212,8 @@ async function fetchAustria(): Promise<GeoFeature[]> {
   const body = await fetchJson(austriaGeozonesUrl());
   const raw: GeoFeature[] = Array.isArray(body?.features) ? body.features : [];
   if (raw.length === 0) throw new Error("Austro Control lieferte keine Zonen");
-  return finalize(raw, "at").map((feature) => ({
-    ...feature,
-    properties: normalizeAustrianEd269Placeholder((feature.properties as Record<string, any>) || {}),
-  }));
+  // MATZ/MCTR-Platzhalter: Registry-Flag frequentisPlaceholder (fetchEd269CountryFeatures)
+  return finalize(raw, "at");
 }
 
 // ---------------------------------------------------------------------------
@@ -226,10 +226,7 @@ async function fetchLithuania(): Promise<GeoFeature[]> {
   if (raw.length === 0) throw new Error("Oro navigacija lieferte keine Zonen");
   return finalize(raw, "lt").map((feature) => ({
     ...feature,
-    properties: {
-      ...normalizeAustrianEd269Placeholder((feature.properties as Record<string, any>) || {}),
-      source: LT_GEOZONE_SOURCE_LABEL,
-    },
+    properties: { ...((feature.properties as Record<string, any>) || {}), source: LT_GEOZONE_SOURCE_LABEL },
   }));
 }
 
@@ -452,37 +449,59 @@ async function fetchNetherlands(): Promise<GeoFeature[]> {
 }
 
 /**
+ * Abruf-Funktion je Vektor-Land (Schlüssel = Registry-ISO, Großbuchstaben).
+ * Die Client-Registry (client/lib/geozoneSources/registry.ts) referenziert
+ * diese Funktionen; ein Test prüft, dass jeder Schlüssel in der Registry steht
+ * und jedes Land mit automatischem Abruf eine Funktion hat.
+ */
+export const ED269_FETCHERS: Readonly<Record<string, () => Promise<GeoFeature[]>>> = {
+  AT: fetchAustria,
+  DK: fetchDenmark,
+  BE: fetchBelgium,
+  NL: fetchNetherlands,
+  EE: fetchEstonia,
+  CH: fetchSwitzerland, // inkl. Liechtenstein (Alias LI)
+  FI: fetchFinland,
+  NO: fetchNorway,
+  IE: fetchIreland,
+  LU: fetchLuxembourg,
+  SE: fetchSweden,
+  PT: fetchPortugal,
+  ES: fetchSpain,
+  PL: fetchPoland,
+  LT: fetchLithuania,
+  IT: fetchItaly,
+  GB: fetchUnitedKingdom,
+  IS: fetchIceland,
+  CY: fetchCyprus,
+  HR: fetchCroatia,
+  SI: fetchSlovenia,
+  BG: fetchBulgaria,
+  LV: fetchLatvia,
+  SK: fetchSlovakia,
+};
+
+/** Gebündelte Basisdaten je Land (Registry-Flag bundledFallback). */
+export const ED269_BUNDLED_FALLBACKS: Readonly<Record<string, () => GeoFeature[]>> = {
+  BE: getBelgianBundledFeatures,
+};
+
+/**
  * Lädt den kompletten, normalisierten Geozonen-Bestand eines Vektor-Landes
  * direkt von den Upstream-Quellen (inkl. bbox je Feature, gekürzter
  * Koordinaten-Präzision und `_country`-Tag). Wirft bei Fehlschlag.
  */
 export async function fetchEd269CountryFeatures(iso: string): Promise<GeoFeature[]> {
-  const c = String(iso || "").toLowerCase();
-  let features: GeoFeature[];
-  if (c === "at") features = await fetchAustria();
-  else if (c === "dk") features = await fetchDenmark();
-  else if (c === "be") features = await fetchBelgium();
-  else if (c === "nl") features = await fetchNetherlands();
-  else if (c === "ee") features = await fetchEstonia();
-  else if (c === "ch" || c === "li") features = await fetchSwitzerland();
-  else if (c === "fi") features = await fetchFinland();
-  else if (c === "no") features = await fetchNorway();
-  else if (c === "ie") features = await fetchIreland();
-  else if (c === "lu") features = await fetchLuxembourg();
-  else if (c === "se") features = await fetchSweden();
-  else if (c === "pt") features = await fetchPortugal();
-  else if (c === "es") features = await fetchSpain();
-  else if (c === "pl") features = await fetchPoland();
-  else if (c === "lt") features = await fetchLithuania();
-  else if (c === "it") features = await fetchItaly();
-  else if (c === "gb") features = await fetchUnitedKingdom();
-  else if (c === "is") features = await fetchIceland();
-  else if (c === "cy") features = await fetchCyprus();
-  else if (c === "hr") features = await fetchCroatia();
-  else if (c === "si") features = await fetchSlovenia();
-  else if (c === "bg") features = await fetchBulgaria();
-  else if (c === "lv") features = await fetchLatvia();
-  else if (c === "sk") features = await fetchSlovakia();
-  else throw new Error(`Kein Vektor-Geozonen-Feed für ${iso}`);
+  const key = resolveGeozoneSourceIso(iso);
+  const fetcher = ED269_DIRECT_COUNTRIES.includes(key.toLowerCase()) ? ED269_FETCHERS[key] : undefined;
+  if (!fetcher) throw new Error(`Kein Vektor-Geozonen-Feed für ${iso}`);
+  let features = await fetcher();
+  if (getGeozoneSourceMeta(key)?.frequentisPlaceholder) {
+    // Frequentis-AVM (AT/LT): MATZ/MCTR mit Platzhalter-Enddatum 2100 = dauerhaft
+    features = features.map((feature) => ({
+      ...feature,
+      properties: normalizeAustrianEd269Placeholder((feature.properties as Record<string, any>) || {}),
+    }));
+  }
   return roundFeatureCoords(features);
 }

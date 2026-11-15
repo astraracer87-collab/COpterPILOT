@@ -10,6 +10,8 @@
 // Zum Aktualisieren/Hinzufügen eines Landes siehe den Header dieses Skripts,
 // z. B. `node scripts/gen-country-polygon.mjs AUT --window=9.5,47.25,10.5,47.66`.
 
+import { ACCESS_GATED_SOURCE_ISOS, OWN_MAP_SOURCE_ISOS } from "./geozoneSourceMeta";
+
 export interface CountryBoundingBox {
   iso: string;
   minLat: number;
@@ -950,13 +952,11 @@ export function detectCountryFromCoordinates(lat: number, lon: number): string |
   return matches[0].iso;
 }
 
-// Die einzige geteilte Quelle dafür, für welche Länder wir EIGENE Geozonen-Daten
-// besitzen und daher unsere eigene Karte mit Geozonen-Overlay zeigen. Spiegelt
-// exakt Object.keys(COUNTRY_GEOZONE_CONFIGS) aus client/lib/geozones.ts bzw.
-// LAYER_GROUPS + ED-269-Vektorländer in web/src/lib/geozoneLayers.ts. Web und
-// Mobile leiten ihre "eigene Karte vs. offizielle Staatskarte"-Entscheidung
-// gemeinsam hieraus ab, damit beide Plattformen konsistent bleiben.
-export const OWN_MAP_DATA_COUNTRIES = ["DE", "FR", "CH", "LU", "NL", "AT", "BE", "DK", "EE", "FI", "NO", "IE", "SE", "PT", "ES", "PL", "LT", "IT", "GB", "IS", "CY", "HR", "SI", "BG", "LV", "CZ", "SK", "RO"];
+// Für welche Länder wir EIGENE Geozonen-Daten besitzen und daher unsere eigene
+// Karte mit Geozonen-Overlay zeigen – abgeleitet aus der Quellen-Registry
+// (shared/geozoneSourceMeta.ts: alle Quellen außer reinen Bild-Overlays wie HU;
+// Aliase wie LI zählen nicht).
+export const OWN_MAP_DATA_COUNTRIES: string[] = [...OWN_MAP_SOURCE_ISOS];
 
 // True, wenn wir für das Land eigene Geozonen-Daten haben (eigene Karte mit
 // Overlay). Sonst wird die offizielle Staatskarte bzw. der EASA-Fallback gezeigt.
@@ -971,8 +971,8 @@ export function hasOwnMap(iso?: string | null): boolean {
 // bzw. nur als gespeichertes Offline-Paket vorliegen (CZ: ŘLP-ED-318-Kacheln;
 // RO: nur per Datei-Import, ROMATSA-Server für Android nicht erreichbar).
 // Ohne Zugang/Paket gelten sie als „ohne eigene Daten“, damit der Hinweis zur
-// manuellen Prüfung erscheint.
-const ACCESS_GATED_COUNTRIES = new Set(["IT", "CZ", "RO"]);
+// manuellen Prüfung erscheint. Quelle: `accessGate` in der Registry.
+const ACCESS_GATED_COUNTRIES = new Set(ACCESS_GATED_SOURCE_ISOS);
 const accessAvailable = new Set<string>();
 
 /** Meldet, ob für ein zugangsgebundenes Land ein Zugang eingetragen ist. */

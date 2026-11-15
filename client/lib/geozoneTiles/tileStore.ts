@@ -34,6 +34,7 @@ import {
   geometryBBox,
   isIndexStale,
   isTileStoreIso,
+  TILE_STORE_ISOS,
   listCzZipEntries,
   loadIndex,
   pageJobs,
@@ -195,7 +196,7 @@ export function loadTileStoreMeta(force = false): Promise<void> {
   metaLoaded = (async () => {
     const fs = getEnv().fs;
     if (!fs) return;
-    for (const iso of ["DE", "FR", "CZ"] as TileStoreIso[]) {
+    for (const iso of TILE_STORE_ISOS) {
       for (const part of ["base", "wohn"] as TileStorePart[]) {
         try {
           const raw = await fs.readText(`${partDir(fs, iso, part)}meta.json`);
@@ -224,7 +225,7 @@ export function hasTiledGeozones(iso: string | null | undefined): boolean {
 
 /** Länder mit vollständigem Bestand */
 export function tiledGeozoneIsos(): TileStoreIso[] {
-  return (["DE", "FR", "CZ"] as TileStoreIso[]).filter((i) => hasTiledGeozones(i));
+  return TILE_STORE_ISOS.filter((i) => hasTiledGeozones(i));
 }
 
 async function readIndexFile(fs: TileFs, dir: string): Promise<TileIndexFile | null> {

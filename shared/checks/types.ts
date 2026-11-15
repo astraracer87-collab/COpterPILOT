@@ -51,6 +51,8 @@ export interface CheckDataAge {
   /** ISO-Zeitstempel des Datenbestands. */
   fetchedAt: string;
   stale: boolean;
+  /** Alter des Bestands zum Prüfzeitpunkt (ms). */
+  ageMs?: number;
 }
 
 export interface CheckResult {

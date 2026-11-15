@@ -21,6 +21,7 @@ import {
   NATIVE_GEOZONE_LAYER_CATALOG,
   type GeozoneLayer,
 } from "../../shared/geozoneLayerCatalog";
+import { WMS_GEOZONE_CONFIGS, type CountryGeozoneConfig } from "./geozoneSources/wmsConfigs";
 
 export const GEOZONE_TILE_SIZE = 256;
 export const GEOZONE_TILE_BBOX_PLACEHOLDER = "{bbox}";
@@ -31,15 +32,14 @@ export const GEOZONE_TILE_BBOX_PLACEHOLDER = "{bbox}";
 // Server, server/geozoneTilesCore.ts).
 export const MAX_LAYERS_PER_GETMAP = 15;
 
-// Standard-WMS je Land (Spiegel von COUNTRY_GEOZONE_CONFIGS in geozones.ts bzw.
-// COUNTRY_WMS im früheren Server). Vektor-Länder (AT/BE/DK) haben KEIN WMS.
-export const GEOZONE_COUNTRY_WMS: Record<string, { baseUrl: string; version: string }> = {
-  DE: { baseUrl: "https://uas-betrieb.de/geoservices/dipul/wms", version: "1.1.1" },
-  CH: { baseUrl: "https://wms.geo.admin.ch/", version: "1.3.0" },
-  LU: { baseUrl: "https://wms.geoportail.lu/public_map_layers/service", version: "1.1.1" },
-  NL: { baseUrl: "https://service.pdok.nl/lvnl/drone-no-flyzones/wms/v1_0", version: "1.3.0" },
-  FR: { baseUrl: "https://data.geopf.fr/wms-r/wms", version: "1.3.0" },
-};
+// Standard-WMS je Land – abgeleitet aus den WMS-Konfigurationen der
+// Quellen-Registry (geozoneSources/wmsConfigs.ts; Länder mit wmsBaseUrl).
+// Vektor-Länder (AT/BE/DK …) und HU (XYZ) haben KEIN WMS.
+export const GEOZONE_COUNTRY_WMS: Record<string, { baseUrl: string; version: string }> = Object.fromEntries(
+  Object.values(WMS_GEOZONE_CONFIGS as Record<string, CountryGeozoneConfig>)
+    .filter((c) => !!c.wmsBaseUrl)
+    .map((c) => [c.iso, { baseUrl: c.wmsBaseUrl, version: c.wmsVersion }]),
+);
 
 const ORIGIN = 20037508.342789244; // halbe Web-Mercator-Weltgröße (m)
 

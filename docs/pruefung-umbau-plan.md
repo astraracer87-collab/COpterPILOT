@@ -68,7 +68,7 @@ detail, source, zoneRefs?, overridable? }`, `aggregate()` = max(severity),
 
 Quellen-Registry (client/lib/geozoneSources/registry.ts): je Quelle iso[],
 label, attribution, licence, links, kind, fetch, normalise, refresh-Policy,
-offline-Strategie, Flags (z. B. frequentis2100-Platzhalter für AT/EE/LT);
+offline-Strategie, Flags (z. B. frequentis2100-Platzhalter für AT/LT – EE geprüft, ohne);
 alle Länderlisten werden daraus abgeleitet.
 
 ## Teil B – Schritte
@@ -244,3 +244,84 @@ alle Länderlisten werden daraus abgeleitet.
   (`evaluateZones` kann es, `reachability` ungenutzt); FR-AlphaTango nur
   Info-Befund (wirkt wie bisher über den Einschränkungsstatus); Datenalter für
   Wetter/NOTAM folgt mit Teil A.
+
+## Stand B5 (2026-11-15)
+
+- Quellen-Registry, zweigeteilt:
+  - **shared/geozoneSourceMeta.ts** (ohne Importe, damit shared/*Geozones.ts
+    und ed269Restriction.ts sie ohne Zyklus nutzen können): je Quelle `iso`,
+    `aliases` (LI → CH), `labelDe`, `kind` ("ed269-vector" | "tiled" (DE/FR/CZ)
+    | "wms" | "xyz-raster" (HU) | "import-only" (RO) | "login" (IT)),
+    `refresh` {maxAgeMs, staleWarnAfterMs} (ED-269-Gerätecache 24 h/24 h,
+    Kachelspeicher 28 d/28 d, Import: kein Abruf, Warnung ab 24 h), `offline`
+    (ed269-store | tile-store | import | raster-tiles), `vectorMinZoom`,
+    Flags (`loadsFullCountry` AT/BE, `accessGate` login IT / pack CZ / import
+    RO mit `accessHint`, `manualCheckOnly` HU, `frequentisPlaceholder` AT/LT,
+    `notamFromApplicability` AT, `notamFromLiveFlag` BE, `bundledFallback` BE,
+    `notamListOrder` BE/AT/DK) sowie Anbieter/Lizenz/Freigabe/Link für
+    „Datenquellen & Lizenzen“. Abgeleitete Listen: `ED269_FETCH_ISOS`,
+    `ED269_STORE_ISOS(_WITH_ALIASES)`, `OWN_MAP_SOURCE_ISOS`,
+    `ACCESS_GATED_SOURCE_ISOS`, `TILE_STORE_SOURCE_ISOS`,
+    `GEOZONE_IMPORT_ONLY_SOURCE_ISOS`, `VECTOR_MIN_ZOOM_BY_ISO`,
+    `FULL_COUNTRY_VECTOR_ISOS`, `NOTAM_LIST_SOURCE_ISOS`, `isEd269VectorIso`,
+    `isSourceDataStale`, `resolveGeozoneSourceIso`.
+  - **client/lib/geozoneSources/registry.ts** (RN-frei, unter tsx testbar):
+    `GEOZONE_SOURCES` = Kern + `sourceLabel`, `attributions`,
+    `tileAttribution` (TILE_STORE_ATTRIBUTION), `wms` (Verweis auf
+    geozoneSources/wmsConfigs.ts – die WMS-/XYZ-Konfigurationen von DE, CH, LU,
+    NL, FR, HU, unverändert aus geozones.ts verschoben), `fetch`
+    (ED269_FETCHERS in geozoneDirect/ed269Sources.ts), `bundled`,
+    `manualCheckHint`; `ed269SourceLabels()`, `buildCountryGeozoneConfigs()`,
+    `getSourceDataStatus(iso)` → {fetchedAt, ageMs, stale, kind, imported?}
+    aus ed269Store (getEd269DatasetStatus inkl. Import) bzw. Kachelspeicher-
+    Metadaten.
+- Abgeleitet statt hart kodiert: ED269_DIRECT_COUNTRIES, ED269_SOURCE_LABELS,
+  VECTOR_ISOS (PlanningRestrictions, 2×) → `isEd269VectorIso`,
+  OWN_MAP_DATA_COUNTRIES + zugangsgebundene Länder (hasOwnMap unverändert),
+  GEOZONE_VECTOR_COUNTRY_MIN_ZOOM / Vollland-Laden, TILE_STORE_ISOS (Typ
+  `TileStoreIso` bleibt, Test hält ihn synchron), GEOZONE_IMPORT_ONLY_ISOS,
+  COUNTRY_GEOZONE_CONFIGS (gleiche Schlüssel/Reihenfolge), GEOZONE_COUNTRY_WMS
+  (geozoneTileUrl.ts), dataSources (GEOZONE_SOURCE_META, geozoneCountries),
+  Offline-Arten (geozoneOfflineKind) und Kachel-Attribution, NotamsScreen
+  (BE/AT/DK), LI-Sonderfälle (geozones, geozoneCoverage, ed269Store,
+  ed269Sources, RcOfflineMaps), BE-Bundle, AT-NOTAM-Eignung, IT-Fehlertext,
+  HU-Hinweis in der Planung. Frequentis-Platzhalter wird jetzt einmal in
+  `fetchEd269CountryFeatures` per Flag angewandt (statt in fetchAustria/
+  fetchLithuania). Geprüft: EE-Feed (utm.eans.ee, 233 Zonen) ohne
+  2100-Platzhalter; AT 5 (MATZ/MCTR); LT-Feed hinter Cloudflare nicht
+  abrufbar – Flag bleibt wie bisher gesetzt.
+- Datenalter (einzige Verhaltensänderung): Abdeckungsquellen tragen den Stand
+  (ED-269 wie bisher, jetzt auch Kachelspeicher DE/FR/CZ);
+  `coverageChecks` erzeugt für aktuelle gespeicherte Daten einen Info-Befund
+  „Geozonen-Daten <Land>: Stand: vor X h (TT.MM.JJJJ)“ (`dataAge.ageMs`),
+  veraltete Daten (> staleWarnAfterMs) sind jetzt **CAUTION** (bisher Info).
+  Planung und Pre-Check zeigen unter den Geozonen eine Zeile „Geozonen-Daten –
+  <Land>: Stand: …“ (`formatCoverageDataAges`), bei veralteten Daten orange.
+  Folge: ein Kachelpaket älter als 28 Tage bzw. ein ED-269-Bestand oder
+  RO-Import älter als 24 h ergibt CAUTION; ebenso der ED-269-Rückfall „aus
+  Offline-Paket“ (war schon "stale").
+- Bewusst nicht umgestellt (quellenspezifische Implementierung, B6): die
+  Abfragezweige je Land in queryGeozonesForCountry (DE/CH/LU/NL/FR), CZ-
+  Sonderwege in tileStore/tileStoreCore, CountryDetailScreen (d-flight-Hilfe),
+  der Legacy-Layer-Katalog für die einmalige Migration
+  (NATIVE_GEOZONE_LAYER_CATALOG).
+
+### Ein Land hinzufügen
+
+1. **shared/geozoneSourceMeta.ts**: eine Zeile in `GEOZONE_SOURCE_META`
+   (iso, labelDe, kind, refresh, offline, ggf. Flags/Mindestzoom, Anbieter,
+   Lizenz, writtenPermission, url). Für einen normalen Vektor-Feed reicht
+   `...vector`.
+2. **Quellmodul**: Normalisierer in shared/<land>Geozones.ts (Label- und
+   Attributions-Konstanten) und Abruf in client/lib/geozoneDirect/<land>Source.ts;
+   die Abruf-Funktion in `ED269_FETCHERS` (geozoneDirect/ed269Sources.ts)
+   eintragen.
+3. **client/lib/geozoneSources/registry.ts**: Eintrag in `CLIENT_PARTS`
+   (sourceLabel, attributions; WMS-Länder zusätzlich `wms` in wmsConfigs.ts)
+   und den ISO-Code in `CountryIsoWithGeozones` (wmsConfigs.ts) – der
+   Compiler erzwingt beides.
+4. Fertig: Karte, Prüfung, hasOwnMap, Offline-Paket, Datenquellen, Quellen-
+   Label, Höhenfilter und Datenalter ergeben sich aus der Registry.
+   `client/lib/__tests__/geozoneSourceRegistry.test.ts` prüft Label/
+   Attribution/Lizenz und dass jede Abruf-Funktion in der Registry steht; die
+   Schnappschüsse der alten Listen dort bewusst um das neue Land ergänzen.

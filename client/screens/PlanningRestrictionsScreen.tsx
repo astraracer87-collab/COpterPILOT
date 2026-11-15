@@ -21,7 +21,7 @@ import type { FlightPlanningParamList } from "@/navigation/FlightPlanningNavigat
 import { isZoneActiveInContext, ed269InactiveInfoText, type ZoneTimeContext } from "@/lib/ed269";
 import { uncoveredGeozoneSources, geozoneCoverageWarning, sourceCoverageWarning, type GeozoneSourceCoverage } from "@/lib/geozoneCoverage";
 import { countryName } from "../../shared/countryEntitlements";
-import { queryGeozonesInAreaWithCoverage, GeozoneFeatureInfo, DipulGeozoneSourceStatus, separateTempRestrictions, getCountryGeozoneConfig, getCountriesInRadius, DipulTempRestriction, DipulTempRestrictionsResult, fetchNearbyTempRestrictionsRaw, loadRadarSettings, saveRadarSettings, HU_GEOZONE_RASTER_HINT } from "@/lib/geozones";
+import { queryGeozonesInAreaWithCoverage, GeozoneFeatureInfo, DipulGeozoneSourceStatus, separateTempRestrictions, getCountryGeozoneConfig, getCountriesInRadius, DipulTempRestriction, DipulTempRestrictionsResult, fetchNearbyTempRestrictionsRaw, loadRadarSettings, saveRadarSettings } from "@/lib/geozones";
 import { getTilePartMeta } from "@/lib/geozoneTiles/tileStore";
 import { TILE_STORE_ATTRIBUTION } from "@/lib/geozoneTiles/tileStoreCore";
 import { fetchTerrainEstimate } from "@/lib/elevation";
@@ -37,10 +37,12 @@ import { WILDLIFE_RESCUE_MODE_TITLE, WILDLIFE_RESCUE_PLANNING_HINT } from "../..
 import { checkCountryCompliance, ComplianceResult, ComplianceItem } from "@/lib/countryCompliance";
 import { getNightFlightRule } from "@/lib/countryInfo";
 import { nightFlightCountry } from "@/lib/assessment";
-import { geozoneChecks, coverageChecks, complianceChecks, replaceCheckCategories, type CheckResult, type CheckOverride } from "../../shared/checks";
+import { geozoneChecks, coverageChecks, complianceChecks, formatCoverageDataAges, replaceCheckCategories, type CheckResult, type CheckOverride } from "../../shared/checks";
 import { isFlightWindowDuringNight } from "@/lib/solar";
 import { detectBundeslandFromCoordinates } from "@/lib/countryMaps";
 import { hasOwnMap } from "../../shared/countryDetection";
+import { isEd269VectorIso } from "../../shared/geozoneSourceMeta";
+import { getGeozoneSource } from "@/lib/geozoneSources/registry";
 import { classifyPlanningZones, buildProhibitedOverrideNote, hasOverrideReason } from "@/lib/restrictionPlanning";
 import { maxRestrictionVerdict, zonePolicy, type RestrictionPolicyEntry } from "../../shared/restrictionPolicy";
 import { initialRestrictionChoice, initialRestrictionNotes, isManualRestrictionAnswered, deriveDetailsRestrictionStatus, deriveAlphaTangoRestrictionStatus, buildExemptionNote, composeRestrictionNotes, forwardCrossCheckParams, decidePlanningAbortAction } from "@/lib/manualRestrictionFlow";
@@ -81,6 +83,9 @@ export default function PlanningRestrictionsScreen() {
     (energyInfrastructure?.counts.powerLines ?? 0) +
     (energyInfrastructure?.counts.powerMasts ?? 0);
   const hasAdditionalEnergyInfrastructure = countryIso === "DE" && additionalEnergyCount > 0;
+  // Länder ohne automatische Zonenprüfung (Registry: manualCheckOnly, z. B. HU-Bild-Overlay)
+  const manualCheckSource = getGeozoneSource(countryIso);
+  const manualCheckHint = manualCheckSource?.manualCheckOnly ? manualCheckSource.manualCheckHint : undefined;
   const energyInfrastructureNote = useMemo(() => {
     if (countryIso !== "DE") return null;
     const items = energyInfrastructure?.features ?? [];
@@ -214,7 +219,7 @@ export default function PlanningRestrictionsScreen() {
         // Geländehöhe nur laden, wenn MSL-bezogene Vektorzonen vorliegen.
         const needsTerrain = separated.geozones.some(
           (gz) => (gz.lowerReference === "MSL" || gz.upper?.ref === "MSL")
-            && ["AT", "BE", "DK", "NL", "EE", "CH", "LI", "FI", "NO", "SE", "IE", "LU", "PT", "ES", "PL", "LT", "IT", "GB", "IS", "CY", "HR", "SI", "BG", "LV", "SK", ...(hasOwnMap("RO") ? ["RO"] : [])].includes(String(gz.country || countryIso || "").toUpperCase()),
+            && isEd269VectorIso(gz.country || countryIso, hasOwnMap),
         );
         if (needsTerrain) {
           fetchTerrainEstimate(latitude, longitude, (localRadiusKm || 1) * 1000)
@@ -252,10 +257,9 @@ export default function PlanningRestrictionsScreen() {
   // geplanten Höhe (Standard 120 m AGL) ausblenden. WMS-Länder bleiben unberührt.
   // Der Schalter "Alle Geozonen anzeigen" hebt den Filter auf.
   const { geozones, hiddenAboveGeozones } = useMemo(() => {
-    // RO (nur Datei-Import) zählt erst mit gespeichertem Bestand als Vektor-Land.
-    const VECTOR_ISOS = ["AT", "BE", "DK", "NL", "EE", "CH", "LI", "FI", "NO", "SE", "IE", "LU", "PT", "ES", "PL", "LT", "IT", "GB", "IS", "CY", "HR", "SI", "BG", "LV", "SK", ...(hasOwnMap("RO") ? ["RO"] : [])];
-    const isFilterable = (gz: GeozoneFeatureInfo) =>
-      VECTOR_ISOS.includes(String(gz.country || countryIso || "").toUpperCase());
+    // Vektor-Länder aus der Quellen-Registry (ED-269-Gerätecache inkl. LI);
+    // Nur-Import-Länder (RO) zählen erst mit gespeichertem Bestand.
+    const isFilterable = (gz: GeozoneFeatureInfo) => isEd269VectorIso(gz.country || countryIso, hasOwnMap);
     if (showAllGeozones) return { geozones: rawGeozones, hiddenAboveGeozones: [] as GeozoneFeatureInfo[] };
     const filterable = rawGeozones.filter(isFilterable);
     const nonFilterable = rawGeozones.filter((gz) => !isFilterable(gz));
@@ -400,6 +404,8 @@ export default function PlanningRestrictionsScreen() {
   // Standortland — vorher führte er ohne Zonen zu hasRestrictions=false (GO).
   const errorGap = error && !hasManualRestriction;
   const hasCoverageGap = !loading && (errorGap || unresolvedCoverageGaps.length > 0);
+  // Datenstand je Land (Quellen-Registry, B5): „Stand: vor X h“
+  const geozoneDataAges = formatCoverageDataAges(coverageSources, (iso) => countryName(iso) || iso);
   const coverageGapWarnings = errorGap
     ? [geozoneCoverageWarning(countryName(countryIso) || countryIso || "den Standort")]
     : unresolvedCoverageGaps.map((g) => sourceCoverageWarning(g, countryName(g.iso) || g.iso));
@@ -1138,12 +1144,21 @@ export default function PlanningRestrictionsScreen() {
           </Card>
         ) : null}
 
-        {!loading && countryIso?.toUpperCase() === "HU" ? (
+        {!loading && !error && geozoneDataAges ? (
+          <ThemedText
+            testID="planning-geozone-data-age"
+            style={[styles.statusDesc, { color: coverageSources.some((s) => s.status === "stale") ? (theme.statusCaution || "#FF9500") : theme.textSecondary, marginBottom: Spacing.sm }]}
+          >
+            {`Geozonen-Daten – ${geozoneDataAges}`}
+          </ThemedText>
+        ) : null}
+
+        {!loading && manualCheckHint ? (
           <Card style={[styles.statusCard, { borderLeftColor: theme.statusCaution || "#FF9500" }]}>
             <Feather name="info" size={20} color={theme.statusCaution || "#FF9500"} />
             <View style={styles.statusTextContainer}>
               <ThemedText style={[styles.statusDesc, { color: theme.textSecondary }]}>
-                {HU_GEOZONE_RASTER_HINT}
+                {manualCheckHint}
               </ThemedText>
             </View>
           </Card>

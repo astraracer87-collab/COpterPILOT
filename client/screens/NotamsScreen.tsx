@@ -25,6 +25,7 @@ import { useTheme } from "@/hooks/useTheme";
 import { useMapBasemapStyle } from "@/hooks/useMapBasemapStyle";
 import { useShowDataSources } from "@/lib/dataSource";
 import { ED269_SOURCE_LABELS } from "@/lib/ed269";
+import { NOTAM_LIST_SOURCE_ISOS } from "../../shared/geozoneSourceMeta";
 import { geozoneBadgeLabel, filterGeozoneDetailLines } from "@/lib/sourceAttribution";
 import { Spacing, Typography, BorderRadius } from "@/constants/theme";
 import type { NotamsStackParamList } from "@/navigation/NotamsStackNavigator";
@@ -1352,10 +1353,11 @@ export default function NotamsScreen() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      // Länder laut Quellen-Registry (notamListOrder)
       const isos =
         detectedCountry == null
-          ? ["BE", "AT", "DK"]
-          : ["BE", "AT", "DK"].includes(detectedCountry)
+          ? NOTAM_LIST_SOURCE_ISOS
+          : NOTAM_LIST_SOURCE_ISOS.includes(detectedCountry)
             ? [detectedCountry]
             : [];
       if (isos.length === 0) {
@@ -1386,7 +1388,7 @@ export default function NotamsScreen() {
 
   const showDe = detectedCountry === "DE" || detectedCountry == null;
   const showLu = detectedCountry === "LU" || detectedCountry == null;
-  const showEd269 = detectedCountry == null || ["BE", "AT", "DK"].includes(detectedCountry);
+  const showEd269 = detectedCountry == null || NOTAM_LIST_SOURCE_ISOS.includes(detectedCountry);
   const filteredEd269 = showEd269 ? ed269Notams : [];
   const filteredActive = showDe ? result.active : [];
   const filteredUpcoming = showDe ? result.upcoming : [];

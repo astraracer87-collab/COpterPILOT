@@ -19,18 +19,20 @@
 // Das Parsen in das App-Modell (GeozoneFeatureInfo) passiert erst beim Lesen
 // (tileZones.ts).
 import { deflateSync, inflateSync, strFromU8, strToU8, unzipSync } from "fflate";
+import { TILE_STORE_REFRESH_MS, TILE_STORE_SOURCE_ISOS } from "../../../shared/geozoneSourceMeta";
 
 /** Kantenlänge der Indexkacheln in Grad */
 export const TILE_CELL_DEG = 0.25;
 export const TILE_STORE_VERSION = 1;
-/** Neu laden, wenn der Bestand älter ist (AIRAC-Zyklus) */
-export const TILE_STORE_REFRESH_MS = 28 * 24 * 60 * 60 * 1000;
+/** Neu laden, wenn der Bestand älter ist (AIRAC-Zyklus) – Registry-Policy des Kachelspeichers */
+export { TILE_STORE_REFRESH_MS };
 
 export type LngLatBBox = [number, number, number, number]; // w, s, e, n
 
 export type TileStoreIso = "DE" | "FR" | "CZ";
 export type TileStorePart = "base" | "wohn";
-export const TILE_STORE_ISOS: TileStoreIso[] = ["DE", "FR", "CZ"];
+/** Länder des Kachelspeichers – Registry (offline "tile-store"); Test hält den Typ synchron. */
+export const TILE_STORE_ISOS: TileStoreIso[] = TILE_STORE_SOURCE_ISOS as TileStoreIso[];
 
 export function isTileStoreIso(iso: string | null | undefined): iso is TileStoreIso {
   return (TILE_STORE_ISOS as string[]).includes(String(iso || "").toUpperCase());

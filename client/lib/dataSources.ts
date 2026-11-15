@@ -6,9 +6,9 @@
  * auseinanderläuft:
  *  - Grundkarten/Luftbilder aus COUNTRY_MAP_PROVIDERS + Online-Ersatzkarten
  *    (mapSources.ts), Lizenzen laut docs/offline-karten-quellen.md
- *  - Geozonen aus ED269_SOURCE_LABELS (ed269.ts), den *_ATTRIBUTION-Konstanten
- *    in shared/*Geozones.ts, TILE_STORE_ATTRIBUTION (DE/FR/CZ) und
- *    HU_GEOZONE_ATTRIBUTION; Lizenzen/Freigaben laut docs/*-integration.md
+ *  - Geozonen aus der Quellen-Registry (client/lib/geozoneSources/registry.ts:
+ *    Anbieter, Lizenz, Freigabe, Attributionen je Land); Lizenzen/Freigaben
+ *    laut docs/*-integration.md
  *  - Energie-Infrastruktur aus shared/germanEnergyInfrastructure.ts
  *
  * client/lib/__tests__/dataSources.test.ts prüft, dass jede Kartenquelle und
@@ -21,25 +21,8 @@ import {
   OFFLINE_APP_COUNTRIES,
   type RasterDef,
 } from "./mapSources";
-import { ED269_SOURCE_LABELS } from "./ed269";
-import { TILE_STORE_ATTRIBUTION } from "./geozoneTiles/tileStoreCore";
-import { HU_GEOZONE_ATTRIBUTION } from "../../shared/geozoneLayerCatalog";
-import { GODRONE_ATTRIBUTION } from "../../shared/dutchGeozones";
-import { GB_ATTRIBUTION } from "../../shared/ukGeozones";
-import { CY_GEOZONE_ATTRIBUTION } from "../../shared/cypriotGeozones";
-import { BG_GEOZONE_ATTRIBUTION } from "../../shared/bulgarianGeozones";
-import { HR_GEOZONE_ATTRIBUTION } from "../../shared/croatianGeozones";
-import { CH_GEOZONE_ATTRIBUTION } from "../../shared/swissGeozones";
-import { NO_GEOZONE_ATTRIBUTION } from "../../shared/norwegianGeozones";
-import { SI_GEOZONE_ATTRIBUTION } from "../../shared/slovenianGeozones";
-import { SK_DU_ATTRIBUTION, SK_GEOZONE_ATTRIBUTION } from "../../shared/slovakGeozones";
-import { SE_GEOZONE_ATTRIBUTION } from "../../shared/swedishGeozones";
-import { ES_GEOZONE_ATTRIBUTION } from "../../shared/spanishGeozones";
-import { IT_GEOZONE_ATTRIBUTION } from "../../shared/italianGeozones";
-import { FI_GEOZONE_ATTRIBUTION } from "../../shared/finnishGeozones";
-import { PL_ATTRIBUTION } from "../../shared/polishGeozones";
-import { IS_GEOZONE_ATTRIBUTION } from "../../shared/icelandicGeozones";
-import { RO_GEOZONE_SOURCE_LABEL, RO_ROMATSA_DRONES_URL } from "../../shared/geozoneImport";
+import { GEOZONE_SOURCES } from "./geozoneSources/registry";
+import { GEOZONE_LICENCES } from "../../shared/geozoneSourceMeta";
 import {
   ENERGY_INFRASTRUCTURE_COUNTRIES,
   getEnergyInfrastructureCountry,
@@ -75,21 +58,10 @@ export interface DataSourceGroup {
 }
 
 const L = {
-  ccBy4: {
-    license: "CC BY 4.0",
-    licenseUrl: "https://creativecommons.org/licenses/by/4.0/deed.de",
-  },
+  ...GEOZONE_LICENCES,
   ccBySa2: {
     license: "CC BY-SA 2.0",
     licenseUrl: "https://creativecommons.org/licenses/by-sa/2.0/deed.de",
-  },
-  ccByNd4: {
-    license: "CC BY-ND 4.0",
-    licenseUrl: "https://creativecommons.org/licenses/by-nd/4.0/legalcode.de",
-  },
-  cc0: {
-    license: "CC0 1.0 (Public Domain)",
-    licenseUrl: "https://creativecommons.org/publicdomain/zero/1.0/deed.de",
   },
   odbl: {
     license: "Open Database License (ODbL) 1.0",
@@ -98,18 +70,6 @@ const L = {
   dlDeBy2: {
     license: "Datenlizenz Deutschland – Namensnennung – Version 2.0",
     licenseUrl: "https://www.govdata.de/dl-de/by-2-0",
-  },
-  etalab2: {
-    license: "Licence Ouverte / Open Licence 2.0 (Etalab)",
-    licenseUrl: "https://www.etalab.gouv.fr/licence-ouverte-open-licence/",
-  },
-  nlod2: {
-    license: "Norsk lisens for offentlige data (NLOD) 2.0",
-    licenseUrl: "https://data.norge.no/nlod/no/2.0",
-  },
-  swissOgd: {
-    license: "Open Government Data (Opendata BY)",
-    licenseUrl: "https://opendata.swiss/de/terms-of-use",
   },
   swisstopoOgd: {
     license: "swisstopo – kostenlose Geodaten (OGD)",
@@ -409,220 +369,31 @@ interface GeozoneSourceMeta {
 const ED269_USAGE =
   "Drohnen-Geozonen als Vektordaten (Karte, Flugprüfung, offline speicherbar).";
 
-/** Geozonen-Quellen je Land; Lizenzen/Freigaben laut docs/*-integration.md. */
-export const GEOZONE_SOURCE_META: Record<string, GeozoneSourceMeta> = {
-  DE: {
-    provider:
-      "DFS Deutsche Flugsicherung / Bundesministerium für Verkehr – dipul (Digitale Plattform Unbemannte Luftfahrt)",
-    usage:
-      "Geografische Gebiete (WMS-Karte, Vektordaten, offline speicherbar), temporäre Betriebseinschränkungen, militärische Tiefflug-Bezüge.",
-    ...L.ccByNd4,
-    attributions: [TILE_STORE_ATTRIBUTION.DE.label],
-    url: "https://www.dipul.de",
-    note: "Geometrien werden unverändert gespeichert und angezeigt (keine Bearbeitung, CC BY-ND).",
-  },
-  AT: {
-    provider: "Austro Control – Dronespace",
-    attributions: [ED269_SOURCE_LABELS.AT],
-    writtenPermission: true,
-    url: "https://www.dronespace.at",
-  },
-  BE: {
-    provider: "skeyes / Belgian Civil Aviation Authority – Droneguide",
-    attributions: ["© skeyes / Droneguide"],
-    writtenPermission: true,
-    url: "https://map.droneguide.be",
-  },
-  DK: {
-    provider: "Trafikstyrelsen (Dänische Verkehrsbehörde) – dronezoner.dk",
-    license:
-      "Freie Nutzung mit Quellenangabe („Data kan frit anvendes med kildeangivelse“), per E-Mail bestätigt",
-    attributions: ["Kilde: Trafikstyrelsen (dronezoner.dk)"],
-    writtenPermission: true,
-    url: "https://www.droneregler.dk",
-  },
-  NL: {
-    provider:
-      "Luchtverkeersleiding Nederland (LVNL) / Altitude Angel – GoDrone",
-    attributions: [GODRONE_ATTRIBUTION],
-    writtenPermission: true,
-    url: "https://map.godrone.nl",
-  },
-  EE: {
-    provider: "EANS (Lennuliiklusteeninduse AS) / Transpordiamet",
-    license: "Öffentliche Daten, freie Nutzung von EANS schriftlich bestätigt",
-    attributions: [
-      "Quelle: EANS (Lennuliiklusteeninduse AS) / Transpordiamet, utm.eans.ee",
-    ],
-    writtenPermission: true,
-    url: "https://utm.eans.ee",
-  },
-  CH: {
-    provider: "Bundesamt für Zivilluftfahrt (BAZL) / swisstopo – geo.admin.ch",
-    usage:
-      "Drohnen-Einschränkungen als Vektordaten (Schweiz und Liechtenstein) sowie Zusatz-Ebenen (Landschaftsruhezonen u. a.).",
-    ...L.swissOgd,
-    attributions: [CH_GEOZONE_ATTRIBUTION],
-    url: "https://map.geo.admin.ch",
-    alsoCountries: ["LI"],
-  },
-  FI: {
-    provider: "Liikenne- ja viestintävirasto Traficom",
-    ...L.ccBy4,
-    attributions: [FI_GEOZONE_ATTRIBUTION],
-    url: "https://www.traficom.fi",
-  },
-  NO: {
-    provider: "Luftfartstilsynet – dronesoner.no",
-    ...L.nlod2,
-    attributions: [NO_GEOZONE_ATTRIBUTION],
-    url: "https://dronesoner.no",
-  },
-  IE: {
-    provider: "Irish Aviation Authority (IAA) / AirNav Ireland",
-    attributions: [ED269_SOURCE_LABELS.IE],
-    writtenPermission: true,
-    url: "https://www.iaa.ie",
-  },
-  LU: {
-    provider: "Direction de l'Aviation Civile (DAC) / Geoportail Luxembourg",
-    ...L.cc0,
-    attributions: [
-      "© Direction de l'Aviation Civile / Geoportail Luxembourg – CC0",
-    ],
-    writtenPermission: true,
-    url: "https://drones.geoportail.lu",
-  },
-  SE: {
-    provider: "LFV Drönarkartan / Transportstyrelsen",
-    ...L.ccBy4,
-    attributions: [SE_GEOZONE_ATTRIBUTION],
-    url: "https://dronechart.lfv.se",
-  },
-  PT: {
-    provider: "ANAC – Autoridade Nacional da Aviação Civil",
-    attributions: ["© ANAC – Autoridade Nacional da Aviação Civil"],
-    writtenPermission: true,
-    url: "https://www.anac.pt",
-  },
-  ES: {
-    provider: "ENAIRE",
-    attributions: [ES_GEOZONE_ATTRIBUTION],
-    writtenPermission: true,
-    url: "https://drones.enaire.es",
-  },
-  PL: {
-    provider: "Polska Agencja Żeglugi Powietrznej (PAŻP / PANSA) – DroneMap",
-    attributions: [PL_ATTRIBUTION],
-    writtenPermission: true,
-    url: "https://dronemap.pansa.pl",
-  },
-  LT: {
-    provider: "Oro navigacija (Lithuanian ANS)",
-    attributions: ["© Oro navigacija / Lithuanian ANS"],
-    writtenPermission: true,
-    url: "https://utm.ans.lt",
-  },
-  IT: {
-    provider: "d-flight S.p.A. (Gruppo ENAV)",
-    attributions: [IT_GEOZONE_ATTRIBUTION],
-    writtenPermission: true,
-    url: "https://www.d-flight.it",
-    note: "Abruf nur mit eigenem d-flight-Zugang des Nutzers.",
-  },
-  LV: {
-    provider: "LGS (Latvijas gaisa satiksme) / AIS Latvia",
-    attributions: [ED269_SOURCE_LABELS.LV],
-    writtenPermission: true,
-    url: "https://www.airspace.lv",
-  },
-  BG: {
-    provider: "ГД „Гражданска въздухоплавателна администрация“ (CAA Bulgaria)",
-    attributions: [BG_GEOZONE_ATTRIBUTION],
-    writtenPermission: true,
-    url: "https://uas.caa.bg",
-  },
-  SI: {
-    provider:
-      "Javna agencija za civilno letalstvo RS (CAA Slovenia) / Slovenia Control",
-    attributions: [SI_GEOZONE_ATTRIBUTION],
-    writtenPermission: true,
-    url: "https://www.caa.si",
-  },
-  SK: {
-    provider:
-      "Dopravný úrad SR (Drohnenzonen „Zemepisné oblasti UAS“) / Letové prevádzkové služby SR (Lufträume)",
-    attributions: [SK_DU_ATTRIBUTION, SK_GEOZONE_ATTRIBUTION],
-    writtenPermission: true,
-    url: "https://letectvo.nsat.sk/bezpilotne-letectvo/zemepisne-oblasti-uas/",
-  },
-  RO: {
-    provider: "ROMATSA (Romanian Air Traffic Services Administration)",
-    usage:
-      "Drohnen-Geozonen nur per Datei-Import: Restricted_zones_for_UAS.json am PC herunterladen und in den Offline-Einstellungen importieren (die ROMATSA-Server sind für Android nicht erreichbar).",
-    attributions: [RO_GEOZONE_SOURCE_LABEL],
-    url: RO_ROMATSA_DRONES_URL,
-    note: "Kein automatischer Abruf; Stand = Datum des Imports.",
-  },
-  HR: {
-    provider:
-      "Hrvatska kontrola zračne plovidbe (Croatia Control) – AMC-Portal",
-    attributions: [HR_GEOZONE_ATTRIBUTION],
-    writtenPermission: true,
-    url: "https://amc.crocontrol.hr",
-  },
-  CY: {
-    provider: "Department of Civil Aviation, Cyprus (DCA / AMC Cyprus)",
-    attributions: [CY_GEOZONE_ATTRIBUTION],
-    writtenPermission: true,
-    url: "https://drones.gov.cy",
-  },
-  IS: {
-    provider: "Samgöngustofa / ISAVIA / gis.is",
-    attributions: [IS_GEOZONE_ATTRIBUTION],
-    writtenPermission: true,
-    url: "https://gis.is",
-  },
-  GB: {
-    provider: "UK Civil Aviation Authority / NATS – UK AIP (ENR 5.1)",
-    license: "Nutzungsbedingungen von NATS / UK CAA",
-    attributions: [GB_ATTRIBUTION],
-    url: "https://www.caa.co.uk",
-  },
-  FR: {
-    provider:
-      "IGN / Direction générale de l'Aviation civile (DGAC) – Géoplateforme",
-    usage:
-      "Drohnen-Beschränkungen (WMS-Karte und Vektordaten, offline speicherbar).",
-    ...L.etalab2,
-    attributions: [TILE_STORE_ATTRIBUTION.FR.label],
-    url: TILE_STORE_ATTRIBUTION.FR.url,
-  },
-  CZ: {
-    provider: "Řízení letového provozu ČR (ŘLP ČR / ANS CR)",
-    usage: "Drohnen-Geozonen (ED-318) als Offline-Kachelspeicher.",
-    attributions: [TILE_STORE_ATTRIBUTION.CZ.label],
-    writtenPermission: true,
-    url: TILE_STORE_ATTRIBUTION.CZ.url,
-  },
-  HU: {
-    provider: "HungaroControl – MyDroneSpace",
-    usage:
-      "Lufträume und Drohnenzonen als Bild-Overlay (WMTS); keine automatische Zonenprüfung.",
-    attributions: [HU_GEOZONE_ATTRIBUTION],
-    writtenPermission: true,
-    url: "https://app.mydronespace.hu",
-  },
-};
+/**
+ * Geozonen-Quellen je Land – abgeleitet aus der Quellen-Registry (einzige
+ * Quelle für Anbieter, Lizenz, Freigabe, Attribution; Lizenzen/Freigaben laut
+ * docs/*-integration.md).
+ */
+export const GEOZONE_SOURCE_META: Record<string, GeozoneSourceMeta> = Object.fromEntries(
+  GEOZONE_SOURCES.map((src) => [
+    src.iso,
+    {
+      provider: src.provider,
+      usage: src.usage,
+      license: src.license,
+      licenseUrl: src.licenseUrl,
+      attributions: src.attributions,
+      writtenPermission: src.writtenPermission || undefined,
+      url: src.url,
+      note: src.note,
+      alsoCountries: src.aliases,
+    },
+  ]),
+);
 
-/** Alle Länder, für die die App Geozonen aus externen Quellen lädt. */
+/** Alle Länder, für die die App Geozonen aus externen Quellen lädt (inkl. Aliase wie LI). */
 export function geozoneCountries(): string[] {
-  return uniq([
-    ...Object.keys(ED269_SOURCE_LABELS),
-    ...Object.keys(TILE_STORE_ATTRIBUTION),
-    "HU",
-    "LU",
-  ]);
+  return uniq(GEOZONE_SOURCES.flatMap((src) => [src.iso, ...(src.aliases ?? [])]));
 }
 
 function buildGeozoneEntries(): DataSourceEntry[] {
@@ -647,12 +418,11 @@ function buildGeozoneEntries(): DataSourceEntry[] {
   for (const iso of isos) {
     if (done.has(iso)) continue;
     const m = GEOZONE_SOURCE_META[iso];
-    const label = ED269_SOURCE_LABELS[iso];
     const countries = uniq([iso, ...(m?.alsoCountries ?? [])]);
     countries.forEach((c) => done.add(c));
     out.push({
       id: `geo-${iso.toLowerCase()}`,
-      provider: m?.provider ?? label ?? iso,
+      provider: m?.provider ?? iso,
       usage: m?.usage ?? ED269_USAGE,
       license:
         m?.license ??
@@ -660,7 +430,7 @@ function buildGeozoneEntries(): DataSourceEntry[] {
           ? "Nutzungsbedingungen laut Freigabe des Anbieters"
           : "Nutzungsbedingungen des Anbieters"),
       licenseUrl: m?.licenseUrl,
-      attributions: uniq(m?.attributions ?? (label ? [label] : [])),
+      attributions: uniq(m?.attributions ?? []),
       writtenPermission: m?.writtenPermission,
       countries,
       url: m?.url,

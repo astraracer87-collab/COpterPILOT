@@ -30,7 +30,7 @@ import type { FlightCheckParamList } from "@/navigation/FlightCheckNavigator";
 import { uncoveredGeozoneSources, sourceCoverageWarning, type GeozoneSourceCoverage } from "@/lib/geozoneCoverage";
 import { zonePolicy, RESTRICTION_POLICY } from "../../shared/restrictionPolicy";
 import { evaluateZones } from "@/lib/flightChecks";
-import { coverageChecks, notamChecks, replaceCheckCategories } from "../../shared/checks";
+import { coverageChecks, formatCoverageDataAges, notamChecks, replaceCheckCategories } from "../../shared/checks";
 import { detectCountryFromCoordinates } from "../../shared/countryDetection";
 import {
   queryGeozonesInAreaWithCoverage,
@@ -417,6 +417,8 @@ export default function PreCheckOverviewScreen() {
   // automatische Prüfung. Ein kompletter Ladefehler zählt ebenso — der Status
   // ist unbekannt und darf nicht als "keine Zonen" (GO) durchgehen.
   const hasCoverageGap = !geozoneLoading && (geozoneError || coverageGaps.length > 0);
+  // Datenstand je Land (Quellen-Registry, B5): „Stand: vor X h“
+  const geozoneDataAges = formatCoverageDataAges(coverageSources, (iso) => countryName(iso) || iso);
   const coverageGapWarnings = geozoneError
     ? []
     : coverageGaps.map((g) => sourceCoverageWarning(g, countryName(g.iso) || g.iso));
@@ -918,6 +920,15 @@ export default function PreCheckOverviewScreen() {
                 ))}
               </View>
             </Card>
+          ) : null}
+
+          {!geozoneLoading && !geozoneError && geozoneDataAges ? (
+            <ThemedText
+              testID="precheck-geozone-data-age"
+              style={[styles.geozoneDetails, { color: coverageSources.some((s) => s.status === "stale") ? "#FF9500" : theme.textTertiary }]}
+            >
+              {`Geozonen-Daten – ${geozoneDataAges}`}
+            </ThemedText>
           ) : null}
 
           {geozoneLoading ? null : geozoneError ? (

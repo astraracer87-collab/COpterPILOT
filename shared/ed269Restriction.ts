@@ -12,6 +12,7 @@ import { calculateSolarTimes } from "./solar";
 // (shared/restrictionPolicy.ts). Die ED-269-Namen bleiben als dünne Aliase
 // erhalten, damit bestehende Importpfade stabil bleiben.
 import { normalizeRestriction, restrictionColors, type Restriction } from "./restrictionPolicy";
+import { getOwnGeozoneSourceMeta } from "./geozoneSourceMeta";
 
 /** Normalisiert jede ED-269-/ED-318-/Anbieter-Schreibweise (REQ_AUTH,
  * REQ_AUTHORIZATION, INFORMATION, { type } …) auf die geschlossene Union;
@@ -637,9 +638,11 @@ export function ed269IsTemporary(p: Record<string, any>): boolean {
 export function ed269IsNotamEligible(p: Record<string, any>, countryIso: string): boolean {
   p = normalizeAustrianEd269Placeholder(p);
   if (p?._notamEligible === true) return true;
-  const iso = countryIso.toUpperCase();
-  if (iso === "BE" && p?._live === true && p?.permanent !== true) return true;
-  if (iso !== "AT" || !Array.isArray(p?.applicability)) return false;
+  // Quellen-Flags aus der Registry (BE: skeyes-Live-Zonen; AT: zeitgesteuerte
+  // applicability-Einträge der Frequentis-Plattform).
+  const source = getOwnGeozoneSourceMeta(countryIso);
+  if (source?.notamFromLiveFlag && p?._live === true && p?.permanent !== true) return true;
+  if (!source?.notamFromApplicability || !Array.isArray(p?.applicability)) return false;
   return p.applicability.some((entry: any) => {
     const permanent = String(entry?.permanent ?? "").toUpperCase();
     const hasTimeWindow = !!entry?.startDateTime || !!entry?.endDateTime ||

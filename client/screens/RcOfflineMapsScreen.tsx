@@ -42,6 +42,7 @@ import { clearDflightCredentials, getDflightCredentials, setDflightCredentials }
 import { deleteEd269Dataset, loadStoredEd269Dataset, type Ed269ImportMeta } from "@/lib/geozoneDirect/ed269Store";
 import { GEOZONE_IMPORT_FORMAT_LABELS, pickAndImportGeozoneFile } from "@/lib/geozoneDirect/geozoneFileImport";
 import { RO_ROMATSA_DRONES_URL } from "../../shared/geozoneImport";
+import { resolveGeozoneSourceIso } from "../../shared/geozoneSourceMeta";
 
 const LEVELS: DetailLevel[] = [11, 12, 13, 14, 15];
 const KIND_LABEL: Record<string, string> = { map: "Karte", sat: "Satellit", geo: "Geozonen" };
@@ -573,7 +574,7 @@ export default function OfflineMapsScreen() {
                       country.geozoneKind === "tiles"
                         ? `ab Zoom 11 · ca. ${formatMB(est.geoMB)}`
                         : country.geozoneKind === "vector"
-                          ? country.iso === "LI"
+                          ? resolveGeozoneSourceIso(country.iso) !== country.iso // Alias (LI → CH)
                             ? `im Schweizer BAZL-Datensatz enthalten (wird mit geladen) · ca. ${formatMB(est.geoMB)}`
                             : `alle Zonen des Landes (Behördendaten) · ca. ${formatMB(est.geoMB)}`
                           : country.geozoneKind === "tilestore"
