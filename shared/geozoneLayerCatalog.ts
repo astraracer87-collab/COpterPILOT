@@ -102,9 +102,12 @@ export const LU_GEOZONE_LAYERS: GeozoneLayer[] = [
 ];
 
 export const NL_GEOZONE_LAYERS: GeozoneLayer[] = [
-  { id: "nl_no_fly_zones", wmsLayer: "luchtvaartgebieden", label: "Flugverbotszonen (alle)", defaultEnabled: true },
-  { id: "nl_no_fly_ohne_natura", wmsLayer: "luchtvaartgebieden_zonder_natura2000", label: "Flugverbotszonen (ohne Natura2000)", defaultEnabled: true },
-  { id: "nl_landingsite", wmsLayer: "landingsite", label: "Landeplätze", defaultEnabled: true },
+  // Die PDOK-Dienste von LVNL sind abgeschaltet (404). Die NL-Zonen kommen jetzt
+  // als Vektoren aus GoDrone (LVNL / Altitude Angel); die alten Ebenen bleiben
+  // abgeschaltet erhalten, falls PDOK sie wieder bereitstellt.
+  { id: "nl_no_fly_zones", wmsLayer: "luchtvaartgebieden", label: "Flugverbotszonen PDOK (alle)", defaultEnabled: false },
+  { id: "nl_no_fly_ohne_natura", wmsLayer: "luchtvaartgebieden_zonder_natura2000", label: "Flugverbotszonen PDOK (ohne Natura2000)", defaultEnabled: false },
+  { id: "nl_landingsite", wmsLayer: "landingsite", label: "Landeplätze PDOK", defaultEnabled: false },
   // Natura 2000 — EU-Vogelschutz- und FFH-Schutzgebiete (NL). Quelle: PDOK
   // (RVO). Eigener WMS-Endpoint, daher Override pro Layer. Drohnenbetrieb
   // ist in Natura-2000-Gebieten oft komplett untersagt (Wet
@@ -114,7 +117,7 @@ export const NL_GEOZONE_LAYERS: GeozoneLayer[] = [
     id: "nl_natura2000",
     wmsLayer: "natura2000",
     label: "Natura 2000 (Naturschutz, gelb)",
-    defaultEnabled: true,
+    defaultEnabled: false, // in GoDrone enthalten (lvnl:natura2000) – nur bei Bedarf als WMS
     wmsBaseUrl: "https://service.pdok.nl/rvo/natura2000/wms/v1_0",
     wmsVersion: "1.3.0",
     // Godrone-Gelb statt PDOK-Default-Oliv, damit der Pilot 1:1 sieht,

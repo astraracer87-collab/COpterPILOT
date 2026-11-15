@@ -171,9 +171,10 @@ export const COUNTRY_GEOZONE_CONFIGS: Record<string, CountryGeozoneConfig> = {
     wmsBaseUrl: "https://service.pdok.nl/lvnl/drone-no-flyzones/wms/v1_0",
     wmsVersion: "1.3.0",
     layers: NL_GEOZONE_LAYERS,
-    featureInfoType: "wfs-json",
-    alwaysVisibleLayerIds: ["nl_no_fly_zones"],
-    forceEnabledLayerIds: ["nl_no_fly_zones"],
+    // Zonen als Vektoren aus GoDrone (ED-269-Pfad); WMS nur noch für Natur-Ebenen.
+    featureInfoType: "ed269-cached",
+    alwaysVisibleLayerIds: ["nl_nnn"],
+    forceEnabledLayerIds: [],
   },
   FR: {
     iso: "FR",
@@ -1378,9 +1379,14 @@ async function queryGeozonesForCountry(
     return queryLuOgcFeatures(lat, lon, radiusKm);
   }
 
-  if (config.featureInfoType === "wfs-json" && config.iso === "NL") {
+  if (config.iso === "NL") {
+    // GoDrone-Vektorzonen plus Natur-Ebenen (Natura 2000 / NNN) aus PDOK
     const nlWmsLayers = config.layers.filter((l) => l.defaultEnabled).map((l) => l.wmsLayer);
-    return queryNlWfsFeatures(lat, lon, radiusKm, nlWmsLayers);
+    const [vector, nature] = await Promise.all([
+      queryEd269CachedFeatures(lat, lon, radiusKm, iso, GEOZONE_VECTOR_MAX_FEATURES).catch(() => []),
+      queryNlWfsFeatures(lat, lon, radiusKm, nlWmsLayers).catch(() => []),
+    ]);
+    return [...vector, ...nature];
   }
 
   if (config.featureInfoType === "wms-fr" && config.iso === "FR") {
@@ -1529,7 +1535,8 @@ export async function queryGeozoneFeatureInfo(
     return queryLuOgcFeatures(lat, lon, Math.max(radiusKm, 0.5));
   }
 
-  if (config.featureInfoType === "wfs-json" && config.iso === "NL") {
+  if (config.iso === "NL") {
+    // Natur-Ebenen (PDOK); die GoDrone-Zonen sind Vektoren mit eigenem Popup.
     const radiusKm = Math.max(latDelta * 111.32, lonDelta * 111.32 * Math.cos(degToRad(lat))) / 2;
     return queryNlWfsFeatures(lat, lon, Math.max(radiusKm, 0.5), layers);
   }

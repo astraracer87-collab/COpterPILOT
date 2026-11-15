@@ -1,3 +1,4 @@
+import { GODRONE_GEOZONE_SOURCE_LABEL } from "../../shared/dutchGeozones";
 import type { GeozoneFeatureInfo } from "@/lib/geozones";
 import { DANISH_GEOZONE_SOURCE_LABEL } from "../../shared/danishGeozones";
 import { belgianAltitudeMeters } from "../../shared/belgianGeozones";
@@ -13,6 +14,7 @@ import {
   ed269ValidityFromProps,
   ed269ScheduleFromProps,
   ed269IsNotamEligible,
+  ed269ActivityFromProps,
 } from "../../shared/ed269Restriction";
 
 export {
@@ -21,6 +23,9 @@ export {
   ed269ValidityFromProps,
   ed269ScheduleFromProps,
   ed269IsNotamEligible,
+  ed269IsActiveAt,
+  geozoneIsActiveAt,
+  ed269InactiveInfoText,
 } from "../../shared/ed269Restriction";
 
 // Liest den Höhenbezug (MSL/AGL) der Untergrenze aus den uneinheitlichen
@@ -52,6 +57,7 @@ export const ED269_SOURCE_LABELS: Record<string, string> = {
   AT: "Austro Control (ED-269)",
   BE: "skeyes / Droneguide (ED-269)",
   DK: DANISH_GEOZONE_SOURCE_LABEL,
+  NL: GODRONE_GEOZONE_SOURCE_LABEL,
 };
 
 // Wandelt einen ED-269-Höhenwert in Meter um. Versteht Klartext-Marker (SFC/GND
@@ -275,6 +281,7 @@ export function parseEd269ToGeozoneInfo(
       validStartTs,
       validEndTs,
       scheduleText: scheduleText.length > 0 ? scheduleText : undefined,
+      ed269Applicability: ed269ActivityFromProps(p),
       notamEligible: ed269IsNotamEligible(p, countryIso),
       applicationText: p.applicationText ? String(p.applicationText) : undefined,
       links: links.length > 0 ? links : undefined,

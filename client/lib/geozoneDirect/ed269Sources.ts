@@ -11,6 +11,13 @@ import {
 } from "../../../shared/danishGeozones";
 import { normalizeAustrianEd269Placeholder } from "../../../shared/ed269Restriction";
 import {
+  NL_QUERY_BOUNDS,
+  dedupeGodroneFeatures,
+  godroneAirspaceExcluded,
+  normalizeGodroneFeature,
+  type GodroneFeature,
+} from "../../../shared/dutchGeozones";
+import {
   normalizeBelgianFeatures,
   normalizeDroneguideWfsFeatures,
   normalizeSkeyesApiZones,
@@ -25,9 +32,9 @@ export type GeoFeature = {
 };
 
 // Länder, deren Geozonen als ED-269-/GeoJSON-Vektordaten vorliegen (kein WMS).
-// DE/CH/LU/NL/FR haben keinen Vektor-Feed (der Server lieferte dort ebenfalls
-// keine Zonen) und werden über ihre WMS-/WFS-Pfade abgefragt.
-export const ED269_DIRECT_COUNTRIES = ["at", "be", "dk"] as const;
+// NL kommt aus GoDrone (LVNL). DE/CH/LU/FR werden über ihre WMS-/WFS-Pfade
+// abgefragt.
+export const ED269_DIRECT_COUNTRIES = ["at", "be", "dk", "nl"] as const;
 
 export function isEd269DirectCountry(iso: string): boolean {
   return (ED269_DIRECT_COUNTRIES as readonly string[]).includes(String(iso || "").toLowerCase());
@@ -43,6 +50,15 @@ export const DK_NATURE_ZONES_URL =
   "https://services-eu1.arcgis.com/Zvx25KS6sGRl9LIx/arcgis/rest/services/NaturOmraader2024v2/FeatureServer/0/query?where=1%3D1&outFields=*&outSR=4326&f=geojson";
 export const BE_SKEYES_UAS_ZONES_URL = "https://api-cis.skeyes.be/public/uas-zones";
 export const BE_DRONEGUIDE_WFS_URL = "https://map.droneguide.be/ows";
+export const NL_GODRONE_MAPDATA_URL = "https://api.godrone.nl/v2/mapdata/geojson";
+
+// Öffentlicher API-Schlüssel von GoDrone (LVNL / Altitude Angel). Nutzung laut
+// Betreiber erlaubt (siehe docs/godrone-api-integration.md). Austauschbar, falls
+// er rotiert wird.
+let godroneApiKey = "hOrnXF_XuIOko8taj9VCi9MUNP4pXVkR_dN-3B8V0";
+export function setGodroneApiKey(key: string): void {
+  if (key && key.trim()) godroneApiKey = key.trim();
+}
 
 // Browser-User-Agent: manche Anbieter (z. B. Austro Control / Dronespace)
 // liefern ohne gängigen UA einen 403/Redirect statt der GeoJSON-Daten.
@@ -146,8 +162,18 @@ export function roundFeatureCoords(features: GeoFeature[], decimals: number = VE
 // ---------------------------------------------------------------------------
 // Österreich (Austro Control / Dronespace)
 // ---------------------------------------------------------------------------
+/**
+ * Ohne Zeitfenster liefert Dronespace nur die gerade aktiven Zonen. Mit einem
+ * Jahr Zeitfenster kommen alle Zonen inkl. zeitgesteuerter (z. B. MTMA)
+ * – siehe docs/dronespace-at-api-integration.md §5.1.
+ */
+export function austriaGeozonesUrl(now: Date = new Date()): string {
+  const end = new Date(now.getTime() + 365 * 24 * 3600 * 1000);
+  return `${AT_GEOZONES_URL}?start=${now.toISOString()}&end=${end.toISOString()}`;
+}
+
 async function fetchAustria(): Promise<GeoFeature[]> {
-  const body = await fetchJson(AT_GEOZONES_URL);
+  const body = await fetchJson(austriaGeozonesUrl());
   const raw: GeoFeature[] = Array.isArray(body?.features) ? body.features : [];
   if (raw.length === 0) throw new Error("Austro Control lieferte keine Zonen");
   return finalize(raw, "at").map((feature) => ({
@@ -275,6 +301,87 @@ async function fetchBelgium(): Promise<GeoFeature[]> {
   return features;
 }
 
+// ---------------------------------------------------------------------------
+// Niederlande (GoDrone – LVNL / Altitude Angel)
+// ---------------------------------------------------------------------------
+
+type Box = { w: number; s: number; e: number; n: number };
+
+async function fetchGodroneBox(b: Box, depth = 0): Promise<GodroneFeature[]> {
+  const url = `${NL_GODRONE_MAPDATA_URL}?n=${b.n}&e=${b.e}&s=${b.s}&w=${b.w}`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  let body: any;
+  try {
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: { Accept: "application/json", Authorization: `X-AA-ApiKey ${godroneApiKey}` },
+    });
+    if (res.status === 401 || res.status === 403) throw new Error("GoDrone-Schlüssel abgelehnt");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    body = await res.json();
+  } finally {
+    clearTimeout(timer);
+  }
+  // Box zu groß für die Luftraum-Ebene → vierteln und neu fragen
+  if (godroneAirspaceExcluded(body) && depth < 3) {
+    const mx = (b.w + b.e) / 2;
+    const my = (b.s + b.n) / 2;
+    const parts: Box[] = [
+      { w: b.w, s: b.s, e: mx, n: my },
+      { w: mx, s: b.s, e: b.e, n: my },
+      { w: b.w, s: my, e: mx, n: b.n },
+      { w: mx, s: my, e: b.e, n: b.n },
+    ];
+    const out: GodroneFeature[] = [];
+    for (const p of parts) out.push(...(await fetchGodroneBox(p, depth + 1)));
+    return out;
+  }
+  return Array.isArray(body?.features) ? body.features : [];
+}
+
+/** 1°×1°-Abfragekacheln über die Niederlande (§5 der Doku). */
+export function netherlandsQueryBoxes(): Box[] {
+  const boxes: Box[] = [];
+  for (let w = NL_QUERY_BOUNDS.w; w < NL_QUERY_BOUNDS.e - 1e-9; w += 1) {
+    for (let s = NL_QUERY_BOUNDS.s; s < NL_QUERY_BOUNDS.n - 1e-9; s += 1) {
+      boxes.push({
+        w: Math.round(w * 100) / 100,
+        s: Math.round(s * 100) / 100,
+        e: Math.round(Math.min(w + 1, NL_QUERY_BOUNDS.e) * 100) / 100,
+        n: Math.round(Math.min(s + 1, NL_QUERY_BOUNDS.n) * 100) / 100,
+      });
+    }
+  }
+  return boxes;
+}
+
+async function fetchNetherlands(): Promise<GeoFeature[]> {
+  const boxes = netherlandsQueryBoxes();
+  const raw: GodroneFeature[] = [];
+  let ok = 0;
+  // höchstens 2 Abfragen gleichzeitig (Rate-Limits unbekannt)
+  for (let i = 0; i < boxes.length; i += 2) {
+    const batch = boxes.slice(i, i + 2);
+    const res = await Promise.allSettled(batch.map((b) => fetchGodroneBox(b)));
+    for (const r of res) {
+      if (r.status === "fulfilled") {
+        raw.push(...r.value);
+        ok++;
+      } else {
+        console.warn("[geozoneDirect] NL: Kachel fehlgeschlagen:", (r.reason as Error)?.message || r.reason);
+        if (String((r.reason as Error)?.message).includes("Schlüssel")) throw r.reason;
+      }
+    }
+  }
+  if (ok < boxes.length / 2) throw new Error("GoDrone (NL) nicht ausreichend erreichbar");
+  const normalized = dedupeGodroneFeatures(raw)
+    .map((f) => normalizeGodroneFeature(f))
+    .filter((f): f is GodroneFeature => !!f);
+  if (normalized.length === 0) throw new Error("GoDrone lieferte keine Zonen");
+  return finalize(normalized as unknown as GeoFeature[], "nl");
+}
+
 /**
  * Lädt den kompletten, normalisierten Geozonen-Bestand eines Vektor-Landes
  * direkt von den Upstream-Quellen (inkl. bbox je Feature, gekürzter
@@ -286,6 +393,7 @@ export async function fetchEd269CountryFeatures(iso: string): Promise<GeoFeature
   if (c === "at") features = await fetchAustria();
   else if (c === "dk") features = await fetchDenmark();
   else if (c === "be") features = await fetchBelgium();
+  else if (c === "nl") features = await fetchNetherlands();
   else throw new Error(`Kein Vektor-Geozonen-Feed für ${iso}`);
   return roundFeatureCoords(features);
 }
