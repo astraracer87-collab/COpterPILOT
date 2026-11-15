@@ -253,8 +253,16 @@ class MainActivity : Activity() {
 
     private fun showWizard(heading: String, steps: List<WizStep>) {
         var current = 0
+        var logged = -1
 
         fun draw() {
+            // Jeden Schritt einmal ins Protokoll schreiben, sobald er erreicht wird.
+            if (current != logged) {
+                logged = current
+                if (current == 0) Log.step("Ablauf gestartet: $heading")
+                if (current < steps.size) Log.step("Schritt ${current + 1}: ${steps[current].title}")
+                else Log.ok("Ablauf abgeschlossen: $heading")
+            }
             val host = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
             // Feste Kopfzeile des Ablaufs
             val top = Ui.row(this)
@@ -320,7 +328,6 @@ class MainActivity : Activity() {
             "Die App sucht die Verbindung und sendet die FCC-Befehle an das Fluggerät.",
             "FCC jetzt aktivieren", { adv ->
                 bg {
-                    Log.step("FCC wird aktiviert")
                     val link = Engine.tcpLink(this)
                     if (link == null) Log.err("Nicht möglich – keine Verbindung. Fluggerät eingeschaltet und verbunden?")
                     else {
@@ -350,8 +357,8 @@ class MainActivity : Activity() {
         val steps = ArrayList<WizStep>()
         steps += WizStep("Goggle-Modell wählen",
             "Wähle dein Goggle-Modell – danach wird die passende FCC-Datei geschrieben.",
-            "Goggles 2 / 3 / N3 / Integra", { adv -> sdVariant = SdCard.Variant.HAM; adv() },
-            "Goggles V1 / V2" to { adv: () -> Unit -> sdVariant = SdCard.Variant.NACO; adv() },
+            "Goggles 2 / 3 / N3 / Integra", { adv -> sdVariant = SdCard.Variant.HAM; Log.ok("Goggle-Modell: ${sdVariant.label}"); adv() },
+            "Goggles V1 / V2" to { adv: () -> Unit -> sdVariant = SdCard.Variant.NACO; Log.ok("Goggle-Modell: ${sdVariant.label}"); adv() },
             secondaryBig = true)
         steps += WizStep("SD-Karte der Goggle in die Fernsteuerung stecken",
             "Schalte die Goggle aus, nimm ihre microSD-Karte heraus und stecke sie in die Fernsteuerung.",
@@ -412,7 +419,6 @@ class MainActivity : Activity() {
             "Die App setzt die Funkregion per Befehl auf CE zurück.",
             "CE jetzt senden", { adv ->
                 bg {
-                    Log.step("CE wird gesendet")
                     val link = Engine.tcpLink(this)
                     if (link == null) Log.err("Keine Verbindung – Fluggerät eingeschaltet und verbunden?")
                     else {
