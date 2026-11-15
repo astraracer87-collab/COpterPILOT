@@ -36,28 +36,37 @@ Vergleich: `docs/godrone-api-integration.md` (NL),
 
 ## 2. Auth & Endpunkte (aus dem QGIS-Plugin, v1.1)
 
+> ✅ **Live verifiziert von DE-IP (2026-11-15):** Abruf erfolgreich, **1.774 Zonen**
+> (DRAP/DRAR/DRAI) als KML. Host `api.dronemap.pansa.pl` ist von einer EU-IP
+> erreichbar (aus der US-Cloud geblockt). Fixtures lokal: `fixtures/pansa_kml_filtered.kml`,
+> `fixtures/pansa_zones_types.json`. OpenAPI-Spec öffentlich: `GET /v3/api-docs`.
+
 ### Schritt 1 – Login (Bearer-Token holen)
 ```
 POST https://api.dronemap.pansa.pl/v1/front/login
 x-api-key: <API-Key>
 Origin: https://dronemap.pansa.pl
-Referer: https://dronemap.pansa.pl/
 (Body leer)
 
-→ 200 { "token": "<bearer>" , ... }
+→ 200 { "access_token": "<bearer>", ... }      # Feld heißt access_token (nicht token)
 ```
 
-### Schritt 2 – Zonen/Strukturen als KML
+### Schritt 2 – Daten (mit **beiden** Headern: `x-api-key` + `Authorization: Bearer`)
 ```
 GET https://api.dronemap.pansa.pl/v1/kml/filtered?extrude=false&types=<CSV>&max=<alt_m>
-Authorization: Bearer <bearer>
+x-api-key: <API-Key>
+Authorization: Bearer <access_token>
 Accept: application/vnd.google-earth.kml+xml
-
 → 200 KML
 ```
-- `max` = Höhenfilter in **Metern**. Werte **≥ 500 deaktivieren den Filter**
-  (das Plugin sendet dann `max=3000`).
-- `types` = kommagetrennte Liste der gewünschten Klassen (siehe §3).
+- `max` = **Höhengrenze in Metern** (NICHT die Zonenanzahl). `≥ 500` deaktiviert
+  den Höhenfilter praktisch.
+- `types` = kommagetrennte Liste der Klassen (siehe §3).
+
+**Weitere öffentliche Endpunkte** (gleiche Header):
+- `GET /v1/zones/filtered?lon=&lat=&range=&max_height=120` – Zonen als JSON (Punkt+Radius)
+- `GET /v1/zones` · `GET /v1/zones/types` · `GET /v1/notams` · `GET /v1/activ/*`
+- `GET /v3/api-docs` – **öffentliche OpenAPI-Spec** (beste Referenz für alle Felder/Endpunkte)
 
 > Hinweis: Das Plugin nutzt `verify=False` (TLS-Prüfung aus). **Nicht
 > übernehmen** – mit korrekter Zertifikatsprüfung arbeiten.
@@ -159,3 +168,33 @@ curl -s "https://api.dronemap.pansa.pl/v1/kml/filtered?extrude=false&types=DRAP,
   -H "Accept: application/vnd.google-earth.kml+xml" -o pl_zones.kml
 head -c 400 pl_zones.kml
 ```
+
+---
+
+## 8. Verifizierte Daten & Mapping (DE-IP, 2026-11-15)
+
+**Fixtures:** `docs/fixtures/pansa_kml_sample.kml` (2 Placemarks),
+Zonentypen vollständig in `pansa_zones_types.json` (34 Typen).
+
+### KML-Struktur (aus `kml/filtered`)
+Jedes `<Placemark>` trägt Typ **und Höhen in der `<description>`**:
+```
+<name>DRA-P 2550</name>
+<description>Restriction: N/A, Type: DRAP, Min: 0 ft, Max: 600 ft</description>
+<Polygon>…<coordinates>lon,lat,0 …</coordinates>…</Polygon>
+```
+Parser: Beschreibung mit
+`/Type:\s*(\w+),\s*Min:\s*(-?\d+)\s*ft,\s*Max:\s*(-?\d+)\s*ft/` auslesen →
+`Type`→Beschränkung (Tabelle unten), Höhen **ft→m** (`×0.3048`), Geometrie aus
+`<Polygon>`/`<MultiGeometry>`. (KML→GeoJSON via `togeojson` + Description-Regex,
+da die Höhen/Typen **nicht** in ExtendedData, sondern im Freitext stehen.)
+
+### `Type` → Beschränkung (aus allen 34 Typen abgeleitet, Präfix DRA-P/R/I)
+| Beschränkung | Typen |
+|---|---|
+| **PROHIBITED** (7) | `DRAP`, `MRT`, `TF`, `TFR`, `TMA`, `TS`, `TSA` |
+| **REQ_AUTHORISATION** (18) | `ATZ`, `ATZ1KM`, `ATZ6KM`, `CTR`, `CTR1KM`, `CTR6KM`, `D`, `DRAR`, `EPD`, `EPP`, `EPR`, `MCTR`, `MCTR2KM`, `P`, `R`, `RPA`, `TR`, `TRA` |
+| **NO_RESTRICTION / Info** (9) | `AAA`, `ADIZ`, `AREA`, `DRAI`, `EA`, `FIS`, `NW`, `RMZ`, `ROL` |
+
+Die Beschreibungstexte je Typ (EN/PL, Flugbedingungen, Kontakt) stehen im
+`zones/types`-Endpoint und können als Popup-Text genutzt werden.

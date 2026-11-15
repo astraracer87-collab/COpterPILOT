@@ -88,16 +88,6 @@ GET https://features.geoportail.lu/collections/1928/items?f=json&limit=2000
 
 ## 4. Integrationsauftrag für COpterPILOT
 
-> **Stand nach Integration (2026-11-15):** Erledigt. LU läuft über
-> `client/lib/geozoneDirect/irelandLuxSource.ts` (`fetchLuxembourg`): erst der
-> ED-269-Feed (CC0), bei Fehler (derzeit immer 422) automatisch die
-> OGC-Features-API (Collection 1928) mit Adapter `normalizeLuxembourgOgc`.
-> Live 33 Zonen (17 Genehmigung, 16 Auflagen); der 34. Eintrag
-> „EL-UAS-S8(OLD?)“ (Château de Fischbach) hat keine Geometrie und wird
-> übersprungen. Das verwaiste Alt-Modul `client/lib/luGeozones.ts` wurde
-> entfernt (nirgends eingebunden, Feed tot); sobald die DAC den ED-269-Feed
-> repariert, nutzt die App ihn automatisch wieder.
-
 ### Ist-Zustand (WICHTIG: LU ist im Repo schon weitgehend gebaut)
 - Es gibt bereits ein **vollständiges LU-Modul**: `client/lib/luGeozones.ts`
   (316 Zeilen) – ED-269-Modell (`LuZoneFeature` mit Geometrie, `restriction`,

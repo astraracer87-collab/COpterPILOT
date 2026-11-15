@@ -10,23 +10,6 @@ ein eigener Live-Abruf (siehe §6).
 
 Vergleich: NL/AT/IT/LU/IE/PL/BE/PT-Dokumente in `docs/`.
 
-> **Stand 2026-11-15 (Umsetzung):** Primärquelle sind jetzt die offiziellen
-> **ED-318-Downloads im AIP** – `https://aip.enaire.es/recursos/descargas/ZGUAS/`
-> mit `ZGUAS_Aero.zip` (≈ 2,5 MB), `ZGUAS_Infra.zip` (≈ 18 MB) und
-> `ZGUAS_Urbano.zip` (≈ 27 KB); jede `.json` im ZIP wird als EUROCAE ED-318
-> gelesen (`shared/ed318Pure.ts` → `normalizeSpanishEd318` in
-> `shared/spanishGeozones.ts`, Abruf `client/lib/geozoneDirect/spainSource.ts`,
-> Timeout 240 s je ZIP). Liefert **kein** ZIP gültige Zonen, folgt der bisherige
-> **ArcGIS-/WFS-Pfad** (§3) als Rückfall; liefert auch der nichts → Fehler (der
-> vorhandene Gerätebestand bleibt). Nachbearbeitung wie bisher (deutsche
-> Kurzfassung, Layer-Default-Beschränkung, Höhenfilter > 500 ft AGL bzw.
-> > 3800 m MSL, Ablauf, Dedupe über `identifier`).
-> ⚠️ **Nicht live verifiziert:** `aip.enaire.es` ist aus der Sandbox ebenfalls
-> geo-gesperrt (403). Verzeichnisliste vom Nutzer bestätigt; der ZIP-Inhalt ist
-> nach dem ED-318-Schema angenommen. Die Test-Fixture (im Test gezippt) ist den
-> echten CZ-/SE-ED-318-Dateien nachgebaut und muss durch echte ES-Dateien
-> ersetzt werden, sobald sie von einer ES-IP geladen wurden.
-
 ---
 
 ## 1. Kurzfassung
@@ -58,15 +41,40 @@ Vergleich: NL/AT/IT/LU/IE/PL/BE/PT-Dokumente in `docs/`.
 
 ## 3. Zugriff (aus der Spec, §6)
 
-**Basis:** `https://servais.enaire.es/insigniads/`
+> ✅ **Korrektur (live verifiziert von DE-IP, 2026-11-15):** Der in der PDF-Spec
+> genannte `…/insigniads/.../SRV_UAS_ZG_data_V2/FeatureServer` ist **veraltet**.
+> Die Live-Karte `drones.enaire.es` nutzt aktuell **`insignias`** (anderer Pfad)
+> und **MapServer/<Layer>/query**. Von einer EU-IP direkt erreichbar
+> (HTTP 200, `application/geo+json`), **ohne Auth**. Der WAF-403 trat nur aus
+> der US-Cloud auf.
 
-### 3.1 ArcGIS REST (empfohlen für Vektorabruf)
+**Aktuelle Basis:** `https://servais.enaire.es/insignias/rest/services/`
+
+### 3.1 ArcGIS REST – AKTUELLE Services (live)
+| Service / Layer | Zweck |
+|---|---|
+| `NSF/Drones_ZG_Aero_V3/MapServer` | **Luftfahrt-Zonen (Hauptservice)** |
+| `NSF/Drones_ZG_Infra_V0/MapServer/11` | Infrastruktur |
+| `NSF/Drones_ZG_Urbano_V0/MapServer/11` | Urbane Zonen |
+| `NOTAM/NOTAM_UAS_APP_V3/MapServer/1` | NOTAM |
+| `ENP/ENP_APP_Local_V4/MapServer/0,1` | Naturschutz |
+
+Layer in `Drones_ZG_Aero_V3`: [0] AERODROMOS · [1] ZG_EAC_FIZ · [2] AVISOS ·
+[3] ZG_RVF · [4] AEROMODELISMO · [6] ZG_Aeródromos · [10] ZG_Restringidas.
+
+- Abruf als GeoJSON:
+  `…/insignias/rest/services/NSF/Drones_ZG_Aero_V3/MapServer/<layer>/query?where=1=1&outFields=*&returnGeometry=true&outSR=4326&f=geojson`
+- **Höhenfilter (<120 m):** `where=RESTRICCION_LOWER < 120` (Feld existiert nicht
+  auf jedem Layer – pro Layer prüfen).
+- Beispiel (funktioniert):
+  `https://servais.enaire.es/insignias/rest/services/NSF/Drones_ZG_Aero_V3/MapServer/0/query?where=1%3D1&outFields=*&returnGeometry=true&f=geojson`
+- **Fixtures (lokal erfasst):** `fixtures/enaire_Drones_ZG_Aero_V3_MapServer.json`
+  (Metadaten), `fixtures/enaire_aero_layer0_sample.geojson` (echte Features).
+
+#### Veraltet (nur als Referenz, aus PDF-Spec v3.1)
 ```
-https://servais.enaire.es/insigniads/rest/services/NSF_SRV/SRV_UAS_ZG_data_V2/FeatureServer
-https://servais.enaire.es/insigniads/rest/services/NSF_SRV/SRV_UAS_ZG_data_V2/MapServer
+https://servais.enaire.es/insigniads/rest/services/NSF_SRV/SRV_UAS_ZG_data_V2/FeatureServer   # veraltet
 ```
-- Layer-Liste: `…/FeatureServer?f=json`
-- Abruf als GeoJSON: `…/FeatureServer/<id>/query?where=1=1&outFields=*&outSR=4326&f=geojson`
 - Punkt-in-Polygon (Standort-Check): `…/query?geometry=<lon>,<lat>&geometryType=esriGeometryPoint&inSR=4326&spatialRel=esriSpatialRelIntersects&outFields=*&f=geojson`
 
 ### 3.2 OGC WFS 2.0
@@ -166,3 +174,41 @@ curl -s "$BASE?f=json" | jq '.layers'
 curl -s "$BASE/0/query?where=1%3D1&outFields=*&outSR=4326&resultRecordCount=1&f=geojson" \
   | jq '.features[0].properties'
 ```
+
+---
+
+## 8. Verifizierte Daten – KOMPLETT abgerufen (DE-IP, 2026-11-15)
+
+Alle Layer live als GeoJSON geholt (`features/`-Zähler bestätigt). Übersicht:
+`docs/geozonen-daten-abruf-DE-2026-11-15.md`.
+
+**Service `NSF/Drones_ZG_Aero_V3/MapServer`:**
+| Layer | Name | Features |
+|---|---|---|
+| 0 | AERODROMOS | 563 |
+| 1 | ZG_EAC_FIZ | 223 |
+| 2 | AVISOS | 184 |
+| 3 | ZG_RVF | 119 |
+| 4 | AEROMODELISMO | 257 |
+| 6 | ZG_Aeródromos | 1.305 |
+| 10 | ZG_Restringidas | 370 |
+
+**Weitere Services:** `Drones_ZG_Infra_V0/11` (Infrastruktur, **14.163**),
+`Drones_ZG_Urbano_V0/11` (urban, 4), `NOTAM_UAS_APP_V3/1` (NOTAM, 745),
+`ENP_APP_Local_V4/0` (Naturschutz, 1.814), `ENP_APP_Local_V4/1` (1.321).
+
+### ⚠️ Größenwarnung (wichtig für die App)
+- **`Drones_ZG_Infra_V0/11` ≈ 177 MB** und **`ENP_APP_Local_V4/0` ≈ 221 MB**
+  (sehr detaillierte Geometrie). Diese Layer **nicht** roh ins Gerät laden.
+- Empfehlung: serverseitig/beim Abruf **vereinfachen** (ArcGIS-Parameter
+  `maxAllowableOffset=<grad>` bzw. `geometryPrecision`), nur benötigte
+  `outFields` holen, und/oder **bbox-/viewport-basiert** statt landesweit laden
+  (`geometry=<bbox>&geometryType=esriGeometryEnvelope&spatialRel=esriSpatialRelIntersects`).
+  ArcGIS liefert maximal `maxRecordCount` (hier 2000) pro Request → **paginieren**
+  (`resultOffset`/`resultRecordCount`).
+- Für die reine Drohnen-Geo-Awareness sind v. a. `ZG_Restringidas`, `ZG_EAC_FIZ`,
+  `ZG_RVF` und NOTAM relevant; Infra/ENP (Naturschutz) als optionaler Layer.
+
+### Höhenfilter
+`where=RESTRICCION_LOWER < 120` – Feld existiert nur auf Layern mit Höhen;
+pro Layer prüfen (Flugplatz-Punktlayer haben es nicht).
