@@ -10,7 +10,8 @@
 // COUNTRY_GEOZONE_CONFIGS-Schlüssel injizieren, sodass die öffentliche API
 // (und alle Aufrufer) unverändert bleibt.
 import { detectCountryFromCoordinates } from "./countryMaps";
-import { parseEd269ToGeozoneInfo } from "./ed269";
+import { parseEd269ToGeozoneInfoYielding } from "./ed269";
+import { runForegroundWork } from "../../shared/yieldingWork";
 import type { GeozoneFeatureInfo } from "./geozones";
 import { getEd269Dataset } from "./geozoneDirect/ed269Store";
 import {
@@ -232,7 +233,9 @@ export async function queryEd269CachedFeaturesWithStatusFrom(
           : undefined,
       stats,
     });
-    const zones = parseEd269ToGeozoneInfo(feats, iso);
+    // Umwandlung in Zeitscheiben (ganzes Land: bis 1200 Zonen)
+    // (Vordergrund: Hintergrund-Jobs pausieren solange)
+    const zones = await runForegroundWork(() => parseEd269ToGeozoneInfoYielding(feats, iso));
     // Keine stille Kürzung mehr (B7/S7): Hinweis in der Abdeckungs-Notiz.
     if (stats.truncated && effLimit) {
       const note = [stored.note, geozoneTruncationHint(effLimit)].filter(Boolean).join(" · ");

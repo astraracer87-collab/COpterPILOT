@@ -1331,3 +1331,123 @@ Fixtures **handgebaut** (`client/lib/__tests__/fixtures/es-enaire-notam-handbuil
 - **Nur mit EU-IP/Gerät prüfbar**: echte Web-Map-Struktur (Titel/Unterebenen),
   echte NOTAM-Antwort (Fixture F+ nachliefern), Text-Formate von „RADIUS …“ und
   Mittelpunkt in itemE/itemQ (sonst greift der Puffer).
+
+## Stand Reaktionsfähigkeit (2026-11-15)
+
+Befund Product Owner (DJI RC Pro 2): „Während die Geozonen laden kann man nichts
+in der App machen“ – z. B. reagiert auf „Drohne einrichten“ der Chip
+„DJI-Standard (8/32/128)“ nicht, solange die Pille „Lädt: Deutschland …“ zeigt.
+Ursache: schwere synchrone Arbeit auf dem einzigen JS-Thread (Hermes).
+
+### Lösung
+
+- **`shared/yieldingWork.ts`** (zentral, RN-frei): Zeitscheiben ≤ 12 ms
+  (`shouldYield`/`yieldToUi`, Abgabe per `setTimeout(0)`), Pause bei Berührung
+  (App-Wurzel meldet `onTouchStart/Move/End` → `noteUserActivity`, 400 ms Ruhe,
+  max. 3 s am Stück), Warteschlange `runBackgroundJob` (schwere CPU-Phasen
+  nacheinander, Netz parallel; Abbruch, Fortschritt), `runForegroundWork`
+  (Kartenabfragen – Hintergrund-Jobs pausieren), `waitForIdle`, Helfer
+  `mapYielding/filterYielding`, `stringifyYielding` (byte-identisch zu
+  `JSON.stringify`), `parseJsonYielding` (große Arrays auf oberster Ebene –
+  `features`, `entries`, `ids`, `elements` – gruppenweise nativ geparst; nur
+  Anführungszeichen/geschweifte Klammern werden per `indexOf` verfolgt;
+  Ergebnis identisch zu `JSON.parse`, sonst Rückfall auf `JSON.parse`),
+  `deflateYielding/inflateYielding` (fflate-Streaming; Hermes hat keine Worker,
+  daher nicht die fflate-async-API).
+- **`client/lib/backgroundWork.ts`**: Touch-Handler für die Wurzel,
+  `runAfterStartup` (Verzögerung + `InteractionManager`), Fortschritt eines Jobs
+  in die Download-Anzeige.
+- **`runBlocking` + `client/components/BlockingWorkOverlay.tsx`** (Regel PO:
+  keine halb eingefrorene App): Vollbild-Overlay „Bitte warten – Daten werden
+  verarbeitet“ (Land · Schritt · %), wird vor der Arbeit gesetzt und gemalt
+  (rAF + setTimeout), fängt alle Berührungen ab. **Derzeit von keiner Phase
+  benötigt** – nach dem Zerlegen bleibt kein Schritt, der auf dem Gerät
+  voraussichtlich > 300 ms am Stück blockiert (siehe Restrisiken).
+- **DE/FR/CZ/ES-Kachelspeicher**: WFS-/ArcGIS-Seiten in Scheiben parsen,
+  `appendFeaturesYielding` (Abgabe je Zone, große Zonen gestreamt komprimiert)
+  als Hintergrund-Job je Seite, `index.json` in Scheiben schreiben/lesen,
+  Raster/Abfrage (`buildGridYielding`, `queryIndexYielding`), Entpacken und
+  Umwandeln beim Lesen mit Kontrollpunkten; Abfragen als Vordergrundarbeit.
+- **ED-269**: Antworten (`fetchJson`, `directFetchJson`, CH, PL, IT, SE,
+  GoDrone) in Scheiben parsen; CH/DK/NL-Normalisierung, `finalize`, Rundung,
+  Frequentis-Platzhalter in Scheiben; Nachbearbeitung + Schreiben als
+  Hintergrund-Job; Gerätebestand in Scheiben gelesen/geschrieben;
+  Übersetzungs-Scan (`missingTextsYielding`); Umwandlung für die Karte
+  (`parseEd269ToGeozoneInfoYielding`) als Vordergrundarbeit.
+- **Speicherformat**: bewusst **unverändert** (eine JSON-Datei je Land bzw.
+  `index.json`) – das zerlegte Lesen/Schreiben erreicht dieselben Scheiben wie
+  ein NDJSON-/Chunk-Format, ohne Migration und rückwärtskompatibel (ältere
+  App-Versionen lesen die Dateien weiter). Ein Test prüft byte-identisches
+  Schreiben und identisches Lesen alter Dateien.
+- **UK AIXM**: zeit- statt nur anzahlbasiert abgeben, ZIP-Stücke 4 KB (≈ 100 KB XML).
+- **Hindernisse**: Overpass-Antwort in Scheiben parsen/umwandeln, Kachel-Cache in Scheiben schreiben.
+- **Offline-Karten**: Kachelzählung/Fortsetzen (Hunderttausende Kacheln) mit Abgaben.
+- **Start**: Länder-Synchronisation und Kachel-Aktualisierung erst nach
+  `InteractionManager.runAfterInteractions`, ein Land nach dem anderen, vor
+  jedem Land `waitForIdle()` (Berührung/Kartenabfrage hat Vorrang).
+- **Karte (TrafficMapView, MapPicker)**: Vektorzonen (`vz`) nicht mehr im
+  Gesamtzustand – bisher wurden bei JEDEM Zustandswechsel (Flugzeug-Update,
+  Tipp, Standort) alle Zonen-Polygone (MB) neu serialisiert und injiziert. Jetzt
+  `window.__setVz` nur bei Inhaltsänderung (`useMemo` auf `vzPolys`), im WebView
+  in Paketen à 150 Zonen gezeichnet (neuer Stand bricht altes Zeichnen ab).
+  Parsen im WebView (eigener JS-Kontext) war nicht nötig: kein Schritt bleibt
+  nach dem Zerlegen > 100 ms.
+
+### Messung (Node 22, echte Daten vom 2026-11-15; Gerät ≈ Node × 3–10)
+
+„Vorher“ = Blockade am Stück; „Nachher“ = längste Blockade des JS-Threads
+(Event-Loop-Lag inkl. GC-/Timer-Rauschen von Node).
+
+| Schritt | Vorher Node | Vorher Gerät (geschätzt) | Nachher Node max. | Nachher Gerät (geschätzt) |
+|---|---|---|---|---|
+| DE dipul FFH-Seite 11,2 MB: JSON.parse | 116–215 ms | 0,4–2 s | 23 ms | 70–230 ms¹ |
+| DE FFH-Seite: Komprimieren (`appendFeatures`, 200 Zonen) | **1075 ms** (größte Zone 57 ms) | **3–10 s** | 25 ms | 75–250 ms¹ |
+| DE Autobahnen 2 MB / Industrie 2,2 MB: Komprimieren | 214 / 214 ms | 0,6–2 s | 20 / 14 ms | ≤ 200 ms |
+| DE index.json (83 000 Zonen, 6,2 MB) schreiben (alle 15 s + 3× am Ende) | 61 ms | 0,2–0,6 s | 13 ms | ≤ 130 ms |
+| DE index.json lesen / Raster bauen | 38 / 45 ms | 0,1–0,5 s | 17 / 12 ms | ≤ 170 ms |
+| DE Abfrage ganz DE (Limit 400/1200) | 84 ms | 0,25–0,8 s | 12 ms | ≤ 120 ms |
+| DE erste Kartenabfrage (1200 Zonen entpacken/umwandeln, synthetisch) | 376 ms | 1–4 s | ≤ 54 ms | ≤ 0,3 s¹ |
+| CH BAZL 18 MB: JSON.parse / Normalisieren | 138 / 140 ms | 0,4–1,4 s | 29 / 18 ms | ≤ 290 ms¹ |
+| CH Bestand 9 MB schreiben / lesen | 108 / 88 ms | 0,3–1 s | 20 / 33 ms | ≤ 330 ms¹ |
+| CH Umwandlung 1200 Zonen (Karte) | 63–106 ms | 0,2–1 s | 25 ms | ≤ 250 ms |
+| DK 10,9 MB: JSON.parse / Normalisieren / finalize / Runden | 119 / 161 / 71 / 34 ms | 0,4–1,6 s | 20 / 19 / 16 / 15 ms | ≤ 200 ms |
+| DK Bestand 9,4 MB schreiben / lesen | 134 / 112 ms | 0,4–1,3 s | 21 / 22 ms | ≤ 220 ms |
+| DK Umwandlung 1200 Zonen (Karte) | 37–66 ms | 0,1–0,7 s | ≤ 17 ms je Zone² | ≤ 170 ms |
+| AT 3,6 MB / NL-Kachel 3,9 MB (alle Schritte) | ≤ 24 ms | ≤ 0,25 s | ≤ 19 ms | ≤ 190 ms |
+| Übersetzungs-Scan (CH) | 30 ms | 0,1–0,3 s | in Scheiben | – |
+| UK AIXM (0,5 MB ZIP / 11,8 MB XML) | 79 ms je Scheibe | 0,25–0,8 s | 38 ms (eine AIXM-Einheit 22 ms) | 0,1–0,4 s¹ |
+| Karte: `vz` je Zustandswechsel neu serialisieren | ≈ Größe der Zonenliste (MB) bei jedem Flugzeug-Update | – | nur bei Zonenänderung | – |
+
+¹ Werte nahe der oberen Grenze stammen von einzelnen, nicht weiter teilbaren
+Einheiten (ein Feature-JSON bis ≈ 1,5 MB parsen/serialisieren, eine
+AIXM-Einheit) oder Node-GC; typische Scheiben liegen bei 12–15 ms.
+² Einmalig 283 ms beim ersten Lauf = Node-JIT/GC (je Zone warm ≤ 3 ms).
+
+### Tests
+
+- `client/lib/__tests__/yieldingWork.test.ts`: Zeitscheiben mit künstlicher
+  Uhr, Pause bei Berührung/Vordergrundarbeit, Warteschlange (Reihenfolge,
+  Serialisierung, Abbruch wartend/laufend, Fehler, Fortschritt), Overlay
+  (vor Arbeit gezeigt, danach/bei Fehler weg), `parseJsonYielding` gegen
+  `JSON.parse` (Escapes, Klammern in Strings, leere/verschachtelte/gemischte
+  Arrays, doppelte Schlüssel, `__proto__`, ungültiges JSON), byte-identisches
+  `stringifyYielding`, DEFLATE-Rundreise, identische Ergebnisse der zerlegten
+  Kachelspeicher-/ED-269-Funktionen, Gerätebestand (Format unverändert), und
+  **Regression**: kompletter DE-Download einer großen Seite + Abfrage sowie
+  ED-269 parsen/schreiben/lesen/umwandeln blockieren nie > 80 ms am Stück
+  (alter synchroner Pfad mit denselben Daten ≈ 1,3 s).
+- `client/components/__tests__/blockingWorkOverlay.test.tsx`: Overlay sichtbar
+  vor/während der Arbeit, fängt Berührungen ab, danach entfernt.
+
+### Restrisiken / auf dem Gerät prüfen
+
+- Nicht in Node messbar: `res.text()` großer Antworten (11–18 MB) und
+  `readAsStringAsync` des NL-Bestands (≈ 23 MB) – String-Erzeugung über JSI;
+  `File.write` (synchron, expo-file-system) beim Anhängen an `data.bin`
+  (≤ einige MB je Seite). Falls auf dem RC > 300 ms: in Stücke teilen bzw.
+  `runBlocking` verwenden.
+- Prüfen: während „Lädt: Deutschland …“ Chips/Buttons auf „Drohne einrichten“,
+  Tabs, Navigation, Karte pannen; Kaltstart mit vorhandenen Beständen
+  (CH/DK/NL) und sofort Karte öffnen; Radar mit vielen Flugzeugen + Vektor-
+  zonen (kein Ruckeln bei Flugzeug-Updates); MapPicker Tippen in Zonen-Ländern.
+- Downloads dauern etwas länger (Abgaben, Pausen bei Bedienung) – gewollt.

@@ -78,7 +78,16 @@ import { TEMPORARY_ZONES_MAX_AGE_MS } from "../../../shared/geozoneSourceMeta";
 import { loadLargePacksOnMobile, mayDownloadLargePack } from "../geozoneSources/largePackSetting";
 import { awaitCountryUsage, isGeozoneSourceEnabled } from "../countryUsage";
 import { beginDownload, endDownload, progressDownload } from "../downloadActivity";
-import { parseJsonYielding, responseJsonYielding, runForegroundWork, runInBackground, stringifyYielding, waitForIdle } from "../../../shared/yieldingWork";
+import {
+  parseJsonYielding,
+  responseJsonYielding,
+  runForegroundWork,
+  runInBackground,
+  shouldYield,
+  stringifyYielding,
+  waitForIdle,
+  yieldToUi,
+} from "../../../shared/yieldingWork";
 import { runAfterStartup } from "../backgroundWork";
 
 // ---------------------------------------------------------------------------
@@ -359,6 +368,7 @@ async function readZones(
         z = null;
       }
       cacheZone(prefix + i, z, (bytes[n]?.length ?? 0) * 4);
+      if (shouldYield()) await yieldToUi("tile-read");
     }
   }
   const out: GeozoneFeatureInfo[] = [];

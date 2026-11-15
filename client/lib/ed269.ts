@@ -28,6 +28,7 @@ import {
   ed269ActivityFromProps,
   zoneEndedLongAgo,
 } from "../../shared/ed269Restriction";
+import { shouldYield, yieldToUi } from "../../shared/yieldingWork";
 
 export {
   normalizeEd269Restriction,
@@ -367,6 +368,20 @@ export function parseEd269ToGeozoneInfo(
       ...(heights.upper.m != null ? { upperReference: heights.upper.ref } : {}),
       maxFlightHeightAglM: ed269MaxFlightHeightAglM(p),
     });
+  }
+  return out;
+}
+
+/**
+ * parseEd269ToGeozoneInfo in Zeitscheiben (je Feature unabhängig – Ergebnis
+ * identisch). Kartenabfrage eines ganzen Landes: 1200 Zonen ≈ 40–100 ms Node am
+ * Stück, auf dem Gerät mehrere hundert ms.
+ */
+export async function parseEd269ToGeozoneInfoYielding(features: any[], countryIso: string): Promise<GeozoneFeatureInfo[]> {
+  const out: GeozoneFeatureInfo[] = [];
+  for (let i = 0; i < features.length; i += 16) {
+    for (const z of parseEd269ToGeozoneInfo(features.slice(i, i + 16), countryIso)) out.push(z);
+    if (shouldYield()) await yieldToUi("ed269-convert");
   }
   return out;
 }

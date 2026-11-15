@@ -16,10 +16,10 @@ import {
   ED269_BUNDLED_FALLBACKS,
   fetchEd269CountryFeatures,
   isEd269DirectCountry,
-  roundFeatureCoords,
+  roundFeatureCoordsYielding,
   type GeoFeature,
 } from "./ed269Sources";
-import { fetchCoverageOf, finalizeDirectFeatures, mergeCarriedOverFeatures } from "./directFetchUtil";
+import { fetchCoverageOf, finalizeDirectFeaturesYielding, mergeCarriedOverFeatures } from "./directFetchUtil";
 import { GEOZONE_IMPORT_ONLY_ISOS } from "../../../shared/geozoneImport";
 import {
   ED269_STORE_REFRESH_MS,
@@ -391,7 +391,8 @@ export async function importEd269Dataset(
 ): Promise<Ed269Dataset> {
   const iso = cacheKey(rawIso);
   if (!isStoreCountry(iso)) throw new Error(`Für ${String(rawIso).toUpperCase()} ist kein Geozonen-Import vorgesehen.`);
-  const finalized = roundFeatureCoords(finalizeDirectFeatures(features, iso));
+  // in Zeitscheiben (große Importdateien), Ergebnis identisch
+  const finalized = await roundFeatureCoordsYielding(await finalizeDirectFeaturesYielding(features, iso));
   if (finalized.length === 0) throw new Error("Keine Geozonen zum Speichern.");
   const ds: Ed269Dataset = { iso, fetchedAt: meta.importedAt, version: STORE_FORMAT_VERSION, features: finalized, imported: meta };
   remember(iso, ds);
