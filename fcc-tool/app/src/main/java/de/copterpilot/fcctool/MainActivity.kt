@@ -29,11 +29,10 @@ class MainActivity : Activity() {
     private var sdAction: ((Uri) -> Unit)? = null
     private var sdVariant = SdCard.Variant.HAM
 
-    private lateinit var body: LinearLayout   // Inhaltsbereich unter der Kopfzeile (vertikal)
+    private lateinit var leftHost: android.widget.FrameLayout   // wechselnder Inhalt links
     private lateinit var logContainer: LinearLayout
     private lateinit var logScroll: ScrollView
     private lateinit var statusPill: TextView
-    private val logCardView by lazy { buildLogCard() }
 
     private val usbPermission = object : BroadcastReceiver() {
         override fun onReceive(c: Context, i: Intent) {
@@ -104,24 +103,27 @@ class MainActivity : Activity() {
         header.addView(statusPill)
         root.addView(header, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
 
-        body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        root.addView(body, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f).apply { topMargin = d(12f) })
+        // Festes Grundgerüst: links der wechselnde Inhalt, rechts immer das Protokoll.
+        val mainRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        leftHost = android.widget.FrameLayout(this)
+        mainRow.addView(leftHost, LinearLayout.LayoutParams(0, MATCH_PARENT, 1.1f))
+        mainRow.addView(buildLogCard(), LinearLayout.LayoutParams(0, MATCH_PARENT, 1f).apply { leftMargin = d(12f) })
+        root.addView(mainRow, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f).apply { topMargin = d(12f) })
         return root
     }
 
-    private fun detachLog() { (logCardView.parent as? android.view.ViewGroup)?.removeView(logCardView) }
+    /** Ersetzt den linken Inhalt; das Protokoll rechts bleibt fest. */
+    private fun showLeft(view: View) {
+        leftHost.removeAllViews()
+        leftHost.addView(view, android.widget.FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+    }
 
-    /** Standard-Bildschirm: Inhalt links (scrollbar), Protokoll rechts über die volle Höhe. */
-    private fun showStandard(col: View) {
-        detachLog()
-        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        row.addView(ScrollView(this).apply {
+    /** Wie showLeft, aber scrollbar (für lange Inhalte wie die Assistenten). */
+    private fun showLeftScroll(view: View) {
+        showLeft(ScrollView(this).apply {
             isFillViewport = true
-            addView(col, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
-        }, LinearLayout.LayoutParams(0, MATCH_PARENT, 1.1f))
-        row.addView(logCardView, LinearLayout.LayoutParams(0, MATCH_PARENT, 1f).apply { leftMargin = Ui.dpi(this@MainActivity, 12f) })
-        body.removeAllViews()
-        body.addView(row, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
+            addView(view, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+        })
     }
 
     private fun buildLogCard(): View {
@@ -187,13 +189,10 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun showLeft(view: View) = showStandard(view)
-
     // ------------------------------------------------------------- Startbildschirm
 
     private fun showHome() {
-        detachLog()
-        // Knöpfe links (inkl. „Erweitert“ unten), Protokoll rechts – flache Verschachtelung.
+        // Zwei große Knöpfe, die die linke Spalte ausfüllen (gleiche Höhe wie das Protokoll).
         val buttons = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         buttons.addView(Ui.tallModeButton(this,
             "Fluggerät an dieser Fernsteuerung",
@@ -204,13 +203,7 @@ class MainActivity : Activity() {
             "z. B. Avata 2 – über eine Datei auf der SD-Karte der Goggle",
             Ui.BLUE, R.drawable.fpv_goggle) { showGoggleMenu() },
             LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f).apply { topMargin = Ui.dpi(this@MainActivity, 12f) })
-
-        val mid = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        mid.addView(buttons, LinearLayout.LayoutParams(0, MATCH_PARENT, 1.1f))
-        mid.addView(logCardView, LinearLayout.LayoutParams(0, MATCH_PARENT, 1f).apply { leftMargin = Ui.dpi(this@MainActivity, 12f) })
-
-        body.removeAllViews()
-        body.addView(mid, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
+        showLeft(buttons)
         refreshStatus()
     }
 
@@ -226,7 +219,7 @@ class MainActivity : Activity() {
             Ui.lp(topDp = Ui.dpi(this, 12f)))
         col.addView(Ui.modeButton(this, ceLabel, "Zurück in den Auslieferungszustand (CE)", Ui.AMBER) { onCe() },
             Ui.lp(topDp = Ui.dpi(this, 12f)))
-        showLeft(col)
+        showLeftScroll(col)
         refreshStatus()
     }
 
@@ -254,49 +247,51 @@ class MainActivity : Activity() {
     )
 
     private fun showWizard(heading: String, steps: List<WizStep>) {
-        val host = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         var current = 0
 
         fun draw() {
-            host.removeAllViews()
+            val host = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            // Feste Kopfzeile des Ablaufs
             val top = Ui.row(this)
             top.addView(Ui.smallButton(this, "‹ Zurück") { showHome() })
             top.addView(Ui.label(this, "   $heading", Ui.TEXT, 16f, bold = true), Ui.lp(0, WRAP_CONTENT, 1f))
             top.addView(Ui.label(this, "Schritt ${(current + 1).coerceAtMost(steps.size)}/${steps.size}", Ui.TEXT2, 12f))
             host.addView(top)
-
-            steps.forEachIndexed { i, s ->
-                when {
-                    i < current -> host.addView(doneRow(s.title), Ui.lp(topDp = Ui.dpi(this, 8f)))
-                    i == current -> host.addView(activeCard(i + 1, s) { current++; draw(); refreshStatus() },
-                        Ui.lp(topDp = Ui.dpi(this, 8f)))
-                    else -> host.addView(upcomingRow(i + 1, s.title), Ui.lp(topDp = Ui.dpi(this, 6f)))
-                }
-            }
-            if (current >= steps.size) host.addView(Ui.bigButton(this, "Fertig", Ui.GREEN) { showHome() },
-                Ui.lp(topDp = Ui.dpi(this, 10f)))
+            // Feste Fortschrittszeile (springt nicht, wächst nicht)
+            host.addView(progressLine(steps, current), Ui.lp(topDp = Ui.dpi(this, 10f)))
+            // Aktueller Schritt an fester Stelle
+            if (current < steps.size)
+                host.addView(activeCard(current + 1, steps[current]) { current++; draw(); refreshStatus() },
+                    Ui.lp(topDp = Ui.dpi(this, 10f)))
+            else
+                host.addView(Ui.bigButton(this, "Fertig", Ui.GREEN) { showHome() }, Ui.lp(topDp = Ui.dpi(this, 10f)))
+            showLeftScroll(host)
         }
         draw()
-        showLeft(host)
     }
 
-    private fun doneRow(title: String) = Ui.row(this).apply {
-        addView(Ui.label(this@MainActivity, "✓", Ui.GREEN, 15f, bold = true))
-        addView(Ui.label(this@MainActivity, "  $title", Ui.TEXT2, 13f))
-    }
-
-    private fun upcomingRow(n: Int, title: String) = Ui.row(this).apply {
-        alpha = 0.5f
-        addView(Ui.label(this@MainActivity, "$n", Ui.TEXT2, 13f, bold = true))
-        addView(Ui.label(this@MainActivity, "  $title", Ui.TEXT2, 13f))
+    /** Eine Zeile mit Punkten für jeden Schritt: erledigt ✓, aktuell •, offen °. */
+    private fun progressLine(steps: List<WizStep>, current: Int): View {
+        val row = Ui.row(this)
+        steps.forEachIndexed { i, _ ->
+            val (sym, color) = when {
+                i < current -> "✓" to Ui.GREEN
+                i == current -> "●" to Ui.logColor(Log.Level.STEP)
+                else -> "○" to Ui.TEXT2
+            }
+            row.addView(Ui.label(this, sym, color, 16f, bold = true))
+            if (i < steps.size - 1) row.addView(Ui.label(this, " ─ ", Ui.BORDER, 14f))
+        }
+        return row
     }
 
     private fun activeCard(n: Int, s: WizStep, advance: () -> Unit): View {
         val card = Ui.card(this)
+        card.minimumHeight = Ui.dpi(this, 300f)
         card.addView(Ui.label(this, "SCHRITT $n", Ui.logColor(Log.Level.STEP), 12f, bold = true).apply { letterSpacing = 0.08f })
-        card.addView(Ui.label(this, s.title, Ui.TEXT, 17f, bold = true), Ui.lp(topDp = Ui.dpi(this, 4f)))
+        card.addView(Ui.label(this, s.title, Ui.TEXT, 18f, bold = true), Ui.lp(topDp = Ui.dpi(this, 4f)))
         card.addView(Ui.label(this, s.desc, Ui.TEXT2, 13f), Ui.lp(topDp = Ui.dpi(this, 6f)))
-        card.addView(Ui.bigButton(this, s.primary, Ui.BLUE) { s.run(advance) }, Ui.lp(topDp = Ui.dpi(this, 12f)))
+        card.addView(Ui.bigButton(this, s.primary, Ui.BLUE) { s.run(advance) }, Ui.lp(topDp = Ui.dpi(this, 14f)))
         s.secondary?.let { (label, act) ->
             if (s.secondaryBig)
                 card.addView(Ui.bigButton(this, label, Ui.SURFACE2) { act(advance) }, Ui.lp(topDp = Ui.dpi(this, 10f)))
@@ -451,7 +446,7 @@ class MainActivity : Activity() {
             withDjiUsb { dev -> bg { usbScan(dev) } }
         }, Ui.lp(topDp = Ui.dpi(this, 8f)))
         col.addView(card, Ui.lp(topDp = Ui.dpi(this, 8f)))
-        showLeft(col)
+        showLeftScroll(col)
     }
 
     // ------------------------------------------------------------- SD-Karte / Dialoge
