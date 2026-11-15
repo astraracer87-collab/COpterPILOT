@@ -52,6 +52,7 @@ import {
 } from "./tileStoreCore";
 import { dedupeZones, dipulLayerOfId, zoneFromStored } from "./tileZones";
 import { setCountryAccessAvailable } from "../../../shared/countryDetection";
+import { zoneEndedLongAgo } from "../../../shared/ed269Restriction";
 
 // ---------------------------------------------------------------------------
 // Umgebung (Dateisystem, Netz)
@@ -449,7 +450,9 @@ async function getDeTempZones(bbox: LngLatBBox): Promise<GeozoneFeatureInfo[]> {
     if (!bb || !bboxIntersects(bb, bbox)) continue;
     const z = zoneFromStored("DE", f);
     if (!z) continue;
-    if (z.validEndTs != null && z.validEndTs < now) continue;
+    // Nur lange (> 1 Tag) abgelaufene Zonen verwerfen; aktiv/inaktiv
+    // entscheidet zoneActivityAt für den jeweiligen Zeitpunkt.
+    if (zoneEndedLongAgo(z, now)) continue;
     out.push(z);
   }
   return out;

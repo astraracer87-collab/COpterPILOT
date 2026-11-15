@@ -43,6 +43,7 @@ import {
 } from "@/lib/vlos";
 import { queryGeozonesInArea, type GeozoneFeatureInfo, TEMP_RESTRICTION_LAYER_LABEL } from "@/lib/geozones";
 import { assessGeozoneAltitudeConflict, DEFAULT_REACHABLE_ALTITUDE_M } from "../../shared/geozoneAltitudeFilter";
+import { isZoneActiveInContext } from "../../shared/ed269Restriction";
 import { filterGeozoneDetailLines } from "@/lib/sourceAttribution";
 
 type NavigationProp = NativeStackNavigationProp<FlightPlanningParamList, "PlanningLocation">;
@@ -657,14 +658,21 @@ export default function PlanningLocationScreen() {
   // Höhenbewusste Bewertung der Geozonen im Umkreis: Zonen, deren Höhen-Limit
   // über/gleich der geplanten Flughöhe liegt, sind unkritisch; Flugverbote und
   // Limits unter der geplanten Höhe bleiben Konflikt.
+  // Zeitbezug: Kontext "planned" von zoneActivityAt. Eine geplante Flugzeit
+  // gibt es in diesem Schritt noch nicht (sie wird erst später gewählt) -> jetzt.
+  // Zeitgesteuerte/temporäre Zonen, die dann inaktiv sind, zählen nicht als
+  // Konflikt, werden aber als Hinweis gezählt.
   const touchedAssessment = useMemo(() => {
-    const assessed = touchedGeozones.map((g) => ({
+    const planningContext = { kind: "planned" as const, planned: null };
+    const activeZones = touchedGeozones.filter((g) => isZoneActiveInContext(g, planningContext));
+    const assessed = activeZones.map((g) => ({
       g,
       a: assessGeozoneAltitudeConflict(g, maxAltitude),
     }));
     return {
       conflicts: assessed.filter((x) => !x.a.clearedByAltitude),
       cleared: assessed.filter((x) => x.a.clearedByAltitude),
+      inactive: touchedGeozones.filter((g) => !activeZones.includes(g)),
     };
   }, [touchedGeozones, maxAltitude]);
 
@@ -1407,11 +1415,16 @@ export default function PlanningLocationScreen() {
                     ) : null}
                   </>
                 ) : null}
+                {touchedAssessment.inactive.length > 0 ? (
+                  <ThemedText style={[styles.touchedHint, { color: theme.textSecondary }]}>
+                    {touchedAssessment.inactive.length} zeitgesteuerte Zone{touchedAssessment.inactive.length === 1 ? "" : "n"} im Umkreis derzeit inaktiv – Details im nächsten Schritt.
+                  </ThemedText>
+                ) : null}
                 <ThemedText style={[styles.touchedHint, { color: theme.textSecondary }]}>
                   Tipp: Standort verschieben, Umkreis verringern oder geplante Flughöhe anpassen, um Konflikte zu vermeiden.
                 </ThemedText>
               </View>
-            ) : (
+            ) : touchedAssessment.cleared.length > 0 ? (
               <View style={[styles.touchedBox, { backgroundColor: theme.statusGoBackground, borderColor: theme.statusGo }]}>
                 <View style={styles.touchedHeader}>
                   <Feather name="check-circle" size={14} color={theme.statusGo} />
@@ -1440,6 +1453,18 @@ export default function PlanningLocationScreen() {
                 ))}
                 <ThemedText style={[styles.touchedHint, { color: theme.textSecondary }]}>
                   Diese Zonen begrenzen die Flughöhe auf einen Wert über deiner geplanten Höhe ({maxAltitude} m) – kein Konflikt.
+                </ThemedText>
+                {touchedAssessment.inactive.length > 0 ? (
+                  <ThemedText style={[styles.touchedHint, { color: theme.textSecondary }]}>
+                    {touchedAssessment.inactive.length} zeitgesteuerte Zone{touchedAssessment.inactive.length === 1 ? "" : "n"} im Umkreis derzeit inaktiv – Details im nächsten Schritt.
+                  </ThemedText>
+                ) : null}
+              </View>
+            ) : (
+              <View style={[styles.geozoneHint, { backgroundColor: theme.backgroundSecondary }]}>
+                <Feather name="clock" size={14} color={theme.textSecondary} />
+                <ThemedText style={[styles.geozoneHintText, { color: theme.textSecondary }]}>
+                  {touchedAssessment.inactive.length} zeitgesteuerte Zone{touchedAssessment.inactive.length === 1 ? "" : "n"} im Umkreis – derzeit inaktiv. Details im nächsten Schritt.
                 </ThemedText>
               </View>
             )

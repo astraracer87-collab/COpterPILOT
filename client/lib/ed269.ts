@@ -22,7 +22,7 @@ import { GB_GEOZONE_SOURCE_LABEL } from "../../shared/ukGeozones";
 import type { GeozoneFeatureInfo } from "@/lib/geozones";
 import { DANISH_GEOZONE_SOURCE_LABEL } from "../../shared/danishGeozones";
 import { belgianAltitudeMeters } from "../../shared/belgianGeozones";
-import { normalizeAltitudeReference, isGeozoneExpired, type AltitudeReference } from "../../shared/geozoneAltitudeFilter";
+import { normalizeAltitudeReference, type AltitudeReference } from "../../shared/geozoneAltitudeFilter";
 import { ed269SourceInfo } from "../../shared/ed269SourceInfo";
 // Beschränkungs-Normalisierung, Farben und Gültigkeitsfenster leben in shared/,
 // damit der Server (Kachel-Rasterisierung) und der Client GENAU dieselbe
@@ -35,6 +35,7 @@ import {
   ed269ScheduleFromProps,
   ed269IsNotamEligible,
   ed269ActivityFromProps,
+  zoneEndedLongAgo,
 } from "../../shared/ed269Restriction";
 
 export {
@@ -44,8 +45,13 @@ export {
   ed269ScheduleFromProps,
   ed269IsNotamEligible,
   ed269IsActiveAt,
-  geozoneIsActiveAt,
+  zoneActivityAt,
+  isZoneActiveAt,
+  isZoneActiveInContext,
+  zoneTimeReferences,
   ed269InactiveInfoText,
+  type ZoneActivity,
+  type ZoneTimeContext,
 } from "../../shared/ed269Restriction";
 
 // Liest den Höhenbezug (MSL/AGL) der Untergrenze aus den uneinheitlichen
@@ -311,12 +317,15 @@ export function parseEd269ToGeozoneInfo(
     }
 
     const { validStartTs, validEndTs } = ed269ValidityFromProps(p);
+    const ed269Applicability = ed269ActivityFromProps(p);
 
-    // Abgelaufene Zonen (Gültigkeitsende in der Vergangenheit) gar nicht erst
-    // ausgeben -> sie verschwinden so aus ALLEN nativen Karten/Listen/Treffer-
-    // tests (Radar, MapPicker, NOTAMs, Planung), die über parseEd269ToGeozoneInfo
-    // laufen. Dauerhafte Zonen (validEndTs == null) bleiben sichtbar.
-    if (isGeozoneExpired(validEndTs)) continue;
+    // Ob eine Zone aktiv ist, entscheidet NICHT das Parsen, sondern
+    // zoneActivityAt für den jeweiligen Zeitpunkt (Radar: jetzt, Planung:
+    // geplante Zeit …) – Gültigkeit und applicability bleiben dafür erhalten.
+    // Nur Zonen, die schon länger als ZONE_EXPIRED_DROP_GRACE_MS (1 Tag) vorbei
+    // sind, werden verworfen, damit lange gecachte Pakete keinen Speicher
+    // binden. Dauerhafte Zonen (ohne Ende) bleiben immer erhalten.
+    if (zoneEndedLongAgo({ validEndTs, ed269Applicability })) continue;
 
     // Anklickbare Zonen-Links (dänische Zonen tragen Antrags-/Info-Links und ggf.
     // eine Kontakt-E-Mail). Andere Quellen lassen diese Felder leer.
@@ -354,7 +363,7 @@ export function parseEd269ToGeozoneInfo(
       validStartTs,
       validEndTs,
       scheduleText: scheduleText.length > 0 ? scheduleText : undefined,
-      ed269Applicability: ed269ActivityFromProps(p),
+      ed269Applicability,
       notamEligible: ed269IsNotamEligible(p, countryIso),
       applicationText: p.applicationText ? String(p.applicationText) : undefined,
       links: links.length > 0 ? links : undefined,

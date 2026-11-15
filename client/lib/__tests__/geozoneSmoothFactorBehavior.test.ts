@@ -15,13 +15,15 @@ import path from "node:path";
 //
 // Dieser Test hat zwei Teile:
 //  1. VERHALTEN: Er füttert ECHTE runde + eckige BE-Geometrie aus
-//     server/data/belgian-geozones.json durch Leaflets ECHTES LineUtil.simplify
-//     (dieselbe Funktion, die Leaflet beim Zeichnen eines Polygons im Bildschirm-
-//     raum aufruft). Beim Default-smoothFactor (1.0) kollabiert die runde 722-Punkt-
+//     fixtures/be-skeyes-round-angular-sample.json (Auszug aus dem belgischen
+//     Datensatz) durch Leaflets ECHTES LineUtil.simplify – aus genau dem
+//     Leaflet-Bundle, das die App in ihre WebView-Karten einbettet
+//     (client/lib/leafletBundle.ts, Leaflet 1.9.4). Dieselbe Funktion ruft
+//     Leaflet beim Zeichnen eines Polygons im Bildschirmraum auf. Beim Default-smoothFactor (1.0) kollabiert die runde 722-Punkt-
 //     Kontur zu einem groben Vieleck; bei smoothFactor:0 bleiben ALLE Stützpunkte
 //     erhalten. Das beweist, dass der Fehler real ist UND dass die Testgeometrie ihn
 //     tatsächlich auslöst.
-//  2. RENDER-PFAD-WÄCHTER: Er durchsucht ALLE Karten-Oberflächen (nativ + Web) nach
+//  2. RENDER-PFAD-WÄCHTER: Er durchsucht ALLE Karten-Oberflächen (WebView-Leaflet) nach
 //     Geozonen-Polygon-/geoJSON-Aufrufen und verlangt für jeden smoothFactor:0 —
 //     unabhängig vom Layer/der Oberfläche. Ein neuer Geozonen-Layer ohne
 //     smoothFactor:0 lässt diesen Test fehlschlagen.
@@ -52,9 +54,14 @@ try {
   // Leaflet liest daraus nur den userAgent für Browser-Feature-Detection.
 }
 
-// CommonJS-require (tsx kompiliert nach CJS, kein Top-Level-await). Leaflet wird
-// erst HIER geladen, nachdem die DOM-Globals oben gesetzt sind.
-const L: any = require("leaflet");
+// Leaflet wird erst HIER geladen, nachdem die DOM-Globals oben gesetzt sind.
+// Quelle ist das in der App eingebettete Bundle (kein npm-Paket `leaflet`); der
+// UMD-Wrapper erkennt `exports`/`module` und exportiert dorthin.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { LEAFLET_JS } = require("../leafletBundle") as { LEAFLET_JS: string };
+const leafletModule: { exports: any } = { exports: {} };
+new Function("exports", "module", LEAFLET_JS)(leafletModule.exports, leafletModule);
+const L: any = leafletModule.exports;
 const LineUtil = L.LineUtil;
 const CRS = L.CRS.EPSG3857;
 
@@ -64,7 +71,7 @@ type Ring = number[][]; // [[lng, lat], ...]
 
 function readBelgianFeatures(): any[] {
   const raw = fs.readFileSync(
-    path.join(repoRoot, "server", "data", "belgian-geozones.json"),
+    path.join(__dirname, "fixtures", "be-skeyes-round-angular-sample.json"),
     "utf8",
   );
   const fc = JSON.parse(raw);
@@ -168,11 +175,11 @@ const ZOOMS = [11, 13, 15]; // typische Radar-/Planungs-Zoomstufen
 test("Testdaten enthalten eine echte runde und eine echte eckige BE-Zone", () => {
   assert.ok(
     roundZone,
-    "belgian-geozones.json sollte mind. eine runde Zone (>=100 Punkte) enthalten",
+    "Fixture sollte mind. eine runde Zone (>=100 Punkte) enthalten",
   );
   assert.ok(
     angularZone,
-    "belgian-geozones.json sollte mind. eine eckige Zone (Kreisförmigkeit < 0.4) enthalten",
+    "Fixture sollte mind. eine eckige Zone (Kreisförmigkeit < 0.4) enthalten",
   );
   assert.ok(
     roundZone.c > 0.95,
@@ -231,11 +238,10 @@ test("eckige Zonen behalten ihre Ecken (smoothFactor:0 verschluckt keine Korrekt
 // ---------------------------------------------------------------------------
 
 // Leaflet-Kartenoberflächen, die Geozonen/Beschränkungen als Polygone zeichnen.
+// (Die Web-App der Replit-Fassung – web/src/… – gehört nicht zu diesem Repo.)
 const MAP_SURFACES = [
   "client/components/TrafficMapView.native.tsx",
   "client/components/MapPicker/MapPicker.native.tsx",
-  "web/src/pages/MapPage.tsx",
-  "web/src/lib/ed269Web.ts",
 ];
 
 // Layer, die bewusst KEINE Geozonen zeichnen (TCAS-Ringe + Sichtfeld-Kegel).
@@ -363,5 +369,6 @@ test("jeder Geozonen-Polygon-Render-Pfad setzt smoothFactor:0 (auto-entdeckt)", 
       );
     }
   }
-  assert.ok(checked >= 5, `erwartet >=5 geprüfte Geozonen-Render-Pfade, geprüft: ${checked}`);
+  // TrafficMapView: markiert (hzLayer), NOTAM, Vektor (vzLayer); MapPicker: Vektor.
+  assert.ok(checked >= 4, `erwartet >=4 geprüfte Geozonen-Render-Pfade, geprüft: ${checked}`);
 });

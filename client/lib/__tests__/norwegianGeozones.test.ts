@@ -11,6 +11,7 @@ import {
 } from "../../../shared/norwegianGeozones";
 import { norwayFeaturesFromBody } from "../geozoneDirect/norwaySource";
 import { parseEd269ToGeozoneInfo } from "../ed269";
+import { zoneActivityAt } from "../../../shared/ed269Restriction";
 
 // Gekürzter echter dronesoner.no-Abruf (NOR_ED269_compliant_geozones_2026-11-14.json, 14 Zonen).
 const body = JSON.parse(readFileSync(join(__dirname, "fixtures/dronesoner-no-ed269-sample.json"), "utf8"));
@@ -77,12 +78,15 @@ describe("Norwegen – Normalisierung", () => {
     assert.equal((f.geometry.coordinates as unknown[]).length, 2);
   });
 
-  it("NOTAM-Zonen: markiert, mit Zeitfenster; abgelaufene filtert der Parser", () => {
+  it("NOTAM-Zonen: markiert, mit Zeitfenster; abgelaufene sind inaktiv bzw. verworfen", () => {
     const f = byId(features, "A0C4D87");
     assert.equal(f.properties.isNotam, true);
     assert.equal(f.properties._notamEligible, true);
+    // NOTAM endete am 14.11.2026 19:00Z: bis 1 Tag danach bleibt die Zone
+    // erhalten, ist aber inaktiv (zoneActivityAt); danach verwirft der Parser sie.
     const [z] = parseEd269ToGeozoneInfo([f], "no");
-    assert.equal(z, undefined, "NOTAM endete am 14.11.2026 -> nicht mehr sichtbar");
+    assert.ok(!z || zoneActivityAt(z, new Date()) === "inactive", "abgelaufener NOTAM gilt nicht als aktiv");
+    if (z) assert.equal(zoneActivityAt(z, new Date("2026-11-14T12:00:00Z")), "active");
     const fresh = JSON.parse(JSON.stringify(f));
     fresh.properties.applicability = [{ permanent: "NO", startDateTime: "2099-01-01T00:00:00Z", endDateTime: "2099-01-02T00:00:00Z" }];
     const [z2] = parseEd269ToGeozoneInfo([fresh], "no");

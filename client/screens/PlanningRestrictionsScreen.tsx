@@ -18,7 +18,7 @@ import { useShowDataSources } from "@/lib/dataSource";
 import { attributionLabel } from "@/lib/sourceAttribution";
 import { Spacing, Typography, BorderRadius, Colors } from "@/constants/theme";
 import type { FlightPlanningParamList } from "@/navigation/FlightPlanningNavigator";
-import { geozoneIsActiveAt, ed269InactiveInfoText } from "@/lib/ed269";
+import { isZoneActiveInContext, ed269InactiveInfoText, type ZoneTimeContext } from "@/lib/ed269";
 import { uncoveredGeozoneSources, geozoneCoverageWarning, sourceCoverageWarning, type GeozoneSourceCoverage } from "@/lib/geozoneCoverage";
 import { countryName } from "../../shared/countryEntitlements";
 import { queryGeozonesInAreaWithCoverage, GeozoneFeatureInfo, DipulGeozoneSourceStatus, separateTempRestrictions, getCountryGeozoneConfig, getCountriesInRadius, DipulTempRestriction, DipulTempRestrictionsResult, fetchNearbyTempRestrictionsRaw, loadRadarSettings, saveRadarSettings, HU_GEOZONE_RASTER_HINT } from "@/lib/geozones";
@@ -309,17 +309,19 @@ export default function PlanningRestrictionsScreen() {
   };
   // Zonen, die rein über die geplante Höhe unkritisch werden (silently/dismissed)
   // — getrennt aufgeführt, fließen aber NICHT in die Konflikt-Bewertung ein.
-  // Zeitgesteuerte ED-269-Zonen (z. B. MTMA Mo–Do 07:00–15:30Z): Für die
-  // Flugprüfung zählt der GEPLANTE Flugzeitpunkt (ohne Planung: jetzt). Zonen,
-  // die dann laut Schedule/Gültigkeit inaktiv sind, gelten nicht als
-  // Beschränkung, werden aber als Hinweis aufgeführt.
+  // Zeitgesteuerte Zonen (z. B. MTMA Mo–Do 07:00–15:30Z, temporäre Zonen mit
+  // Gültigkeitsfenster): Für die Planung zählt der GEPLANTE Flugzeitpunkt
+  // (ohne Planung: jetzt) – Kontext "planned" von zoneActivityAt. Zonen, die
+  // dann inaktiv sind, gelten nicht als Beschränkung, werden aber als Hinweis
+  // aufgeführt.
   const plannedFlightDate = useMemo(() => {
-    if (!plannedDate) return new Date();
+    if (!plannedDate) return null;
     const d = new Date(`${plannedDate}T${plannedTime && /^\d{1,2}:\d{2}/.test(plannedTime) ? plannedTime.padStart(5, "0") : "12:00"}`);
-    return isNaN(d.getTime()) ? new Date() : d;
+    return isNaN(d.getTime()) ? null : d;
   }, [plannedDate, plannedTime]);
-  const timeInactiveGeozones = geozones.filter((gz) => !gz.informationalOnly && !geozoneIsActiveAt(gz, plannedFlightDate));
-  const timeRelevantGeozones = geozones.filter((gz) => gz.informationalOnly || geozoneIsActiveAt(gz, plannedFlightDate));
+  const planningTimeContext: ZoneTimeContext = { kind: "planned", planned: plannedFlightDate };
+  const timeInactiveGeozones = geozones.filter((gz) => !gz.informationalOnly && !isZoneActiveInContext(gz, planningTimeContext));
+  const timeRelevantGeozones = geozones.filter((gz) => gz.informationalOnly || isZoneActiveInContext(gz, planningTimeContext));
   const altitudeClearedGeozones = timeRelevantGeozones.filter((gz) => !gz.informationalOnly && isZoneClearedByAltitude(gz));
   // Aktiv konfliktrelevante Zonen (heutiges Verhalten als sicherer Default).
   const activeGeozones = timeRelevantGeozones.filter((gz) => !gz.informationalOnly && !isZoneClearedByAltitude(gz));
@@ -1835,7 +1837,7 @@ export default function PlanningRestrictionsScreen() {
                 key={`${gz.featureId || gz.name}-${idx}`}
                 style={[styles.geozoneDetails, { color: theme.textSecondary, marginTop: Spacing.xs }]}
               >
-                {gz.name || gz.layerLabel || "Unbenannt"}: {ed269InactiveInfoText(gz, plannedDate ? "planned" : "now")}
+                {gz.name || gz.layerLabel || "Unbenannt"}: {ed269InactiveInfoText(gz, plannedFlightDate ? "planned" : "now")}
               </ThemedText>
             ))}
           </Card>

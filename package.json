@@ -9,7 +9,9 @@
     "lint": "npx expo lint",
     "check:types": "tsc --noEmit",
     "build:lfa": "node scripts/build-lfa.mjs",
-    "test": "jest"
+    "test": "jest && npm run test:lib",
+    "test:jest": "jest",
+    "test:lib": "tsx --test \"client/lib/__tests__/*.test.ts\""
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.2",
@@ -87,6 +89,7 @@
     "eslint-import-resolver-node": "^0.3.9",
     "eslint-plugin-prettier": "^5.5.4",
     "prettier": "3.6.2",
+    "tsx": "4.23.15",
     "typescript": "~6.0.3"
   },
   "private": true

@@ -108,3 +108,23 @@ alle Länderlisten werden daraus abgeleitet.
   Nutzer erlaubt mobile Daten.
 - Datenalter je Land in Planung und Pre-Check; Schwellen → Warnung +
   Bestätigung (über die Coverage-Mechanik aus Korrektur 4).
+- Zweigleisig (Product Owner): dauerhafte Zonen lokal zuerst (schnell),
+  online im Hintergrund auf neue Fassung prüfen; temporäre Zonen online
+  zuerst; Land ohne Speicher → online direkt und dabei zwischenspeichern.
+  Die schnelle lokale Antwort darf nie ein GO sein, das später still kippt:
+  ändert sich das Urteil durch neue Daten, deutlicher Hinweis.
+- Wetter, METAR/TAF, NOTAMs, Kp ebenfalls speichern (Product Owner):
+  offline < 24 h anzeigen mit „Stand …“ (Wind/Böen ab 6 h Alter deutlicher
+  Hinweis; METAR > 2 h nur grau; TAF bis Gültigkeitsende; NOTAMs nur noch
+  gültige); ≥ 24 h ausblenden mit Hinweis „Gerät online bringen“.
+  Offline-Daten zählen im Urteil höchstens als CAUTION („vor dem Start online
+  neu prüfen“); fehlend/zu alt = unbekannt.
+
+## Funde aus B0/B1 (2026-11-15)
+
+- Sonnenstand-Fehler behoben (shared/solar.ts): Okt–März lagen Sonnenauf- und
+  -untergang auf dem Vortag (Zeitgleichung nicht normalisiert) – betraf Nacht-
+  und Tageslichtprüfung app-weit, schon in der Replit-Fassung.
+- Offen für B6/B7: client/lib/ed269Notams.ts vertauscht beim Zonenmittelpunkt
+  Breite/Länge ([lat, lon] als [lon, lat] gelesen); NOTAM-Screens haben noch
+  eine eigene Aktiv-/Bald-aktiv-Logik für NOTAM-Datensätze.

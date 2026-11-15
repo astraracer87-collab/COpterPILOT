@@ -26,7 +26,7 @@ import {
 } from "@/lib/geozones";
 import { getVectorMinZoom, loadsFullCountryVectorZones, isRasterTiledVectorCountry, GEOZONE_VECTOR_MAX_RADIUS_KM, GEOZONE_VECTOR_MAX_FEATURES } from "@/lib/geozoneZoom";
 import { simplifyRingGroup, smoothRingGroup } from "@/lib/ringSimplify";
-import { geozoneIsActiveAt } from "@/lib/ed269";
+import { isZoneActiveInContext } from "@/lib/ed269";
 import { findNearbyCtrAirports, CTR_AIRPORTS } from "@/lib/ctrData";
 import { getCtrBandRings, getCtrLegendEntries, getCtrProvisionalNote } from "@/lib/ctrAltitude";
 import CtrInfoCard from "@/components/CtrInfoCard";
@@ -679,8 +679,9 @@ const MapPicker = forwardRef<MapPickerRef, MapPickerProps>(
             r: polys,
             s: z.strokeColor ?? "rgba(0,122,255,0.85)",
             f: z.fillColor ?? "rgba(0,122,255,0.15)",
-            // Zeitgesteuerte ED-269-Zone (Schedule), die jetzt nicht aktiv ist.
-            ...(geozoneIsActiveAt(z, nowDate) ? {} : { i: 1 as const }),
+            // Zeitgesteuerte Zone (Fenster/Schedule), die jetzt nicht aktiv ist
+            // (Karten-Zeitbezug: jetzt).
+            ...(isZoneActiveInContext(z, { kind: "now", now: nowDate }) ? {} : { i: 1 as const }),
           });
         }
       }

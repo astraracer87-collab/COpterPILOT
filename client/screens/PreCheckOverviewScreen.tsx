@@ -44,7 +44,7 @@ import {
 } from "@/lib/geozones";
 import { findMilLowFlightAreasContaining, findMilLowFlightAreasIntersectingRadius, findMilLowFlightAreasOnRoute, MIL_LOW_FLIGHT_LABEL, MIL_LOW_FLIGHT_ACTIVATION_TEXT, MIL_LOW_FLIGHT_DATA_STAND, MIL_LOW_FLIGHT_SOURCE_URL } from "@/lib/milLowFlight";
 import { smoothRingGroup } from "@/lib/ringSimplify";
-import { geozoneIsActiveAt, ed269InactiveInfoText } from "@/lib/ed269";
+import { isZoneActiveInContext, ed269InactiveInfoText, type ZoneTimeContext } from "@/lib/ed269";
 import {
   getPilotProfile,
   PilotProfile,
@@ -394,11 +394,14 @@ export default function PreCheckOverviewScreen() {
     return isDe21hZoneAvEligible(gz);
   };
 
-  // Zeitgesteuerte ED-269-Zonen (z. B. MTMA Mo–Do): Beim Pre-Check zählt eine
-  // Zone, wenn sie JETZT oder zur geplanten Flugzeit aktiv ist. Nur wenn sie zu
-  // beiden Zeitpunkten inaktiv ist, wird sie als reiner Hinweis geführt.
-  const isZoneRelevantInTime = (gz: GeozoneFeatureInfo): boolean =>
-    geozoneIsActiveAt(gz, new Date()) || (plannedFlightDate != null && geozoneIsActiveAt(gz, plannedFlightDate));
+  // Zeitgesteuerte Zonen (z. B. MTMA Mo–Do, temporäre Zonen): Beim Pre-Check
+  // zählt eine Zone, wenn sie JETZT oder zur geplanten Flugzeit aktiv ist
+  // (Kontext "precheck" von zoneActivityAt – der Start kann vor oder nach der
+  // geplanten Zeit liegen). Nur wenn sie zu beiden Zeitpunkten inaktiv ist,
+  // wird sie als reiner Hinweis geführt. Die Pre-Check-Karte nutzt denselben
+  // Kontext, damit Liste und Karte übereinstimmen.
+  const preCheckTimeContext: ZoneTimeContext = { kind: "precheck", planned: plannedFlightDate };
+  const isZoneRelevantInTime = (gz: GeozoneFeatureInfo): boolean => isZoneActiveInContext(gz, preCheckTimeContext);
   const geozones = allGeozones.filter(isZoneRelevantInTime);
   const timeInactiveGeozones = allGeozones.filter((gz) => !isZoneRelevantInTime(gz));
   const coveredGeozones = geozones.filter(isGeozoneCoveredByAV);
@@ -719,10 +722,11 @@ export default function PreCheckOverviewScreen() {
               {allGeozones.flatMap((gz, gi) => {
                 const groups = ringGroupsForZone(gz);
                 if (groups.length === 0) return [];
-                // Gerade inaktive zeitgesteuerte Zonen abgeschwächt zeichnen.
-                const inactiveNow = !geozoneIsActiveAt(gz, new Date());
-                const fill = inactiveNow ? "rgba(142,142,147,0.06)" : (gz.fillColor ?? "rgba(0,122,255,0.12)");
-                const stroke = inactiveNow ? "rgba(142,142,147,0.6)" : (gz.strokeColor ?? "rgba(0,122,255,0.85)");
+                // Zeitgesteuerte Zonen, die jetzt UND zur geplanten Zeit inaktiv
+                // sind, abgeschwächt zeichnen (gleicher Kontext wie die Liste).
+                const inactiveInTime = !isZoneRelevantInTime(gz);
+                const fill = inactiveInTime ? "rgba(142,142,147,0.06)" : (gz.fillColor ?? "rgba(0,122,255,0.12)");
+                const stroke = inactiveInTime ? "rgba(142,142,147,0.6)" : (gz.strokeColor ?? "rgba(0,122,255,0.85)");
                 return groups.map((group, ri) => {
                   const [outer, ...holes] = smoothRingGroup(group);
                   if (!outer || outer.length < 3) return null;

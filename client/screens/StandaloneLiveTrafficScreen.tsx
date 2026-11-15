@@ -48,7 +48,7 @@ import { getActiveOrUpcomingNearbyMilLowFlight } from "@/lib/milLowFlight";
 import { useFocusEffect } from "@react-navigation/native";
 import { getSettings, saveSettings, getSelectedDrone, getDroneMaxAltitudeM, getPilotProfile, PilotProfile, de21hRule, isDe21hZoneAvEligible, isErlaubnisExpired, Bundesland } from "@/lib/storage";
 import { detectBundeslandFromCoordinates } from "@/lib/countryMaps";
-import { computeGeozoneTabSeverity, GeozoneTabSeverity, isProhibitionZone, isGeozoneActiveFromDetails } from "@/lib/geozoneSeverity";
+import { computeGeozoneTabSeverity, GeozoneTabSeverity, isProhibitionZone, isGeozoneActiveForRadar } from "@/lib/geozoneSeverity";
 import { Geozone21hRules } from "@/components/Geozone21hRules";
 import { InfrastructureFlightGuidance } from "@/components/InfrastructureFlightGuidance";
 import { getCached, setCache, makeCacheKey } from "@/lib/dataCache";
@@ -321,7 +321,7 @@ export default function StandaloneLiveTrafficScreen() {
     const mapsToAvRule = (z: GeozoneFeatureInfo) => de21hRule(z) !== null;
     return (z: GeozoneFeatureInfo): boolean => {
       if (z.informationalOnly) return false;
-      if (!isGeozoneActiveFromDetails(z.details)) return false;
+      if (!isGeozoneActiveForRadar(z)) return false;
       const prohibition = isProhibitionZone(z) || mapsToAvRule(z);
       // Nur AV-fähige §21h-Kategorien gelten als von der Landes-AV gedeckt.
       const coveredByAV = hasValidBundeslandErlaubnis && isDe21hZoneAvEligible(z);
@@ -2116,21 +2116,11 @@ function SidePanelView({ panel, loading, geozones, windFacilityWarnings = [], ge
                   </View>
                 ))}
                 {(() => {
-                  const isZoneFutureOnly = (z: GeozoneFeatureInfo) => {
-                    const lines = z.details.split("\n");
-                    const statusLine = lines.find((l) => l.startsWith("Status:"));
-                    const isInactive = statusLine ? /Inaktiv/i.test(statusLine) : false;
-                    if (!isInactive) return false;
-                    const vonLine = lines.find((l) => l.startsWith("Von:"));
-                    if (!vonLine) return false;
-                    const vonVal = vonLine.replace("Von:", "").trim();
-                    const m = vonVal.match(/^(\d{2})\.(\d{2})\.(\d{4}),?\s*(\d{2}):(\d{2})/);
-                    if (!m) return false;
-                    const vonDate = new Date(parseInt(m[3]), parseInt(m[2]) - 1, parseInt(m[1]), parseInt(m[4]), parseInt(m[5]));
-                    return vonDate.getTime() > Date.now();
-                  };
-                  const activeZones = geozones.filter((z) => !z.informationalOnly && !isZoneFutureOnly(z));
-                  const futureZones = geozones.filter((z) => isZoneFutureOnly(z));
+                  // Radar: Zeitbezug JETZT (eine Aktivitätsprüfung, zoneActivityAt).
+                  const nowDate = new Date();
+                  const isZoneInactiveNow = (z: GeozoneFeatureInfo) => !isGeozoneActiveForRadar(z, nowDate);
+                  const activeZones = geozones.filter((z) => !z.informationalOnly && !isZoneInactiveNow(z));
+                  const futureZones = geozones.filter((z) => isZoneInactiveNow(z));
                   return (
                     <>
                       {activeZones.length > 0 ? (
@@ -2145,7 +2135,7 @@ function SidePanelView({ panel, loading, geozones, windFacilityWarnings = [], ge
                         <View style={[sidePanelStyles.infoBox, { backgroundColor: isDark ? "rgba(74,144,217,0.15)" : "rgba(74,144,217,0.1)" }]}>
                           <Feather name="info" size={14} color={isDark ? "#8AB4F8" : "#4A90D9"} />
                           <Text style={[sidePanelStyles.infoBoxText, { color: isDark ? "#8AB4F8" : "#4A90D9" }]}>
-                            {futureZones.length} geplante Zone{futureZones.length !== 1 ? "n" : ""} — derzeit nicht aktiv
+                            {futureZones.length} geplante/zeitgesteuerte Zone{futureZones.length !== 1 ? "n" : ""} — derzeit nicht aktiv
                           </Text>
                         </View>
                       ) : null}
@@ -2171,16 +2161,9 @@ function SidePanelView({ panel, loading, geozones, windFacilityWarnings = [], ge
                   const badgeLabel = geozoneBadgeLabel(z.layerLabel, isAdmin, Object.values(ED269_SOURCE_LABELS));
                   const regInfo = z.informationalOnly ? null : getRegInfoForLayer(z.layerLabel);
                   const isExpanded = expandedRegInfo === i;
-                  const zoneLines = z.details.split("\n");
-                  const zStatusLine = zoneLines.find((l) => l.startsWith("Status:"));
-                  const zIsInactive = zStatusLine ? /Inaktiv/i.test(zStatusLine) : false;
-                  const zVonLine = zoneLines.find((l) => l.startsWith("Von:"));
-                  const zIsFuture = (() => {
-                    if (!zIsInactive || !zVonLine) return false;
-                    const vm = zVonLine.replace("Von:", "").trim().match(/^(\d{2})\.(\d{2})\.(\d{4}),?\s*(\d{2}):(\d{2})/);
-                    if (!vm) return false;
-                    return new Date(parseInt(vm[3]), parseInt(vm[2]) - 1, parseInt(vm[1]), parseInt(vm[4]), parseInt(vm[5])).getTime() > Date.now();
-                  })();
+                  // Radar: jetzt inaktive (geplante/zeitgesteuerte) Zone –
+                  // dieselbe Prüfung wie Reiter-Farbe und Karte.
+                  const zIsFuture = !isGeozoneActiveForRadar(z);
                   // Rote Hervorhebung für schwerwiegende Zonen (Flugverbot ohne
                   // AV-Abdeckung). Geplante/inaktive Zonen sind nie schwerwiegend.
                   const zIsSerious = !zIsFuture && (isZoneSerious?.(z) ?? false);
@@ -2193,7 +2176,7 @@ function SidePanelView({ panel, loading, geozones, windFacilityWarnings = [], ge
                   // Aktive §21h-Zone, die NICHT schwerwiegend ist -> durch eine
                   // gültige Allgemeinverfügung des Piloten gedeckt.
                   const zAvCovered =
-                    !zIsFuture && !zIsSerious && z21hRule !== null && isGeozoneActiveFromDetails(z.details);
+                    !zIsFuture && !zIsSerious && z21hRule !== null;
                   const cardBorderColor = zIsHardBan
                     ? (isDark ? "rgba(255,69,58,0.85)" : "rgba(255,59,48,0.7)")
                     : zIsConditional
@@ -2242,7 +2225,7 @@ function SidePanelView({ panel, loading, geozones, windFacilityWarnings = [], ge
                         ) : null}
                         {zIsFuture ? (
                           <View style={[sidePanelStyles.geozoneBadge, { backgroundColor: isDark ? "rgba(142,142,147,0.25)" : "rgba(142,142,147,0.15)", marginLeft: 4 }]}>
-                            <Text style={[sidePanelStyles.geozoneBadgeText, { color: isDark ? "#AEAEB2" : "#8E8E93" }]}>geplant</Text>
+                            <Text style={[sidePanelStyles.geozoneBadgeText, { color: isDark ? "#AEAEB2" : "#8E8E93" }]}>inaktiv</Text>
                           </View>
                         ) : null}
                         {regInfo ? (

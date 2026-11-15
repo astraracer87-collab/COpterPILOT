@@ -16,13 +16,12 @@ import { simplifyRingGroup } from "../ringSimplify";
 //   3. simplifyRing (RDP) hält den Loch-Ring gültig (keine Selbstüberschneidung,
 //      kein Kollaps), sodass die Karte das Loch aussparen kann.
 
-const ROOT = path.resolve(__dirname, "../../..");
-
-// Beide hochgeladenen EBAW-Donut-Fixtures (jeweils eine GeoJSON-Feature-Datei).
-const FIXTURES = [
-  "attached_assets/EBAW_VLL1A_1782387246636.geojson",
-  "attached_assets/EBAW_VLL2_1782387307149.geojson",
-];
+// Beide EBAW-Donuts (VLL1A, VLL2) als echte skeyes-Geometrie in einer
+// FeatureCollection (Auszug aus dem belgischen Datensatz, siehe `_source`).
+// Früher lagen sie als Einzeldateien unter attached_assets/ der Replit-Fassung.
+const FIXTURE_FILE = path.join(__dirname, "fixtures", "be-skeyes-ebaw-donut-sample.json");
+const FIXTURE_FEATURES: any[] = JSON.parse(fs.readFileSync(FIXTURE_FILE, "utf8")).features;
+const FIXTURES = ["EBAW VLL1A", "EBAW VLL2"];
 
 // Shoelace-Absolutfläche (planar) eines Rings im [lat, lon]-Format. Nur als
 // Größenvergleich genutzt – keine geodätische Genauigkeit nötig.
@@ -87,7 +86,8 @@ function loadDonutGroup(relPath: string): {
   rawHole: [number, number][];
   simplified: [number, number][][];
 } {
-  const feat = JSON.parse(fs.readFileSync(path.join(ROOT, relPath), "utf8"));
+  const feat = FIXTURE_FEATURES.find((f) => f?.properties?.name === relPath);
+  assert.ok(feat, `${relPath}: Feature fehlt in der Fixture`);
 
   // 1. De-Spike: mehrringige Polygone (Donuts) bleiben unangetastet.
   const cleaned = cleanBelgianGeometry(feat.geometry);
@@ -110,7 +110,7 @@ function loadDonutGroup(relPath: string): {
 }
 
 for (const relPath of FIXTURES) {
-  const name = path.basename(relPath);
+  const name = relPath;
 
   test(`${name}: Außenring ist flächengrößter Ring und enthält das Loch`, () => {
     const { rawOuter, rawHole } = loadDonutGroup(relPath);

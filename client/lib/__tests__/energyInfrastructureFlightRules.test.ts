@@ -3,7 +3,9 @@ import { getInfrastructureFlightGuidance, infrastructureFlightGuidanceText } fro
 import { supplementalInfrastructureAsGeozones } from "../energyInfrastructureZones";
 import { computeGeozoneTabSeverity, isAltitudeRestrictionZone, isProhibitionZone } from "../geozoneSeverity";
 import type { GermanEnergyInfrastructureItem, InfrastructureKind } from "../../../shared/germanEnergyInfrastructure";
-import { buildEd269PopupHtml } from "../../../web/src/lib/ed269Popup";
+// Die HTML-Popup-Darstellung (buildEd269PopupHtml) gehörte zur Web-App der
+// Replit-Fassung und ist nicht Teil dieses Repos. Die Darstellung in der App
+// prüft client/components/__tests__/InfrastructureFlightGuidance.test.tsx.
 
 const item: GermanEnergyInfrastructureItem = {
   id: "foreign", kind: "wind_turbine", name: "Anlage", source: "OpenStreetMap",
@@ -56,16 +58,6 @@ for (const { iso, positive, negative, source } of cases) {
     assert.match(a3.condition, /Nur beim Betrieb in A3/);
     assert.match(a3.guidance, /150 m/);
     assert.match(a3.guidance, /einzelne Anlage allein|kein pauschaler/);
-    // Existing popup presenter renders the complete sourced guidance for ordinary pilots.
-    const html = buildEd269PopupHtml({
-      name: zone.name, sourceLabel: "", restrictionLabel: "Infrastrukturhinweis",
-      altitude: "Keine Luftraumgrenze angegeben", appText: zone.applicationText, links: zone.links,
-    });
-    assert.match(html, /Rechtsgrundlage/);
-    assert.match(html, /2026-10-12/);
-    assert.ok(html.includes(source));
-    assert.match(html, /white-space:pre-line/);
-    assert.match(html, /rel="noopener noreferrer"/);
   }
   assert.deepEqual(supplementalInfrastructureAsGeozones(iso, [
     { ...item, officialMatch: "unknown" }, { ...item, officialMatch: "matched" },
@@ -83,10 +75,4 @@ const nl = getInfrastructureFlightGuidance("NL", "power_mast")!;
 assert.match(infrastructureFlightGuidanceText(nl), /keine Freigabe allein durch Betreiberzustimmung/);
 assert.match(nl.rules[0].legalBasis, /Energiewet.*1\. Januar 2026/);
 assert.match(infrastructureFlightGuidanceText(getInfrastructureFlightGuidance("CH", "wind_turbine")!), /10 oder mehr.*100 m/);
-const escaped = buildEd269PopupHtml({
-  name: "<img onerror=alert(1)>", sourceLabel: "", restrictionLabel: "", altitude: "",
-  appText: "<script>bad</script>",
-});
-assert.ok(!escaped.includes("<script>"));
-assert.match(escaped, /&lt;script&gt;/);
-console.log("Country-specific infrastructure guidance: positive/negative scope, safe planning semantics and popup rendering passed");
+console.log("Country-specific infrastructure guidance: positive/negative scope, and safe planning semantics passed");

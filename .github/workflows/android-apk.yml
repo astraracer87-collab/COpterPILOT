@@ -37,6 +37,12 @@ jobs:
       - name: Typprüfung
         run: npx tsc --noEmit
 
+      # jest (Komponenten) + node:test-Suite (client/lib/__tests__). Läuft
+      # offline; Live-Tests sind per Umgebungsvariable (z. B. DFLIGHT_LIVE=1)
+      # abgeschaltet. Dauer: wenige Sekunden.
+      - name: Tests
+        run: npm test
+
       - name: Android-Projekt erzeugen (expo prebuild)
         run: npx expo prebuild --platform android --clean --no-install
         env:

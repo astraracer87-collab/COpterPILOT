@@ -129,6 +129,17 @@ export function dipulZoneFromFeature(
   }
   if (externalReference) details.push(`Identifikation: ${externalReference}`);
 
+  // Temporäre dipul-Zonen tragen start_time/end_time: als hartes
+  // Gültigkeitsfenster für zoneActivityAt übernehmen (Live-WFS und
+  // Kachel-Speicher nutzen beide diese Funktion).
+  const parseTs = (v: unknown): number | null => {
+    if (v == null || v === "") return null;
+    const t = new Date(String(v)).getTime();
+    return Number.isFinite(t) ? t : null;
+  };
+  const validStartTs = parseTs(properties.start_time);
+  const validEndTs = parseTs(properties.end_time);
+
   const polygonRings = polygonGroups.flat();
   return {
     layerLabel: layer.label,
@@ -138,6 +149,7 @@ export function dipulZoneFromFeature(
     polygonRings,
     polygonGroups,
     country: "DE",
+    ...(validStartTs != null || validEndTs != null ? { validStartTs, validEndTs } : {}),
   };
 }
 
@@ -651,11 +663,23 @@ export function parseLuWmsToGeozoneInfo(features: Record<string, string>[]): Geo
       ? (minH && parseFloat(minH) >= 50 ? "UAS-Zonen 50–120 m" : "UAS-Zonen 0–50 m")
       : LU_TEMP_ZONE_LABEL;
 
+    // Temporäre Zonen: Gültigkeitsfenster strukturiert mitgeben, damit
+    // zoneActivityAt (Radar-Reiter, Karte, Planung) es auswertet – statt den
+    // Detailtext („Status: Inaktiv“/„Von:“) zu parsen. Dauerhafte Zonen bleiben
+    // ohne Fenster (immer aktiv, sicherheitshalber).
+    const startMs = !isPermanent && startDate ? luWmsDateToMs(startDate) : NaN;
+    const endMs = !isPermanent && endDate ? luWmsDateToMs(endDate) : NaN;
+    const validity =
+      startMs > 0 || endMs > 0
+        ? { validStartTs: startMs > 0 ? startMs : null, validEndTs: endMs > 0 ? endMs : null }
+        : {};
+
     results.push({
       layerLabel,
       name,
       details: detailParts.join("\n"),
       featureId: nomZone || undefined,
+      ...validity,
     });
   }
 

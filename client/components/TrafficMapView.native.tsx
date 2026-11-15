@@ -12,7 +12,7 @@ import { BorderRadius } from "@/constants/theme";
 import type { GermanEnergyInfrastructureItem } from "../../shared/germanEnergyInfrastructure";
 import type { EnergyFacility100mPoint } from "../../shared/germanEnergyInfrastructure";
 import { getCategoryLabel, type AircraftCategory, type DataSource } from "@/lib/opensky";
-import { geozoneIsActiveAt } from "@/lib/ed269";
+import { zoneActivityAt } from "@/lib/ed269";
 import { buildGeozoneCacheTileUrl, buildGeozoneTileUrls, getGeozoneTileAttribution, buildVectorGeozoneTileUrl, isRasterTiledVectorCountry, queryGeozoneFeatureInfo, queryEd269CachedFeatures, getCountryGeozoneConfig, getViewportCountries, separateTempRestrictions, GEOZONE_TILE_MIN_ZOOM, getVectorMinZoom, loadsFullCountryVectorZones, GEOZONE_VECTOR_MAX_RADIUS_KM, GEOZONE_VECTOR_MAX_FEATURES, type GeozoneFeatureInfo } from "@/lib/geozones";
 import { isVectorZoneDrawSuppressed } from "@/lib/geozoneZoom";
 import { agencyTagColor } from "@/lib/agencyTag";
@@ -1620,8 +1620,9 @@ export default function TrafficMapView({
   // ED-269-Vektorzonen → kompaktes WebView-Format. r ist eine Liste von Polygonen,
   // jedes Polygon ist [Außenring, …Löcher], damit Leaflet Löcher aussticht.
   const vzPolys = useMemo(() => {
-    const now = Date.now();
-    const nowDate = new Date(now);
+    // Radar/Live-Karte: Zeitbezug ist JETZT (zoneActivityAt, eine Prüfung für
+    // Ausblenden und Abschwächen).
+    const nowDate = new Date();
     const energyZones = countryIso === "DE" ? [
       ...windFacilitiesAsGeozones(
         windRestrictionPoints.length ? windRestrictionPoints : getGermanWindFacility100mPoints("DE", energyInfrastructure),
@@ -1633,15 +1634,14 @@ export default function TrafficMapView({
     const uniqueEnergyZones = [...new Map(energyZones.map((zone) => [zone.featureId, zone])).values()];
     return [...filteredVectorZones, ...uniqueEnergyZones.filter((z) =>
       !lockedSet.has(z.country ?? "DE") && splitCountriesByAccess([z.country ?? "DE"], entitlement).locked.length === 0)]
-      // Temporäre Zonen, die JETZT nicht gelten (Start in der Zukunft ODER Ende
-      // bereits vorbei), werden auf dem Radar gar nicht gezeichnet. Permanente
-      // Zonen (ohne Gültigkeitsfenster) bleiben immer sichtbar. Die NOTAM-Liste
-      // führt zukünftige Zonen weiterhin (anderer Pfad).
-      .filter((z) => {
-        if (!isTempVectorZone(z)) return true;
-        return (z.validStartTs as number) <= now && now < (z.validEndTs as number);
-      })
-      .map((z) => {
+      // Temporäre Zonen (mit Gültigkeitsfenster), die JETZT nicht aktiv sind,
+      // werden auf dem Radar gar nicht gezeichnet. Permanente Zonen (ohne
+      // Gültigkeitsfenster) bleiben immer sichtbar (zeitweise inaktive
+      // abgeschwächt, siehe `ia`). Die NOTAM-Liste führt zukünftige Zonen
+      // weiterhin (anderer Pfad). `unknown` zählt als aktiv.
+      .map((z) => ({ z, activity: zoneActivityAt(z, nowDate) }))
+      .filter(({ z, activity }) => !isTempVectorZone(z) || activity !== "inactive")
+      .map(({ z, activity }) => {
         const polys: [number, number][][][] = [];
         for (const group of ringGroupsForZone(z)) {
           const poly = smoothRingGroup(simplifyRingGroup(group));
@@ -1680,7 +1680,7 @@ export default function TrafficMapView({
           // Wiederkehrende Aktivzeiten (ED-269-Schedule) und ob die Zone gerade
           // inaktiv ist (abgeschwächte Darstellung, Hinweis im Popup).
           sc: z.scheduleText?.length ? z.scheduleText.join("; ") : null,
-          ia: !geozoneIsActiveAt(z, nowDate),
+          ia: activity === "inactive",
         };
        }).filter((z) => z.r.length > 0 || z.p.length > 0 || z.l.length > 0);
    }, [filteredVectorZones, additionalGeozones, lockedSet, entitlement, countryIso, energyTilesEnabled, settledZoom, windRestrictionPoints, energyInfrastructure]);

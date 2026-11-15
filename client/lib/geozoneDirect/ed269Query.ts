@@ -7,6 +7,7 @@ import { isGeozoneExpired } from "../../../shared/geozoneAltitudeFilter";
 import {
   ed269IsNotamEligible,
   normalizeAustrianEd269Placeholder,
+  ZONE_EXPIRED_DROP_GRACE_MS,
 } from "../../../shared/ed269Restriction";
 import type { GeoFeature } from "./ed269Sources";
 
@@ -106,10 +107,12 @@ export function queryEd269Features(
       );
     });
   } else {
-    // Abgelaufene Zonen generell ausblenden; dauerhafte (end == null) bleiben.
+    // Nur länger als ZONE_EXPIRED_DROP_GRACE_MS (1 Tag) abgelaufene Zonen
+    // verwerfen (Speicher); ob eine Zone zu einem Zeitpunkt aktiv ist,
+    // entscheidet zoneActivityAt. Dauerhafte (end == null) bleiben.
     feats = feats.filter((f) => {
       const v = featureValidityTs((f.properties as Record<string, any>) || {});
-      return !isGeozoneExpired(v.end, now);
+      return !isGeozoneExpired(v.end, now - ZONE_EXPIRED_DROP_GRACE_MS);
     });
   }
   return feats;

@@ -4,7 +4,15 @@
 import type { GeozoneFeatureInfo } from "../geozones";
 import { GEOZONE_LAYERS } from "../../../shared/geozoneLayerCatalog";
 import { dipulZoneFromFeature, frZoneFromWfsFeature } from "../geozoneQueries";
-import { ed269RestrictionColors, normalizeEd269Restriction } from "../../../shared/ed269Restriction";
+import {
+  ed269ActivityFromProps,
+  ed269RestrictionColors,
+  ed269ScheduleFromProps,
+  ed269ValidityFromProps,
+  normalizeEd269Restriction,
+  zoneEndedLongAgo,
+} from "../../../shared/ed269Restriction";
+import { ed318Applicability } from "../../../shared/ed318Pure";
 import { TILE_STORE_ATTRIBUTION, type TileStoreIso } from "./tileStoreCore";
 
 const DIPUL_LAYER_BY_NAME = new Map(GEOZONE_LAYERS.map((l) => [l.wmsLayer, l]));
@@ -22,30 +30,17 @@ const DE_LINKS = [
   { label: "Lizenz CC BY-ND 4.0", url: DE_ATTR.url! },
 ];
 
-function parseTs(v: unknown): number | null {
-  if (v == null || v === "") return null;
-  const t = new Date(String(v)).getTime();
-  return Number.isFinite(t) ? t : null;
-}
-
 export function deZoneFromStored(f: any): GeozoneFeatureInfo | null {
   const layerName = dipulLayerOfId(f?.id);
   const layer = DIPUL_LAYER_BY_NAME.get(layerName) ?? { id: layerName, wmsLayer: layerName, label: layerName, defaultEnabled: true };
   const z = dipulZoneFromFeature(f, layer);
   if (!z) return null;
-  const p = (f?.properties ?? {}) as Record<string, unknown>;
-  const out: GeozoneFeatureInfo = {
+  // validStartTs/validEndTs (start_time/end_time) setzt dipulZoneFromFeature.
+  return {
     ...z,
     details: `${z.details ? `${z.details}\n` : ""}Quelle: ${DE_ATTR.label}`,
     links: DE_LINKS,
   };
-  const start = parseTs(p.start_time);
-  const end = parseTs(p.end_time);
-  if (start != null || end != null) {
-    out.validStartTs = start;
-    out.validEndTs = end;
-  }
-  return out;
 }
 
 export function frZoneFromStored(f: any): GeozoneFeatureInfo | null {
@@ -146,6 +141,15 @@ export function czZoneFromStored(f: any): GeozoneFeatureInfo | null {
   if (msg) details.push(`Hinweis der Behörde: ${msg}`);
   if (authority) details.push(`Zuständig: ${authority}`);
   if (identifier) details.push(`Kennung: ${identifier}`);
+  // ED-318 limitedApplicability -> ED-269 applicability (ohne Ablauf-Filter:
+  // ob die Zone zum Zeitpunkt aktiv ist, entscheidet zoneActivityAt). Nur lange
+  // abgelaufene Zonen werden verworfen (Speicher).
+  const rawApplicability = ed318Applicability(p.limitedApplicability ?? p.applicability, new Date(-8.64e15));
+  const activityProps = rawApplicability ? { applicability: rawApplicability } : {};
+  const { validStartTs, validEndTs } = ed269ValidityFromProps(activityProps);
+  const ed269Applicability = ed269ActivityFromProps(activityProps);
+  if (zoneEndedLongAgo({ validEndTs, ed269Applicability })) return null;
+  const scheduleText = ed269ScheduleFromProps(activityProps);
   details.push(
     `Quelle: ${TILE_STORE_ATTRIBUTION.CZ.label}. Vereinfachte ED-318-Daten – verbindlich sind die Zonen auf dronemap.gov.cz.`,
   );
@@ -164,6 +168,9 @@ export function czZoneFromStored(f: any): GeozoneFeatureInfo | null {
     upperMeters,
     altitudeLabel,
     lowerReference,
+    ...(validStartTs != null || validEndTs != null ? { validStartTs, validEndTs } : {}),
+    ...(ed269Applicability ? { ed269Applicability } : {}),
+    ...(scheduleText.length > 0 ? { scheduleText } : {}),
     links: [
       { label: "ŘLP ČR – UAS-Geozonen", url: TILE_STORE_ATTRIBUTION.CZ.url! },
       { label: "DroneMap (verbindlich)", url: "https://dronemap.gov.cz" },

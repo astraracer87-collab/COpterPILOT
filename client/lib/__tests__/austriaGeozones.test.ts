@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import { detectCountryFromCoordinates } from "../countryMaps";
 import { parseEd269ToGeozoneInfo } from "../ed269";
+import { zoneActivityAt } from "../../../shared/ed269Restriction";
 
 describe("detectCountryFromCoordinates – Österreich (AT_POLYGON)", () => {
   const austrianCities: { name: string; lat: number; lon: number }[] = [
@@ -492,28 +493,37 @@ describe("parseEd269ToGeozoneInfo – Geometrie & Filterung", () => {
     assert.equal(out[0].name, "Sichtbar");
   });
 
-  it("filtert abgelaufene Zonen heraus (validEndTs in der Vergangenheit)", () => {
+  it("verwirft nur länger als 1 Tag abgelaufene Zonen; kürzlich abgelaufene bleiben (inaktiv)", () => {
     const ring = [
       [16.0, 48.0],
       [16.1, 48.0],
       [16.1, 48.1],
       [16.0, 48.0],
     ];
-    const past = Date.now() - 86400000;
-    const future = Date.now() + 86400000;
+    const now = Date.now();
+    const twoDaysAgo = now - 2 * 86400000;
+    const hourAgo = now - 3600000;
+    const future = now + 86400000;
     const expired = {
       type: "Feature",
       geometry: { type: "Polygon", coordinates: [ring] },
-      properties: { restriction: "PROHIBITED", name: "Abgelaufen", validStartTs: past - 86400000, validEndTs: past },
+      properties: { restriction: "PROHIBITED", name: "Abgelaufen", validStartTs: twoDaysAgo - 86400000, validEndTs: twoDaysAgo },
+    };
+    const justEnded = {
+      type: "Feature",
+      geometry: { type: "Polygon", coordinates: [ring] },
+      properties: { restriction: "PROHIBITED", name: "Gerade beendet", validStartTs: twoDaysAgo, validEndTs: hourAgo },
     };
     const stillValid = {
       type: "Feature",
       geometry: { type: "Polygon", coordinates: [ring] },
-      properties: { restriction: "PROHIBITED", name: "Gültig", validStartTs: past, validEndTs: future },
+      properties: { restriction: "PROHIBITED", name: "Gültig", validStartTs: hourAgo, validEndTs: future },
     };
-    const out = parseEd269ToGeozoneInfo([expired, stillValid], "BE");
-    assert.equal(out.length, 1);
-    assert.equal(out[0].name, "Gültig");
+    const out = parseEd269ToGeozoneInfo([expired, justEnded, stillValid], "BE");
+    assert.deepEqual(out.map((z) => z.name), ["Gerade beendet", "Gültig"]);
+    // Ob aktiv, entscheidet zoneActivityAt – nicht das Parsen.
+    assert.equal(zoneActivityAt(out[0], new Date(now)), "inactive");
+    assert.equal(zoneActivityAt(out[1], new Date(now)), "active");
   });
 
   it("behält dauerhafte Zonen (kein validEndTs / permanent)", () => {

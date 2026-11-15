@@ -6,6 +6,8 @@
 // und dieselben Farben verwenden — keine Drift zwischen Mobile-Polygon und
 // serverseitig gerenderter Kachel.
 
+import { calculateSolarTimes } from "./solar";
+
 // Normalisiert die unterschiedlichen ED-269-Beschränkungs-/Typ-Schreibweisen
 // verschiedener Anbieter auf einen einheitlichen Schlüssel. Belgien
 // (Droneguide) nutzt z. B. `type` mit Werten wie REQ_AUTH/RESTRICTED, Österreich
@@ -229,10 +231,50 @@ function ed269TimeMinutes(value: any): number | null {
   return h * 60 + m;
 }
 
+/** Bezugspunkt (WGS84) für Sonnenauf-/-untergangs-Zeitpläne (SR/SS). */
+export interface ZoneSunLocation {
+  lat: number;
+  lon: number;
+}
+
+type SunEvent = "SR" | "SS" | "BMCT" | "EECT";
+
+// Ereignis-Kennung aus startEvent/endEvent bzw. Klartext der Uhrzeit
+// ("SR", "SUNRISE", "Sonnenaufgang" …). null = kein Sonnenereignis.
+function ed269SunEvent(eventRaw: any, timeRaw: any): SunEvent | null {
+  for (const raw of [eventRaw, timeRaw]) {
+    const v = String(raw ?? "").trim().toUpperCase();
+    if (!v) continue;
+    if (v === "SR" || v === "SUNRISE" || v === "SONNENAUFGANG") return "SR";
+    if (v === "SS" || v === "SUNSET" || v === "SONNENUNTERGANG") return "SS";
+    if (v === "BMCT") return "BMCT";
+    if (v === "EECT") return "EECT";
+  }
+  return null;
+}
+
+// Sonnenereignis am UTC-Tag von `date` am Bezugspunkt -> Minuten seit
+// Mitternacht UTC; null, wenn nicht berechenbar (kein Ort, Polartag/-nacht).
+function ed269SunEventMinutes(event: SunEvent, date: Date, loc: ZoneSunLocation | null | undefined): number | null {
+  if (!loc || !Number.isFinite(loc.lat) || !Number.isFinite(loc.lon)) return null;
+  // calculateSolarTimes rechnet mit dem lokalen Kalendertag; 12:00 UTC liegt
+  // für alle europäischen Zeitzonen am selben Kalendertag wie der UTC-Tag.
+  const noonUtc = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), 12, 0, 0));
+  const solar = calculateSolarTimes(loc.lat, loc.lon, noonUtc);
+  const t =
+    event === "SR" ? solar.sunrise : event === "SS" ? solar.sunset : event === "BMCT" ? solar.civilDawnStart : solar.civilDuskEnd;
+  if (!t || !Number.isFinite(t.getTime())) return null;
+  const dayStart = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+  const min = Math.round((t.getTime() - dayStart) / 60000);
+  return min >= 0 && min <= 24 * 60 ? min : null;
+}
+
 // Prüft einen einzelnen Schedule-Eintrag gegen einen Zeitpunkt (UTC).
 // Unlesbare Tages-/Zeitangaben gelten aus Sicherheitsgründen als passend
 // (lieber eine Zone zu viel als aktiv werten als eine echte zu verschweigen).
-function ed269ScheduleEntryMatches(entry: any, date: Date): boolean {
+// Sonnenereignisse (SR/SS, BMCT/EECT) werden am Bezugspunkt `sun` berechnet;
+// ohne Bezugspunkt (oder Polartag/-nacht) gilt der Eintrag ganztägig.
+function ed269ScheduleEntryMatches(entry: any, date: Date, sun?: ZoneSunLocation | null): boolean {
   if (!entry || typeof entry !== "object") return true;
   const dayKeys = ed269RawScheduleDays(entry).map(ed269RawDayKey).filter(Boolean);
   const anyDay =
@@ -243,8 +285,18 @@ function ed269ScheduleEntryMatches(entry: any, date: Date): boolean {
 
   const startRaw = entry.startTime ?? entry.startTimeOfDay ?? entry.timeStart ?? entry.beginTime ?? entry.from;
   const endRaw = entry.endTime ?? entry.timeEnd ?? entry.untilTime ?? entry.to;
-  const start = startRaw == null ? 0 : ed269TimeMinutes(startRaw);
-  const end = endRaw == null ? 24 * 60 : ed269TimeMinutes(endRaw);
+  // Uhrzeit hat Vorrang; fehlt sie (oder ist Klartext wie „Sonnenaufgang“),
+  // gilt startEvent/endEvent. Ohne beides: ganztägig (0–24 h).
+  let start = startRaw == null ? (entry.startEvent == null ? 0 : null) : ed269TimeMinutes(startRaw);
+  let end = endRaw == null ? (entry.endEvent == null ? 24 * 60 : null) : ed269TimeMinutes(endRaw);
+  if (start == null) {
+    const ev = ed269SunEvent(entry.startEvent, startRaw);
+    start = ev ? ed269SunEventMinutes(ev, date, sun) : null;
+  }
+  if (end == null) {
+    const ev = ed269SunEvent(entry.endEvent, endRaw);
+    end = ev ? ed269SunEventMinutes(ev, date, sun) : null;
+  }
   if (start == null || end == null) return dayMatches(date.getUTCDay());
 
   const day = date.getUTCDay();
@@ -271,7 +323,7 @@ function ed269ParseTs(value: any): number | null {
  * UTC-Wochentag und UTC-Uhrzeit). Zonen ohne jede Gültigkeitsangabe gelten als
  * aktiv. Die Austro-Control-Platzhalter (MATZ/MCTR bis 2100) gelten als dauerhaft.
  */
-export function ed269IsActiveAt(p: Record<string, any>, date: Date): boolean {
+export function ed269IsActiveAt(p: Record<string, any>, date: Date, sun?: ZoneSunLocation | null): boolean {
   p = normalizeAustrianEd269Placeholder(p || {});
   const ts = date.getTime();
   if (!Number.isFinite(ts)) return true;
@@ -294,7 +346,7 @@ export function ed269IsActiveAt(p: Record<string, any>, date: Date): boolean {
     if (end != null && ts > end) return false;
     const schedule = entry.schedule;
     if (!Array.isArray(schedule) || schedule.length === 0) return true;
-    return schedule.some((s: any) => ed269ScheduleEntryMatches(s, date));
+    return schedule.some((s: any) => ed269ScheduleEntryMatches(s, date, sun));
   });
 }
 
@@ -304,22 +356,163 @@ export function ed269IsActiveAt(p: Record<string, any>, date: Date): boolean {
  */
 export function ed269ActivityFromProps(p: Record<string, any>): any[] | undefined {
   const n = normalizeAustrianEd269Placeholder(p || {});
+  // Feature-weites permanent (wie ed269IsActiveAt/ed269ValidityFromProps):
+  // dauerhaft, applicability-Fenster sind dann nicht maßgeblich.
+  if (n?.permanent === true || String(n?.permanent ?? "").toUpperCase() === "YES") return undefined;
   const app = n?.applicability;
   if (!Array.isArray(app) || app.length === 0) return undefined;
   if (app.some((a: any) => String(a?.permanent ?? "").toUpperCase() === "YES")) return undefined;
   return app;
 }
 
-/** Aktivität einer bereits geparsten Zone (GeozoneFeatureInfo-ähnlich). Zonen
- * ohne ED-269-Aktivitätsinfo (andere Quellen, alte Offline-Pakete) gelten als
- * aktiv; das Gültigkeitsfenster (validStart/EndTs) behandelt der bestehende Code. */
-export function geozoneIsActiveAt(
-  z: { ed269Applicability?: any[] | null } | null | undefined,
-  date: Date,
+// ---------------------------------------------------------------------------
+// Eine Aktivitätsprüfung für alle Zonen (Karte, Liste, Radar-Reiter, Urteil)
+// ---------------------------------------------------------------------------
+
+/** Ergebnis der Aktivitätsprüfung. `unknown` nur bei widersprüchlichen bzw.
+ * unlesbaren Zeitangaben; in Urteilen wie `active` behandeln. */
+export type ZoneActivity = "active" | "inactive" | "unknown";
+
+/** Was zoneActivityAt von einer Zone braucht (strukturell, GeozoneFeatureInfo
+ * erfüllt es). Fehlende Felder = keine Einschränkung. */
+export interface ZoneActivityInput {
+  /** Hartes Gültigkeitsfenster in ms (Ende inklusive); null = offen. */
+  validStartTs?: number | null;
+  validEndTs?: number | null;
+  /** ED-269 applicability[] (permanent/startDateTime/endDateTime/schedule). */
+  ed269Applicability?: any[];
+  /** Geometrie im App-Format [lat, lon] – nur für SR/SS-Zeitpläne genutzt. */
+  polygonGroups?: [number, number][][][];
+  polygonRings?: [number, number][][];
+}
+
+/** Bezugspunkt für SR/SS: Mittel der Eckpunkte des ersten Außenrings. */
+export function zoneSunLocation(z: ZoneActivityInput | null | undefined): ZoneSunLocation | null {
+  const ring = z?.polygonGroups?.[0]?.[0] ?? z?.polygonRings?.[0];
+  if (!Array.isArray(ring) || ring.length === 0) return null;
+  let lat = 0;
+  let lon = 0;
+  let n = 0;
+  for (const p of ring) {
+    if (!Array.isArray(p) || !Number.isFinite(p[0]) || !Number.isFinite(p[1])) continue;
+    lat += p[0];
+    lon += p[1];
+    n++;
+  }
+  return n > 0 ? { lat: lat / n, lon: lon / n } : null;
+}
+
+function finiteTs(v: unknown): number | null {
+  if (v == null || (typeof v === "string" && v.trim() === "")) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+// Ein applicability-Eintrag: active/inactive, oder unknown bei unlesbaren bzw.
+// widersprüchlichen Grenzen (Beginn nach Ende).
+function applicabilityEntryActivity(entry: any, date: Date, sun: ZoneSunLocation | null): ZoneActivity {
+  if (!entry || typeof entry !== "object") return "active";
+  if (String(entry.permanent ?? "").toUpperCase() === "YES") return "active";
+  const hasStart = entry.startDateTime != null && entry.startDateTime !== "";
+  const hasEnd = entry.endDateTime != null && entry.endDateTime !== "";
+  const start = ed269ParseTs(entry.startDateTime);
+  const end = ed269ParseTs(entry.endDateTime);
+  if ((hasStart && start == null) || (hasEnd && end == null)) return "unknown";
+  if (start != null && end != null && start > end) return "unknown";
+  return ed269IsActiveAt({ applicability: [entry] }, date, sun) ? "active" : "inactive";
+}
+
+/**
+ * DIE Aktivitätsprüfung einer geparsten Zone zum Zeitpunkt `date`. Reihenfolge:
+ *  1. hartes Gültigkeitsfenster validStartTs/validEndTs (alle Quellen: ED-269,
+ *     DE-WFS/Kachel-Temporärzonen, CZ, NOTAM-artige Zonen, LU-WMS …);
+ *  2. ED-269 applicability (permanent / startDateTime / endDateTime / schedule
+ *     inkl. Über-Mitternacht-Regel, Austro-Control-Platzhalter = dauerhaft);
+ *  3. SR/SS-Zeitpläne am Zonen-Bezugspunkt (ohne Geometrie: ganztägig aktiv).
+ * Zonen ohne jede Zeitangabe (reine Textquellen) sind `active`. `unknown` nur
+ * bei widersprüchlichen/unlesbaren Angaben (Beginn > Ende, unlesbares Datum,
+ * ungültiges `date`) – Aufrufer behandeln `unknown` wie `active`
+ * (isZoneActiveAt).
+ */
+export function zoneActivityAt(z: ZoneActivityInput | null | undefined, date: Date): ZoneActivity {
+  const ts = date instanceof Date ? date.getTime() : NaN;
+  if (!Number.isFinite(ts)) return "unknown";
+  if (!z) return "active";
+  const vs = finiteTs(z.validStartTs);
+  const ve = finiteTs(z.validEndTs);
+  if (vs != null && ve != null && vs > ve) return "unknown";
+  if (vs != null && ts < vs) return "inactive";
+  if (ve != null && ts > ve) return "inactive";
+  const app = z.ed269Applicability;
+  if (!Array.isArray(app) || app.length === 0) return "active";
+  const sun = zoneSunLocation(z);
+  let unknown = false;
+  for (const entry of app) {
+    const a = applicabilityEntryActivity(entry, date, sun);
+    if (a === "active") return "active";
+    if (a === "unknown") unknown = true;
+  }
+  return unknown ? "unknown" : "inactive";
+}
+
+/** zoneActivityAt als Wahrheitswert; `unknown` zählt (sicherheitshalber) als aktiv. */
+export function isZoneActiveAt(z: ZoneActivityInput | null | undefined, date: Date): boolean {
+  return zoneActivityAt(z, date) !== "inactive";
+}
+
+/**
+ * Zeitbezug je Kontext – explizit statt ad hoc in den Screens:
+ *  - "now": Radar/Live-Karte, Pre-Check-Karte – Zustand jetzt.
+ *  - "planned": Planung – geplanter Zeitpunkt; ohne geplante Zeit jetzt.
+ *  - "precheck": Pre-Check – aktiv, wenn JETZT ODER zur geplanten Zeit aktiv.
+ *    Der Pre-Check läuft unmittelbar vor dem Start; der tatsächliche Start
+ *    kann vor oder nach der geplanten Zeit liegen. Eine Zone, die zu einem der
+ *    beiden Zeitpunkte aktiv ist, muss deshalb berücksichtigt werden (sicherer
+ *    als nur einer der beiden Zeitpunkte).
+ */
+export type ZoneTimeContext =
+  | { kind: "now"; now?: Date }
+  | { kind: "planned"; planned: Date | null | undefined; now?: Date }
+  | { kind: "precheck"; planned: Date | null | undefined; now?: Date };
+
+/** Die zu prüfenden Zeitpunkte eines Kontexts (mindestens einer). */
+export function zoneTimeReferences(ctx: ZoneTimeContext): Date[] {
+  const now = ctx.now ?? new Date();
+  if (ctx.kind === "now") return [now];
+  const planned = ctx.planned && Number.isFinite(ctx.planned.getTime()) ? ctx.planned : null;
+  if (ctx.kind === "planned") return [planned ?? now];
+  return planned ? [now, planned] : [now];
+}
+
+/** Ist die Zone im Kontext relevant (aktiv/unbekannt zu einem der Zeitpunkte)? */
+export function isZoneActiveInContext(z: ZoneActivityInput | null | undefined, ctx: ZoneTimeContext): boolean {
+  return zoneTimeReferences(ctx).some((d) => isZoneActiveAt(z, d));
+}
+
+/** Zonen, deren Gültigkeit länger als diese Frist vorbei ist, werden beim
+ * Parsen verworfen (Speicher). Kürzer zurückliegende bleiben erhalten; ob sie
+ * aktiv sind, entscheidet zoneActivityAt für den jeweiligen Zeitpunkt. */
+export const ZONE_EXPIRED_DROP_GRACE_MS = 24 * 60 * 60 * 1000;
+
+/** true, wenn die Zone mehr als `graceMs` vor `nowMs` geendet hat (hartes
+ * Fenster bzw. alle applicability-Fenster) – nur fürs Speichersparen beim
+ * Parsen, nie für die Aktivität selbst. */
+export function zoneEndedLongAgo(
+  z: ZoneActivityInput | null | undefined,
+  nowMs: number = Date.now(),
+  graceMs: number = ZONE_EXPIRED_DROP_GRACE_MS,
 ): boolean {
-  const app = z?.ed269Applicability;
-  if (!Array.isArray(app) || app.length === 0) return true;
-  return ed269IsActiveAt({ applicability: app }, date);
+  if (!z || !Number.isFinite(nowMs)) return false;
+  const cutoff = nowMs - graceMs;
+  const ve = finiteTs(z.validEndTs);
+  if (ve != null && ve < cutoff) return true;
+  const app = z.ed269Applicability;
+  if (!Array.isArray(app) || app.length === 0) return false;
+  return app.every((e: any) => {
+    if (!e || typeof e !== "object" || String(e.permanent ?? "").toUpperCase() === "YES") return false;
+    const end = ed269ParseTs(e.endDateTime);
+    return end != null && end < cutoff;
+  });
 }
 
 /** Hinweistext für eine zeitgesteuerte Zone, die zum Zeitpunkt inaktiv ist. */

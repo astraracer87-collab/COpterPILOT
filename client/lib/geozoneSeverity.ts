@@ -1,11 +1,12 @@
 import { normalizeEd269Restriction } from "@/lib/ed269";
+import { isZoneActiveInContext, type ZoneActivityInput } from "../../shared/ed269Restriction";
 
 // Schweregrad-Klassifizierung für den seitlichen Geozonen-Reiter auf dem
 // Radar-Screen. Reines, React-Native-freies Modul, damit Web/Tests es teilen
 // können — die AV-/§21h-Abdeckungsprüfung (die auf storage.ts/AsyncStorage
 // fußt) wird als Callback hereingereicht, statt hier importiert zu werden.
 
-export interface GeozoneSeverityZone {
+export interface GeozoneSeverityZone extends ZoneActivityInput {
   layerLabel: string;
   name: string;
   details: string;
@@ -28,30 +29,13 @@ const ALTITUDE_TEXT_RE =
   /maximale?\s+flugh[öo]he|max\.?\s*flugh[öo]he|h[öo]henbeschr[äa]nkung/i;
 
 /**
- * Aktiv-Erkennung wie auf dem Radar-Screen: Eine Zone gilt als AKTIV, sofern
- * ihre Details nicht „Status: Inaktiv" mit einem in der Zukunft liegenden
- * „Von:"-Zeitpunkt ausweisen. Permanente Zonen (ohne Status-Zeile) sind aktiv.
+ * Aktiv-Erkennung für Radar/Live-Karte (Zeitbezug: JETZT) über die eine
+ * Aktivitätsprüfung zoneActivityAt (Gültigkeitsfenster, ED-269-applicability,
+ * SR/SS). Zonen ohne strukturierte Zeitangaben sind aktiv; `unknown` zählt als
+ * aktiv. Ersetzt das frühere Parsen von „Status: Inaktiv“/„Von:“ im Detailtext.
  */
-export function isGeozoneActiveFromDetails(details: string, now: number = Date.now()): boolean {
-  const lines = (details || "").split("\n");
-  const st = lines.find((l) => l.startsWith("Status:"));
-  if (!st || !/Inaktiv/i.test(st)) return true;
-  const vl = lines.find((l) => l.startsWith("Von:"));
-  if (!vl) return true;
-  const vm = vl
-    .replace("Von:", "")
-    .trim()
-    .match(/^(\d{2})\.(\d{2})\.(\d{4}),?\s*(\d{2}):(\d{2})/);
-  if (!vm) return true;
-  return (
-    new Date(
-      parseInt(vm[3]),
-      parseInt(vm[2]) - 1,
-      parseInt(vm[1]),
-      parseInt(vm[4]),
-      parseInt(vm[5]),
-    ).getTime() <= now
-  );
+export function isGeozoneActiveForRadar(z: ZoneActivityInput, now: number | Date = Date.now()): boolean {
+  return isZoneActiveInContext(z, { kind: "now", now: now instanceof Date ? now : new Date(now) });
 }
 
 /**
@@ -106,7 +90,7 @@ export function computeGeozoneTabSeverity(
   let hasRed = false;
   for (const z of zones) {
     if (z.informationalOnly) continue;
-    if (!isGeozoneActiveFromDetails(z.details, now)) continue;
+    if (!isGeozoneActiveForRadar(z, now)) continue;
     hasActive = true;
     const prohibition = isProhibitionZone(z) || (opts.mapsToAvRule?.(z) ?? false);
     if (prohibition && !opts.isCoveredByAV(z)) hasRed = true;

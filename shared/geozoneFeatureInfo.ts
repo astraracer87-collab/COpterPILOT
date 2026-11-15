@@ -37,12 +37,16 @@ export interface GeozoneFeatureInfo {
   lowerMeters?: number;
   upperMeters?: number;
   altitudeLabel?: string;
-  /** Null for permanent zones; timestamps in milliseconds otherwise. */
+  /** Hard validity window (ms, end inclusive); null/absent = open. Set by all
+   * structured paths (ED-269 vector, DE WFS/tile-store temp zones, CZ ED-318,
+   * NOTAM-like records, LU WMS temp zones). Evaluated by zoneActivityAt
+   * (shared/ed269Restriction.ts) – never decided at parse time. */
   validStartTs?: number | null;
   validEndTs?: number | null;
   scheduleText?: string[];
-  /** Raw ED-269 applicability[] of time-dependent zones (see ed269IsActiveAt /
-   * geozoneIsActiveAt). Absent for permanent zones and non-ED-269 sources. */
+  /** Raw ED-269 applicability[] of time-dependent zones (evaluated by
+   * zoneActivityAt). Absent for permanent zones and text-only sources, which
+   * zoneActivityAt treats as active. */
   ed269Applicability?: any[];
   /** A temporary/NOTAM record may be eligible even without validity dates. */
   notamEligible?: boolean;
