@@ -41,3 +41,29 @@ Quellen vom Product Owner: `m.airspace.lv/mob/map`, `ais.lgs.lv/page/UAS_geozone
 
 > **Stand:** Zwei öffentliche Einstiegspunkte verifiziert; der exakte
 > Daten-Endpunkt fehlt noch (Browser-Capture oder ED-269/AIXM von LGS).
+
+---
+
+## 5. Befund (DE-IP, 2026-11-15): ArcGIS über Referer-Proxy 🟡 abrufbar
+
+- Technik: **ArcGIS** (interner Server `LGS-AGS`) über einen Proxy:
+  `https://m.airspace.lv/mob//proxy/proxy.ashx?<ziel-URL>`
+- Services:
+  - `DRONES/DronesZonesUAS/MapServer` – Zonen (AGL)
+  - `DRONES/DronesZonesUASAMSL/MapServer` – Zonen (AMSL)
+  - `DRONES/FIR_drones/MapServer`
+  - Aktiv-Status (SOE): `…/MapServer/exts/DronesRestSOE/getJSONZones?oids=true&f=json&time=<ms>&endTime=<ms>`
+    → aktive Zonen als OIDs, **unverschlüsseltes JSON**.
+- **Hürde:** Der Proxy verlangt einen `Referer`-Header (sonst **403**). Mit
+  gesetztem Referer (wie der Browser) direkt abrufbar:
+  ```bash
+  # Layer-Liste
+  curl -s -H "Referer: https://m.airspace.lv/mob/map" \
+    "https://m.airspace.lv/mob//proxy/proxy.ashx?https://LGS-AGS/rest/services/DRONES/DronesZonesUAS/MapServer/layers?f=json"
+  # Zonen als GeoJSON (Layer-ID aus layers?f=json)
+  curl -s -H "Referer: https://m.airspace.lv/mob/map" \
+    "https://m.airspace.lv/mob//proxy/proxy.ashx?https://LGS-AGS/rest/services/DRONES/DronesZonesUAS/MapServer/0/query?where=1=1&outFields=*&returnGeometry=true&f=geojson"
+  ```
+  (Für AMSL-Zonen `DronesZonesUASAMSL` nehmen.) **Status LV: abrufbar** (mit
+  Referer); Fixtures von der DE-Session nachziehen. Alternativ ED-269/AIXM 5.1
+  bei LGS/AIS (`ais.lgs.lv`).

@@ -32,9 +32,9 @@ Pro Land gibt es ein eigenes Detaildokument (`docs/<land>-…-integration.md`).
 | **ES** | ENAIRE | keine | ED-318 (ArcGIS MapServer) | ✅ KOMPLETT abgerufen (DE-IP, ~21k Feat.) | `enaire-es-api-integration.md` |
 | **MT** | iDronect / Transport Malta | keine (DDP) | Meteor-DDP (`flightArea`-GeoJSON) | 🔑 Filter-Parameter fehlen (Browser-Capture) | `idronect-mt-api-integration.md` |
 | **HU** | MyDroneSpace / HungaroControl | Login (GoodID/Google) | GeoJSON (`/api/zones`) + WMTS-Raster | 🔑 Zonen brauchen Login; WMTS öffentlich | `hungary-mydronespace-api-integration.md` |
-| **CZ** | ANS CR / ŘLP | keine | custom (`getGJ.php`) + ArcGIS-WMS | 🔑 Endpoint-Parameter fehlen | `czech-ans-api-integration.md` |
+| **CZ** | ANS CR / ŘLP | keine | custom (AES-verschlüsselt) | ⚠️ Daten verschlüsselt → ED-269 erfragen | `czech-ans-api-integration.md` |
 | **SK** | LPS SR | keine | ArcGIS MapServer-Query (GeoJSON) | ✅ einsatzbereit (178 Zonen, AIXM-Schema) | `slovakia-lps-api-integration.md` |
-| **LV** | LGS / AIS Latvia | keine | AIXM 5.1 / Mobile-App | 🔑 Daten-Endpoint fehlt | `latvia-lgs-api-integration.md` |
+| **LV** | LGS / AIS Latvia | keine (Referer) | ArcGIS (Referer-Proxy) | 📥 abrufbar (DE-IP, mit Referer) | `latvia-lgs-api-integration.md` |
 | **GR** | HASP/HCAA (DAGR) | – | nur WMS-Raster (WFS aus) | 🔑 kein Vektor-Feed → ED-269 bei HCAA erfragen | `greece-romania-geozones-notes.md` |
 | **RO** | ROMATSA | keine | GeoServer WFS + JSON | ✅ live abgerufen (DE-IP): 1.272 + 226 Zonen | `greece-romania-geozones-notes.md` |
 

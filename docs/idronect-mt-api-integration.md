@@ -128,3 +128,21 @@ das herauszufinden:
 > die Filter-Parameter für die öffentlichen Zonen. Sobald die vorliegen (aus
 > §5.1 oder §5.2), kann ich den Abruf fertig verifizieren und eine Fixture
 > anlegen. Ein ED-269-Feed wäre die sauberere Alternative.
+
+---
+
+## 6. Live-Nachtest (2026-11-15): `{}` liefert **0 Zonen** ⚠️
+
+- **Verifiziert (erneut):** `Zones.getFilteredZones({})` über den anonymen DDP
+  gibt **0 Features** zurück (nicht „alle öffentlichen Zonen"). Eine Annahme,
+  `{}` liefere alle Zonen, stammt aus der Bundle-Rekonstruktion und ist **live
+  falsch**.
+- Weiterhin: `{managedZones:true}` → „no access" (Login), unbekannte Keys →
+  „Internal server error".
+- **Das echte Filter-Objekt der Karte ist weiterhin unbekannt.** Es muss die
+  **tatsächlich gesendete** WS-Nachricht der laufenden App erfasst werden
+  (DevTools → Netzwerk → WS `/websocket` → Tab **Messages** → die reale
+  `Zones.getFilteredZones`-Nachricht mit ihrem `params`-Objekt), **nicht** aus
+  dem Bundle abgeleitet.
+- Alternativ: ED-269/öffentlichen Export bei iDronect/Transport Malta erfragen.
+- **Status MT: weiterhin offen** (Filter-Parameter fehlt).

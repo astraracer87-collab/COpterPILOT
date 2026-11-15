@@ -43,3 +43,16 @@ Drohnen-Zonen-Datensatz ließen sich statisch nicht sicher ableiten. Zwei Wege:
 
 > **Stand:** App-Typ und Endpunkt-Familie verifiziert; es fehlt der exakte
 > Zonen-Abruf (Parameter aus Browser oder ED-269 von ANS CR).
+
+---
+
+## 7. Befund (DE-IP, 2026-11-15): Daten sind VERSCHLÜSSELT ⛔
+
+- Endpunkt: `POST https://dronemap.gov.cz/getGJ.php?ct=…&iv=…&s=…`.
+- **Anfrage UND Antwort sind AES-verschlüsselt** (CryptoJS mit `ct`/`iv`/`salt`).
+  Die Antwort ist ein Base64-Blob, **kein GeoJSON**. Der Schlüssel steckt im
+  Client-JS; der Betreiber verschleiert die Übertragung bewusst.
+- **Kein sauberer öffentlicher Pull** ohne Reverse-Engineering der
+  Verschlüsselung (nicht empfohlen).
+- **Nächster Schritt: ED-269 beim Betreiber anfragen → `dronemap@ans.cz`.**
+  (Status CZ: datenseitig blockiert, Betreiber-Anfrage nötig.)
