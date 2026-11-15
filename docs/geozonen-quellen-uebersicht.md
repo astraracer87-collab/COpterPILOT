@@ -33,12 +33,12 @@ Pro Land gibt es ein eigenes Detaildokument (`docs/<land>-…-integration.md`).
 | **MT** | iDronect / Transport Malta | keine (DDP) | Meteor-DDP (`flightArea`-GeoJSON) | 🔑 Filter-Parameter fehlen (Browser-Capture) | `idronect-mt-api-integration.md` |
 | **HU** | MyDroneSpace / HungaroControl | Login (GoodID/Google) | GeoJSON (`/api/zones`) + WMTS-Raster | 🔑 Zonen brauchen Login; WMTS öffentlich | `hungary-mydronespace-api-integration.md` |
 | **CZ** | ANS CR / ŘLP | keine | custom (`getGJ.php`) + ArcGIS-WMS | 🔑 Endpoint-Parameter fehlen | `czech-ans-api-integration.md` |
-| **SK** | LPS SR | **Token** | ArcGIS FeatureServer | 🔑 Zonen token-geschützt | `slovakia-lps-api-integration.md` |
+| **SK** | LPS SR | keine | ArcGIS MapServer-Query (GeoJSON) | ✅ einsatzbereit (178 Zonen, AIXM-Schema) | `slovakia-lps-api-integration.md` |
 | **LV** | LGS / AIS Latvia | keine | AIXM 5.1 / Mobile-App | 🔑 Daten-Endpoint fehlt | `latvia-lgs-api-integration.md` |
 | **GR** | HASP (dagr) | – | vermutl. ArcGIS | 🌐 403 bot-geblockt | `greece-romania-geozones-notes.md` |
 | **RO** | ROMATSA | – | unbekannt | 🌐 000 geo-geblockt | `greece-romania-geozones-notes.md` |
 
-**Zusammenfassung:** 12× ✅ einsatzbereit · 9× 🔑 Zugang/Detail offen ·
+**Zusammenfassung:** 13× ✅ einsatzbereit · 8× 🔑 Zugang/Detail offen ·
 2× 🌐 nur in dieser Umgebung blockiert.
 
 ---
@@ -49,17 +49,17 @@ Pro Land gibt es ein eigenes Detaildokument (`docs/<land>-…-integration.md`).
   LU (Rückfall OGC), ES (ED-318), IT (nach Login). → `ed269Sources.ts` +
   `shared/ed269Restriction.ts` weiterverwenden.
 - **GeoServer-WFS → GeoJSON:** BE, IS, BG. → einheitlicher WFS-Loader möglich.
-- **ArcGIS FeatureServer → GeoJSON:** CY, SI, (SK token, GR vermutlich).
+- **ArcGIS FeatureServer/MapServer → GeoJSON:** CY, SI, SK, (GR vermutlich).
   → einheitlicher ArcGIS-`/query?f=geojson`-Loader möglich.
 - **KML → GeoJSON (togeojson):** GB (Google My Maps), PL (`/v1/kml/filtered`).
 - **Echtzeit-/Spezialprotokolle:** HR (SignalR-Hub), MT (Meteor-DDP).
-- **Login-gebunden:** IT (Keycloak+CSRF), HU (GoodID/Google), SK (ArcGIS-Token),
+- **Login-gebunden:** IT (Keycloak+CSRF), HU (GoodID/Google),
   MT (nur für `managedZones`).
 
 ## Wiederverwendbare Bausteine
 - **KML→GeoJSON** (GB, PL): ein Parser (`togeojson`) deckt beide ab.
 - **WKT→GeoJSON** (HR, teils BG): ein WKT-Parser.
-- **ArcGIS-Loader** (CY, SI, SK, evtl. GR): ein generischer FeatureServer-Query.
+- **ArcGIS-Loader** (CY, SI, SK, evtl. GR): ein generischer FeatureServer/MapServer-Query.
 - **WFS-Loader** (BE, IS, BG): ein generischer WFS-GetFeature-Query.
 - **Kreis→Polygon** (PT, NL): gemeinsame Hilfsfunktion.
 - **Höheneinheiten** (FL, ft AMSL, M AGL): zentrale Umrechnung.
@@ -76,7 +76,6 @@ Pro Land gibt es ein eigenes Detaildokument (`docs/<land>-…-integration.md`).
 | MT | `Zones.getFilteredZones`-**Parameter** aus Browser-Netzwerk-Tab kopieren |
 | HU | ED-269/öffentlichen Zonen-Endpoint bei MyDroneSpace erfragen (`info@mydronespace.hu`) |
 | CZ | `getGJ.php`-Parameter aus Browser **oder** ED-269 bei ANS CR |
-| SK | Öffentlichen Endpoint / ED-269 bei LPS SR erfragen (Zonen token-geschützt) |
 | LV | Daten-Endpoint aus `m.airspace.lv` **oder** ED-269/AIXM bei LGS |
 | GR | Datenanfrage aus Browser (Seite bot-geblockt); HASP ist vermutl. ArcGIS |
 | RO | Von EU-/RO-IP prüfen **oder** ED-269 bei ROMATSA |
