@@ -20,7 +20,9 @@ Pro Land gibt es ein eigenes Detaildokument (`docs/<land>-…-integration.md`).
 | **IE** | Irish Aviation Authority | keine | ED-269 GeoJSON | ✅ einsatzbereit (Link dynamisch) | `ireland-geozones-integration.md` |
 | **PT** | ANAC | keine | ED-269 Download | ✅ einsatzbereit (vollständigstes ED-269) | `anac-pt-api-integration.md` |
 | **LT** | Oro navigacija (Skyzr) | keine | ED-269 (wie AT) | ✅ einsatzbereit | `lithuania-ans-api-integration.md` |
-| **GB** | NATS UAS Restrictions Map | keine | KML (Google My Maps) | ✅ einsatzbereit (offiziell, inkl. FRZ) | `uk-geozones-integration.md` |
+| **GB** | NATS (UK AIP ENR 5.1) | keine | **AIXM 5.1** (+ KML-Rückfall) | ✅ einsatzbereit (offizieller Digital-Datensatz, 1.069 Zonen) | `uk-geozones-integration.md` |
+| **EE** | EANS (Skyzr) | keine | ED-269 (wie AT/LT) | ✅ einsatzbereit (live: ~230 Zonen) | `estonia-eans-api-integration.md` |
+| **FR** | DGAC / IGN (Géoplateforme) | keine (Etalab) | WFS GeoJSON (~89.700) | ✅ einsatzbereit (Portal nur Raster, WFS liefert Vektor) | `france-geoportail-api-integration.md` |
 | **IS** | Samgöngustofa / gis.is | keine | WFS GeoJSON | ✅ einsatzbereit (ohne Höhen) | `iceland-samgongustofa-api-integration.md` |
 | **CY** | DCA Cyprus / ArcGIS | keine | ArcGIS FeatureServer (KML-Stil) | ✅ einsatzbereit (gr. Popups parsen) | `cyprus-dca-api-integration.md` |
 | **HR** | Croatia Control (AMC) | keine | SignalR-Hub (WKT) | ✅ einsatzbereit (anonym) | `croatia-amc-api-integration.md` |
@@ -38,8 +40,9 @@ Pro Land gibt es ein eigenes Detaildokument (`docs/<land>-…-integration.md`).
 | **GR** | HASP/HCAA (DAGR) | keine (Freigabe) | WMS-KML + GetFeatureInfo | 📥 extrahierbar (Skript, CC BY-NC-ND) | `greece-romania-geozones-notes.md` |
 | **RO** | ROMATSA | keine | GeoServer WFS + JSON | ✅ live abgerufen (DE-IP): 1.272 + 226 Zonen | `greece-romania-geozones-notes.md` |
 
-**Zusammenfassung:** 13× ✅ einsatzbereit · 8× 🔑 Zugang/Detail offen ·
-2× 🌐 nur in dieser Umgebung blockiert.
+**Zusammenfassung (25 Länder):** 20× ✅ einsatzbereit · 3× 📥 beschaffbar
+(Skript/Export: MT, LV, GR) · 2× 🔑 Zugang offen (IT Login-Fetch, HU raster-only
+→ Login/Export). RO/PL/ES live abgerufen, EE/FR/GB offizielle Quellen.
 
 ---
 

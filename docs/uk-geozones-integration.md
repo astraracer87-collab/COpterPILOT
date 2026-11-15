@@ -10,6 +10,13 @@ geprüft.
 > UK-AIP-Luftraumstruktur inkl. Flight Restriction Zones**, also die offizielle
 > Quelle, auf die NATS/CAA die Drohnenpiloten verweisen.
 
+> **Update 2026-11-15 (DE-Session): Es gibt einen besseren, offiziellen
+> Primärweg.** NATS veröffentlicht dieselben Zonen als **digitalen Datensatz
+> „UAS Flight Restrictions" (AIXM 5.1 / KMZ)** auf der Digital-Datasets-Seite –
+> mit **strukturierten Attributen und exakter Geometrie** (Kreise/Bögen). Die
+> Google-My-Maps ist nur die **Visualisierung**. → **Für den Import AIXM nehmen**
+> (siehe §7); die My-Maps-KML bleibt Schnellvorschau-Rückfall (§2–§6).
+
 Vergleich: übrige Länder-Dokumente in `docs/`.
 
 ---
@@ -113,3 +120,84 @@ curl -s -A "$UA" -L "https://www.google.com/maps/d/kml?mid=1BktWMPYNuh6N5_IPngyq
 unzip -p uk.kmz doc.kml | grep -c "<Placemark"          # ~1069
 unzip -p uk.kmz doc.kml | grep -c "FRZ"                 # FRZ enthalten (>600)
 ```
+
+---
+
+## 7. ✅ PRIMÄRQUELLE: offizieller NATS-Digitaldatensatz (AIXM 5.1) – empfohlen
+
+NATS veröffentlicht die UAS-Beschränkungen als amtlichen **Digital Dataset**
+(dieselben **1.069** Features wie die My-Maps, aber strukturiert):
+
+| Format | Inhalt | Für die App |
+|---|---|---|
+| **AIXM 5.1 (XML)** | exakte Geometrie (Kreise/Bögen), Höhen, Aktivierungszeiten, Hinweise | ✅ **empfohlen** |
+| KML/KMZ | gleiche Zonen, Bögen zu Linien vereinfacht, Attribute nur als HTML | Vorschau/Rückfall |
+
+- **Download-Basis (ohne Login):**
+  `https://nats-uk.ead-it.com/cms-nats/export/sites/default/en/Publications/digital-datasets/UAS_AREA_1/`
+- **Dateischema:** `EG_UAS_FR_DS_AREA1_FULL_<YYYYMMDD>_<XML|KML>.zip`
+  (`<YYYYMMDD>` = AIRAC-Effective-Date; aktueller **und** nächster Zyklus liegen
+  online). XML-ZIP ~0,5 MB (entpackt ~11,9 MB) + `.sha256` + `export-filter.xml`.
+- **Zyklus:** alle **28 Tage** (AIRAC). **Keine** temporären Zonen (NOTAM/AIP SUP).
+
+### 7.1 Umfang (AIRAC 26.11.2026): 1.069 Features
+| `type` | `localType` | Anzahl | Bedeutung |
+|---|---|---|---|
+| R | FRZ | 308 | Flight Restriction Zone (um geschützte Flugplätze) |
+| R | RPZ | 504 | Runway Protection Zone (~5×1 km je Pistenrichtung) |
+| R | – | 36 | sonstige Restricted Areas |
+| D | – | 219 | Danger Areas |
+| P | – | 2 | Prohibited Areas |
+
+> **FRZ + RPZ eines Flugplatzes = rechtlich eine Zone.** Gemeinsamer Designator-
+> Stamm + Buchstaben-Suffix (z. B. `EGR1U010A` FRZ + `EGR1U010B…E` RPZ). In der
+> App über den Stamm (`EGR1U010`) **gruppieren/verschmelzen** (Kartentools zeigen
+> sonst Lücken).
+
+### 7.2 AIXM-Mapping (unter `AirspaceTimeSlice`, `interpretation=SNAPSHOT`)
+| App-Feld | AIXM-Pfad | Hinweis |
+|---|---|---|
+| ID (stabil) | `../gml:identifier` (UUID) | **Primärschlüssel**, zyklusstabil |
+| Kennung | `aixm:designator` | z. B. `EGR1U010A` |
+| Name | `aixm:name` | |
+| Typ / Untertyp | `aixm:type` / `aixm:localType` | R/D/P · FRZ/RPZ/leer |
+| Snapshot-Datum | `gml:validTime/…/gml:timePosition` | = AIRAC-Datum |
+| Ober-/Untergrenze | `…/aixm:AirspaceVolume/aixm:upperLimit`(+`@uom`)/`…Reference`, `aixm:lowerLimit`(+`@uom`)/`…Reference` | uom **FT** oder **FL**; Ref **SFC/MSL/STD** – mitführen, **nicht** pauschal zu AGL! |
+| Geometrie | `…/aixm:horizontalProjection/aixm:Surface/gml:patches/gml:PolygonPatch` | siehe 7.3 |
+| Aktivierung | `aixm:activation/aixm:AirspaceActivation` | `status` ACTIVE/AVBL_FOR_ACTIVATION/OTHER; Zeiten als `Timesheet` oder Freitext-Remark |
+| Hinweistext | `aixm:annotation/…/aixm:LinguisticNote/aixm:note` | Genehmigungspflicht, Kontakte |
+
+Höhen: FRZ/RPZ immer 0–2.000 ft SFC; Danger/Restricted teils MSL oder FL (STD).
+
+### 7.3 Geometrie korrekt bauen ⚠️
+- **EPSG:4326, aber `gml:pos` = „lat lon"** → für GeoJSON **tauschen** (lon/lat).
+- Äußerer Ring = Folge von Segmenten, **nacheinander verketten**:
+  | Segment | Anzahl | Umsetzung |
+  |---|---|---|
+  | `GeodesicString` | 1.449 | Punktliste, Geodäten zwischen Punkten |
+  | `LineStringSegment` | 93 | Punktliste direkt |
+  | `ArcByCenterPoint` | 564 | Mittelpunkt + `gml:radius` (uom `[nmi_i]`=1.852 m) + `startAngle`/`endAngle` → in Stützpunkte (2–5°) zerlegen |
+  | `CircleByCenterPoint` | 200 | Vollkreis → densifizieren |
+- Winkel nach GML: von **Ost gegen den Uhrzeigersinn** (mathematisch) – Bogen-
+  richtung aus Start/End ableiten und **gegen die NATS-Karte visuell prüfen**.
+- Radius-Einheit prüfen (`[nmi_i]`, ggf. `KM`/`M`). Ring schließen.
+- Alternative ohne Bogenlogik: KML nehmen (Bögen schon in Linien) – dafür kleine
+  Lücken zwischen Nachbarzonen und Attribute nur als HTML.
+
+### 7.4 Import-Ablauf
+1. Neueste `…_XML.zip` mit Datum ≤ heute ermitteln; nächsten Zyklus vorab laden,
+   ab Effective Date aktivieren. 2. Entpacken + **SHA-256** gegen `.sha256`
+   prüfen. 3. AIXM parsen (Mapping 7.2). 4. Segmente verketten, Bögen/Kreise
+   densifizieren, lat/lon tauschen → GeoJSON. 5. FRZ+RPZ über Stamm gruppieren.
+   6. Diff gegen Vorzyklus über `gml:identifier`. 7. Datenstand (AIRAC) +
+   NOTAM-Hinweis in der App.
+
+→ `shared/ukGeozones.ts`: statt KML-Freitext (§4) den AIXM-Parser nutzen; R→
+`REQ_AUTHORISATION`/`RESTRICTED`, P→`PROHIBITED`, D→Gefahrengebiet. **Status GB:
+einsatzbereit (offizieller AIXM-Datensatz).**
+
+### 7.5 Offen (AIXM)
+- Lizenz/Nutzungsbedingungen (NATS-AGB) gegen die bestehende UK-Vereinbarung
+  abgleichen (kommerziell/Weitergabe). Spez-PDF `SPC_AIM006 V2.0` auf
+  Aktivierungs-Codes/Note-Purposes durchsehen. Push/Feed für neue Zyklen bei NATS
+  erfragen (aktuell nur Datei-Download).

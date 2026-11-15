@@ -1,7 +1,7 @@
 # Datenquellen-Dokumentation – Index
 
 Zentraler Einstieg zu allen analysierten Datenquellen für COpterPILOT:
-Drohnen-Geozonen (23 Länder) und Live-Luftverkehr. Stand: 2026-11-15.
+Drohnen-Geozonen (25 Länder) und Live-Luftverkehr. Stand: 2026-11-15.
 
 Methode: Analyse der offiziellen Portale/Apps (Netzwerk-Capture, öffentliche
 Bundles/Specs), Abrufe über die **öffentlichen** Endpunkte. Kein Bot-/WAF-Schutz
@@ -37,7 +37,9 @@ umgangen, keine privaten Logins missbraucht. Teile der Abrufe liefen aus einer
 | 🇮🇪 IE Irland | ✅ | [ireland-geozones-integration.md](ireland-geozones-integration.md) |
 | 🇵🇹 PT Portugal | ✅ | [anac-pt-api-integration.md](anac-pt-api-integration.md) |
 | 🇱🇹 LT Litauen | ✅ | [lithuania-ans-api-integration.md](lithuania-ans-api-integration.md) |
-| 🇬🇧 GB Vereinigtes Königreich | ✅ | [uk-geozones-integration.md](uk-geozones-integration.md) |
+| 🇬🇧 GB Vereinigtes Königreich | ✅ (AIXM 5.1, 1.069 Zonen) | [uk-geozones-integration.md](uk-geozones-integration.md) |
+| 🇪🇪 EE Estland | ✅ (ED-269, ~230) | [estonia-eans-api-integration.md](estonia-eans-api-integration.md) |
+| 🇫🇷 FR Frankreich | ✅ (WFS, ~89.700) | [france-geoportail-api-integration.md](france-geoportail-api-integration.md) |
 | 🇮🇸 IS Island | ✅ | [iceland-samgongustofa-api-integration.md](iceland-samgongustofa-api-integration.md) |
 | 🇨🇾 CY Zypern | ✅ | [cyprus-dca-api-integration.md](cyprus-dca-api-integration.md) |
 | 🇭🇷 HR Kroatien | ✅ | [croatia-amc-api-integration.md](croatia-amc-api-integration.md) |
@@ -71,11 +73,11 @@ umgangen, keine privaten Logins missbraucht. Teile der Abrufe liefen aus einer
 
 Siehe „Gruppierung nach Technik" in
 [geozonen-quellen-uebersicht.md](geozonen-quellen-uebersicht.md):
-- **ED-269/ED-318-Loader** (vorhanden) → AT, LT, IE, PT, BE, ES, IT, LU
-- **WFS-Loader** → BE, IS, BG, RO
+- **ED-269/ED-318-Loader** (vorhanden) → AT, LT, **EE**, IE, PT, BE, ES, IT, LU
+- **WFS-Loader** → BE, IS, BG, RO, **FR** (~90k → PMTiles), CZ(ED-318)
 - **ArcGIS-FeatureServer/MapServer-Loader** → CY, SI, SK, ES
-- **KML→GeoJSON** → GB, PL
-- **Sonderfälle** → HR (SignalR), MT (Meteor-DDP)
+- **KML→GeoJSON** → PL; **AIXM 5.1** → GB (Bögen/Kreise densifizieren)
+- **Sonderfälle** → HR (SignalR), MT (Meteor-DDP), GR (WMS-KML-Skript)
 - Helfer: WKT→GeoJSON (HR), Kreis→Polygon (PT, NL), Höhenumrechnung (FL/ft/m)
 
 ---
