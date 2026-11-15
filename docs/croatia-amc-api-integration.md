@@ -2,7 +2,12 @@
 
 Übergabe-Dokument zu **amc.crocontrol.hr/amc/maps/** (Hrvatska kontrola
 zračne plovidbe / Croatia Control – Airspace Management Cell, AMC).
-Stand: 2026-11-15. Freigabe liegt laut Product Owner vor.
+Stand: 2026-11-15, **live verifiziert**. Freigabe liegt vor.
+
+> **Korrektur gegenüber einer früheren Fassung:** Die Daten sind **anonym
+> (ohne Login) vollständig abrufbar** – entgegen meiner ersten Einschätzung.
+> Der Zugang läuft über einen **öffentlichen SignalR-Hub**. Unten der
+> vollständige, verifizierte Weg.
 
 Vergleich: übrige Länder-Dokumente in `docs/`.
 
@@ -10,75 +15,135 @@ Vergleich: übrige Länder-Dokumente in `docs/`.
 
 ## 1. Kurzfassung
 
-- Die gelieferte URL ist das **AMC-Portal von Croatia Control** (Airspace
-  Management Cell) – eine **ASP.NET-Webanwendung** für
-  **Luftraum-Reservierungen/-Aktivierungen** (vergleichbar einem AUP/UUP-
-  System), mit VFR/IFR-Kartenlayern (`vfr3`, `lower3`, `upper3`),
-  Reservierungs- und Taktik-Funktionen.
-- Die Kartendaten laufen über eine **WebSocket-Verbindung („amcwss")**, die
-  erst nach Initialisierung/Interaktion – und für die vollen Funktionen
-  vermutlich **nach Login** – Daten liefert. Im anonymen Seitenaufruf wurden
-  **keine öffentlichen Geozonen-/GeoJSON-Endpunkte** ausgelöst.
-- **Folge:** Dies ist **kein sauberer, direkt nutzbarer Drohnen-Geozonen-Feed**
-  wie bei den ED-269-Ländern. Für eine saubere Integration sollte bei Croatia
-  Control ein **ED-269-/WFS-/GeoJSON-Export** erfragt werden (siehe §4).
+- Das AMC-Portal lädt seine Daten über einen **klassischen ASP.NET-SignalR-Hub**
+  (`aMCHub`) unter **`/amc/signalr`** – **ohne Authentifizierung** erreichbar.
+- Nach `CLIC_ClientReady` pusht der Server u. a.:
+  - **`SRVC_Areas`** – die **Luftraum-/Geozonen** als **WKT-Polygone** mit Typ
+    und Höhen (**live: 565 Gebiete**).
+  - `SRVC_DroneReservations` – drohnenspezifische Reservierungen/CTR-Zonen.
+  - `SRVC_activeNotams` / `SRVC_activeFullNotams` – aktive NOTAMs (inkl.
+    „UNMANNED ACFT").
+  - `SRVC_aUPUUPs` – AUP/UUP (Airspace Use Plans).
+  - `SRVC_ClientSettings` – Zonentyp-Legende (inkl. **drohnenspezifischer
+    Typen UTR/UAG/ULG/URG**).
+  - `SRVC_MetLayers` – METAR/Wetter.
+- **Kein ED-269/GeoJSON**, aber ein sauberes, strukturiertes, anonym
+  abrufbares Format (WKT + Felder). Integrierbar.
 
 ---
 
-## 2. Beobachtungen (verifiziert)
+## 2. Zugang (klassisches SignalR, anonym)
 
-| Punkt | Wert |
-|---|---|
-| Portal | `https://amc.crocontrol.hr/amc/maps/` (HTTP 200) |
-| Technik | ASP.NET (DNN), jQuery, jsGrid, Turf, Lobipanel; Skripte `AMC/tactical.js`, `mapCommunication.js`, `reservationMode.js`, `liveTrack.js` |
-| Datentransport | WebSocket „amcwss" (dynamisch aufgebaut); REST-Pfade u. a. `/TRANS_ReservationUrl`, `/View-Reservation` |
-| Kartenlayer | `vfr3`, `lower3`, `upper3` (VFR/IFR-Tiles) |
-| Beim anonymen Laden | nur HTML + Assets; **keine** Geozonen-/GeoJSON-Requests |
+**Hub:** `aMCHub` · **Endpoint-Basis:** `https://amc.crocontrol.hr/amc/signalr`
 
-Das Portal ist auf **Luftraumreservierung und taktische Luftraumnutzung**
-ausgelegt (professionelle AMC-Nutzer), nicht primär auf eine öffentliche
-Drohnen-Geozonen-Darstellung. Ob und welche Drohnen-Geozonen-Schicht hier
-ohne Login verfügbar ist, ließ sich **nicht** verifizieren.
-
----
-
-## 3. Warum noch nicht integrierbar
-
-- **Kein öffentlicher Zonen-Endpunkt gefunden.** Die Daten kommen über einen
-  dynamisch aufgebauten WebSocket; ein maschinenlesbarer, stabiler
-  Geozonen-Feed war anonym nicht greifbar.
-- Das WebSocket-Protokoll „amcwss" ist proprietär und müsste erst
-  reverse-engineered werden – aufwändig und fragil, und für die vollen
-  Funktionen vermutlich login-pflichtig.
+Ablauf (verifiziert):
+```
+1) GET  /amc/signalr/negotiate?clientProtocol=2.1&connectionData=[{"name":"aMCHub"}]
+        → { ConnectionToken, TryWebSockets:true, ... }
+2) WS   wss://amc.crocontrol.hr/amc/signalr/connect?transport=webSockets
+            &clientProtocol=2.1&connectionToken=<TOKEN>&connectionData=[{"name":"aMCHub"}]
+3) GET  /amc/signalr/start?transport=webSockets&clientProtocol=2.1
+            &connectionToken=<TOKEN>&connectionData=[{"name":"aMCHub"}]
+4) WS → senden:  {"H":"aMCHub","M":"CLIC_ClientReady","A":[],"I":0}
+5) WS ← empfangen: {"C":"...","M":[{"H":"aMCHub","M":"SRVC_Areas","A":[[ ...zonen... ]]}, ...]}
+```
+- `connectionData` muss URL-codiert werden.
+- Der Hub-Proxy (Methodenliste) steht offen unter `/amc/signalr/hubs`.
+- Server→Client-Methoden heißen `SRVC_*`, Client→Server `CLIC_*`
+  (nur `CLIC_ClientReady` nötig; die meisten übrigen `CLIC_*` sind
+  authentifizierte Aktionen – Reservierungen, Konflikte – und für den reinen
+  Datenabruf irrelevant).
 
 ---
 
-## 4. Integrationsauftrag / nächste Schritte
+## 3. Schema
+
+### `SRVC_Areas` (Zonen) – 565 Gebiete, Verteilung D:147, TSA:183, TRA:230, MTA:4, R:1
+
+| Feld | Beispiel | Bedeutung |
+|---|---|---|
+| `DBId` | `-883` | ID (Dedupe) |
+| `Name` | `LDAD82` | Zonenkennung |
+| `AreaType` | `D` | Zonentyp (siehe Legende §3.1) |
+| `Poligon` | `POLYGON ((14.0108 45.3828, 14.095 45.2725, …))` | **WKT**-Polygon (lon lat), EPSG:4326 |
+| `Lowerflightlevel` / `LowerUnit` | `0` / `FL` | Untergrenze |
+| `Upperflightlevel` / `UpperUnit` | `4500` / `ft AMSL` | Obergrenze (Einheit `FL` oder `ft AMSL`) |
+| `UpperreservedFL` / `LowerreservedFL` | | reservierte Grenzen |
+| `ZaPrikazString` | `LDAD82 (D)` | Anzeigename |
+
+### 3.1 Zonentyp-Legende (`SRVC_ClientSettings.FilterZona`)
+`CTR` (Controlled Traffic Region), `ATZ` (Aerodrome Traffic Zone),
+**`UTR` (UTR – drones)**, **`UAG` (UAS Allowed Geographical zone)**,
+**`ULG` (UAS Limited geographical area)**, **`URG` (UAS Restricted
+Geographical zone)**, `D` (Danger), `R` (Restricted), `P` (Prohibited),
+`TRA` (Temporary Restricted Area), `TSA` (Temporary Segregated Area),
+`CBA` (Cross Border Area), `MTA` (Military Access Corridor), `NO FLY`.
+Jeder Typ hat Farbe + mehrsprachige Namen (hr/en/bs/sr/de).
+
+> Mapping-Vorschlag: `P`/`NO FLY`/`URG` → `PROHIBITED`; `R`/`TRA`/`TSA`/`D`/
+> `ULG`/`CTR`/`ATZ` → `REQ_AUTHORISATION`/`RESTRICTED`; `UAG` → `NO_RESTRICTION`.
+> Höhen `FL` → Meter (×100 ft × 0,3048), `ft AMSL` → Meter. Mit der Fachseite
+> abstimmen.
+
+### Weitere Pushes
+- `SRVC_DroneReservations`: drohnenspezifische Zonen/Reservierungen (z. B.
+  „CTR SPLIT 1"), mit Gültigkeitszeiten.
+- `SRVC_activeNotams`/`SRVC_activeFullNotams`: aktive NOTAMs (strukturiert,
+  inkl. unbemannter Luftfahrt).
+- `SRVC_aUPUUPs`: AUP/UUP-Text (tägliche Luftraumnutzung).
+
+---
+
+## 4. Integrationsauftrag für COpterPILOT
 
 ### Ist-Zustand
 - HR ist nur über Bounding-Box bekannt (`shared/countryDetection.ts`), **keine
   Geodaten**.
 
-### Empfohlenes Vorgehen (vor dem Bau klären – blockierend)
-1. **Bei Croatia Control (crocontrol.hr) nachfragen**, ob die UAS-Geozonen als
-   **ED-269-Datei** oder über **WFS/GeoJSON/ArcGIS** bereitstehen. Nach
-   EU-Verordnung 2019/947 müssen die Geozonen in einem gemeinsamen digitalen
-   Format (ED-269) veröffentlicht werden – es existiert also mit hoher
-   Wahrscheinlichkeit eine saubere Quelle außerhalb des AMC-Reservierungstools.
-2. **Falls nur das AMC-Portal:** klären, ob es eine **öffentliche
-   REST-Schnittstelle** für die Zonen gibt (ohne Login), und deren
-   Spezifikation anfordern. Erst dann Normalisierer bauen.
-3. Erst nach vorliegendem Feed: `fetchCroatia()` + `shared/croatiaGeozones.ts`,
-   `"hr"` in die Länderliste, Label `HR: "Croatia Control (HKZP)"`.
-
-> **Aktueller Stand:** Plattform analysiert; es fehlt eine nutzbare,
-> öffentliche Datenquelle. Der nächste Schritt ist eine Info/Freigabe von
-> Croatia Control zu einem ED-269-/WFS-Feed (§4.1).
+### Schritte
+1. **SignalR-Client** `client/lib/geozoneDirect/croatiaSource.ts`:
+   - Ablauf aus §2 (negotiate → WS connect → start → `CLIC_ClientReady`).
+   - Eingehende `SRVC_Areas` (und optional `SRVC_DroneReservations`) sammeln,
+     dann Verbindung schließen (einmaliger Abzug, kein Dauer-Socket nötig).
+   - In React Native: WebSocket ist nativ vorhanden; die 3 HTTP-Schritte per
+     `fetch`. Kein SignalR-SDK nötig – das Protokoll ist das oben gezeigte
+     einfache JSON-Framing.
+2. **Normalisierung** `shared/croatiaGeozones.ts`:
+   - **WKT `Poligon` → GeoJSON** parsen (`POLYGON ((lon lat, …))`; `turf` oder
+     ein kleiner WKT-Parser).
+   - `AreaType` → `restriction` (Mapping §3.1).
+   - Höhen `FL`/`ft AMSL` → Meter.
+   - Dedupe über `DBId`/`Name`.
+3. `"hr"` in die Länderliste; eigener SignalR-Pfad (kein ED-269).
+4. **Label**: `HR: "Croatia Control (HKZP) / AMC"`. Attribution
+   „© Hrvatska kontrola zračne plovidbe".
+5. **Tests**: WKT→GeoJSON, `AreaType`-Mapping, Höheneinheiten (FL/ft), Dedupe.
+6. **Refresh**: täglich (einmaliger SignalR-Abzug). Optional NOTAMs/Drohnen-
+   Reservierungen als „heute aktiv"-Zusatz.
 
 ---
 
 ## 5. Offene Punkte
-1. **ED-269-/WFS-Quelle bei Croatia Control erfragen** (wahrscheinlich
-   vorhanden, nach EU-Pflicht).
-2. Falls nur WebSocket: öffentliche REST-Alternative + Spezifikation anfordern.
-3. Nutzungsbedingungen der Freigabe im Repo ablegen.
+1. **AreaType-Mapping** fachlich bestätigen (v. a. die UAS-Typen UTR/UAG/ULG/URG
+   und TRA/TSA/MTA).
+2. **Vollständigkeit:** Prüfen, ob alle drohnenrelevanten Zonen in `SRVC_Areas`
+   stecken oder teils nur in `SRVC_DroneReservations` (beide abrufen).
+3. **Höhenbezug:** `FL` vs. `ft AMSL` sauber umrechnen; Bezug (AMSL/AGL)
+   dokumentieren.
+4. Nutzungsbedingungen der Freigabe im Repo ablegen.
+
+---
+
+## 6. Schnelltest (Node)
+
+```js
+// negotiate -> ws connect -> start -> CLIC_ClientReady -> SRVC_Areas
+const BASE="https://amc.crocontrol.hr/amc/signalr";
+const cd=encodeURIComponent(JSON.stringify([{name:"aMCHub"}]));
+const neg=await (await fetch(`${BASE}/negotiate?clientProtocol=2.1&connectionData=${cd}`)).json();
+const tok=encodeURIComponent(neg.ConnectionToken);
+const ws=new WebSocket(`wss://amc.crocontrol.hr/amc/signalr/connect?transport=webSockets&clientProtocol=2.1&connectionToken=${tok}&connectionData=${cd}`);
+ws.onopen=()=>fetch(`${BASE}/start?transport=webSockets&clientProtocol=2.1&connectionToken=${tok}&connectionData=${cd}`)
+  .then(()=>ws.send(JSON.stringify({H:"aMCHub",M:"CLIC_ClientReady",A:[],I:0})));
+ws.onmessage=e=>{for(const x of (JSON.parse(e.data).M||[])) if(x.M==="SRVC_Areas") console.log("areas:",x.A[0].length);};
+```
