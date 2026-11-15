@@ -4,7 +4,7 @@ import { directFetchJson, directFetchText, finalizeDirectFeatures } from "./dire
 import {
   irishGeojsonUrlFromHtml,
   normalizeIrishZones,
-  normalizeLuxembourgOgc,
+  mergeLuxembourgOgc,
 } from "../../../shared/irishLuxGeozones";
 import { ed269ZonesToFeatures } from "../../../shared/ed269Pure";
 import { PT_ED269_URL, normalizePortugueseZones } from "../../../shared/portugueseGeozones";
@@ -19,7 +19,15 @@ export const IE_ZONES_PAGE_URL = "https://www.iaa.ie/general-aviation/drones/uas
 export const IE_LAST_KNOWN_URL =
   "https://www.iaa.ie/docs/default-source/default-document-library/uas/20261106_uas_zones_ireland_v1.geojson?download=true";
 export const LU_ED269_URL = "https://drones.geoportail.lu/zones";
-export const LU_OGC_URL = "https://features.geoportail.lu/collections/1928/items?f=json&limit=2000";
+// Das Geoportail teilt die Zonen nach Höhe auf: 1927 = 0–50 m, 1928 = 50–120 m.
+// Zonen von 0 bis 120 m stehen in beiden; erst zusammen ist der Bestand
+// vollständig (u. a. die unteren Flugplatz-/Heliport-Teilzonen „…-1“ nur in 1927).
+export const LU_OGC_URLS = [
+  "https://features.geoportail.lu/collections/1927/items?f=json&limit=2000",
+  "https://features.geoportail.lu/collections/1928/items?f=json&limit=2000",
+];
+/** @deprecated nur noch für Abwärtskompatibilität; siehe LU_OGC_URLS */
+export const LU_OGC_URL = LU_OGC_URLS[1];
 
 export async function fetchIreland(): Promise<GeoFeature[]> {
   let url = IE_LAST_KNOWN_URL;
@@ -42,7 +50,10 @@ export async function fetchLuxembourg(): Promise<GeoFeature[]> {
   } catch (e) {
     console.warn("[geozoneDirect] LU: ED-269-Dienst nicht verfügbar, nutze OGC-Features:", (e as Error)?.message || e);
   }
-  const features = normalizeLuxembourgOgc(await directFetchJson(LU_OGC_URL));
+  // Beide Höhenschichten laden; schlägt eine fehl, wird abgebrochen statt einen
+  // halben Bestand zu speichern (der alte, vollständige Cache bleibt dann).
+  const bodies = await Promise.all(LU_OGC_URLS.map((u) => directFetchJson(u)));
+  const features = mergeLuxembourgOgc(bodies);
   if (features.length === 0) throw new Error("Geoportail lieferte keine Zonen");
   return finalizeDirectFeatures(features as unknown as GeoFeature[], "lu");
 }

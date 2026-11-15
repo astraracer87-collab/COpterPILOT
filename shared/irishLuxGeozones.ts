@@ -120,3 +120,22 @@ export function normalizeLuxembourgOgc(body: any): Feature[] {
   const raw: Feature[] = Array.isArray(body?.features) ? body.features : [];
   return raw.map(normalizeLuxembourgFeature).filter((f): f is Feature => !!f);
 }
+
+/**
+ * Führt die Höhenschichten 1927 (0–50 m) und 1928 (50–120 m) zusammen.
+ * Zonen von 0–120 m stehen in beiden Sammlungen mit derselben objectid und
+ * werden nur einmal übernommen.
+ */
+export function mergeLuxembourgOgc(bodies: any[]): Feature[] {
+  const seen = new Set<string>();
+  const out: Feature[] = [];
+  for (const body of bodies) {
+    for (const f of normalizeLuxembourgOgc(body)) {
+      const key = String(f.id ?? f.properties?.identifier ?? "");
+      if (key && seen.has(key)) continue;
+      if (key) seen.add(key);
+      out.push(f);
+    }
+  }
+  return out;
+}
