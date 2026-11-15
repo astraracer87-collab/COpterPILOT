@@ -20,7 +20,7 @@ import {
   type ManualRestrictionParams,
   type LocationContinueInput,
 } from "../manualRestrictionFlow";
-import { hasOwnMap } from "../../../shared/countryDetection";
+import { hasOwnMap, setCountryAccessAvailable } from "../../../shared/countryDetection";
 
 // Modelliert die Navigations-Kette Standort -> DateTime -> Restrictions, indem die
 // reinen Schritt-Helfer hintereinander angewendet werden. Liefert das, was
@@ -322,8 +322,16 @@ describe("hasOwnMap klassifiziert Länder ohne eigene Geozonen-Daten korrekt", (
     }
   });
 
+  it("IT (d-flight) zählt nur mit eingetragenem Zugang als eigene Karte", () => {
+    setCountryAccessAvailable("IT", false);
+    assert.equal(hasOwnMap("IT"), false);
+    setCountryAccessAvailable("IT", true);
+    assert.equal(hasOwnMap("it"), true);
+    setCountryAccessAvailable("IT", false);
+  });
+
   it("Länder mit eigenen Daten lösen den manuellen Flow NICHT aus", () => {
-    for (const iso of ["DE", "FR", "CH", "LU", "NL", "AT", "BE", "DK", "ES", "PL", "IT", "LT", "GB"]) {
+    for (const iso of ["DE", "FR", "CH", "LU", "NL", "AT", "BE", "DK", "ES", "PL", "LT", "GB"]) {
       assert.equal(hasOwnMap(iso), true, `${iso} sollte eine eigene Karte haben`);
     }
   });

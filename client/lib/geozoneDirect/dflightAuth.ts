@@ -19,6 +19,7 @@
 // RN hat kein Node-crypto -> node-forge (reines JS). expo-secure-store wird
 // erst bei Bedarf geladen, damit die CSRF-/Socket-Teile unter tsx testbar sind.
 
+import { setCountryAccessAvailable } from "../../../shared/countryDetection";
 import forge from "node-forge";
 import { IT_DFLIGHT_BASE_URL } from "../../../shared/italianGeozones";
 
@@ -444,6 +445,15 @@ export async function getDflightCredentials(): Promise<{ username: string; passw
  * Prüft die Zugangsdaten per Login und speichert sie nur bei Erfolg.
  * Liefert {ok:false, error} mit deutscher Meldung bei Fehlern.
  */
+/** Beim App-Start: merken, ob ein d-flight-Zugang eingetragen ist (für hasOwnMap). */
+export async function initDflightAccessFlag(): Promise<void> {
+  try {
+    setCountryAccessAvailable("IT", !!(await getDflightCredentials()));
+  } catch {
+    setCountryAccessAvailable("IT", false);
+  }
+}
+
 export async function setDflightCredentials(
   username: string,
   password: string,
@@ -457,6 +467,7 @@ export async function setDflightCredentials(
     await ss.setItemAsync(DFLIGHT_USERNAME_KEY, u);
     await ss.setItemAsync(DFLIGHT_PASSWORD_KEY, p);
     currentToken = token;
+    setCountryAccessAvailable("IT", true);
     return { ok: true };
   } catch (e: any) {
     return { ok: false, error: e?.message ? String(e.message) : "d-flight-Anmeldung fehlgeschlagen" };
@@ -465,6 +476,7 @@ export async function setDflightCredentials(
 
 export async function clearDflightCredentials(): Promise<void> {
   currentToken = null;
+  setCountryAccessAvailable("IT", false);
   try {
     const ss = secureStore();
     await ss.deleteItemAsync(DFLIGHT_USERNAME_KEY).catch(() => {});

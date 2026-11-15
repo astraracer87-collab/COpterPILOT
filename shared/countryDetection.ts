@@ -962,5 +962,20 @@ export const OWN_MAP_DATA_COUNTRIES = ["DE", "FR", "CH", "LU", "NL", "AT", "BE",
 // Overlay). Sonst wird die offizielle Staatskarte bzw. der EASA-Fallback gezeigt.
 export function hasOwnMap(iso?: string | null): boolean {
   if (!iso) return false;
-  return OWN_MAP_DATA_COUNTRIES.includes(iso.toUpperCase());
+  const c = iso.toUpperCase();
+  if (ACCESS_GATED_COUNTRIES.has(c) && !accessAvailable.has(c)) return false;
+  return OWN_MAP_DATA_COUNTRIES.includes(c);
+}
+
+// Länder, deren Geozonen nur mit eigenem Zugang ladbar sind (IT: d-flight).
+// Ohne eingetragenen Zugang gelten sie als „ohne eigene Daten“, damit der
+// Hinweis zur manuellen Prüfung erscheint.
+const ACCESS_GATED_COUNTRIES = new Set(["IT"]);
+const accessAvailable = new Set<string>();
+
+/** Meldet, ob für ein zugangsgebundenes Land ein Zugang eingetragen ist. */
+export function setCountryAccessAvailable(iso: string, available: boolean): void {
+  const c = String(iso || "").toUpperCase();
+  if (available) accessAvailable.add(c);
+  else accessAvailable.delete(c);
 }

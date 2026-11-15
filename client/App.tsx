@@ -3,9 +3,11 @@ import { StyleSheet, View, Text, Pressable, ScrollView, Platform, BackHandler, A
 import { NavigationContainer } from "@react-navigation/native";
 import { navigationRef } from "@/navigation/navigationRef";
 import { startZoneTranslation } from "@/lib/zoneTranslationStore";
+import { initDflightAccessFlag } from "@/lib/geozoneDirect/dflightAuth";
 
 // Übersetzungs-Cache der Behördentexte laden (offline) und neue Texte nachziehen
 startZoneTranslation();
+initDflightAccessFlag();
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
