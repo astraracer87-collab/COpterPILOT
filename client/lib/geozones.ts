@@ -112,7 +112,7 @@ export {
   COUNTRY_WMS_MAX_NATIVE_ZOOM,
 } from "@/lib/geozoneZoom";
 
-export type CountryIsoWithGeozones = "DE" | "CH" | "LU" | "NL" | "FR" | "AT" | "BE" | "DK" | "EE" | "FI" | "NO" | "SE" | "IE" | "PT" | "ES" | "PL" | "LT" | "IT" | "GB" | "IS" | "CY";
+export type CountryIsoWithGeozones = "DE" | "CH" | "LU" | "NL" | "FR" | "AT" | "BE" | "DK" | "EE" | "FI" | "NO" | "SE" | "IE" | "PT" | "ES" | "PL" | "LT" | "IT" | "GB" | "IS" | "CY" | "HR";
 
 export interface CountryGeozoneConfig {
   iso: CountryIsoWithGeozones;
@@ -344,6 +344,16 @@ export const COUNTRY_GEOZONE_CONFIGS: Record<string, CountryGeozoneConfig> = {
   CY: {
     // Zypern (DCA / AMC Cyprus): öffentlicher ArcGIS-FeatureServer, ohne Anmeldung.
     iso: "CY",
+    wmsBaseUrl: "",
+    wmsVersion: "1.3.0",
+    layers: [],
+    featureInfoType: "ed269-cached",
+    alwaysVisibleLayerIds: [],
+    forceEnabledLayerIds: [],
+  },
+  HR: {
+    // Kroatien (Croatia Control / AMC): anonymer SignalR-Hub, Gebiete mit AUP-Aktivierungszeiten und Drohnenzonen.
+    iso: "HR",
     wmsBaseUrl: "",
     wmsVersion: "1.3.0",
     layers: [],
