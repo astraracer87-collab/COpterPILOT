@@ -1,0 +1,160 @@
+{
+  "title": "UAS Geographical Zones - Italia",
+  "description": "Hand-made test fixture modelled on EUROCAE ED-269 (not a real d-flight download)",
+  "features": [
+    {
+      "identifier": "LIRF_CTR_01",
+      "country": "ITA",
+      "name": "CTR ROMA - Settore 1",
+      "type": "COMMON",
+      "restriction": "REQ_AUTHORISATION",
+      "restrictionConditions": ["Autorizzazione ENAV richiesta"],
+      "region": 0,
+      "reason": ["AIR_TRAFFIC"],
+      "otherReasonInfo": null,
+      "regulationExemption": "NO",
+      "uSpaceClass": null,
+      "message": "<p>Operazioni consentite previa autorizzazione.<br/>Contattare ENAV.</p>",
+      "applicability": [{ "permanent": "YES", "startDateTime": "2026-10-29T00:00:00Z" }],
+      "zoneAuthority": [
+        {
+          "name": "ENAC",
+          "service": "Direzione Operazioni",
+          "contactName": "Ufficio UAS",
+          "siteURL": "https://www.enac.gov.it",
+          "email": "uas@enac.gov.it",
+          "phone": "+39 06 44596 1",
+          "purpose": "AUTHORIZATION",
+          "intervalBefore": "P10D"
+        }
+      ],
+      "geometry": [
+        {
+          "uomDimensions": "FT",
+          "lowerLimit": 0,
+          "lowerVerticalReference": "AGL",
+          "upperLimit": 2000,
+          "upperVerticalReference": "AMSL",
+          "horizontalProjection": {
+            "type": "Polygon",
+            "coordinates": [[[12.20, 41.75], [12.35, 41.75], [12.35, 41.85], [12.20, 41.85], [12.20, 41.75]]]
+          }
+        }
+      ],
+      "extendedProperties": { "airac": "2026-10-29" }
+    },
+    {
+      "identifier": "PARCO_GRAN_SASSO",
+      "country": "ITA",
+      "name": "Parco Nazionale del Gran Sasso",
+      "type": "COMMON",
+      "restriction": "PROHIBITED",
+      "reason": ["NATURE"],
+      "message": "Divieto di sorvolo",
+      "applicability": [{ "permanent": "YES" }],
+      "zoneAuthority": [{ "name": "Ente Parco", "siteURL": "https://www.gransassolagapark.it" }],
+      "geometry": [
+        {
+          "uomDimensions": "M",
+          "lowerLimit": null,
+          "lowerVerticalReference": "AGL",
+          "upperLimit": 120,
+          "upperVerticalReference": "AGL",
+          "horizontalProjection": { "type": "Circle", "center": [13.56, 42.45], "radius": 5000 }
+        }
+      ]
+    },
+    {
+      "identifier": "LIMC_ATZ",
+      "country": "ITA",
+      "name": "ATZ MALPENSA",
+      "type": "COMMON",
+      "restriction": "REQ_AUTHORISATION",
+      "reason": ["AIR_TRAFFIC"],
+      "message": "ATZ",
+      "applicability": [{ "permanent": "YES" }],
+      "zoneAuthority": [{ "name": "ENAV" }],
+      "geometry": [
+        {
+          "uomDimensions": "M",
+          "lowerLimit": 0,
+          "lowerVerticalReference": "AGL",
+          "upperLimit": 30,
+          "upperVerticalReference": "AGL",
+          "horizontalProjection": {
+            "type": "Polygon",
+            "coordinates": [[[8.68, 45.60], [8.76, 45.60], [8.76, 45.66], [8.68, 45.66], [8.68, 45.60]]]
+          }
+        },
+        {
+          "uomDimensions": "M",
+          "lowerLimit": 0,
+          "lowerVerticalReference": "AGL",
+          "upperLimit": 60,
+          "upperVerticalReference": "AGL",
+          "horizontalProjection": {
+            "type": "Polygon",
+            "coordinates": [[[8.60, 45.55], [8.84, 45.55], [8.84, 45.70], [8.60, 45.70], [8.60, 45.55]]]
+          }
+        }
+      ]
+    },
+    {
+      "identifier": "EVENTO_2025",
+      "country": "ITA",
+      "name": "Manifestazione temporanea 2025",
+      "type": "COMMON",
+      "restriction": "PROHIBITED",
+      "reason": ["POPULATION"],
+      "message": "Zona temporanea",
+      "applicability": [{ "permanent": "NO", "startDateTime": "2025-06-01T08:00:00Z", "endDateTime": "2025-06-02T20:00:00Z" }],
+      "geometry": [
+        {
+          "uomDimensions": "M",
+          "lowerLimit": 0,
+          "lowerVerticalReference": "AGL",
+          "upperLimit": 120,
+          "upperVerticalReference": "AGL",
+          "horizontalProjection": { "type": "Circle", "center": [9.19, 45.46], "radius": 1000 }
+        }
+      ]
+    },
+    {
+      "identifier": "CAMPO_VOLO_ULM",
+      "country": "ITA",
+      "name": "Campo volo modellistico",
+      "type": "COMMON",
+      "restriction": "NO_RESTRICTION",
+      "reason": ["OTHER"],
+      "otherReasonInfo": "Area dedicata",
+      "message": "",
+      "applicability": [
+        {
+          "permanent": "NO",
+          "startDateTime": "2026-11-01T00:00:00Z",
+          "endDateTime": "2027-03-31T23:59:59Z",
+          "schedule": [{ "day": ["SAT", "SUN"], "startTime": "08:00", "endTime": "18:00" }]
+        }
+      ],
+      "geometry": [
+        {
+          "uomDimensions": "FT",
+          "lowerLimit": "SFC",
+          "lowerVerticalReference": "AGL",
+          "upperLimit": 400,
+          "upperVerticalReference": "AGL",
+          "horizontalProjection": {
+            "type": "Polygon",
+            "coordinates": [[[11.30, 44.50], [11.31, 44.50], [11.31, 44.51], [11.30, 44.51], [11.30, 44.50]]]
+          }
+        }
+      ]
+    },
+    {
+      "identifier": "SENZA_GEOMETRIA",
+      "name": "Zona senza geometria",
+      "restriction": "PROHIBITED",
+      "geometry": []
+    }
+  ]
+}

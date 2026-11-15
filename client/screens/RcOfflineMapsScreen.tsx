@@ -33,6 +33,7 @@ import {
 import { getObstaclesEnabled, setObstaclesEnabled } from "@/lib/obstacles";
 import { clearGoogleKey, getGoogleKey, setGoogleKey } from "@/lib/googleTiles";
 import { clearDeeplKey, getDeeplKey, setDeeplKey } from "@/lib/zoneTranslationStore";
+import { clearDflightCredentials, getDflightCredentials, setDflightCredentials } from "@/lib/geozoneDirect/dflightAuth";
 
 const LEVELS: DetailLevel[] = [11, 12, 13, 14, 15];
 const KIND_LABEL: Record<string, string> = { map: "Karte", sat: "Satellit", geo: "Geozonen" };
@@ -72,6 +73,30 @@ export default function OfflineMapsScreen() {
     getGoogleKey().then((k) => setHasGoogle(!!k));
     getDeeplKey().then((k) => setHasDeepl(!!k));
   }, []);
+
+  // Italien (d-flight): eigener Zugang, nur verschlüsselt auf dem Gerät gespeichert
+  const [dflightUser, setDflightUser] = useState<string | null>(null);
+  const [dfUserInput, setDfUserInput] = useState("");
+  const [dfPassInput, setDfPassInput] = useState("");
+  const [dfBusy, setDfBusy] = useState(false);
+  const [dfMsg, setDfMsg] = useState<string | null>(null);
+  useEffect(() => {
+    getDflightCredentials().then((c) => setDflightUser(c?.username ?? null)).catch(() => {});
+  }, []);
+  const saveDflight = async () => {
+    setDfBusy(true);
+    setDfMsg(null);
+    const r = await setDflightCredentials(dfUserInput.trim(), dfPassInput);
+    setDfBusy(false);
+    if (r.ok) {
+      setDflightUser(dfUserInput.trim().toLowerCase());
+      setDfUserInput("");
+      setDfPassInput("");
+      setDfMsg("Anmeldung erfolgreich – die italienischen Geozonen werden beim nächsten Laden abgerufen.");
+    } else {
+      setDfMsg(r.error ?? "Anmeldung bei d-flight fehlgeschlagen.");
+    }
+  };
 
   const [hasDeepl, setHasDeepl] = useState(false);
   const [deeplInput, setDeeplInput] = useState("");
@@ -310,6 +335,61 @@ export default function OfflineMapsScreen() {
             </View>
           )}
           {deeplMsg ? <ThemedText style={[styles.small, { marginTop: Spacing.sm }]}>{deeplMsg}</ThemedText> : null}
+        </Card>
+
+        <ThemedText style={[styles.sectionTitle, { color: theme.textSecondary, marginTop: Spacing["2xl"] }]}>ITALIEN – D-FLIGHT-ZUGANG</ThemedText>
+        <Card style={styles.card}>
+          <ThemedText style={[styles.small, { color: theme.textSecondary }]}>
+            Die italienischen Geozonen (ENAV / d-flight) gibt es nur mit einem eigenen, kostenlosen d-flight-Konto.
+            Benutzername und Passwort werden nur auf diesem Gerät verschlüsselt gespeichert und ausschließlich an
+            d-flight.it gesendet.
+          </ThemedText>
+          {dflightUser ? (
+            <View style={[styles.row, { marginTop: Spacing.md }]}>
+              <Feather name="check-circle" size={18} color="#1B8A2A" />
+              <ThemedText style={[styles.rowLabel, { flex: 1 }]} numberOfLines={1}>Angemeldet als {dflightUser}</ThemedText>
+              <Pressable
+                onPress={async () => { await clearDflightCredentials(); setDflightUser(null); setDfMsg(null); }}
+                style={[styles.btn, { backgroundColor: "rgba(255,59,48,0.12)" }]}
+              >
+                <ThemedText style={[styles.btnText, { color: "#FF3B30" }]}>Entfernen</ThemedText>
+              </Pressable>
+            </View>
+          ) : (
+            <View style={{ marginTop: Spacing.md, gap: Spacing.sm }}>
+              <TextInput
+                value={dfUserInput}
+                onChangeText={setDfUserInput}
+                placeholder="d-flight-Benutzername (E-Mail)"
+                placeholderTextColor={theme.textTertiary}
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="email-address"
+                textContentType="username"
+                style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.backgroundSecondary }]}
+              />
+              <TextInput
+                value={dfPassInput}
+                onChangeText={setDfPassInput}
+                placeholder="d-flight-Passwort"
+                placeholderTextColor={theme.textTertiary}
+                autoCapitalize="none"
+                autoCorrect={false}
+                secureTextEntry
+                textContentType="password"
+                style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.backgroundSecondary }]}
+              />
+              <Pressable
+                onPress={saveDflight}
+                disabled={dfBusy || !dfUserInput.trim() || !dfPassInput}
+                style={[styles.btn, { backgroundColor: theme.primary, alignSelf: "flex-start", opacity: dfBusy || !dfUserInput.trim() || !dfPassInput ? 0.5 : 1 }]}
+              >
+                {dfBusy ? <ActivityIndicator size="small" color="#FFFFFF" /> : <Feather name="log-in" size={16} color="#FFFFFF" />}
+                <ThemedText style={[styles.btnText, { color: "#FFFFFF" }]}>Anmelden & speichern</ThemedText>
+              </Pressable>
+            </View>
+          )}
+          {dfMsg ? <ThemedText style={[styles.small, { marginTop: Spacing.sm }]}>{dfMsg}</ThemedText> : null}
         </Card>
 
         <ThemedText style={[styles.sectionTitle, { color: theme.textSecondary, marginTop: Spacing["2xl"] }]}>HINDERNISSE</ThemedText>
