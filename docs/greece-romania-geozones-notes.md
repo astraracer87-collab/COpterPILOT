@@ -140,6 +140,36 @@ ED-269/AIXM bei HASP/HCAA.
 
 ---
 
+## Anhang GR (2): Produktions-Worker mit Dauer-Feed ✅ (2026-11-15)
+
+Über das Einmal-Skript hinaus liegt jetzt ein **vollständiger Hintergrund-Worker**
+im Repo: [`docs/tools/greece/dagr-worker/`](tools/greece/dagr-worker/). Er macht
+GR praktisch einsatzbereit, sofern er auf **EU-IP** läuft.
+
+- **Zugriffsweg:** öffnet DAGR in **echtem Chromium** (Playwright) und stellt
+  **alle Anfragen als `fetch()` innerhalb der Seite** (gleicher Ursprung/Cookies/
+  Header) — genau der Weg, für den die HASP/HCAA-Freigabe gilt. Nichts umgangen;
+  höfliche Pause, bricht bei 403 ab (wartet dann 4× Intervall).
+- **7 Phasen mit Checkpoints/Resume:** session → capabilities (Frühwarnung bei
+  Umbau) → geometry (GetMap→KML, Innenpunkt je Zone) → attributes (GetFeatureInfo
+  GML+HTML, BBox-Match, je Zone fortsetzbar) → assemble (GeoJSON, Höhen
+  `9999999`→`null`, IDs = REG-NO) → validate → publish.
+- **Qualitätsschranken vor Publish** (sonst bleibt `latest/` unverändert,
+  Exit 2): Match-Rate ≥ 98 %, Zonenschwund ≤ 15 %, ≥ 50 Zonen. Diff zum Vorstand
+  (neu/entfernt/geändert) im `report.json`.
+- **Ablage `/data`:** `status.json` (App pollt hier), `latest/greece.geojson`
+  (freigegebener Stand), `runs/<id>/…` (Protokoll/Checkpoints, letzte 20).
+- **Betrieb:** `docker compose up -d` (alle 24 h ein Lauf, EU-IP-Host nötig, z. B.
+  NAS/Server DE) oder einmalig `python -m dagr_worker run`. `tests/mock_dagr.py`
+  simuliert DAGR für Tests ohne echten Server.
+- Fremdflug-Ebenen (`*_flight_layer`) werden **bewusst nicht** abgefragt.
+  Lizenznotiz im GeoJSON (`metadata.license_note`).
+
+→ Damit ist GR mit stabilem Feed versorgt; der ED-269/AIXM-Export bei HASP/HCAA
+bleibt die noch sauberere Alternative, falls angeboten.
+
+---
+
 ## Anhang RO: Zonen-Gruppierung & Skript (DE-Session, 2026-11-15)
 
 **Werkzeug im Repo:** [`docs/tools/romania/romatsa_ro_geozones.py`](tools/romania/romatsa_ro_geozones.py)

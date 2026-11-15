@@ -1,0 +1,18 @@
+services:
+  dagr-worker:
+    build: .
+    container_name: dagr-worker
+    restart: unless-stopped
+    # Wichtig: Container muss mit EU-IP ins Internet (z. B. QNAP-NAS / Server in DE)
+    environment:
+      TZ: Europe/Berlin
+      DAGR_INTERVAL_H: "24"        # wie oft neu abrufen
+      DAGR_DAYS_AHEAD: "30"        # Zeitfenster für temporäre Zonen
+      DAGR_PAUSE_S: "0.3"          # Pause zwischen Anfragen (Höflichkeit)
+      DAGR_MIN_MATCH_RATE: "0.98"  # Qualitätsschranken
+      DAGR_MAX_DROP_RATE: "0.15"
+      DAGR_MIN_ZONES: "50"
+    volumes:
+      - ./data:/data
+    stop_grace_period: 60s         # Zeit für sauberes Speichern des Checkpoints
+    shm_size: "1gb"                # Chromium braucht Shared Memory

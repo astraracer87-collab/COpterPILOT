@@ -61,7 +61,7 @@ umgangen, keine privaten Logins missbraucht. Teile der Abrufe liefen aus einer
 | 🇱🇮 LI Liechtenstein | ✅ (über CH-Datensatz) | [switzerland-bazl-api-integration.md](switzerland-bazl-api-integration.md) |
 | 🇳🇴 NO Norwegen | ✅ (statische GeoJSON) | [norway-dronesoner-api-integration.md](norway-dronesoner-api-integration.md) |
 | 🇸🇪 SE Schweden | ✅ (ED-318 + WFS, Skript) | [sweden-lfv-api-integration.md](sweden-lfv-api-integration.md) |
-| 🇬🇷 GR Griechenland | ⚠️ nur WMS-Raster → ED-269 erfragen | [greece-romania-geozones-notes.md](greece-romania-geozones-notes.md) |
+| 🇬🇷 GR Griechenland | ✅ (DAGR-Worker, EU-IP-Host) | [greece-romania-geozones-notes.md](greece-romania-geozones-notes.md) |
 
 ---
 

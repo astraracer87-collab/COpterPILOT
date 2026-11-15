@@ -42,12 +42,13 @@ Pro Land gibt es ein eigenes Detaildokument (`docs/<land>-…-integration.md`).
 | **LI** | BAZL (über CH) | keine | — (im CH-Datensatz enthalten) | ✅ via CH-Quelle (kein eigener Abruf) | `switzerland-bazl-api-integration.md` |
 | **NO** | dronesoner.no / AIP Norway | keine | statische GeoJSON-Dateien | ✅ einsatzbereit (Rot/Orange/Blau, NOTAM) | `norway-dronesoner-api-integration.md` |
 | **SE** | LFV / Transportstyrelsen | keine | ED-318 + GeoServer WFS | ✅ einsatzbereit (72 UAS-Zonen + Luftraum, Skript) | `sweden-lfv-api-integration.md` |
-| **GR** | HASP/HCAA (DAGR) | keine (Freigabe) | WMS-KML + GetFeatureInfo | 📥 extrahierbar (Skript, CC BY-NC-ND) | `greece-romania-geozones-notes.md` |
+| **GR** | HASP/HCAA (DAGR) | keine (Freigabe) | WMS-KML + GetFeatureInfo | ✅ einsatzbereit (Produktions-Worker, EU-IP-Host, CC BY-NC-ND) | `greece-romania-geozones-notes.md` |
 | **RO** | ROMATSA | keine | GeoServer WFS + JSON | ✅ live abgerufen (DE-IP): 1.272 + 226 Zonen | `greece-romania-geozones-notes.md` |
 
-**Zusammenfassung (31 Länder):** 28× ✅ einsatzbereit · 1× 📥 beschaffbar
-(Skript: GR, WMS-KML) · 2× 🔑 Zugang offen (IT Login-Fetch, HU raster-only
-→ Login/Export). MT jetzt direkt per DDP (`{managedZones:true}`). Neu verifiziert (DE-Session): EE, FR, DK, CH (+LI), NO, SE, LV;
+**Zusammenfassung (31 Länder):** 29× ✅ einsatzbereit · 2× 🔑 Zugang offen
+(IT Login-Fetch, HU raster-only → Login/Export). MT direkt per DDP
+(`{managedZones:true}`); GR über Produktions-Worker (EU-IP-Host).
+**Nur noch IT und HU offen.** Neu verifiziert (DE-Session): EE, FR, DK, CH (+LI), NO, SE, LV;
 RO/PL/ES live abgerufen; GB offizieller AIXM-Datensatz. Fertige Export-Skripte
 unter `docs/tools/<land>/` für PL, SE, SK, ES, RO, CY, CZ, SI, GR, MT.
 
