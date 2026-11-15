@@ -24,7 +24,8 @@ import { countryName } from "../../shared/countryEntitlements";
 import { queryGeozonesInAreaWithCoverage, GeozoneFeatureInfo, DipulGeozoneSourceStatus, separateTempRestrictions, getCountryGeozoneConfig, getCountriesInRadius, DipulTempRestriction, DipulTempRestrictionsResult, fetchNearbyTempRestrictionsRaw, loadRadarSettings, saveRadarSettings, HU_GEOZONE_RASTER_HINT } from "@/lib/geozones";
 import { getTilePartMeta } from "@/lib/geozoneTiles/tileStore";
 import { TILE_STORE_ATTRIBUTION } from "@/lib/geozoneTiles/tileStoreCore";
-import { fetchElevation } from "@/lib/elevation";
+import { fetchTerrainEstimate } from "@/lib/elevation";
+import type { TerrainEstimate } from "../../shared/geozoneAltitudeFilter";
 import { partitionByReachability, DEFAULT_REACHABLE_ALTITUDE_M, assessGeozoneAltitudeConflict } from "../../shared/geozoneAltitudeFilter";
 import { findMilLowFlightAreasContaining, findMilLowFlightAreasIntersectingRadius, MIL_LOW_FLIGHT_LABEL, MIL_LOW_FLIGHT_SOURCE_URL, MIL_LOW_FLIGHT_ACTIVATION_TEXT, MIL_LOW_FLIGHT_DATA_STAND, classifyMilLowFlightHits, getStatusLabel as getMilStatusLabel, getStatusColor as getMilStatusColor } from "@/lib/milLowFlight";
 import { getPilotProfile, savePilotProfile, PilotProfile, de21hRule, isDe21hZoneAvEligible, isErlaubnisExpired, getDrone, DroneProfile, BUNDESLAND_AV_INFO, Bundesland, GENERAL_UAS_RESOURCES, AdditionalDoc, getFlightSession, getSettings } from "@/lib/storage";
@@ -111,8 +112,9 @@ export default function PlanningRestrictionsScreen() {
     return [...upstreamGeozones, ...windFacilitiesAsGeozones(points, energyInfrastructure?.features),
       ...supplementalLinesAsGeozones(items)];
   }, [upstreamGeozones, countryIso, energyInfrastructure]);
-  // Geländehöhe (MSL) am Standort für die MSL->AGL-Umrechnung von Vektorzonen.
-  const [terrainElevationM, setTerrainElevationM] = useState<number | null>(null);
+  // Geländeschätzung (MSL) im Planungsradius für die MSL->AGL-Umrechnung von
+  // Vektorzonen: Maximum für Untergrenzen, Minimum für Obergrenzen (B3).
+  const [terrain, setTerrain] = useState<TerrainEstimate | null>(null);
   const [showAllGeozones, setShowAllGeozones] = useState(false);
   // Vom Nutzer geplante Flughöhe (AGL, m). In der linearen Planung wird die Höhe
   // erst im Details-Schritt gewählt -> hier Standard 120 m. Beim Fortsetzen/Bearbeiten
@@ -178,6 +180,9 @@ export default function PlanningRestrictionsScreen() {
       setError(false);
       setDipulSourceStatus(null);
       setCoverageGaps([]);
+      // Neue Position: alte Geländeschätzung verwerfen (bis zur neuen Messung
+      // bleiben MSL-Zonen sichtbar).
+      setTerrain(null);
       try {
         const area = await queryGeozonesInAreaWithCoverage(
           latitude,
@@ -198,14 +203,14 @@ export default function PlanningRestrictionsScreen() {
         loadRadarSettings()
           .then((rs) => { if (!cancelled) setShowAllGeozones(rs.showAllGeozones); })
           .catch(() => {});
-        // Geländehöhe nur laden, wenn MSL-bezogene Vektorzonen (AT/BE/DK) vorliegen.
+        // Geländehöhe nur laden, wenn MSL-bezogene Vektorzonen vorliegen.
         const needsTerrain = separated.geozones.some(
-          (gz) => gz.lowerReference === "MSL"
+          (gz) => (gz.lowerReference === "MSL" || gz.upper?.ref === "MSL")
             && ["AT", "BE", "DK", "NL", "EE", "CH", "LI", "FI", "NO", "SE", "IE", "LU", "PT", "ES", "PL", "LT", "IT", "GB", "IS", "CY", "HR", "SI", "BG", "LV", "SK", ...(hasOwnMap("RO") ? ["RO"] : [])].includes(String(gz.country || countryIso || "").toUpperCase()),
         );
         if (needsTerrain) {
-          fetchElevation(latitude, longitude)
-            .then((t) => { if (!cancelled) setTerrainElevationM(t); })
+          fetchTerrainEstimate(latitude, longitude, (localRadiusKm || 1) * 1000)
+            .then((t) => { if (!cancelled) setTerrain(t); })
             .catch(() => {});
         }
         if (countryIso === "DE") {
@@ -248,13 +253,13 @@ export default function PlanningRestrictionsScreen() {
     const nonFilterable = rawGeozones.filter((gz) => !isFilterable(gz));
     const part = partitionByReachability(filterable, {
       reachableAltitudeM: plannedAltitudeM,
-      terrainElevationM,
+      terrain,
     });
     return {
       geozones: [...nonFilterable, ...part.visible],
       hiddenAboveGeozones: part.hiddenAbove,
     };
-  }, [rawGeozones, showAllGeozones, terrainElevationM, countryIso, plannedAltitudeM]);
+  }, [rawGeozones, showAllGeozones, terrain, countryIso, plannedAltitudeM]);
 
   // Beim Fortsetzen/Bearbeiten einer Session: bereits geplante Flughöhe laden,
   // damit der Höhen-Filter den Nutzerwert statt des 120-m-Standards verwendet.

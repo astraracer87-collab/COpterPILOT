@@ -20,7 +20,8 @@ export type Ed269PureFeature = {
   properties: Record<string, any>;
 };
 
-const FT_TO_M = 0.3048;
+import { normalizeVRef, parseHeight } from "./heights";
+
 // ~FL600 (60 000 ft) – Werte darüber gelten als „unbegrenzt“ (CH nutzt 99999).
 const UNLIMITED_M = 18288;
 // Anzahl Segmente, mit denen ED-269-Kreise als Polygon angenähert werden.
@@ -38,28 +39,27 @@ export const ED269_CIRCLE_SEGMENTS = 48;
  */
 export function ed269VolumeLimitMeters(limit: unknown, uom: unknown): number | undefined {
   if (limit == null || limit === "") return undefined;
-  const s = String(limit).trim().toUpperCase();
-  if (s === "SFC" || s === "GND") return 0;
-  if (s === "UNL" || s === "UNLIMITED") return undefined;
-  const value = Number(limit);
-  if (!Number.isFinite(value)) return undefined;
-  const u = String(uom ?? "").toUpperCase().trim();
-  let meters: number;
-  if (u === "FT" || u === "F" || u === "FEET") meters = value * FT_TO_M;
-  else if (u === "FL") meters = value * 100 * FT_TO_M;
-  else meters = value; // "M" bzw. Default: bereits Meter.
+  // Gemeinsamer Höhenparser (shared/heights.ts): m/ft/FL, SFC/GND, UNL.
+  const h = parseHeight(limit, uom);
+  if (!h || h.m == null) return undefined;
+  const meters = h.m;
   if (meters >= UNLIMITED_M) return undefined;
   if (meters <= 0) return 0;
   return Math.round(meters * 10) / 10;
 }
 
-/** Höhenbezug normalisieren: AGL/SFC/GND -> "AGL", AMSL/MSL/ALT -> "AMSL". */
+/**
+ * Höhenbezug normalisieren (shared/heights.ts normalizeVRef): AGL/SFC/GND/HEI
+ * -> "AGL", AMSL/MSL/ALT -> "AMSL". STD (Flugfläche), WGS84 und Unbekanntes
+ * bleiben als Rohwert erhalten, damit der Anzeige-/Filterpfad das Datum kennt.
+ */
 export function ed269VerticalReference(ref: unknown): string | undefined {
   const r = String(ref ?? "").trim().toUpperCase();
   if (!r) return undefined;
-  if (r === "AGL" || r === "SFC" || r === "GND" || r === "HEI") return "AGL";
-  if (r === "AMSL" || r === "MSL" || r === "ALT") return "AMSL";
-  return r; // z. B. STD (Flugfläche) unverändert
+  const v = normalizeVRef(r);
+  if (v.ref === "AGL") return "AGL";
+  if (v.ref === "MSL" && !v.datum) return "AMSL";
+  return r;
 }
 
 // ---------------------------------------------------------------------------

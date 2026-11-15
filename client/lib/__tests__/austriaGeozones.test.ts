@@ -370,20 +370,21 @@ describe("parseEd269ToGeozoneInfo – Höhenlabel", () => {
     properties: props,
   });
 
-  it("SFC/UNL -> '0 m – unbegrenzt'", () => {
+  it("SFC/UNL -> 'GND – unbegrenzt' (B3: Höhen mit Bezug)", () => {
     const [z] = parseEd269ToGeozoneInfo(
       [makeFeature({ restriction: "PROHIBITED", lower: "SFC", upper: "UNL" })],
       "AT",
     );
-    assert.equal(z.altitudeLabel, "0 m – unbegrenzt");
+    assert.equal(z.altitudeLabel, "GND – unbegrenzt");
   });
 
-  it("Meterwerte -> '50 m – 120 m'", () => {
+  it("Meterwerte ohne Bezug -> Bezug unbekannt sichtbar (B3)", () => {
     const [z] = parseEd269ToGeozoneInfo(
       [makeFeature({ restriction: "PROHIBITED", lowerMeters: 50, upperMeters: 120 })],
       "AT",
     );
-    assert.equal(z.altitudeLabel, "50 m – 120 m");
+    assert.equal(z.altitudeLabel, "50 m (Bezug unbekannt) – 120 m (Bezug unbekannt)");
+    assert.equal(z.lowerReference, "UNKNOWN");
     assert.equal(z.lowerMeters, 50);
     assert.equal(z.upperMeters, 120);
   });

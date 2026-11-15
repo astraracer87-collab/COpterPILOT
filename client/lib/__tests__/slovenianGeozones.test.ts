@@ -276,7 +276,7 @@ describe("slovenianGeozones – Normalisierung echter Daten", () => {
     assert.equal(ctr.name, "Kontrollzone (CTR Ljubljana)");
     assert.equal(ctr.restriction, "REQ_AUTHORISATION");
     assert.equal(ctr.lowerMeters, 50);
-    assert.equal(ctr.altitudeLabel, "50 m – unbegrenzt");
+    assert.equal(ctr.altitudeLabel, "50 m AGL – unbegrenzt");
     assert.equal(ctr.details.split("Originaltext der Behörde:").length, 2, "Original genau einmal");
     assert.ok(ctr.links?.some((l) => l.url === "mailto:info@sloveniacontrol.si"));
     const r = info.find((z) => z.featureId === "SI-restricted-2")!;

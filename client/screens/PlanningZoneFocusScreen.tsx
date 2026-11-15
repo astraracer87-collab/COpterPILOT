@@ -1,4 +1,5 @@
 import { openLink } from "@/lib/webBrowser";
+import { formatHeightRangeDe } from "../../shared/heights";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { View, StyleSheet, ScrollView, Pressable, Linking, Platform } from "react-native";
 import MapView, {
@@ -76,12 +77,13 @@ function regionForRadius(lat: number, lon: number, radiusKm: number) {
 
 function altitudeText(zone: GeozoneFeatureInfo): string | null {
   if (zone.altitudeLabel && zone.altitudeLabel.trim().length > 0) return zone.altitudeLabel;
+  if (zone.lower || zone.upper) return formatHeightRangeDe(zone.lower, zone.upper);
   const hasLower = typeof zone.lowerMeters === "number";
   const hasUpper = typeof zone.upperMeters === "number";
   if (!hasLower && !hasUpper) return null;
   const lower = hasLower ? (zone.lowerMeters === 0 ? "GND" : `${Math.round(zone.lowerMeters!)} m`) : "GND";
   const upper = hasUpper ? `${Math.round(zone.upperMeters!)} m` : "unbegrenzt";
-  const ref = zone.lowerReference ? ` ${zone.lowerReference}` : "";
+  const ref = zone.lowerReference && zone.lowerReference !== "UNKNOWN" ? ` ${zone.lowerReference}` : "";
   return `${lower}${ref} – ${upper}`;
 }
 

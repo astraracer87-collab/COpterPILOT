@@ -21,8 +21,8 @@ import { findNearbyCtrAirports, CTR_AIRPORTS } from "@/lib/ctrData";
 import { MAJOR_EU_AIRPORTS } from "@/lib/euAirports";
 import { fetchAirportStationsInArea, type AirportStation } from "@/lib/aviationWeather";
 import { getCtrBandRings, getCtrLegendEntries, getCtrProvisionalNote } from "@/lib/ctrAltitude";
-import { fetchElevation } from "@/lib/elevation";
-import { partitionByReachability, DEFAULT_REACHABLE_ALTITUDE_M } from "../../shared/geozoneAltitudeFilter";
+import { fetchTerrainEstimate } from "@/lib/elevation";
+import { partitionByReachability, DEFAULT_REACHABLE_ALTITUDE_M, type TerrainEstimate } from "../../shared/geozoneAltitudeFilter";
 import { splitCountriesByAccess, countryName } from "../../shared/countryEntitlements";
 import { useAuth } from "@/lib/auth";
 import { windFacilitiesAsGeozones, supplementalLinesAsGeozones, supplementalInfrastructureAsGeozones, infrastructureMapGeometry } from "@/lib/energyInfrastructureZones";
@@ -1146,9 +1146,11 @@ export default function TrafficMapView({
   // Länder liefern kein WMS -- die Zonen werden im WebView als Leaflet-Polygone
   // mit Tap-Popup gerendert.
   const [vectorZones, setVectorZones] = useState<GeozoneFeatureInfo[]>([]);
-  // Geländehöhe (MSL) am Kartenzentrum für die MSL->AGL-Umrechnung im Höhen-
-  // Filter. Eine Näherung über das Zentrum genügt; null = nicht (sicher) bekannt.
-  const [centerElevationM, setCenterElevationM] = useState<number | null>(null);
+  // Geländeschätzung (MSL) um das Kartenzentrum für die MSL->AGL-Umrechnung im
+  // Höhen-Filter (Maximum/Minimum im Radius, B3); null = nicht bekannt.
+  const [terrainEstimate, setTerrainEstimate] = useState<
+    { lat: number; lon: number; radiusM: number; est: TerrainEstimate } | null
+  >(null);
   // Pro-Land-Zwischenspeicher der zuletzt ERFOLGREICH geladenen Vektor-Zonen.
   // Verhindert, dass ein fehlgeschlagener/abgebrochener Re-Fetch beim Scrollen
   // die bereits gezeichneten Zonen löscht ("nach Scrollen keine Geozonen mehr").
@@ -1592,21 +1594,39 @@ export default function TrafficMapView({
     return out;
   }, [highlightedZones]);
 
-  // Geländehöhe am (gesetzten) Kartenzentrum laden, sobald MSL-Vektorzonen
-  // sichtbar sind. Nur dann nötig — sonst keine Netzlast. Eine Näherung über das
-  // Zentrum genügt für den Höhen-Filter.
+  // Geländeschätzung um das (gesetzte) Kartenzentrum laden, sobald MSL-
+  // Vektorzonen sichtbar sind. Nur dann nötig — sonst keine Netzlast. Radius =
+  // halbe sichtbare Ausdehnung (1–10 km): größer ist für den Filter immer
+  // konservativer (höheres Maximum, tieferes Minimum). Ein Aufruf mit 17
+  // Stützpunkten, gecacht (client/lib/elevation.ts fetchTerrainEstimate).
   const needsTerrain = useMemo(
-    () => !showAllGeozones && vectorZones.some((z) => z.lowerReference === "MSL"),
+    () => !showAllGeozones && vectorZones.some((z) => z.lowerReference === "MSL" || z.upper?.ref === "MSL"),
     [showAllGeozones, vectorZones],
+  );
+  const terrainRadiusM = Math.min(
+    10000,
+    Math.max(1000, ((settledRegion.latitudeDelta + settledRegion.longitudeDelta) / 2) * 111320 * 0.5),
   );
   useEffect(() => {
     if (!needsTerrain) return;
     let cancelled = false;
-    fetchElevation(settledRegion.latitude, settledRegion.longitude)
-      .then((e) => { if (!cancelled && e != null) setCenterElevationM(e); })
+    const lat = settledRegion.latitude;
+    const lon = settledRegion.longitude;
+    fetchTerrainEstimate(lat, lon, terrainRadiusM)
+      .then((est) => { if (!cancelled && est) setTerrainEstimate({ lat, lon, radiusM: terrainRadiusM, est }); })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [needsTerrain, settledRegion.latitude, settledRegion.longitude]);
+  }, [needsTerrain, settledRegion.latitude, settledRegion.longitude, terrainRadiusM]);
+  // Schätzung nur verwenden, solange das Zentrum nahe am Messort liegt (≤ ¼
+  // Radius) – sonst könnte ein altes Tal-Maximum im Gebirge Zonen ausblenden.
+  // Bis zur neuen Messung bleiben MSL-Zonen dann sichtbar.
+  const activeTerrain = useMemo(() => {
+    const t = terrainEstimate;
+    if (!t) return null;
+    const dLatM = (settledRegion.latitude - t.lat) * 111320;
+    const dLonM = (settledRegion.longitude - t.lon) * 111320 * Math.cos((t.lat * Math.PI) / 180);
+    return Math.hypot(dLatM, dLonM) <= t.radiusM * 0.25 ? t.est : null;
+  }, [terrainEstimate, settledRegion.latitude, settledRegion.longitude]);
 
   // Höhen-Filter: Vektorzonen ausblenden, deren Untergrenze (in AGL) über der
   // erreichbaren/geplanten Flughöhe liegt. Der Sicherheits-Schalter
@@ -1615,9 +1635,9 @@ export default function TrafficMapView({
     if (showAllGeozones) return vectorZones;
     return partitionByReachability(vectorZones, {
       reachableAltitudeM: maxReachableAltitudeM,
-      terrainElevationM: centerElevationM,
+      terrain: activeTerrain,
     }).visible;
-  }, [vectorZones, showAllGeozones, maxReachableAltitudeM, centerElevationM]);
+  }, [vectorZones, showAllGeozones, maxReachableAltitudeM, activeTerrain]);
 
   // ED-269-Vektorzonen → kompaktes WebView-Format. r ist eine Liste von Polygonen,
   // jedes Polygon ist [Außenring, …Löcher], damit Leaflet Löcher aussticht.

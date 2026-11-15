@@ -23,6 +23,14 @@ import type { GeozoneFeatureInfo } from "@/lib/geozones";
 import { DANISH_GEOZONE_SOURCE_LABEL } from "../../shared/danishGeozones";
 import { belgianAltitudeMeters } from "../../shared/belgianGeozones";
 import { normalizeAltitudeReference, type AltitudeReference } from "../../shared/geozoneAltitudeFilter";
+import {
+  formatHeightRangeDe,
+  heightFromMeters,
+  parseHeight,
+  parseHeightRange,
+  withSourceText,
+  type Height,
+} from "../../shared/heights";
 import { ed269SourceInfo } from "../../shared/ed269SourceInfo";
 import { RESTRICTIONS, RESTRICTION_POLICY, type Restriction } from "../../shared/restrictionPolicy";
 // Beschränkungs-Normalisierung, Farben und Gültigkeitsfenster leben in shared/,
@@ -55,19 +63,27 @@ export {
   type ZoneTimeContext,
 } from "../../shared/ed269Restriction";
 
-// Liest den Höhenbezug (MSL/AGL) der Untergrenze aus den uneinheitlichen
-// ED-269-Quellfeldern: Belgien (Droneguide-Bundle) liefert
-// `lowerAltitude.reference`, die skeyes-Live-API `lowerReference`
-// (lowerVerticalReference), Österreich i. d. R. nichts -> Default AGL.
+// Rohbezug einer Grenze aus den uneinheitlichen ED-269-Quellfeldern: Belgien
+// (Droneguide-Bundle) liefert `lowerAltitude.reference`, die skeyes-Live-API
+// `lowerReference` (lowerVerticalReference). Österreich/Litauen (Frequentis)
+// liefern den Bezug nur im ED-269-Original `properties.geometry` (Objekt bzw.
+// erstes Volumen) und im Anzeige-String `lower`/`upper` („150 M AGL“).
+function ed269RawReference(p: Record<string, any>, side: "lower" | "upper"): unknown {
+  const alt = p[`${side}Altitude`];
+  const g = Array.isArray(p.geometry) ? p.geometry[0] : p.geometry;
+  return (
+    (alt && typeof alt === "object" ? alt.reference : undefined) ??
+    p[`${side}Reference`] ??
+    p[`${side}VerticalReference`] ??
+    p[`${side}LimitReference`] ??
+    (g && typeof g === "object" ? g[`${side}VerticalReference`] : undefined)
+  );
+}
+
+// Höhenbezug (MSL/AGL/UNKNOWN) der Untergrenze. Fehlt er, ist er UNKNOWN
+// (früher stiller AGL-Rückfall); der Höhenfilter blendet UNKNOWN nie aus.
 export function ed269LowerReference(p: Record<string, any>): AltitudeReference {
-  const raw =
-    (p.lowerAltitude && typeof p.lowerAltitude === "object"
-      ? p.lowerAltitude.reference
-      : undefined) ??
-    p.lowerReference ??
-    p.lowerVerticalReference ??
-    p.lowerLimitReference;
-  return normalizeAltitudeReference(raw);
+  return normalizeAltitudeReference(ed269RawReference(p, "lower"));
 }
 
 /**
@@ -118,18 +134,44 @@ export const ED269_SOURCE_LABELS: Record<string, string> = {
   RO: RO_GEOZONE_SOURCE_LABEL,
 };
 
-// Wandelt einen ED-269-Höhenwert in Meter um. Versteht Klartext-Marker (SFC/GND
-// -> 0, UNL/UNLIMITED -> unbegrenzt) sowie Zahlen mit Maßeinheit (FT -> Meter).
+// Wandelt einen ED-269-Höhenwert in Meter um (shared/heights.ts parseHeight):
+// SFC/GND -> 0, UNL/UNLIMITED -> unbegrenzt (undefined), Zahlen mit Maßeinheit
+// (FT -> Meter, FL -> 100 ft) sowie Text wie „1500 ft AMSL“.
 export function ed269LimitMeters(value: any, uom: string): number | undefined {
-  if (value == null) return undefined;
-  const s = value.toString().toUpperCase().trim();
-  if (s === "SFC" || s === "GND" || s === "0") return 0;
-  if (s === "UNL" || s === "UNLIMITED" || s === "GND_UNL") return undefined;
-  const n = Number(value);
-  if (!Number.isFinite(n)) return undefined;
-  const u = (uom || "").toString().toUpperCase();
-  if (u === "FT" || u === "F" || u === "FEET") return n * 0.3048;
-  return n; // M / METERS / Default
+  const h = parseHeight(value, uom);
+  return h && h.m != null ? h.m : undefined;
+}
+
+/**
+ * Strukturierte Unter-/Obergrenze (Height) einer ED-269-Zone. Meter und Bezug
+ * kommen aus den Normalisierer-Properties; Einheit/Schreibweise der Quelle
+ * („1500 ft AMSL“, „FL95“) aus dem Wert selbst bzw. `altitudeText`, sofern sie
+ * zu den Metern passen.
+ */
+export function ed269Heights(
+  p: Record<string, any>,
+  lowerMeters: number | undefined,
+  upperMeters: number | undefined,
+): { lower: Height; upper: Height } {
+  const uom = (p.uomDimensions ?? p.uom ?? p.unit ?? "M").toString();
+  const fromText = parseHeightRange(p.altitudeText);
+  const side = (s: "lower" | "upper", meters: number | undefined, text: Height | null): Height => {
+    const ref = ed269RawReference(p, s);
+    const alt = p[`${s}Altitude`];
+    const srcValue = alt && typeof alt === "object" ? alt : p[`${s}Limit`] ?? p[s];
+    const src = srcValue != null ? parseHeight(srcValue, uom, ref) : null;
+    // AT/LT: upperMeters 10000 ist der UNL-Platzhalter (Anzeige-String „UNL“).
+    if (s === "upper" && src?.m == null && src?.text === "UNL" && meters != null && meters >= 9999) {
+      return heightFromMeters(undefined, ref, "upper");
+    }
+    // Quellwert/-text ergänzt Einheit und (falls fehlend) den Bezug, nur wenn
+    // er zu den Metern passt (withSourceText).
+    return withSourceText(withSourceText(heightFromMeters(meters, ref, s), src), text);
+  };
+  return {
+    lower: side("lower", lowerMeters, fromText.lower),
+    upper: side("upper", upperMeters, fromText.upper),
+  };
 }
 
 export function stripHtml(s: string): string {
@@ -150,7 +192,11 @@ export function stripHtml(s: string): string {
 export function ed269AltitudeLabel(
   lowerMeters: number | undefined,
   upperMeters: number | undefined,
+  lower?: Height,
+  upper?: Height,
 ): string {
+  // Mit strukturierten Grenzen: Bezug anzeigen („GND – 1500 ft AMSL (457 m)“).
+  if (lower || upper) return formatHeightRangeDe(lower, upper);
   const fmtLower = lowerMeters == null ? "GND" : `${Math.round(lowerMeters)} m`;
   const fmtUpper = upperMeters == null ? "unbegrenzt" : `${Math.round(upperMeters)} m`;
   return `${fmtLower} – ${fmtUpper}`;
@@ -274,7 +320,8 @@ export function parseEd269ToGeozoneInfo(
         : p.upperAltitude && typeof p.upperAltitude === "object"
           ? belgianAltitudeMeters(p.upperAltitude)
           : ed269LimitMeters(p.upperLimit ?? p.upper, uom);
-    const altitudeLabel = ed269AltitudeLabel(lowerMeters, upperMeters);
+    const heights = ed269Heights(p, lowerMeters, upperMeters);
+    const altitudeLabel = ed269AltitudeLabel(lowerMeters, upperMeters, heights.lower, heights.upper);
 
     const originalName = (p.name || p.identifier || p.zoneId || "Geozone").toString();
     // Zonenname ins Deutsche (Gattungswörter übersetzt, Eigennamen bleiben)
@@ -361,6 +408,8 @@ export function parseEd269ToGeozoneInfo(
       strokeColor: colors.stroke,
       lowerMeters,
       upperMeters,
+      lower: heights.lower,
+      upper: heights.upper,
       altitudeLabel,
       validStartTs,
       validEndTs,
@@ -369,7 +418,8 @@ export function parseEd269ToGeozoneInfo(
       notamEligible: ed269IsNotamEligible(p, countryIso),
       applicationText: p.applicationText ? String(p.applicationText) : undefined,
       links: links.length > 0 ? links : undefined,
-      lowerReference: ed269LowerReference(p),
+      lowerReference: heights.lower.ref,
+      ...(heights.upper.m != null ? { upperReference: heights.upper.ref } : {}),
       maxFlightHeightAglM: ed269MaxFlightHeightAglM(p),
     });
   }

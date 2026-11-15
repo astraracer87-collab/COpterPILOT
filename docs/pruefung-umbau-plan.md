@@ -152,3 +152,49 @@ alle Länderlisten werden daraus abgeleitet.
 - Offen: FlightCheck-RestrictionsScreen und Pdf-Export färben noch nicht
   nach Policy; Ausnahme-Schlüssel ist jetzt inhaltsbasiert
   (Teil von S1), featureId-Pflicht folgt in B7.
+
+## Funde/Entscheidungen aus B3 (2026-11-15)
+
+- Ein Höhenparser: shared/heights.ts (`FT_M`, `VRef`, `Height`, `parseHeight`,
+  `parseHeightRange`, `normalizeVRef`, `heightFromMeters`, `withSourceText`,
+  `formatHeightDe`, `formatHeightRangeDe`, `capUnlimited`). Bezüge:
+  AGL/SFC/GND/HEI/AGND/HGT/ASFC/n.p.t. → AGL; AMSL/MSL/ALT/QNH/n.p.m. → MSL;
+  WGS84 → MSL mit `datum: "WGS84"` (Geoidundulation Europa ≈ +35…55 m);
+  STD/FL → MSL mit `datum: "STD"` (Druckhöhe); leer/unbekannt → UNKNOWN
+  (kein stiller AGL-Rückfall mehr). 0 ohne Bezug bzw. über Grund = GND.
+- Modell: GeozoneFeatureInfo hat `lower`/`upper` (Height) und
+  `upperReference`; `lowerMeters`/`upperMeters`/`lowerReference` bleiben
+  befüllt. Gemappt in parseEd269ToGeozoneInfo (inkl. Bezug aus `altitudeText`,
+  `lower`/`upper`-Anzeige-String und AT/LT `properties.geometry`), CZ
+  (tileZones.ts, FL/STD jetzt korrekt, FL660 = unbegrenzt), DE dipul
+  (dipulZoneFromFeature: Live-WFS und Kachelspeicher), CH-Identify. LU-WMS
+  (nur „Lower limit (meter)“ ohne Bezug) und FR (`limite` = max. Flughöhe,
+  kein Volumen) bewusst nicht.
+- Höhen-Label mit Bezug: „GND – 1500 ft AMSL (457 m)“, „FL65 – FL95“,
+  „50 m (Bezug unbekannt) – …“, „… – unbegrenzt“.
+- Filter (isZoneReachable): UNKNOWN-Untergrenze wird nie ausgeblendet.
+  MSL→AGL mit Gelände-MAXIMUM im Radius (`fetchTerrainEstimate`: Mitte + 2×8
+  Punkte in einem Open-Meteo-Aufruf, Cache im Speicher) + 30 m; nur Mitte
+  bekannt (offline/Altaufruf) → Mitte + 150 m; STD-Grenzen −300 m,
+  WGS84 −60 m. Obergrenze blendet nur aus, wenn sie MSL ist und sicher unter
+  dem Gelände-MINIMUM (−100 m) liegt, und nur mit mehreren Stützpunkten; AGL-
+  Obergrenzen nie (CZ „Höhengrenze 0 m“).
+- Neu ausblendbar auf dem Radar: DE-Kachelzonen mit Untergrenze über der
+  erreichbaren Höhe (bisher ohne Höhen). Planung filtert DE weiterhin nicht.
+- Ersetzt durch parseHeight: ed269LimitMeters (kennt jetzt FL),
+  ed269VolumeLimitMeters/ed269VerticalReference (ed269Pure), ed318Altitude
+  (Bezug fehlt → UNKNOWN), czLimitMeters (tileZones).
+- TODO B6 (eigene Höhenparser/0.3048, auf shared/heights.ts umstellen):
+  swedishGeozones (parseSwedishAltitude, ed318LayerAltitudes, wfsAltitudes –
+  Default ft/AMSL!), spanishGeozones (parseEsAltitude, esReference: leer → AGL),
+  polishGeozones (parsePolishAltitude/Range), croatianGeozones
+  (parseHrAltitude), belgianGeozones (belgianAltitudeMeters/-Reference),
+  dutchGeozones (godroneAltitudeMeters/-Reference), swissGeozones
+  (verticalRef), slovakGeozones (HEIGHT_RE, ref), bulgarianGeozones,
+  cypriotGeozones, irishLuxGeozones, ukGeozones, slovenianGeozones,
+  icelandicGeozones, latvian/finnish/norwegian (über ed269Pure schon
+  zentral), geozoneImport (über ed318Altitude schon zentral). Dabei je Land
+  prüfen, wo ein fehlender Bezug heute still zu AGL wird.
+- Offen: Geländeschätzung nicht dauerhaft gespeichert (App-Neustart offline →
+  keine Geländehöhe → MSL-Zonen bleiben sichtbar, sicher); ED-269-Zonen mit
+  mehreren Höhenbändern weiter als getrennte Features.

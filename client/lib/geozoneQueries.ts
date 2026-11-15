@@ -12,6 +12,7 @@ import type { GeozoneFeatureInfo, GeozoneLayer } from "./geozones";
 import { FR_ZONE_TYPES, classifyFrRestrictionType, frRestrictionFromText } from "./frZoneTypes";
 import { deRestrictionForLayer, normalizeRestriction, restrictionFromText, type Restriction } from "../../shared/restrictionPolicy";
 import { luRestrictionFromResponsibility } from "../../shared/irishLuxGeozones";
+import { formatHeightRangeDe, parseHeight, type Height } from "../../shared/heights";
 
 // Label für aktivierbare (temporäre) LU-UAS-Zonen. Hier definiert (statt in
 // geozones.ts), damit parseLuWmsToGeozoneInfo RN-frei bleibt; geozones.ts
@@ -90,6 +91,20 @@ function dipulGeometryToGroups(geometry: any): [number, number][][][] {
   return [];
 }
 
+/**
+ * Höhenfelder einer Zone aus Height-Werten: strukturierte Grenzen plus die
+ * Kompatibilitätsfelder (lowerMeters/upperMeters/…Reference) und das Label
+ * mit Bezug. Leer, wenn keine Grenze lesbar ist.
+ */
+function zoneHeightFields(lower: Height | null, upper: Height | null): Partial<GeozoneFeatureInfo> {
+  if (!lower && !upper) return {};
+  return {
+    ...(lower ? { lower, lowerReference: lower.ref, ...(lower.m != null ? { lowerMeters: lower.m } : {}) } : {}),
+    ...(upper ? { upper, ...(upper.m != null ? { upperMeters: upper.m, upperReference: upper.ref } : {}) } : {}),
+    altitudeLabel: formatHeightRangeDe(lower, upper),
+  };
+}
+
 export function dipulZoneFromFeature(
   rawFeature: any,
   layer: GeozoneLayer,
@@ -142,8 +157,15 @@ export function dipulZoneFromFeature(
   const validStartTs = parseTs(properties.start_time);
   const validEndTs = parseTs(properties.end_time);
 
+  // Höhen mit Bezug (shared/heights.ts): dipul liefert Zahl, Einheit (M/FT/FL)
+  // und Bezug (GND/AGL/MSL/STD) getrennt. Fehlender Bezug bleibt UNKNOWN.
+  const lower = lowerAltitude ? parseHeight(lowerAltitude, lowerUnit, lowerRef) : null;
+  const upper = upperAltitude ? parseHeight(upperAltitude, upperUnit, upperRef) : null;
+  const heightFields = zoneHeightFields(lower, upper);
+
   const polygonRings = polygonGroups.flat();
   return {
+    ...heightFields,
     layerLabel: layer.label,
     name,
     details: details.join("\n"),
@@ -442,10 +464,15 @@ export function parseChIdentifyResponse(data: any, layerLookup: Record<string, s
       if (urls) detailParts.push(`Info: ${urls}`);
     }
 
+    // Strukturierte BAZL-Volumengrenzen (Meter + Bezug) → Height (shared/heights.ts).
+    let chHeights: Partial<GeozoneFeatureInfo> = {};
     if (attrs.air_vol_lower_limit != null || attrs.air_vol_upper_limit != null) {
       const lower = attrs.air_vol_lower_limit != null ? `${attrs.air_vol_lower_limit} m ${attrs.air_vol_lower_vref || ""}`.trim() : "SFC";
       const upper = attrs.air_vol_upper_limit != null ? `${attrs.air_vol_upper_limit} m ${attrs.air_vol_upper_vref || ""}`.trim() : "unbegrenzt";
       detailParts.push(`Höhe: ${lower} – ${upper}`);
+      const lowerH = attrs.air_vol_lower_limit != null ? parseHeight(attrs.air_vol_lower_limit, "m", attrs.air_vol_lower_vref) : null;
+      const upperH = attrs.air_vol_upper_limit != null ? parseHeight(attrs.air_vol_upper_limit, "m", attrs.air_vol_upper_vref) : null;
+      chHeights = zoneHeightFields(lowerH, upperH);
     }
 
     if (attrs.time_permanent === "Yes") {
@@ -464,6 +491,7 @@ export function parseChIdentifyResponse(data: any, layerLookup: Record<string, s
       name: String(name),
       details,
       featureId: attrs.label || feature.id || undefined,
+      ...chHeights,
       restriction: structured !== "UNKNOWN" ? structured : restrictionFromText(`${name}\n${details}`),
       ...(attrs.zone_restriction ? { restrictionRaw: String(attrs.zone_restriction) } : {}),
     });

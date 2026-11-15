@@ -57,7 +57,8 @@ export const ES_MAX_RELEVANT_LOWER_MSL_M = 3800; // > Teide (3718 m)
 
 const FT = 0.3048;
 
-export type EsAltitudeReference = "AGL" | "MSL";
+/** UNKNOWN nur aus dem ED-318-Pfad (Quelle ohne Bezug; shared/heights.ts). */
+export type EsAltitudeReference = "AGL" | "MSL" | "UNKNOWN";
 
 export type EsAltitude = {
   /** Meter; undefined = unbegrenzt bzw. nicht lesbar. */
@@ -194,6 +195,7 @@ export function parseEsAltitude(value: unknown, uomRaw: unknown, refRaw: unknown
 /** Untergrenze für Drohnen erreichbar (bzw. unbekannt) → Zone behalten. */
 export function esLowerIsRelevant(lower: EsAltitude | null): boolean {
   if (!lower || lower.meters == null) return !lower?.unlimited;
+  if (lower.reference === "UNKNOWN") return true; // unbekannter Bezug: behalten
   if (lower.reference === "AGL") return lower.meters <= ES_MAX_RELEVANT_LOWER_AGL_M + 0.5;
   return lower.meters <= ES_MAX_RELEVANT_LOWER_MSL_M;
 }

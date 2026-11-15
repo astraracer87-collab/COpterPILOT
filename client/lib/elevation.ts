@@ -1,3 +1,9 @@
+import {
+  terrainEstimateFromSamples,
+  terrainSamplePoints,
+  type TerrainEstimate,
+} from "../../shared/geozoneAltitudeFilter";
+
 const OPEN_METEO_ELEVATION_URL = "https://api.open-meteo.com/v1/elevation";
 
 const MAX_CACHE_SIZE = 2000;
@@ -104,6 +110,7 @@ export function getCachedElevationKey(lat: number, lon: number): string {
 
 export function clearElevationCache(): void {
   elevationCache.clear();
+  terrainEstimateCache.clear();
 }
 
 let lastFullEnrichTime = 0;
@@ -129,4 +136,50 @@ export async function enrichAircraftWithElevation<T extends { latitude: number; 
     const agl = groundElev != null && mslAlt != null ? Math.max(0, mslAlt - groundElev) : null;
     return { ...ac, groundElevation: groundElev, aglAltitude: agl };
   });
+}
+
+// ---------------------------------------------------------------------------
+// Geländeschätzung im Planungsradius (Höhenfilter, Umbau B3)
+//
+// Mittelpunkt + je 8 Punkte auf Radius und halbem Radius in EINEM Open-Meteo-
+// Aufruf (die API nimmt mehrere Koordinaten). Einzelpunkte landen im
+// Koordinaten-Cache oben, die Schätzung zusätzlich in einem eigenen Cache.
+// Offline/Fehler: letzte Schätzung für denselben Ort, sonst was der Cache
+// hergibt (nur Mittelpunkt -> shared/geozoneAltitudeFilter rechnet Mitte +
+// 150 m), sonst null (MSL-Zonen bleiben dann sichtbar). Die Caches leben nur im
+// Speicher (App-Neustart offline = keine Geländehöhe = nichts ausgeblendet).
+// ---------------------------------------------------------------------------
+
+const terrainEstimateCache = new Map<string, TerrainEstimate>();
+
+function terrainKey(lat: number, lon: number, radiusM: number): string {
+  return `${coordKey(lat, lon)}|${Math.round(Math.max(0, radiusM) / 100)}`;
+}
+
+export async function fetchTerrainEstimate(
+  lat: number,
+  lon: number,
+  radiusM: number,
+): Promise<TerrainEstimate | null> {
+  const key = terrainKey(lat, lon, radiusM);
+  const points = terrainSamplePoints(lat, lon, radiusM);
+  let values: (number | null)[];
+  try {
+    const map = await fetchBatchElevations(points);
+    values = points.map((p) => map.get(coordKey(p.lat, p.lon)) ?? null);
+  } catch {
+    values = points.map((p) => getElevationFromCache(p.lat, p.lon));
+  }
+  const fresh = terrainEstimateFromSamples(values[0], values.slice(1));
+  const cached = terrainEstimateCache.get(key) ?? null;
+  // Eine vollständigere frühere Schätzung schlägt eine lückenhafte (offline).
+  const best = cached && (!fresh || cached.samples > fresh.samples) ? cached : fresh;
+  if (best) {
+    terrainEstimateCache.set(key, best);
+    if (terrainEstimateCache.size > 200) {
+      const first = terrainEstimateCache.keys().next();
+      if (!first.done) terrainEstimateCache.delete(first.value);
+    }
+  }
+  return best;
 }

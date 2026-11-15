@@ -18,12 +18,13 @@
 import { normalizeEd269Restriction } from "./ed269Restriction";
 import { ed269ProjectionToPolygons, ed269CircleToPolygon, ED269_REASON_LABELS_DE, type Ed269PureFeature } from "./ed269Pure";
 import { isoDurationText } from "./swedishGeozones";
+import { FT_M, parseHeight, type VRef } from "./heights";
 
-const FT = 0.3048;
 // Obergrenzen ab hier (≈ FL490) gelten als „unbegrenzt“ (CZ: FL660).
 const UNLIMITED_M = 15000;
 
-export type Ed318AltitudeReference = "AGL" | "MSL";
+/** UNKNOWN: Quelle nennt keinen Bezug – der Höhenfilter blendet nie aus. */
+export type Ed318AltitudeReference = VRef;
 
 export type Ed318Altitude = {
   /** Meter; undefined = unbegrenzt bzw. nicht lesbar. */
@@ -144,46 +145,34 @@ export function ed318Restriction(...candidates: unknown[]): string | null {
 // Höhen
 // ---------------------------------------------------------------------------
 
-function reference(refRaw: unknown, fallback: Ed318AltitudeReference): Ed318AltitudeReference {
-  const r = String(refRaw ?? "").trim().toUpperCase();
-  if (!r) return fallback;
-  if (r === "AGL" || r === "SFC" || r === "GND" || r === "HEI" || r === "AGND") return "AGL";
-  return "MSL"; // AMSL, MSL, WGS84, STD (FL), ALT → MSL (App kennt nur AGL/MSL)
-}
-
 /**
  * Ein ED-318-Höhenwert (layer.lower/upper bzw. ED-269 lowerLimit/upperLimit)
  * + uom (M/FT/FL) + Bezug (AGL/AMSL/WGS84/STD/SFC) → Meter. GND/SFC → 0 AGL,
  * UNL bzw. ≥ 15 000 m → unbegrenzt. Strings mit Einheit/Bezug („120 m AGL“,
  * „500FT AMSL“, „FL 65“) werden ebenfalls gelesen. Zahl ohne Einheit = Meter.
+ * Fehlender/unbekannter Bezug → "UNKNOWN" (früher still AGL).
  */
 export function ed318Altitude(value: unknown, uomRaw?: unknown, refRaw?: unknown): Ed318Altitude | null {
   if (value == null || value === "") return null;
-  const s = String(value).trim().toUpperCase().replace(/\s+/g, " ");
-  if (!s) return null;
-  if (s === "GND" || s === "SFC" || s === "0 GND" || s === "0 SFC") return { meters: 0, reference: "AGL", text: "GND" };
-  if (s === "UNL" || s === "UNLTD" || s === "UNLIMITED") return { meters: undefined, reference: "MSL", unlimited: true, text: "UNL" };
-  const fl = s.match(/^FL ?(\d{1,3})$/);
-  if (fl) return flAltitude(Number(fl[1]));
-  const m = s.match(/^(-?\d+(?:[.,]\d+)?) ?(FT|F|FEET|M|METERS?|METRES?|FL)? ?(AGL|AMSL|MSL|SFC|GND|WGS84|STD|ALT|HEI)?$/);
-  if (!m) return null;
-  const n = Number(m[1].replace(",", "."));
-  if (!Number.isFinite(n)) return null;
-  const refU = String(m[3] ?? refRaw ?? "").trim().toUpperCase();
-  let uom = String(m[2] ?? uomRaw ?? "").trim().toUpperCase();
-  if (uom === "F" || uom === "FEET") uom = "FT";
-  if (/^MET/.test(uom) || uom === "") uom = refU === "STD" ? "FL" : "M";
-  if (uom === "FL") return flAltitude(n);
-  const ref = reference(refU, "AGL");
-  if (n <= 0 && ref === "AGL") return { meters: 0, reference: ref, text: "GND" };
-  const meters = uom === "FT" ? n * FT : n;
-  if (meters >= UNLIMITED_M) return { meters: undefined, reference: "MSL", unlimited: true, text: `${n} ${uom === "FT" ? "ft" : "m"}` };
-  const refText = refU === "WGS84" || refU === "MSL" || refU === "ALT" ? "AMSL" : refU === "SFC" || refU === "GND" || refU === "HEI" || !refU ? "AGL" : refU;
-  return { meters: round1(meters), reference: ref, text: `${n} ${uom === "FT" ? "ft" : "m"} ${refText}` };
+  // Gemeinsamer Höhenparser (shared/heights.ts); hier nur die ED-318-Form
+  // (Text-Schreibweise, Unbegrenzt-Schwelle) bilden.
+  const h = parseHeight(value, uomRaw, refRaw);
+  if (!h) return null;
+  if (h.m == null) {
+    return h.text === "GND"
+      ? { meters: 0, reference: "AGL", text: "GND" }
+      : { meters: undefined, reference: "MSL", unlimited: true, text: "UNL" };
+  }
+  if (h.unit === "FL") return flAltitude(h.value ?? h.m / (100 * FT_M));
+  if (h.m <= 0 && h.ref !== "MSL") return { meters: 0, reference: "AGL", text: "GND" };
+  const unitText = `${h.value ?? h.m} ${h.unit === "ft" ? "ft" : "m"}`;
+  if (h.m >= UNLIMITED_M) return { meters: undefined, reference: "MSL", unlimited: true, text: unitText };
+  const refText = h.ref === "AGL" ? "AGL" : h.ref === "MSL" ? (h.datum === "STD" ? "STD" : "AMSL") : "";
+  return { meters: round1(h.m), reference: h.ref, text: refText ? `${unitText} ${refText}` : unitText };
 }
 
 function flAltitude(fl: number): Ed318Altitude {
-  const meters = fl * 100 * FT;
+  const meters = fl * 100 * FT_M;
   if (meters >= UNLIMITED_M) return { meters: undefined, reference: "MSL", unlimited: true, text: `FL ${fl}` };
   return { meters: round1(meters), reference: "MSL", text: `FL ${fl}` };
 }

@@ -1,5 +1,6 @@
 import type { GeoJsonGeometryLike } from "./germanEnergyInfrastructure";
 import type { Restriction } from "./restrictionPolicy";
+import type { Height, VRef } from "./heights";
 
 /** Conditional legal guidance, never a machine-readable flight clearance. */
 export interface InfrastructureFlightRule {
@@ -41,8 +42,14 @@ export interface GeozoneFeatureInfo {
   restrictionRaw?: string;
   fillColor?: string;
   strokeColor?: string;
+  /** Kompatibilität: Meter ohne Bezug. Maßgeblich sind `lower`/`upper`. */
   lowerMeters?: number;
   upperMeters?: number;
+  /** Strukturierte Grenzen mit Bezug (shared/heights.ts, Umbau B3). Neue
+   * Logik liest diese; lowerMeters/upperMeters bleiben parallel befüllt. */
+  lower?: Height;
+  upper?: Height;
+  /** Anzeige mit Bezug, z. B. „GND – 1500 ft AMSL (457 m)“. */
   altitudeLabel?: string;
   /** Hard validity window (ms, end inclusive); null/absent = open. Set by all
    * structured paths (ED-269 vector, DE WFS/tile-store temp zones, CZ ED-318,
@@ -59,8 +66,10 @@ export interface GeozoneFeatureInfo {
   notamEligible?: boolean;
   applicationText?: string;
   links?: { label: string; url: string }[];
-  /** Unknown reference retains the existing AGL fallback in height filtering. */
-  lowerReference?: "MSL" | "AGL";
+  /** Bezug der Untergrenze. UNKNOWN wird vom Höhenfilter nie ausgeblendet. */
+  lowerReference?: VRef;
+  /** Bezug der Obergrenze (ging früher verloren, z. B. SE „0 AGL / 1500 ft AMSL“). */
+  upperReference?: VRef;
   /** Explicit maximum flight height AGL (m) allowed without authorisation, e.g.
    * SE CTR/TIZ/ATZ 50 m (normalisers: openCategoryMaxAglMeters). The only
    * structured field that may clear a zone by altitude — upperMeters is the top

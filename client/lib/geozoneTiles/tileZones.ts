@@ -14,6 +14,7 @@ import {
 } from "../../../shared/ed269Restriction";
 import { ed318Applicability } from "../../../shared/ed318Pure";
 import { restrictionLabelDe } from "../../../shared/restrictionPolicy";
+import { capUnlimited, formatHeightRangeDe, parseHeight, type Height } from "../../../shared/heights";
 import { TILE_STORE_ATTRIBUTION, type TileStoreIso } from "./tileStoreCore";
 
 const DIPUL_LAYER_BY_NAME = new Map(GEOZONE_LAYERS.map((l) => [l.wmsLayer, l]));
@@ -82,10 +83,13 @@ export function czCategory(name: string, identifier: string, authority: string):
   return "Geozonen ČR";
 }
 
-function czLimitMeters(v: unknown, uom: string): number | undefined {
-  const n = Number(v);
-  if (!Number.isFinite(n)) return undefined;
-  return /^ft$/i.test(uom) ? n * 0.3048 : n;
+// ŘLP-Grenzen über den gemeinsamen Höhenparser: m/ft/FL, Bezug AGL/AMSL/STD
+// (STD = Flugfläche, früher fälschlich als Meter AGL gelesen). FL660
+// (≥ 15 000 m) bedeutet praktisch „ohne Obergrenze“.
+const CZ_UNLIMITED_M = 15000;
+function czHeight(v: unknown, uom: string, ref: unknown, side: "lower" | "upper"): Height | null {
+  const h = parseHeight(v, uom, ref);
+  return side === "upper" ? capUnlimited(h, CZ_UNLIMITED_M) : h;
 }
 
 function lonLatRings(geometry: any): [number, number][][][] {
@@ -115,15 +119,12 @@ export function czZoneFromStored(f: any): GeozoneFeatureInfo | null {
   const colors = ed269RestrictionColors(restriction);
   const layer = f?.geometry?.layer ?? {};
   const uom = String(layer.uom ?? "m");
-  const lowerMeters = czLimitMeters(layer.lower, uom);
-  const upperRaw = czLimitMeters(layer.upper, uom);
-  // FL660 (66 000 ft AMSL) bedeutet praktisch „ohne Obergrenze“
-  const upperMeters = upperRaw != null && upperRaw >= 15000 ? undefined : upperRaw;
-  const lowerReference = /AMSL|MSL/i.test(String(layer.lowerReference ?? "")) ? "MSL" : "AGL";
-  const upperRef = /AMSL|MSL/i.test(String(layer.upperReference ?? "")) ? "MSL" : "AGL";
-  const altitudeLabel = `${lowerMeters == null ? "GND" : `${Math.round(lowerMeters)} m ${lowerReference}`} – ${
-    upperMeters == null ? "unbegrenzt" : `${Math.round(upperMeters)} m ${upperRef}`
-  }`;
+  const lower = czHeight(layer.lower, uom, layer.lowerReference, "lower") ?? { m: null, ref: "AGL", text: "GND" };
+  const upper = czHeight(layer.upper, uom, layer.upperReference, "upper") ?? { m: null, ref: "UNKNOWN", text: "UNL" };
+  const lowerMeters = lower.m ?? undefined;
+  const upperMeters = upper.m ?? undefined;
+  const lowerReference = lower.ref;
+  const altitudeLabel = formatHeightRangeDe(lower, upper);
   const category = czCategory(name, identifier, authority);
   const details: string[] = [
     `Zone: ${name}`,
@@ -162,8 +163,11 @@ export function czZoneFromStored(f: any): GeozoneFeatureInfo | null {
     strokeColor: colors.stroke,
     lowerMeters,
     upperMeters,
+    lower,
+    upper,
     altitudeLabel,
     lowerReference,
+    ...(upper.m != null ? { upperReference: upper.ref } : {}),
     ...(validStartTs != null || validEndTs != null ? { validStartTs, validEndTs } : {}),
     ...(ed269Applicability ? { ed269Applicability } : {}),
     ...(scheduleText.length > 0 ? { scheduleText } : {}),

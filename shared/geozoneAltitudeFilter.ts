@@ -11,64 +11,168 @@
 // Kachelbildern zusammengesetzt und lassen sich nicht client-seitig filtern.
 
 import { normalizeRestriction, restrictionFromText } from "./restrictionPolicy";
+import { heightFromMeters, normalizeVRef, type Height, type VRef } from "./heights";
 
 // Standard-erreichbare Höhe (EU Open-Kategorie: 120 m AGL), wenn keine Drohne
 // gewählt ist bzw. keine geplante Höhe vorliegt.
 export const DEFAULT_REACHABLE_ALTITUDE_M = 120;
 
-export type AltitudeReference = "MSL" | "AGL";
+export type AltitudeReference = VRef;
 
-// Normalisiert die verschiedenen Höhenbezugs-Schreibweisen der ED-269-Anbieter
-// auf MSL oder AGL. MSL/AMSL/STD/FL -> MSL (über Meeresspiegel, muss erst in
-// AGL umgerechnet werden). GND/SFC/AGL sowie leer/unbekannt -> AGL (direkter
-// Vergleich, da der Wert bereits Höhe über Grund ist).
+// Normalisiert die verschiedenen Höhenbezugs-Schreibweisen der Anbieter
+// (shared/heights.ts normalizeVRef): AGL/SFC/GND/HEI -> AGL; MSL/AMSL/ALT/
+// WGS84/STD/FL -> MSL; leer/unbekannt -> UNKNOWN. UNKNOWN wird vom Höhenfilter
+// NIE ausgeblendet (früher stiller AGL-Rückfall – unsicher).
 export function normalizeAltitudeReference(raw: any): AltitudeReference {
-  const r = String(raw ?? "").toUpperCase().trim();
-  if (r === "MSL" || r === "AMSL" || r === "STD" || r === "FL") return "MSL";
-  return "AGL";
+  return normalizeVRef(raw).ref;
+}
+
+// ---------------------------------------------------------------------------
+// Gelände (MSL -> AGL)
+//
+// Eine Zone mit MSL-Untergrenze L ist erreichbar, sobald IRGENDEIN Punkt des
+// Flugvolumens sie berührt: höchste Flughöhe MSL = höchstes Gelände im
+// Planungsradius + geplante Höhe AGL. Deshalb zählt das MAXIMUM der
+// Geländehöhe im Radius, nicht der Mittelpunkt (sonst blendet der Filter im
+// Gebirge Zonen fälschlich aus). Gemessen wird günstig an Mittelpunkt + zwei
+// Ringen à 8 Punkten (client/lib/elevation.ts fetchTerrainEstimate, ein
+// Open-Meteo-Aufruf, Cache). Margen:
+// - TERRAIN_SAMPLED_MARGIN_M: Gipfel zwischen den Stützpunkten.
+// - TERRAIN_CENTER_ONLY_MARGIN_M: nur der Mittelpunkt ist bekannt (offline,
+//   Altaufrufer mit terrainElevationM) -> Maximum ≈ Mitte + 150 m.
+// - STD (Flugfläche = Druckhöhe): bei tiefem Luftdruck/Kälte liegt die wahre
+//   Höhe einer FL-Grenze bis zu einigen hundert Metern tiefer -> 300 m.
+// - WGS84 (ellipsoidisch): in Europa ca. 35–55 m über MSL -> 60 m.
+// Für Obergrenzen (Zone liegt komplett unter dem Gelände) zählt das MINIMUM
+// mit Marge; ohne mehrere Stützpunkte wird über die Obergrenze nie
+// ausgeblendet.
+// ---------------------------------------------------------------------------
+
+export const TERRAIN_SAMPLED_MARGIN_M = 30;
+export const TERRAIN_CENTER_ONLY_MARGIN_M = 150;
+export const STD_DATUM_MARGIN_M = 300;
+export const WGS84_DATUM_MARGIN_M = 60;
+export const TERRAIN_MIN_MARGIN_M = 100;
+
+export interface TerrainEstimate {
+  /** Geländehöhe MSL am Mittelpunkt (null = unbekannt). */
+  centerM: number | null;
+  /** Höchster/tiefster gemessener Stützpunkt (inkl. Mittelpunkt). */
+  maxM: number | null;
+  minM: number | null;
+  /** Anzahl gültiger Stützpunkte (1 = nur Mittelpunkt). */
+  samples: number;
+}
+
+/** Stützpunkte: Mittelpunkt + je 8 Punkte auf dem Radius und dem halben Radius. */
+export function terrainSamplePoints(
+  lat: number,
+  lon: number,
+  radiusM: number,
+): { lat: number; lon: number }[] {
+  const pts = [{ lat, lon }];
+  const r = Math.max(0, radiusM);
+  if (!(r > 0)) return pts;
+  const cosLat = Math.max(0.01, Math.cos((lat * Math.PI) / 180));
+  for (const f of [1, 0.5]) {
+    for (let i = 0; i < 8; i++) {
+      const a = (i * Math.PI) / 4;
+      const dLat = ((r * f) / 111320) * Math.cos(a);
+      const dLon = ((r * f) / (111320 * cosLat)) * Math.sin(a);
+      pts.push({ lat: lat + dLat, lon: lon + dLon });
+    }
+  }
+  return pts;
+}
+
+/** Schätzung aus Mittelpunkt + weiteren Stützpunkten (ungültige Werte ignoriert). */
+export function terrainEstimateFromSamples(
+  centerM: number | null | undefined,
+  others: (number | null | undefined)[] = [],
+): TerrainEstimate | null {
+  const c = typeof centerM === "number" && Number.isFinite(centerM) ? centerM : null;
+  const vals = [c, ...others].filter((v): v is number => typeof v === "number" && Number.isFinite(v));
+  if (vals.length === 0) return null;
+  return { centerM: c, maxM: Math.max(...vals), minM: Math.min(...vals), samples: vals.length };
+}
+
+/** Konservatives Gelände-Maximum (für Untergrenzen) oder null. */
+export function conservativeTerrainMaxM(t: TerrainEstimate | null | undefined): number | null {
+  if (!t || t.maxM == null || !Number.isFinite(t.maxM)) return null;
+  return t.samples > 1 ? t.maxM + TERRAIN_SAMPLED_MARGIN_M : t.maxM + TERRAIN_CENTER_ONLY_MARGIN_M;
 }
 
 export interface ZoneAltitudeInput {
   // Untergrenze der Zone in Metern (bereits in der Quelleinheit umgerechnet).
   // null/undefined oder <= 0 bedeutet "keine erkennbare Untergrenze" (GND/SFC/0).
   lowerMeters?: number | null;
-  // Höhenbezug der Untergrenze (MSL/AGL bzw. roher Quellwert).
+  // Höhenbezug der Untergrenze (MSL/AGL/UNKNOWN bzw. roher Quellwert).
   lowerReference?: AltitudeReference | string | null;
+  // Strukturierte Grenzen (shared/heights.ts). Haben Vorrang vor
+  // lowerMeters/lowerReference.
+  lower?: Height | null;
+  upper?: Height | null;
 }
 
 export interface ReachabilityOptions {
   // Erreichbare bzw. geplante Flughöhe in Höhe über Grund (AGL), in Metern.
   reachableAltitudeM: number;
-  // Geländehöhe (MSL) am Ort/Kartenzentrum, für die MSL->AGL-Umrechnung.
-  // null/undefined => MSL-Zonen können nicht sicher umgerechnet werden und
-  // bleiben sicherheitshalber sichtbar.
+  // Geländeschätzung im Planungsradius (bevorzugt).
+  terrain?: TerrainEstimate | null;
+  // Altform: nur Geländehöhe am Mittelpunkt (MSL) -> Maximum ≈ Mitte + Marge.
+  // null/undefined (und kein terrain) => MSL-Zonen bleiben sichtbar.
   terrainElevationM?: number | null;
 }
 
+function lowerOf(zone: ZoneAltitudeInput): Height {
+  if (zone.lower) return zone.lower;
+  return heightFromMeters(zone.lowerMeters, zone.lowerReference, "lower");
+}
+
+function datumMargin(h: Height): number {
+  if (h.datum === "STD") return STD_DATUM_MARGIN_M;
+  if (h.datum === "WGS84") return WGS84_DATUM_MARGIN_M;
+  return 0;
+}
+
+function terrainOf(opts: ReachabilityOptions): TerrainEstimate | null {
+  if (opts.terrain) return opts.terrain;
+  return terrainEstimateFromSamples(opts.terrainElevationM);
+}
+
 // Entscheidet, ob eine Zone für die erreichbare Höhe relevant ist (= sichtbar).
-// true  = anzeigen (Drohne kann die Untergrenze erreichen oder Untergrenze GND).
-// false = wegen Höhe ausblenden (Untergrenze liegt über der erreichbaren Höhe).
+// Konservativ: die Zone zählt, sobald irgendein Teil des Flugvolumens (Boden
+// bis geplante Höhe AGL, überall im Radius) sie berühren KÖNNTE.
+// true  = anzeigen; false = wegen Höhe ausblenden.
 export function isZoneReachable(
   zone: ZoneAltitudeInput,
   opts: ReachabilityOptions,
 ): boolean {
-  const lower = zone.lowerMeters;
-  // Keine erkennbare Untergrenze bzw. GND/0 -> immer sichtbar (z. B. CTR-Ringe).
-  if (lower == null || !Number.isFinite(lower) || lower <= 0) return true;
-
-  const ref = normalizeAltitudeReference(zone.lowerReference);
-  let lowerAgl = lower;
-  if (ref === "MSL") {
-    const terrain = opts.terrainElevationM;
-    // Ohne bekannte Geländehöhe keine sichere MSL->AGL-Umrechnung möglich ->
-    // sicherheitshalber anzeigen, statt fälschlich auszublenden.
-    if (terrain == null || !Number.isFinite(terrain)) return true;
-    lowerAgl = lower - terrain;
+  const lower = lowerOf(zone);
+  // Untergrenze: GND/0/fehlend -> erreichbar; UNKNOWN -> nie ausblenden.
+  if (lower.m != null && Number.isFinite(lower.m) && lower.m > 0 && lower.ref !== "UNKNOWN") {
+    let lowerAgl = lower.m;
+    if (lower.ref === "MSL") {
+      const tMax = conservativeTerrainMaxM(terrainOf(opts));
+      // Ohne Geländehöhe keine sichere MSL->AGL-Umrechnung -> anzeigen.
+      if (tMax == null) return true;
+      lowerAgl = lower.m - datumMargin(lower) - tMax;
+    }
+    // Bei Gleichstand (==) bleibt die Zone sichtbar; nur echt darüber ausblenden.
+    if (lowerAgl > opts.reachableAltitudeM) return false;
   }
-  // Untergrenze auf/unter Grund -> immer sichtbar.
-  if (lowerAgl <= 0) return true;
-  // Bei Gleichstand (==) bleibt die Zone sichtbar; nur echt darüber ausblenden.
-  return lowerAgl <= opts.reachableAltitudeM;
+  // Obergrenze: nur MSL-Obergrenzen, die im GANZEN Radius sicher unter dem
+  // Gelände liegen (mehrere Stützpunkte, Minimum minus Marge), blenden aus.
+  // AGL-Obergrenzen nie (z. B. CZ „Höhengrenze 0 m“ = Flug nur mit Genehmigung).
+  const upper = zone.upper;
+  if (upper && upper.m != null && Number.isFinite(upper.m) && upper.ref === "MSL") {
+    const t = terrainOf(opts);
+    if (t && t.samples > 1 && t.minM != null) {
+      const upperTrue = upper.m + datumMargin(upper);
+      if (upperTrue < t.minM - TERRAIN_MIN_MARGIN_M) return false;
+    }
+  }
+  return true;
 }
 
 // Entscheidet, ob eine Vektor-Geozone (ED-269: AT/BE/DK) abgelaufen ist und
