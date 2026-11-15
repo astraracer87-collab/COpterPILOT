@@ -42,6 +42,8 @@ import { rescheduleExpiryWarnings } from "@/lib/expiryWarnings";
 SplashScreen.preventAutoHideAsync();
 
 const DISCLAIMER_KEY = "@preflight/disclaimer_accepted";
+/** Start-Hinweis vorerst ausgeschaltet (Wunsch des Betreibers); auf true setzen, um ihn wieder zu zeigen. */
+const SHOW_STARTUP_DISCLAIMER = false;
 
 function DisclaimerScreen({ onAccept, onDecline }: { onAccept: () => void; onDecline: () => void }) {
   const insets = useSafeAreaInsets();
@@ -167,7 +169,7 @@ function AuthGate({
     return () => clearTimeout(t);
   }, []);
 
-  if (!disclaimerAccepted) {
+  if (SHOW_STARTUP_DISCLAIMER && !disclaimerAccepted) {
     return (
       <DisclaimerScreen
         onAccept={() => { void onAcceptDisclaimer(); }}
