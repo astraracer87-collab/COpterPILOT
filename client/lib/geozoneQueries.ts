@@ -8,6 +8,7 @@
 // importiert die `*From`-Varianten und injiziert die jeweilige Länder-Config
 // (CH-Identify-URL/-Layers, NL-Layer, FR-WMS-Basis-URL), sodass die öffentliche
 // API (und alle Aufrufer) unverändert bleibt.
+import { translateTextDe } from "../../shared/zoneTranslate";
 import type { GeozoneFeatureInfo, GeozoneLayer } from "./geozones";
 import { FR_ZONE_TYPES, classifyFrRestrictionType, frRestrictionFromText } from "./frZoneTypes";
 import { deRestrictionForLayer, normalizeRestriction, restrictionFromText, type Restriction } from "../../shared/restrictionPolicy";
@@ -1437,7 +1438,11 @@ function frZoneText(limite: string, remarque: string): { name: string; details: 
   if (translatedLimit) details.push(`Beschränkung: ${translatedLimit}`);
   const translatedRemarque = translateFrRemarque(remarque);
   if (translatedRemarque && translatedRemarque !== translatedLimit) {
-    details.push(`Hinweis: ${translatedRemarque}`);
+    const remarqueDe = translatedRemarque === remarque
+      ? translateTextDe(remarque, { markUntranslated: true }).text
+      : translatedRemarque;
+    details.push(`Hinweis: ${remarqueDe}`);
+    if (translatedRemarque === remarque && remarqueDe !== remarque) details.push(`Originaltext der Behörde: ${remarque}`);
   }
   details.push(`Auflagen: ${typeInfo.auflage}`);
   details.push(`Kontakt: ${typeInfo.kontakt}`);

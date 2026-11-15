@@ -1,6 +1,7 @@
 // Umwandlung der unverändert gespeicherten Features (dipul-WFS, Géoplateforme-
 // WFS, ŘLP ED-318, ENAIRE insignias) in das App-Modell GeozoneFeatureInfo – erst beim Lesen.
 // Rein, ohne React-Native-Importe (unter tsx testbar).
+import { translateTextDe, translateZoneNameDe } from "../../../shared/zoneTranslate";
 import type { GeozoneFeatureInfo } from "../geozones";
 import { GEOZONE_LAYERS } from "../../../shared/geozoneLayerCatalog";
 import { dipulZoneFromFeature, frZoneFromWfsFeature } from "../geozoneQueries";
@@ -129,14 +130,18 @@ export function czZoneFromStored(f: any): GeozoneFeatureInfo | null {
   const altitudeLabel = formatHeightRangeDe(lower, upper);
   const category = czCategory(name, identifier, authority);
   const details: string[] = [
-    `Zone: ${name}`,
+    `Zone: ${czNameDe(name)}`,
     `Kategorie: ${category}`,
     `Beschränkung: ${restrictionLabelDe(restriction)}`,
     `Höhe: ${altitudeLabel}`,
   ];
   if (upperMeters != null && upperMeters <= 0) details.push("Hinweis: Höhengrenze 0 m – Flug nur mit Genehmigung.");
   const msg = Array.isArray(p.message) ? p.message.map((m: any) => m?.text).filter(Boolean).join(" ") : "";
-  if (msg) details.push(`Hinweis der Behörde: ${msg}`);
+  if (msg) {
+    const tr = translateTextDe(msg, { markUntranslated: true });
+    details.push(`Hinweis der Behörde: ${tr.text}`);
+    if (tr.changed && !tr.originalIncluded) details.push(`Originaltext der Behörde: ${msg}`);
+  }
   if (authority) details.push(`Zuständig: ${authority}`);
   if (identifier) details.push(`Kennung: ${identifier}`);
   // ED-318 limitedApplicability -> ED-269 applicability (ohne Ablauf-Filter:
@@ -254,4 +259,10 @@ export function dedupeZones(zones: GeozoneFeatureInfo[]): GeozoneFeatureInfo[] {
     prev.polygonRings = (prev.polygonGroups ?? []).flat();
   }
   return out;
+}
+
+/** Deutscher Zonenname für die Anzeige; Original in Klammern, wenn übersetzt. */
+function czNameDe(name: string): string {
+  const de = translateZoneNameDe(name);
+  return de && de !== name ? `${de} (${name})` : name;
 }
