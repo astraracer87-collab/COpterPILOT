@@ -3,6 +3,8 @@ name: APK bauen (DJI RC)
 on:
   push:
     branches: ['**']
+    # Reine Doku-Änderungen bauen keine APK
+    paths-ignore: ['docs/**', '**/*.md']
   workflow_dispatch:
 
 permissions:
@@ -43,6 +45,10 @@ jobs:
       - name: Tests
         run: npm test
 
+      - name: Versionsnummer setzen (jede Build-Nummer höher, damit Updates die Daten behalten)
+        run: |
+          node -e "const fs=require('fs');const p='app.json';const j=JSON.parse(fs.readFileSync(p,'utf8'));j.expo.android.versionCode=100+Number(process.env.GITHUB_RUN_NUMBER);fs.writeFileSync(p,JSON.stringify(j,null,2));console.log('versionCode',j.expo.android.versionCode)"
+
       - name: Android-Projekt erzeugen (expo prebuild)
         run: npx expo prebuild --platform android --clean --no-install
         env:
@@ -77,6 +83,9 @@ jobs:
           path: COpterPilot-RC.apk
 
       - name: Als Release "latest" veröffentlichen
+        # Nur der Entwicklungszweig der App veröffentlicht – andere Zweige (z. B. Recherche/Doku)
+        # würden sonst eine ältere App-Fassung als „latest“ ausliefern.
+        if: github.ref_name == 'claude/magical-fermat-e6sh33' || github.ref_name == 'main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
