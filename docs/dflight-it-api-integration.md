@@ -364,3 +364,71 @@ curl -s --compressed -H "Authorization: Bearer $TOKEN" -o it_ed269.out \
   -w "%{http_code} %{content_type} %{size_download}\n" \
   https://www.d-flight.it/geo-awareness/api/ed-269/geo-zones/download
 ```
+
+---
+
+## Anhang IT: eingeloggte Live-Analyse (DE-Session, 2026-11-15) — maßgeblich
+
+Mit **Davids Benutzerkonto** (Rolle `USER`) direkt in der Web-App gemessen. Das
+korrigiert/präzisiert die obigen Abschnitte: der eigentliche Daten-Weg ist der
+**GeoServer-WFS**, nicht der CSRF-/Pre-Flight-Weg.
+
+### Realität der Auth
+- **Ohne Login geht nichts:** jede Anfrage ohne Bearer-Token → `401`
+  (auch Kartenkacheln). Config `allowAnonUser:false`. Die Behörden-Aussage „geht
+  auch ohne User-Login" trifft auf die Produktivumgebung **nicht** zu.
+- **Keycloak** Realm `DFlight`, Client `web-app`, Header `Authorization: Bearer
+  <JWT>`, Token nur **5 min** gültig (App erneuert laufend). Client-Daten der
+  Web-App sind öffentlich, aber **nicht** für eigene Abrufe nutzen.
+
+### Daten-Weg ✅ (mit Token): GeoServer-WFS → GeoJSON
+```
+GET https://www.d-flight.it/maps/wms?service=WFS&version=2.0.0&request=GetFeature
+    &typeNames=D-FLIGHT:ATM09_INFO&outputFormat=application/json&srsName=EPSG:4326
+Authorization: Bearer <token>
+```
+Ausgabeformate: GeoJSON/KML/SHAPE-ZIP/csv/GML. Paging `count`/`startIndex`,
+`resultType=hits`, `bbox=minLat,minLon,maxLat,maxLon,EPSG:4326`.
+
+**Wichtige Layer (Namespace `D-FLIGHT:`):**
+| Layer | Inhalt | Anzahl |
+|---|---|---|
+| **`ATM09_INFO`** | **Haupt-UAS-Geozonen** (ENAC, max. Höhe + Regel) | 3.876 |
+| `ATM09` | dieselben, nach Höhenklasse (0/25/45/60/120 m) gruppiert | 8 |
+| `NO_FLY_ZONE` | temporäre/dynamische NFZ (zeitabhängig) | 16.134 |
+| `NO_FLY_ZONE_LIST` | gruppierte NFZ | 604 |
+| `CTR`/`ATZ`/`P`/`R`/`D` | Lufträume / Prohibited/Restricted/Danger | 57/92/279/56/20 |
+| `AREE_MILITARI`, `PARCHI`, `PROTECT_NATURE` | Militär / Parks / Naturschutz | 44 / 3.553 / 314 |
+| `NOTAM` | drohnenrelevante NOTAMs | 18 |
+
+- `ATM09_INFO`-Felder: `id, name, quota_max, type, rule, regola, subtype,
+  lower_limit_m, upper_limit_m, valid_from, valid_to, priority, designator,
+  title_rule, titolo_regola, note` (Höhen bereits in **Metern**).
+- **NFZ-Zeitfilter** (wie die App): `viewparams=start_nfz:<jetzt>;end_nfz:9999-12-31T00:00;`
+  NOTAM analog mit `div_notam`/`dfv_notam`/`quota_max:20000`.
+
+### ED-269-Download existiert, ist aber rollengesperrt
+`/geo-awareness/api/ed-269/geo-zones/download` → **401 auch mit User-Token**
+(Menüpunkt „Download UAS Geo Zone" für Rolle `USER` nicht sichtbar). Config
+`ED269ExportEnable:true` → an Operator/USSP-Rolle gebunden. Abo/Push (USSP):
+`/uss/api/ed-269/subscription/...` (nicht getestet).
+
+### Weg zum Produktivbetrieb (das ist das eigentlich Offene)
+1. **Service-Account / `client_credentials`-Client bei D-Flight beantragen**
+   (Realm `DFlight`, Leserecht auf WFS und/oder `geo-awareness/ed-269`) —
+   **empfohlen**, sauberer Serverzugriff ohne Privatkonto.
+2. Alternativ **ED-269-Download für das Konto freischalten** (Rolle klären).
+3. Password-Grant mit Davids Zugangsdaten nur nach **schriftlichem OK** (Konto-
+   Bindung, rechtlich heikel) — nicht bevorzugt.
+
+### ⚠️ Lizenz (blockiert Weitergabe!)
+Web-App-Hinweis: Daten **nur für den persönlichen Gebrauch**, **nicht an Dritte
+weitergeben/verkaufen**. Für die Einbindung in COpterPILOT (Weitergabe an Nutzer)
+ist eine **ausdrückliche Datenfreigabe von D-Flight/ENAC nötig** — das ist der
+entscheidende offene Punkt, nicht die Technik.
+
+### Status IT (präzisiert)
+- **Daten technisch abrufbar** (WFS `ATM09_INFO` mit eingeloggtem Token) → eine
+  **Fixture lässt sich sofort mit Davids Login ziehen**.
+- **Offen für Produktiv:** (a) Service-Account/Client-Credentials von D-Flight,
+  (b) **Lizenz-/Weitergabe-Freigabe**. Bis dahin **🔑**.

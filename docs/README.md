@@ -51,7 +51,7 @@ umgangen, keine privaten Logins missbraucht. Teile der Abrufe liefen aus einer
 | 🇵🇱 PL Polen | ✅ 📥 1.774 Zonen | [pansa-pl-api-integration.md](pansa-pl-api-integration.md) |
 | 🇷🇴 RO Rumänien | ✅ 📥 1.272 + 226 | [greece-romania-geozones-notes.md](greece-romania-geozones-notes.md) |
 | 🇱🇺 LU Luxemburg | 📥 🛠 Modul reparieren/einbinden | [luxembourg-geozones-integration.md](luxembourg-geozones-integration.md) |
-| 🇮🇹 IT Italien | 🔑 CSRF gelöst, Download erfassen | [dflight-it-api-integration.md](dflight-it-api-integration.md) |
+| 🇮🇹 IT Italien | 🔑 WFS mit Login (ATM09_INFO 3.876); Service-Account + Lizenz offen | [dflight-it-api-integration.md](dflight-it-api-integration.md) |
 | 🇭🇺 HU Ungarn | 🔑 Vektor nur per Login (öffentl. Weg raster-only, verifiziert) | [hungary-mydronespace-api-integration.md](hungary-mydronespace-api-integration.md) |
 | 🇲🇹 MT Malta | ✅ (DDP `{managedZones:true}`, 195) | [idronect-mt-api-integration.md](idronect-mt-api-integration.md) |
 | 🇨🇿 CZ Tschechien | 🔎 getGJ.php-Params | [czech-ans-api-integration.md](czech-ans-api-integration.md) |
