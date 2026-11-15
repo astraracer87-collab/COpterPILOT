@@ -277,3 +277,78 @@ festen Pfade in §Anhang-ES-Tabelle bleiben nur **Fallback/Referenz**.
 → **Damit ist ES vollständig** (Geometrie, Höhen `RESTRICCION_*`, NOTAM-Zeitfilter,
 versionsrobuste Auflösung). Skript `docs/tools/spain/enaire_es_geozones.py` ggf.
 um das Item-Lookup erweitern.
+
+---
+
+## Anhang ES (3): NOTAM im Detail (live verifiziert 2026-11-15) — ersetzt die Kurzfassung in (2)
+
+Ein **einziger** NOTAM-Layer, Polygone, server-seitig **vorgefiltert** auf die
+spanische **Drohnen-Serie „V"** (728 Features, je NOTAM genau ein Feature).
+Abgelaufene werden serverseitig entfernt, **künftige sind enthalten** (247 noch
+nicht begonnen). Passt in **einen** Request (`maxRecordCount` 3000).
+
+```
+https://servais.enaire.es/insignias/rest/services/NOTAM/NOTAM_UAS_APP_V3/MapServer/1/query
+# komplett (WGS84):
+?where=1=1&outFields=*&returnGeometry=true&outSR=4326&orderByFields=OBJECTID&resultRecordCount=3000&f=geojson
+# nur jetzt gültig (475): where=itemB <= CURRENT_TIMESTAMP and itemC >= CURRENT_TIMESTAMP
+# nur künftig (247):      where=itemB > CURRENT_TIMESTAMP
+```
+→ **`CURRENT_TIMESTAMP`-Where funktioniert**, Datumsfelder kommen im GeoJSON als
+**Unix-ms (UTC)**. Empfehlung: stündlich/15 min **Vollabzug** (Bestand ersetzen,
+Schlüssel `notamId`), kein Delta — Stornos (`NOTAMC`/`NOTAMR`) zeigen sich nur
+durch Verschwinden/Neuerscheinen (`accion` immer null).
+
+### Schlüssel & Herkunft
+- **Schlüssel = `notamId`** (z. B. `V03255/26`, eindeutig). ⚠️ **`GFID` ist hier
+  NICHT die Zonen-GUID** (wie bei den Aero-Layern), sondern die Quell-NOTAM-Nummer
+  (D-Serie) und kann `null` sein; `OBJECTID` ist instabil (~264.700) → **nicht** als
+  Schlüssel.
+- `incidenceType`: **`AREA DINAMICA`** (673, Geometrie im NOTAM definiert) vs.
+  **`AREA ESTATICA`+`incidenceQualifier=ACTIVA`** (55, aktiviert ein festes
+  AIP-Gebiet) → letztere über **`affectedElement` ↔ `IDENT_TXT`** mit
+  `ZG_Restringidas` verknüpfen („Zone LED90A jetzt aktiv").
+
+### ⚠️ Höhen — nur `itemF`/`itemG` parsen
+- **`LOWER_VAL`/`UPPER_VAL` sind hier FUSS** (anders als die Aero-Layer in Metern!)
+  **und grob auf 100 ft gerundet**, ohne Bezug (`00100M AMSL`→400 statt 328;
+  `FL100`→10000; `UNL`→99900). → **Für Drohnenhöhen ausschließlich `itemF`/`itemG`**
+  (Text: `SFC`/`GND`, `…M AGL`, `…FT AGL`, `…FT AMSL`, `FL…`, `UNL`).
+- `LOWER_VAL_AGL` derzeit **bei allen null** (Website-Höhenfilter wirkt dadurch
+  praktisch nicht). Parser muss M **und** FT, AGL **und** AMSL, FL **und** UNL können.
+  AMSL ohne Geländemodell im Zweifel als „betrifft" werten.
+
+### Zeitstatus (`itemB`/`itemC`/`itemD`, alles UTC)
+- `itemB > jetzt` → **geplant** (ausgegraut, Startdatum). `itemB≤jetzt≤itemC` &
+  `itemD` leer → **aktiv**. Mit `itemD` → Zeitplan prüfen.
+- **`itemD` ist freier ICAO-Text, viele Varianten:** `0600-1400`,
+  `MON-FRI 0600-1400`, **`SR-SS`** (145×, Sonnenauf-/-untergang → Sonnenstand je Ort),
+  Tage des Monats (`03-05 12 17-19 24 2000-2359`), Monatsnamen, Nachtzeiten über
+  Mitternacht in zwei Blöcke. Gelingt das Parsen nicht → konservativ „aktiv im
+  Zeitraum" + `itemD` als Text zeigen. `itemBstr`/`itemCstr` sind **auch UTC**
+  (nicht als Ortszeit anzeigen). `itemC`=2050 = faktisch permanent.
+
+### Geometrie-Fallen
+- **Kreise = 37 Punkte (36×10°), einbeschrieben** → echter Kreis ragt bis ~105 m
+  über das Polygon → für Punkt-in-Zone **Puffer** (~0,5 % Radius bzw. pauschal
+  150 m) oder Kreis aus `itemQ`/`itemE` (`RADIUS OF …`) neu bauen.
+- **189 Features teilen ihre Geometrie** (gleiches Gebiet, mehrere Zeiträume) →
+  **nicht über Geometrie deduplizieren** (nur `notamId`); zum Vermeiden von
+  Überlagerung nur **aktive** zeichnen. 2× `MultiPolygon`, Dreiecke (4 Punkte),
+  Ringe CCW/RFC-7946, keine Löcher.
+- **FIR ≠ Spanien:** 2 NOTAMs in FIR `GMMM` (Melilla), Sammel-FIR `LEXX` (78) →
+  **nicht** hart nach `fir`-Präfix (`LE*`/`GC*`) filtern (verliert Melilla).
+
+### Kategorie (fürs gemeinsame Schema)
+`qcode` beginnt mit **`R`** (RTCA 346/RDCA 34/RACA 26) → `restricted` (rot);
+**`WULW`** (292) → `uas_activity` (gelb, Drohnenbetrieb); sonstige **`W*`** →
+`warning` (orange). Entspricht den 3 Farbklassen der Webseite.
+
+### Texte
+`DESCRIPTION` = fertiges HTML (gemischte `<br>`/`<br />`); `itemE` = EN-Klartext mit
+Fernschreib-Whitespace (normalisieren); `icaoFormatText` = Rohtext.
+`FLYING_LEVELS_DESC` (= `itemF / itemG`) gut zur Anzeige.
+
+> **App kann besser als die Originalseite sein:** drones.enaire.es filtert NOTAMs
+> **nicht** nach Zeit und wertet `itemD` nicht aus → zeigt künftige/inaktive Gebiete
+> wie aktive. Wir rechnen den echten Zeitstatus und zeigen nur Relevantes.
