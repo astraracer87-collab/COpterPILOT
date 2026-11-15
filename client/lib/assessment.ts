@@ -6,6 +6,7 @@ import { calculateSolarTimes, isTimeDuringDaylight, isTimeDuringCivilTwilight } 
 import { detectCountryFromCoordinates } from "@/lib/countryMaps";
 import { getNightFlightRule } from "@/lib/countryInfo";
 import type { LimitExceedance } from "@/lib/droneRecommendation";
+import type { RestrictionVerdict } from "../../shared/restrictionPolicy";
 
 export interface ExpertTip {
   title: string;
@@ -36,7 +37,14 @@ export interface AssessmentContext {
   plannedDateTime?: Date;
   latitude?: number;
   longitude?: number;
+  /** Höchstes Policy-Urteil der Einschränkungs-Stufe (shared/restrictionPolicy):
+   * "nogo" = aktive, erreichbare Flugverbotszone (PROHIBITED) ohne
+   * dokumentierte Begründung → NO-GO. */
+  restrictionVerdict?: RestrictionVerdict;
 }
+
+/** Text des NO-GO-Grunds bei aktiver Flugverbotszone (Protokoll/Tests). */
+export const RESTRICTION_NOGO_TEXT = "Flugverbotszone im Umkreis – Flug nicht zulässig (NO-GO)";
 
 function calculateDewPoint(temperature: number, humidity: number): number {
   const a = 17.27;
@@ -191,6 +199,25 @@ export function assessWeather(
 
   const current = weather.forecasts[0];
   const upcomingForecasts = weather.forecasts.slice(0, 9);
+
+  // Policy-Urteil der Einschränkungs-Stufe: Flugverbot (PROHIBITED) ohne
+  // dokumentierte Begründung ist ein NO-GO – unabhängig von einer allgemeinen
+  // "Genehmigung liegt vor"-Angabe (ein Verbot ist nicht durch AV/Genehmigung
+  // abdeckbar, nur mit Begründung überschreibbar).
+  if (context?.restrictionVerdict === "nogo") {
+    warnings.push({
+      message: RESTRICTION_NOGO_TEXT,
+      severity: "warning",
+      expertTip: {
+        title: "Flugverbotszone",
+        description: "Am Standort liegt eine aktive Geozone mit Flugverbot (z. B. Sperrgebiet, Kernanlage, Justizvollzug). Ein Flug ist ohne Sondergenehmigung der zuständigen Behörde nicht zulässig.",
+        practiceCheck: "Standort/Flughöhe/Zeit ändern oder – nur mit Sondergenehmigung – im Schritt „Einschränkungen“ die Begründung dokumentieren.",
+      },
+    });
+    reasons.push({ type: "nogo", message: RESTRICTION_NOGO_TEXT });
+    hasSevereWarning = true;
+    isNoGo = true;
+  }
 
   if (hasRestrictions) {
     if (restrictionStatus === "approved") {

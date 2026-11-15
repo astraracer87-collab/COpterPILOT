@@ -38,6 +38,8 @@ import { getNightFlightRule } from "@/lib/countryInfo";
 import { isFlightWindowDuringNight } from "@/lib/solar";
 import { detectBundeslandFromCoordinates } from "@/lib/countryMaps";
 import { hasOwnMap } from "../../shared/countryDetection";
+import { classifyPlanningZones, buildProhibitedOverrideNote, hasOverrideReason } from "@/lib/restrictionPlanning";
+import { maxRestrictionVerdict, zonePolicy, type RestrictionPolicyEntry } from "../../shared/restrictionPolicy";
 import { initialRestrictionChoice, initialRestrictionNotes, isManualRestrictionAnswered, deriveDetailsRestrictionStatus, deriveAlphaTangoRestrictionStatus, buildExemptionNote, composeRestrictionNotes, forwardCrossCheckParams, decidePlanningAbortAction } from "@/lib/manualRestrictionFlow";
 import { findNearbyCtrAirports, CtrAirport, getCtrCategoryLabel, getCtrCategoryColor, CTR_AREA_RULES, DFS_PORTAL_URL, getAvConditionsText, getCtrEffectiveNote, getCtrGeometryHint, getCtrDistanceKm, getCtrClearanceForAirport } from "@/lib/ctrData";
 import { checkEdr146Proximity, Edr146ProximityResult, findNearbyEdrZones, EdrZone, getEdrSeverityColor, getEdrCategoryLabel, EDR_LEGAL_WARNING, BAF_CONTACT, POLIZEI_BERLIN, EDR_146_NFL, EDR_ENERGIE_NFL, EDR_AV_CONDITIONS, EDR_AV_EXCLUSIONS } from "@/lib/edrData";
@@ -137,6 +139,9 @@ export default function PlanningRestrictionsScreen() {
   const [notes, setNotes] = useState(initialRestrictionNotes(manualRestrictionNotes));
   const [restrictionChoice, setRestrictionChoice] = useState<"approved" | "limited" | "nofly" | null>(initialRestrictionChoice(manualRestrictionStatus));
   const [geozoneExemptions, setGeozoneExemptions] = useState<Set<string>>(new Set());
+  // Flugverbot (PROHIBITED) bewusst übersteuern: Schlüssel → Begründung.
+  // Nur mit nicht-leerer Begründung wird aus NO-GO ein CAUTION.
+  const [prohibitedOverrides, setProhibitedOverrides] = useState<Map<string, string>>(new Map());
   const [detectedBundesland, setDetectedBundesland] = useState<string | null>(null);
   const [nearbyCtr, setNearbyCtr] = useState<CtrAirport[]>([]);
   const [edr146Result, setEdr146Result] = useState<Edr146ProximityResult | null>(null);
@@ -287,6 +292,8 @@ export default function PlanningRestrictionsScreen() {
 
   const isGeozoneCoveredByAV = (gz: GeozoneFeatureInfo): boolean => {
     if (!hasValidBundeslandErlaubnis) return false;
+    // Policy: nur abdeckbare Einstufungen (REQ_AUTHORISATION) kann eine AV decken.
+    if (!zonePolicy(gz).coverableByAuthorisation) return false;
     // Nur § 21h-Kategorien, die eine Landes-AV rechtlich abdecken kann
     // (Wohngrundstücke, Bundesfern-/Wasserstraßen, Bahn). Luftsicherheits-/
     // zustimmungspflichtige Zonen (Flugplätze/HEMS, CTR, Industrie/Energie,
@@ -326,18 +333,37 @@ export default function PlanningRestrictionsScreen() {
   // Aktiv konfliktrelevante Zonen (heutiges Verhalten als sicherer Default).
   const activeGeozones = timeRelevantGeozones.filter((gz) => !gz.informationalOnly && !isZoneClearedByAltitude(gz));
 
-  const coveredGeozones = activeGeozones.filter(isGeozoneCoveredByAV);
-  const uncoveredGeozones = activeGeozones.filter((gz) => !isGeozoneCoveredByAV(gz));
-  const getGeozoneKey = (gz: GeozoneFeatureInfo, idx: number): string =>
-    `${gz.layerLabel || ""}|${gz.name || ""}|${idx}`;
-  const exemptedUncoveredGeozones = uncoveredGeozones.filter((gz, idx) =>
-    geozoneExemptions.has(getGeozoneKey(gz, idx))
-  );
-  const nonExemptedUncoveredGeozones = uncoveredGeozones.filter(
-    (gz, idx) => !geozoneExemptions.has(getGeozoneKey(gz, idx))
-  );
+  // Einstufung über die Policy-Tabelle (client/lib/restrictionPlanning.ts):
+  // NO_RESTRICTION = nur Info, AV deckt nur REQ_AUTHORISATION, Flugverbot
+  // (PROHIBITED) = NO-GO, außer mit dokumentierter Begründung übersteuert.
+  // Schlüssel inhaltsbasiert (nicht Listenindex), damit Ausnahmen/Overrides
+  // beim Umsortieren der Liste an der richtigen Zone bleiben.
+  const getGeozoneKey = (gz: GeozoneFeatureInfo): string =>
+    `${gz.layerLabel || ""}|${gz.name || ""}|${gz.featureId || gz.details || ""}`;
+  const zoneClass = classifyPlanningZones(activeGeozones, {
+    isCoveredByAV: isGeozoneCoveredByAV,
+    isExempted: (gz) => geozoneExemptions.has(getGeozoneKey(gz)),
+    overrideReason: (gz) => prohibitedOverrides.get(getGeozoneKey(gz)),
+  });
+  // Temporäre Beschränkungen (dipul-Temporär, ED-R, LU-Temp) zur geplanten
+  // Zeit: gleiche Policy (DE-Temporär = Flugverbot, ED-R = Freigabe nötig).
+  const activeTempRestrictions = tempRestrictions.filter((tr) => isZoneActiveInContext(tr, planningTimeContext));
+  const tempClass = classifyPlanningZones(activeTempRestrictions, {
+    isCoveredByAV: () => false,
+    overrideReason: (tr) => prohibitedOverrides.get(getGeozoneKey(tr)),
+  });
+  const infoGeozones = zoneClass.infoZones;
+  const restrictiveGeozones = activeGeozones.filter((gz) => zoneClass.assessment(gz).verdict !== "info");
+  const coveredGeozones = zoneClass.coveredZones;
+  const uncoveredGeozones = zoneClass.uncoveredZones;
+  const exemptedUncoveredGeozones = zoneClass.exemptedZones;
+  const nonExemptedUncoveredGeozones = zoneClass.unresolvedZones;
   const allUncoveredExempted =
     uncoveredGeozones.length > 0 && nonExemptedUncoveredGeozones.length === 0;
+  const openProhibitedZones = [...zoneClass.openProhibitedZones, ...tempClass.openProhibitedZones];
+  const overriddenProhibitedZones = [...zoneClass.overriddenZones, ...tempClass.overriddenZones];
+  // Höchstes Policy-Urteil (in der Session gespeichert → PlanningResult).
+  const restrictionVerdict = maxRestrictionVerdict([zoneClass.verdict, tempClass.verdict]);
   const milLowFlightInside: DipulTempRestriction[] = countryIso === "DE" ? findMilLowFlightAreasContaining(latitude, longitude) : [];
   const milLowFlightWithinRadius: DipulTempRestriction[] = countryIso === "DE" ? findMilLowFlightAreasIntersectingRadius(latitude, longitude, Math.max(localRadiusKm || 1, 1)) : [];
   const milLowFlightHits: DipulTempRestriction[] = milLowFlightInside.length > 0 ? milLowFlightInside : milLowFlightWithinRadius;
@@ -365,7 +391,7 @@ export default function PlanningRestrictionsScreen() {
     ? [geozoneCoverageWarning(countryName(countryIso) || countryIso || "den Standort")]
     : unresolvedCoverageGaps.map((g) => sourceCoverageWarning(g, countryName(g.iso) || g.iso));
   const hasAnyRestrictions =
-    activeGeozones.length > 0 ||
+    restrictiveGeozones.length > 0 ||
     tempRestrictions.length > 0 ||
     milLowFlightHotHits.length > 0 ||
     hasAdditionalEnergyInfrastructure ||
@@ -384,7 +410,7 @@ export default function PlanningRestrictionsScreen() {
   const missingBundeslandAv =
     countryIso === "DE" &&
     detectedBundesland !== null &&
-    (activeGeozones.length > 0 || hasAdditionalEnergyInfrastructure) &&
+    (restrictiveGeozones.length > 0 || hasAdditionalEnergyInfrastructure) &&
     !hasValidBundeslandErlaubnis;
   const bundeslandAvInfo = detectedBundesland
     ? BUNDESLAND_AV_INFO[detectedBundesland]
@@ -427,7 +453,18 @@ export default function PlanningRestrictionsScreen() {
 
   const canContinue = !loading;
 
-  const hasWarnings = hasAnyRestrictions || hasEdr146Block || hasEdr146OuterBlock || hasEdrRotBlock || hasMilLowFlightWarning;
+  // Bestätigungsdialog nur für Zonen, deren Policy eine Bestätigung verlangt
+  // (Verbot, Sperrgebiet, Genehmigungspflicht) bzw. für Temporär-/Militär-/
+  // Energie-/Abdeckungs-Hinweise. Reine Auflagen-/Naturschutz-/Info-Zonen
+  // fließen als CAUTION ins Urteil, ohne Pflichtdialog.
+  const hasConfirmationRestrictions =
+    zoneClass.confirmationZones.length > 0 ||
+    openProhibitedZones.length > 0 ||
+    tempRestrictions.length > 0 ||
+    milLowFlightHotHits.length > 0 ||
+    hasAdditionalEnergyInfrastructure ||
+    hasCoverageGap;
+  const hasWarnings = hasConfirmationRestrictions || coveredGeozones.length > 0 || hasEdr146Block || hasEdr146OuterBlock || hasEdrRotBlock || hasMilLowFlightWarning;
 
   // Nachtflug-Erkennung: liegt das geplante Flugfenster (Start-/Endzeit am
   // gewählten Datum/Standort) ganz oder teilweise in der gesetzlichen Nacht
@@ -464,12 +501,18 @@ export default function PlanningRestrictionsScreen() {
     return `${scope}: ${nightRule.shortText}.`;
   };
 
+  const prohibitedOverrideNote = buildProhibitedOverrideNote(
+    overriddenProhibitedZones,
+    (gz) => prohibitedOverrides.get(getGeozoneKey(gz)),
+  );
+
   const navigateToDetails = (nightConfirmedOverride?: boolean) => {
     const exemptionNote = buildExemptionNote(exemptedUncoveredGeozones);
     const nightNote = buildNightNote(nightConfirmedOverride);
     const userNotes = notes.trim();
     const restrictionNotes = composeRestrictionNotes([
       exemptionNote,
+      prohibitedOverrideNote,
       nightNote,
       energyInfrastructureNote,
       ...(hasCoverageGap ? coverageGapWarnings : []),
@@ -483,6 +526,7 @@ export default function PlanningRestrictionsScreen() {
       countryIso,
       mapUrl,
       hasRestrictions: hasAnyRestrictions,
+      restrictionVerdict,
       restrictionStatus: deriveDetailsRestrictionStatus({
         restrictionChoice,
         allCoveredByAV,
@@ -509,9 +553,6 @@ export default function PlanningRestrictionsScreen() {
   const navigateToDetailsWithAlphaTangoOverride = () => {
     // Eigener Navigations-Pfad, der zusätzlich das Override-Flag
     // weitergibt — wird nur im FR/AlphaTango-Fall verwendet.
-    const exemptedUncoveredGeozones = uncoveredGeozones.filter((gz, idx) =>
-      geozoneExemptions.has(getGeozoneKey(gz, idx)),
-    );
     const exemptionNote = buildExemptionNote(exemptedUncoveredGeozones);
     const nightNote = buildNightNote();
     const userNotes = notes.trim();
@@ -519,6 +560,7 @@ export default function PlanningRestrictionsScreen() {
       "FR-Flug ohne AlphaTango-Registrierung an der Drohne gestartet (Pilot hat trotz Hinweis fortgesetzt — Verstoß gegen DGAC-Pflicht ab MTOM 800 g).";
     const restrictionNotes = composeRestrictionNotes([
       exemptionNote,
+      prohibitedOverrideNote,
       nightNote,
       energyInfrastructureNote,
       ...(hasCoverageGap ? coverageGapWarnings : []),
@@ -533,6 +575,7 @@ export default function PlanningRestrictionsScreen() {
       countryIso,
       mapUrl,
       hasRestrictions: true,
+      restrictionVerdict,
       restrictionStatus: deriveAlphaTangoRestrictionStatus(restrictionChoice),
       restrictionNotes,
       ...forwardCrossCheckParams({ officialMapCrossCheck }),
@@ -643,7 +686,12 @@ export default function PlanningRestrictionsScreen() {
   // damit kein Dialog übersprungen wird. `nightConfirmedOverride` reicht die im
   // Nachtflug-Dialog getroffene Entscheidung an die Protokoll-Notiz weiter.
   const proceedFromRestrictions = (nightConfirmedOverride?: boolean) => {
-    if (!(hasWarnings && !avAcknowledged && restrictionChoice !== "approved" && restrictionChoice !== "limited")) {
+    // Ein offenes Flugverbot (PROHIBITED ohne Begründung) wird IMMER angezeigt –
+    // eine allgemeine Genehmigungs-Auswahl deckt kein Verbot.
+    if (
+      openProhibitedZones.length === 0 &&
+      !(hasWarnings && !avAcknowledged && restrictionChoice !== "approved" && restrictionChoice !== "limited")
+    ) {
       navigateToDetails(nightConfirmedOverride);
       return;
     }
@@ -652,7 +700,12 @@ export default function PlanningRestrictionsScreen() {
     if (hasEdr146Block || hasEdr146OuterBlock) warnings.push("ED-R 146 Flugbeschränkungsgebiet");
     if (hasEdrRotBlock) warnings.push("Rote ED-R Zone(n) im Umkreis");
     if (tempRestrictions.length > 0) warnings.push(`${tempRestrictions.length} temporäre Beschränkung(en)`);
-    if (nonExemptedUncoveredGeozones.length > 0) warnings.push(`${nonExemptedUncoveredGeozones.length} Geozone(n) ohne AV`);
+    if (openProhibitedZones.length > 0) {
+      warnings.push(`${openProhibitedZones.length} Flugverbotszone(n) ohne Begründung – Ergebnis NO-GO`);
+    }
+    if (zoneClass.confirmationZones.length > 0) {
+      warnings.push(`${zoneClass.confirmationZones.length} Geozone(n) mit Freigabe-/Genehmigungspflicht ohne AV`);
+    }
     if (hasCoverageGap) warnings.push(...coverageGapWarnings);
     if (hasMilLowFlightWarning) {
       const names = Array.from(milRouteAreaIds)
@@ -728,6 +781,73 @@ export default function PlanningRestrictionsScreen() {
     } else if (action === "selfGoBack") {
       navigation.goBack();
     }
+  };
+
+  // Einstufungs-Badge (Label + Farbe aus der Policy-Tabelle).
+  const renderPolicyBadge = (pol: RestrictionPolicyEntry, testID?: string) => (
+    <View testID={testID} style={[styles.badge, styles.policyBadge, { borderColor: pol.color }]}>
+      <ThemedText style={[styles.badgeText, { color: pol.color }]}>{pol.labelDe}</ThemedText>
+    </View>
+  );
+
+  // Flugverbot (PROHIBITED) bewusst übersteuern – nur mit Begründung. Ohne
+  // Begründung bleibt das Urteil NO-GO. Nutzt das Layout der Ausnahme-Zeile.
+  const renderProhibitedOverride = (gz: GeozoneFeatureInfo, testSuffix: string) => {
+    const key = getGeozoneKey(gz);
+    const reason = prohibitedOverrides.get(key);
+    const checked = reason !== undefined;
+    const valid = hasOverrideReason(reason);
+    const noGo = theme.statusNoGo || "#FF3B30";
+    const caution = theme.statusCaution || "#FF9500";
+    return (
+      <View>
+        <Pressable
+          testID={`button-prohibited-override-${testSuffix}`}
+          onPress={() => {
+            setProhibitedOverrides((prev) => {
+              const next = new Map(prev);
+              if (next.has(key)) next.delete(key);
+              else next.set(key, "");
+              return next;
+            });
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          }}
+          style={[
+            styles.exemptionRow,
+            { borderColor: valid ? caution : noGo, backgroundColor: valid ? theme.statusCautionBackground : "transparent" },
+          ]}
+        >
+          <View style={[styles.exemptionCheckbox, { backgroundColor: checked ? (valid ? caution : noGo) : "transparent", borderColor: valid ? caution : noGo }]}>
+            {checked ? <Feather name="check" size={14} color="#FFFFFF" /> : null}
+          </View>
+          <View style={styles.exemptionTextContainer}>
+            <ThemedText style={[styles.exemptionTitle, { color: valid ? caution : noGo, fontWeight: "700" }]}>
+              {valid ? "Flugverbot übersteuert (wird protokolliert)" : "NO-GO: Flugverbot – nur mit Begründung übersteuerbar"}
+            </ThemedText>
+            <ThemedText style={[styles.exemptionDesc, { color: theme.textSecondary }]}>
+              Nur mit Sondergenehmigung der zuständigen Behörde. Begründung und Aktenzeichen werden im Flugprotokoll dokumentiert.
+            </ThemedText>
+          </View>
+        </Pressable>
+        {checked ? (
+          <TextInput
+            testID={`input-prohibited-reason-${testSuffix}`}
+            style={[styles.notesInput, { backgroundColor: theme.backgroundSecondary, color: theme.text, marginTop: Spacing.xs }]}
+            value={reason}
+            onChangeText={(text) =>
+              setProhibitedOverrides((prev) => {
+                const next = new Map(prev);
+                next.set(key, text);
+                return next;
+              })
+            }
+            placeholder="Begründung (Pflicht), z. B. Sondergenehmigung Az. …"
+            placeholderTextColor={theme.textTertiary}
+            multiline
+          />
+        ) : null}
+      </View>
+    );
   };
 
   return (
@@ -1354,19 +1474,29 @@ export default function PlanningRestrictionsScreen() {
                 Temporäre Beschränkungen ({tempRestrictions.length})
               </ThemedText>
             </View>
-            {tempRestrictions.map((tr, idx) => (
-              <Card key={`temp-${idx}`} style={[styles.geozoneCard, { borderLeftWidth: 3, borderLeftColor: "#FF3B30" }]}>
-                <View style={[styles.badge, { backgroundColor: "#FF3B30" }]}>
-                  <ThemedText style={styles.badgeText}>{attributionLabel(isAdmin, "Temporär (dipul)", "Temporär")}</ThemedText>
-                </View>
-                <ThemedText style={styles.geozoneName}>{tr.name}</ThemedText>
-                {tr.details ? (
-                  <ThemedText style={[styles.geozoneDetails, { color: theme.textTertiary }]} numberOfLines={3}>
-                    {tr.details}
-                  </ThemedText>
-                ) : null}
-              </Card>
-            ))}
+            {tempRestrictions.map((tr, idx) => {
+              // Farbe nach Einstufung (Policy); "Temporär" bleibt als Badge.
+              const trPol = zonePolicy(tr);
+              const trActive = isZoneActiveInContext(tr, planningTimeContext);
+              const trProhibited = trActive && trPol === zonePolicy({ restriction: "PROHIBITED" });
+              return (
+                <Card key={`temp-${idx}`} style={[styles.geozoneCard, { borderLeftWidth: 3, borderLeftColor: trPol.color }]}>
+                  <View style={styles.badgeRow}>
+                    <View style={[styles.badge, { backgroundColor: trPol.color }]}>
+                      <ThemedText style={styles.badgeText}>{attributionLabel(isAdmin, "Temporär (dipul)", "Temporär")}</ThemedText>
+                    </View>
+                    {renderPolicyBadge(trPol)}
+                  </View>
+                  <ThemedText style={styles.geozoneName}>{tr.name}</ThemedText>
+                  {tr.details ? (
+                    <ThemedText style={[styles.geozoneDetails, { color: theme.textTertiary }]} numberOfLines={3}>
+                      {tr.details}
+                    </ThemedText>
+                  ) : null}
+                  {trProhibited ? renderProhibitedOverride(tr, `temp-${idx}`) : null}
+                </Card>
+              );
+            })}
           </View>
         ) : null}
 
@@ -1857,49 +1987,64 @@ export default function PlanningRestrictionsScreen() {
           </Card>
         ) : null}
 
+        {!loading && !error && infoGeozones.length > 0 ? (
+          <Card style={[styles.avWarningCard, { borderLeftColor: zonePolicy({ restriction: "NO_RESTRICTION" }).color }]} testID="card-info-zones">
+            <View style={styles.sectionHeader}>
+              <Feather name="info" size={16} color={zonePolicy({ restriction: "NO_RESTRICTION" }).color} />
+              <ThemedText style={[styles.sectionTitle, { color: zonePolicy({ restriction: "NO_RESTRICTION" }).color }]}>
+                {infoGeozones.length} {infoGeozones.length === 1 ? "Info-Zone" : "Info-Zonen"} ohne Beschränkung
+              </ThemedText>
+            </View>
+            <ThemedText style={[styles.geozoneDetails, { color: theme.textSecondary, marginTop: Spacing.xs }]}>
+              Nur zur Information – keine Genehmigung oder Bestätigung nötig: {infoGeozones.map((gz) => gz.name || gz.layerLabel || "Unbenannt").join(", ")}.
+            </ThemedText>
+          </Card>
+        ) : null}
+
         {!loading && !error && uncoveredGeozones.length > 0 ? (
           <View style={styles.geozoneSection}>
             <View style={styles.sectionHeader}>
-              <Feather name="alert-circle" size={16} color={theme.statusCaution || "#FF9500"} />
-              <ThemedText style={[styles.sectionTitle, { color: theme.statusCaution || "#FF9500" }]}>
+              <Feather name={zoneClass.openProhibitedZones.length > 0 ? "alert-octagon" : "alert-circle"} size={16} color={zoneClass.openProhibitedZones.length > 0 ? (theme.statusNoGo || "#FF3B30") : (theme.statusCaution || "#FF9500")} />
+              <ThemedText style={[styles.sectionTitle, { color: zoneClass.openProhibitedZones.length > 0 ? (theme.statusNoGo || "#FF3B30") : (theme.statusCaution || "#FF9500") }]}>
                 Weitere Geozonen ({uncoveredGeozones.length})
+                {zoneClass.openProhibitedZones.length > 0 ? ` · ${zoneClass.openProhibitedZones.length} Flugverbot (NO-GO)` : ""}
                 {exemptedUncoveredGeozones.length > 0
                   ? ` · ${exemptedUncoveredGeozones.length} mit Ausnahmegenehmigung`
                   : ""}
               </ThemedText>
             </View>
             {uncoveredGeozones.map((gz, idx) => {
-              const key = getGeozoneKey(gz, idx);
-              const isExempted = geozoneExemptions.has(key);
+              const key = getGeozoneKey(gz);
+              const zoneAssessment = zoneClass.assessment(gz);
+              const zonePol = zoneAssessment.policy;
+              const isProhibited = zoneAssessment.restriction === "PROHIBITED";
+              const isExempted = !isProhibited && geozoneExemptions.has(key);
               const assess = assessZone(gz);
               const climbKey = climbContentKey(gz);
               const climbAnswer = climbAnswers.get(climbKey);
               return (
                 <Card
                   key={`uncov-${idx}`}
+                  testID={`uncovered-zone-${zoneAssessment.restriction}`}
                   style={[
                     styles.geozoneCard,
                     {
                       borderLeftWidth: 3,
-                      borderLeftColor: isExempted
-                        ? theme.statusGo || "#34C759"
-                        : theme.statusCaution || "#FF9500",
+                      // Farbe je Einstufung aus der Policy-Tabelle.
+                      borderLeftColor: isExempted ? theme.statusGo || "#34C759" : zonePol.color,
                     },
                   ]}
                 >
-                  <View
-                    style={[
-                      styles.badge,
-                      {
-                        backgroundColor: isExempted
-                          ? theme.statusGo || "#34C759"
-                          : theme.statusCaution || "#FF9500",
-                      },
-                    ]}
-                  >
-                    <ThemedText style={styles.badgeText}>{gz.layerLabel}</ThemedText>
+                  <View style={styles.badgeRow}>
+                    <View style={[styles.badge, { backgroundColor: isExempted ? theme.statusGo || "#34C759" : zonePol.color }]}>
+                      <ThemedText style={styles.badgeText}>{gz.layerLabel}</ThemedText>
+                    </View>
+                    {renderPolicyBadge(zonePol, `policy-badge-uncov-${idx}`)}
                   </View>
                   <ThemedText style={styles.geozoneName}>{gz.name}</ThemedText>
+                  <ThemedText style={[styles.geozoneDetails, { color: zonePol.color, fontWeight: "600" }]}>
+                    {zonePol.explanationDe}
+                  </ThemedText>
                   {gz.details ? (
                     <ThemedText style={[styles.geozoneDetails, { color: theme.textTertiary }]}>
                       {gz.details}
@@ -1946,6 +2091,7 @@ export default function PlanningRestrictionsScreen() {
                       </View>
                     </View>
                   ) : null}
+                  {isProhibited ? renderProhibitedOverride(gz, `uncov-${idx}`) : (
                   <Pressable
                     onPress={() => {
                       setGeozoneExemptions((prev) => {
@@ -2001,6 +2147,7 @@ export default function PlanningRestrictionsScreen() {
                       </ThemedText>
                     </View>
                   </Pressable>
+                  )}
                   <Pressable
                     onPress={() => navigation.navigate("PlanningZoneFocus", { zone: gz, latitude, longitude, radiusKm: localRadiusKm, countryIso })}
                     style={[styles.zoneMapButton, { borderColor: theme.border }]}
@@ -2385,6 +2532,15 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 11,
     fontWeight: "700",
+  },
+  badgeRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  policyBadge: {
+    backgroundColor: "transparent",
+    borderWidth: 1,
   },
   geozoneName: {
     ...Typography.body,

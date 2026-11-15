@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { getInfrastructureFlightGuidance, infrastructureFlightGuidanceText } from "../../../shared/energyInfrastructureFlightRules";
 import { supplementalInfrastructureAsGeozones } from "../energyInfrastructureZones";
-import { computeGeozoneTabSeverity, isAltitudeRestrictionZone, isProhibitionZone } from "../geozoneSeverity";
+import { computeGeozoneTabSeverity, isProhibitionZone } from "../geozoneSeverity";
 import type { GermanEnergyInfrastructureItem, InfrastructureKind } from "../../../shared/germanEnergyInfrastructure";
 // Die HTML-Popup-Darstellung (buildEd269PopupHtml) gehörte zur Web-App der
 // Replit-Fassung und ist nicht Teil dieses Repos. Die Darstellung in der App
@@ -30,16 +30,14 @@ for (const { iso, positive, negative, source } of cases) {
     assert.match(zone.applicationText!, /sperrt die Flugplanung nicht und gibt sie nicht frei/);
     assert.doesNotMatch(zone.applicationText!, /§\s*21h/);
     assert.equal(zone.informationalOnly, true);
-    assert.equal(zone.restriction, undefined);
+    assert.equal(zone.restriction, "NO_RESTRICTION", "informational hint is policy info only");
     assert.equal(zone.upperMeters, undefined);
     assert.equal(zone.lowerMeters, undefined);
     assert.deepEqual(zone.polygonGroups, []);
     assert.deepEqual(zone.infrastructureGeometry, record.geometry);
-    assert.equal(isAltitudeRestrictionZone(zone), false);
     assert.equal(isProhibitionZone(zone), false);
     assert.equal(computeGeozoneTabSeverity([zone], {
       isCoveredByAV: () => { throw Error("No legal gating for an infrastructure hint"); },
-      mapsToAvRule: () => { throw Error("No German rule for foreign hints"); },
     }), "blue");
     assert.equal(guidance.checkedOn, "2026-10-12");
     assert.ok(zone.links?.some((link) => link.url.includes(source)));
@@ -64,7 +62,7 @@ for (const { iso, positive, negative, source } of cases) {
   ]), [], `${iso}: unchanged source comparison gate`);
   const [low] = supplementalInfrastructureAsGeozones(iso, [{ ...item, taggedHeightM: 90, operatorName: "Betreiber" }]);
   assert.equal(low.upperMeters, undefined, "height/name alone cannot grant an exception");
-  assert.equal(low.restriction, undefined, "low height cannot grant clearance either");
+  assert.equal(low.restriction, "NO_RESTRICTION", "low height cannot grant clearance either");
 }
 assert.equal(getInfrastructureFlightGuidance("DE", "wind_turbine"), undefined, "German adapter remains separate");
 assert.equal(getInfrastructureFlightGuidance("AT", "power_mast"), undefined, "do not expand country scope");

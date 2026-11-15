@@ -1,6 +1,7 @@
 import type { GeozoneFeatureInfo } from "../../shared/geozoneFeatureInfo";
 import { getInfrastructureFlightGuidance, infrastructureFlightGuidanceText, infrastructureFlightGuidanceLinks } from "../../shared/energyInfrastructureFlightRules";
 import { getGermanWindFacility100mPoints, distanceMetersBetween, type EnergyFacility100mPoint, type GermanEnergyInfrastructureItem, type GeoJsonGeometryLike } from "../../shared/germanEnergyInfrastructure";
+import { RESTRICTION_POLICY } from "../../shared/restrictionPolicy";
 
 export type InfrastructureMapGeometry = {
   points: [number, number][];
@@ -91,6 +92,8 @@ export function supplementalInfrastructureAsGeozones(
       layerLabel: label,
       name: item.name || type,
       informationalOnly: true,
+      // Reiner Infrastrukturhinweis: Policy "nur Info" (Farbe bleibt Hinweis-Blau).
+      restriction: "NO_RESTRICTION" as const,
       infrastructureFlightGuidance: flightGuidance,
       infrastructureGeometry: item.geometry,
       polygonGroups: geometry.polygons,
@@ -153,8 +156,8 @@ export function windFacilitiesAsGeozones(
       lowerMeters: 0,
       polygonRings: [ring],
       polygonGroups: [[ring]],
-      strokeColor: "rgba(255,59,48,0.95)",
-      fillColor: "rgba(255,59,48,0.18)",
+      strokeColor: RESTRICTION_POLICY.REQ_AUTHORISATION.stroke,
+      fillColor: RESTRICTION_POLICY.REQ_AUTHORISATION.fill,
       details: details.join("\n"),
     };
   });
@@ -186,12 +189,12 @@ export function supplementalLinesAsGeozones(items: GermanEnergyInfrastructureIte
         layerLabel: "Stromleitungen",
         name: item.name || "Stromleitung",
         country: "DE",
-        restriction: "REQ_AUTHORISATION",
+        restriction: "REQ_AUTHORISATION" as const,
         lowerMeters: 0,
         polygonGroups: groups,
         polygonRings: groups.map((group) => group[0]),
-        strokeColor: "rgba(255,59,48,0.95)",
-        fillColor: "rgba(255,59,48,0.18)",
+        strokeColor: RESTRICTION_POLICY.REQ_AUTHORISATION.stroke,
+        fillColor: RESTRICTION_POLICY.REQ_AUTHORISATION.fill,
         details: [
           "Typ: Stromleitung",
           "Rechtshinweis: § 21h Abs. 3 Nr. 3 LuftVO",

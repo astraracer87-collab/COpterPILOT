@@ -9,6 +9,8 @@
 // Die Funktionen sind hier extrahiert, damit sie ohne react-native-Importe unter
 // tsx getestet werden können (siehe client/lib/__tests__/manualRestrictionFlow.test.ts).
 
+import type { RestrictionVerdict } from "../../shared/restrictionPolicy";
+
 export type ManualRestrictionStatus = "approved" | "limited";
 
 export interface ManualRestriction {
@@ -334,12 +336,15 @@ export interface RestrictionRouteParams {
   hasRestrictions?: boolean;
   restrictionStatus?: ManualRestrictionStatus;
   restrictionNotes?: string;
+  /** Höchstes Policy-Urteil der Zonen (nogo = Flugverbot ohne Begründung). */
+  restrictionVerdict?: RestrictionVerdict;
 }
 
 export interface RestrictionSessionPatch {
   hasRestrictions?: boolean;
   restrictionStatus?: ManualRestrictionStatus;
   restrictionNotes?: string;
+  restrictionVerdict?: RestrictionVerdict;
 }
 
 // Kam die Navigation aus der Einschränkungs-Stufe (hasRestrictions ist boolean),
@@ -356,20 +361,28 @@ export function buildRestrictionSessionPatch(
       hasRestrictions: params.hasRestrictions || params.restrictionStatus === "limited",
       restrictionStatus: params.restrictionStatus,
       restrictionNotes: params.restrictionNotes,
+      // Explizit setzen (auch undefined), damit ein veraltetes "nogo" einer
+      // früheren Planung nicht stehen bleibt.
+      restrictionVerdict: params.restrictionVerdict,
     };
   }
   const patch: RestrictionSessionPatch = {};
   if (params.restrictionStatus) patch.restrictionStatus = params.restrictionStatus;
   if (params.restrictionNotes) patch.restrictionNotes = params.restrictionNotes;
+  if (params.restrictionVerdict) patch.restrictionVerdict = params.restrictionVerdict;
   return patch;
 }
 
 // PlanningResult: liest die gespeicherten Werte für assessWeather.
 export function restrictionAssessmentInput(
-  session: { hasRestrictions?: boolean; restrictionStatus?: ManualRestrictionStatus } | null | undefined,
-): { hasRestrictions: boolean; restrictionStatus?: ManualRestrictionStatus } {
+  session:
+    | { hasRestrictions?: boolean; restrictionStatus?: ManualRestrictionStatus; restrictionVerdict?: RestrictionVerdict }
+    | null
+    | undefined,
+): { hasRestrictions: boolean; restrictionStatus?: ManualRestrictionStatus; restrictionVerdict?: RestrictionVerdict } {
   return {
     hasRestrictions: session?.hasRestrictions === true,
     restrictionStatus: session?.restrictionStatus,
+    restrictionVerdict: session?.restrictionVerdict,
   };
 }

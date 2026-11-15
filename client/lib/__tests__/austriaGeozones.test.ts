@@ -239,12 +239,12 @@ describe("parseEd269ToGeozoneInfo – Restriction -> Farbe/Label", () => {
     properties: props,
   });
 
-  it("PROHIBITED -> rot + 'Verboten'", () => {
+  it("PROHIBITED -> rot + 'Flugverbot'", () => {
     const [z] = parseEd269ToGeozoneInfo([makeFeature({ restriction: "PROHIBITED" })], "at");
     assert.equal(z.restriction, "PROHIBITED");
     assert.equal(z.fillColor, "rgba(255,59,48,0.20)");
     assert.equal(z.strokeColor, "rgba(255,59,48,0.95)");
-    assert.match(z.details, /Beschränkung: Verboten/);
+    assert.match(z.details, /Beschränkung: Flugverbot/);
   });
 
   it("REQ_AUTHORISATION -> orange + 'Genehmigung erforderlich'", () => {
@@ -266,10 +266,12 @@ describe("parseEd269ToGeozoneInfo – Restriction -> Farbe/Label", () => {
     assert.match(z.details, /Keine Beschränkung/);
   });
 
-  it("unbekannte Restriction -> Default-Blau + Roh-Restriction als Label", () => {
+  it("unbekannte Restriction -> UNKNOWN (grau) + Rohwert nur zur Anzeige", () => {
     const [z] = parseEd269ToGeozoneInfo([makeFeature({ restriction: "WHATEVER" })], "AT");
-    assert.equal(z.fillColor, "rgba(0,122,255,0.15)");
-    assert.match(z.details, /Beschränkung: WHATEVER/);
+    assert.equal(z.restriction, "UNKNOWN");
+    assert.equal(z.restrictionRaw, "WHATEVER");
+    assert.equal(z.fillColor, "rgba(142,142,147,0.18)");
+    assert.match(z.details, /Beschränkung: Einstufung unbekannt \(WHATEVER\)/);
   });
 
   it("zeigt österreichische Rechtsgrundlage, Behörde, Bedingungen und offizielle Links", () => {

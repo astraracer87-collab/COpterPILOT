@@ -6,6 +6,8 @@
 // auszuspielen. Dieses Modul ist bewusst frei von React-Native-Imports,
 // damit die Klassifizierung isoliert getestet werden kann.
 
+import type { Restriction } from "../../shared/restrictionPolicy";
+
 export type FrZoneTypeKey =
   | "nucleaire"
   | "militaire"
@@ -80,6 +82,32 @@ export const FR_ZONE_TYPES: Record<FrZoneTypeKey, FrZoneTypeInfo> = {
       "Bei Genehmigungsbedarf DSAC-Regionaldirektion / Präfektur kontaktieren.",
   },
 };
+
+// Zonentyp → geschlossene Einstufung (shared/restrictionPolicy.ts). Die
+// DGAC-Daten tragen keine strukturierte Einstufung; die bestehende Text-
+// Heuristik (classifyFrRestrictionType) liefert den Typ.
+const FR_TYPE_RESTRICTION: Record<FrZoneTypeKey, Restriction> = {
+  nucleaire: "PROHIBITED",
+  militaire: "PROHIBITED",
+  penitentiaire: "PROHIBITED",
+  interdit: "PROHIBITED",
+  aeroport: "REQ_AUTHORISATION",
+  parc: "NATURE",
+  agglomeration: "CONDITIONAL",
+  generique: "CONDITIONAL",
+};
+
+/** Einstufung einer DGAC-Zone. `limite` „Vol interdit“ (bzw. 0 m) ist immer
+ * ein Verbot (auch in Flughafennähe); eine genannte Höchst-Flughöhe > 0 m ist
+ * eine Auflage (CONDITIONAL – unterhalb zulässig, wie in der DGAC-Karte);
+ * sonst entscheidet der Zonentyp. */
+export function frRestrictionFromText(limite: string, remarque: string): Restriction {
+  const lim = normalizeFrText(limite);
+  if (/interdit/.test(lim)) return "PROHIBITED";
+  const m = lim.match(/(\d+)\s*m\b/) || lim.trim().match(/^(\d+)(?:[.,]\d+)?$/);
+  if (m) return Number(m[1]) > 0 ? "CONDITIONAL" : "PROHIBITED";
+  return FR_TYPE_RESTRICTION[classifyFrRestrictionType(limite, remarque)];
+}
 
 function normalizeFrText(s: string): string {
   return (s || "")

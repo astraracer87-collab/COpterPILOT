@@ -48,7 +48,8 @@ import { getActiveOrUpcomingNearbyMilLowFlight } from "@/lib/milLowFlight";
 import { useFocusEffect } from "@react-navigation/native";
 import { getSettings, saveSettings, getSelectedDrone, getDroneMaxAltitudeM, getPilotProfile, PilotProfile, de21hRule, isDe21hZoneAvEligible, isErlaubnisExpired, Bundesland } from "@/lib/storage";
 import { detectBundeslandFromCoordinates } from "@/lib/countryMaps";
-import { computeGeozoneTabSeverity, GeozoneTabSeverity, isProhibitionZone, isGeozoneActiveForRadar } from "@/lib/geozoneSeverity";
+import { computeGeozoneTabSeverity, GeozoneTabSeverity, assessGeozoneForRadar, isGeozoneActiveForRadar } from "@/lib/geozoneSeverity";
+import { RESTRICTION_POLICY, zoneRestriction } from "../../shared/restrictionPolicy";
 import { Geozone21hRules } from "@/components/Geozone21hRules";
 import { InfrastructureFlightGuidance } from "@/components/InfrastructureFlightGuidance";
 import { getCached, setCache, makeCacheKey } from "@/lib/dataCache";
@@ -278,24 +279,14 @@ export default function StandaloneLiveTrafficScreen() {
       : undefined;
     const hasValidBundeslandErlaubnis =
       hasA2 && !!erlaubnisForBundesland && !isErlaubnisExpired(erlaubnisForBundesland);
-    // §21h-Zone zählt als Flugverbot NUR wenn `prohibitionCategory !== false`.
-    // Kontrollzonen/CTR und Flugplätze haben prohibitionCategory=false, weil die
-    // FVK-Freigabe einholbar ist → „bedingt zulässig" (orange), NICHT rot.
-    const mapsToAvRule = (z: GeozoneFeatureInfo) => {
-      if (z.informationalOnly) return false;
-      const rule = de21hRule(z);
-      return rule !== null && (rule.prohibitionCategory ?? true);
-    };
+    // Einstufung + Farbe kommen aus der Policy-Tabelle (shared/restrictionPolicy):
+    // DE-Zonen tragen ihre aus dem Layer abgeleitete Einstufung (z. B.
+    // Wohngrundstücke/Bahn REQ_AUTHORISATION, ED-R RESTRICTED, Flugplätze
+    // CONDITIONAL). Eine genehmigungspflichtige Zone ist genau dann gedeckt,
+    // wenn der Pilot eine gültige A2- + Bundesland-AV hat UND die Kategorie
+    // AV-fähig ist (Wohngrundstücke, Bundesfern-/Wasserstraßen, Bahn).
     const severity = computeGeozoneTabSeverity(displayedGeozones, {
-      // §21h-Zone ist genau dann durch die Landes-AV abgedeckt, wenn der Pilot
-      // eine gültige A2- + Bundesland-AV hat UND die Zonenkategorie überhaupt
-      // AV-fähig ist (Wohngrundstücke, Bundesfern-/Wasserstraßen, Bahn). Luft-
-      // sicherheits-/zustimmungspflichtige Zonen (Flugplätze/HEMS, CTR, Industrie/
-      // Energie, Behörden) sind NIE AV-gedeckt -> bleiben "bedingt zulässig".
       isCoveredByAV: (z) => hasValidBundeslandErlaubnis && isDe21hZoneAvEligible(z),
-      // Deutsche §21h-„untersagt"-Zonen zählen zusätzlich als Flugverbot —
-      // außer Kontrollzonen/CTR + Flugplätze (prohibitionCategory: false).
-      mapsToAvRule,
     });
     return nearbyWindFacilityWarnings.length > 0 && (severity === "green" || severity === "blue")
       ? "orange"
@@ -317,16 +308,12 @@ export default function StandaloneLiveTrafficScreen() {
       : undefined;
     const hasValidBundeslandErlaubnis =
       hasA2 && !!erlaubnisForBundesland && !isErlaubnisExpired(erlaubnisForBundesland);
-    // Nur DEUTSCHE Zonen (de21hRule): CZ-Kategorien wie "Bahnanlagen" sind kein § 21h.
-    const mapsToAvRule = (z: GeozoneFeatureInfo) => de21hRule(z) !== null;
-    return (z: GeozoneFeatureInfo): boolean => {
-      if (z.informationalOnly) return false;
-      if (!isGeozoneActiveForRadar(z)) return false;
-      const prohibition = isProhibitionZone(z) || mapsToAvRule(z);
-      // Nur AV-fähige §21h-Kategorien gelten als von der Landes-AV gedeckt.
-      const coveredByAV = hasValidBundeslandErlaubnis && isDe21hZoneAvEligible(z);
-      return prohibition && !coveredByAV;
-    };
+    // Gleiche Policy-Bewertung wie der Reiter oben (assessGeozoneForRadar):
+    // hervorgehoben wird, was den Reiter rot färbt.
+    return (z: GeozoneFeatureInfo): boolean =>
+      assessGeozoneForRadar(z, {
+        isCoveredByAV: (zone) => hasValidBundeslandErlaubnis && isDe21hZoneAvEligible(zone),
+      }).tab === "red";
   }, [pilotProfile, latitude, longitude]);
   useEffect(() => {
     (async () => {
@@ -2164,36 +2151,27 @@ function SidePanelView({ panel, loading, geozones, windFacilityWarnings = [], ge
                   // Radar: jetzt inaktive (geplante/zeitgesteuerte) Zone –
                   // dieselbe Prüfung wie Reiter-Farbe und Karte.
                   const zIsFuture = !isGeozoneActiveForRadar(z);
-                  // Rote Hervorhebung für schwerwiegende Zonen (Flugverbot ohne
-                  // AV-Abdeckung). Geplante/inaktive Zonen sind nie schwerwiegend.
+                  // Rote Hervorhebung = Reiterfarbe rot (Policy: ungedeckte Zone mit
+                  // Schwere ≥ 3). Geplante/inaktive Zonen sind nie schwerwiegend.
                   const zIsSerious = !zIsFuture && (isZoneSerious?.(z) ?? false);
-                  // § 21h-Zone mit dokumentierten Auflagen ist BEDINGT zulässig
-                  // (kein absolutes Flugverbot). Absolute Sperren (ED-R, Militär
-                  // etc.) haben keine §21h-Auflagen-Regel und bleiben rot/„Flugverbot".
+                  // Farbe/Label kommen aus der Policy-Tabelle – dieselbe Farbe wie
+                  // Karte und Planungsliste.
+                  const zRestriction = zoneRestriction(z);
+                  const zPolicy = RESTRICTION_POLICY[zRestriction];
+                  const zShowPolicyBadge = !zIsFuture && !z.informationalOnly;
+                  // Aktive genehmigungspflichtige § 21h-Zone, die NICHT rot ist ->
+                  // durch eine gültige Allgemeinverfügung des Piloten gedeckt.
                   const z21hRule = !z.informationalOnly ? de21hRule(z) : null;
-                  const zIsConditional = zIsSerious && z21hRule !== null;
-                  const zIsHardBan = zIsSerious && z21hRule === null;
-                  // Aktive §21h-Zone, die NICHT schwerwiegend ist -> durch eine
-                  // gültige Allgemeinverfügung des Piloten gedeckt.
                   const zAvCovered =
-                    !zIsFuture && !zIsSerious && z21hRule !== null;
-                  const cardBorderColor = zIsHardBan
-                    ? (isDark ? "rgba(255,69,58,0.85)" : "rgba(255,59,48,0.7)")
-                    : zIsConditional
-                    ? (isDark ? "rgba(255,159,10,0.7)" : "rgba(255,149,0,0.6)")
-                    : zIsFuture
+                    !zIsFuture && !zIsSerious && zRestriction === "REQ_AUTHORISATION" && z21hRule?.avEligible === true;
+                  const policyColor = zPolicy.color;
+                  const cardBorderColor = zIsFuture
                     ? (isDark ? "rgba(142,142,147,0.3)" : "rgba(142,142,147,0.25)")
-                    : (isDark ? "rgba(74,144,217,0.4)" : "rgba(74,144,217,0.3)");
-                  const badgeColor = zIsHardBan
-                    ? (isDark ? "#FF453A" : "#FF3B30")
-                    : zIsConditional
-                    ? (isDark ? "#FF9F0A" : "#FF9500")
-                    : zIsFuture ? "#8E8E93" : "#4A90D9";
-                  const cardBg = zIsHardBan
-                    ? (isDark ? "rgba(255,59,48,0.08)" : "rgba(255,59,48,0.05)")
-                    : zIsConditional
-                    ? (isDark ? "rgba(255,149,0,0.08)" : "rgba(255,149,0,0.06)")
-                    : undefined;
+                    : z.informationalOnly
+                    ? (isDark ? "rgba(74,144,217,0.4)" : "rgba(74,144,217,0.3)")
+                    : `${policyColor}${zIsSerious ? "D9" : "99"}`;
+                  const badgeColor = zIsFuture ? "#8E8E93" : z.informationalOnly ? "#4A90D9" : policyColor;
+                  const cardBg = zIsSerious ? `${policyColor}14` : undefined;
                   return (
                     <View key={`${z.layerLabel}-${z.name}-${i}`} style={[sidePanelStyles.geozoneCard, { borderColor: cardBorderColor, borderWidth: zIsSerious ? 1.5 : StyleSheet.hairlineWidth, backgroundColor: cardBg, opacity: zIsFuture ? 0.75 : 1 }]}>
                       <View style={sidePanelStyles.geozoneHeader}>
@@ -2205,16 +2183,10 @@ function SidePanelView({ panel, loading, geozones, windFacilityWarnings = [], ge
                             <Text style={sidePanelStyles.geozoneBadgeText}>Infrastrukturhinweis</Text>
                           </View>
                         ) : null}
-                        {zIsHardBan ? (
-                          <View style={[sidePanelStyles.geozoneBadge, { backgroundColor: isDark ? "#FF453A" : "#FF3B30", marginLeft: 4, flexDirection: "row", alignItems: "center", gap: 3 }]}>
-                            <Feather name="slash" size={9} color="#FFFFFF" />
-                            <Text style={sidePanelStyles.geozoneBadgeText}>Flugverbot</Text>
-                          </View>
-                        ) : null}
-                        {zIsConditional ? (
-                          <View style={[sidePanelStyles.geozoneBadge, { backgroundColor: isDark ? "#FF9F0A" : "#FF9500", marginLeft: 4, flexDirection: "row", alignItems: "center", gap: 3 }]}>
-                            <Feather name="alert-triangle" size={9} color="#FFFFFF" />
-                            <Text style={sidePanelStyles.geozoneBadgeText}>Bedingt zulässig</Text>
+                        {zShowPolicyBadge ? (
+                          <View style={[sidePanelStyles.geozoneBadge, { backgroundColor: policyColor, marginLeft: 4, flexDirection: "row", alignItems: "center", gap: 3 }]}>
+                            <Feather name={zRestriction === "PROHIBITED" ? "slash" : zPolicy.verdict === "info" ? "info" : "alert-triangle"} size={9} color="#FFFFFF" />
+                            <Text style={sidePanelStyles.geozoneBadgeText}>{zPolicy.labelDe}</Text>
                           </View>
                         ) : null}
                         {zAvCovered ? (

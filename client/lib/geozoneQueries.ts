@@ -9,7 +9,9 @@
 // (CH-Identify-URL/-Layers, NL-Layer, FR-WMS-Basis-URL), sodass die öffentliche
 // API (und alle Aufrufer) unverändert bleibt.
 import type { GeozoneFeatureInfo, GeozoneLayer } from "./geozones";
-import { FR_ZONE_TYPES, classifyFrRestrictionType } from "./frZoneTypes";
+import { FR_ZONE_TYPES, classifyFrRestrictionType, frRestrictionFromText } from "./frZoneTypes";
+import { deRestrictionForLayer, normalizeRestriction, restrictionFromText, type Restriction } from "../../shared/restrictionPolicy";
+import { luRestrictionFromResponsibility } from "../../shared/irishLuxGeozones";
 
 // Label für aktivierbare (temporäre) LU-UAS-Zonen. Hier definiert (statt in
 // geozones.ts), damit parseLuWmsToGeozoneInfo RN-frei bleibt; geozones.ts
@@ -149,6 +151,9 @@ export function dipulZoneFromFeature(
     polygonRings,
     polygonGroups,
     country: "DE",
+    // dipul liefert keine ED-269-Einstufung → aus Layer/type_code ableiten.
+    restriction: deRestrictionForLayer(layer.wmsLayer || layer.id || layer.label, `${name}\n${details.join("\n")}`),
+    ...(typeCode ? { restrictionRaw: typeCode } : {}),
     ...(validStartTs != null || validEndTs != null ? { validStartTs, validEndTs } : {}),
   };
 }
@@ -451,11 +456,16 @@ export function parseChIdentifyResponse(data: any, layerLookup: Record<string, s
 
     if (detailParts.length === 0 && !name) continue;
 
+    const details = detailParts.join("\n");
+    // Strukturierte BAZL-Einstufung, sonst Text-Rückfall (nur Verbot erkannt).
+    const structured = normalizeRestriction(attrs.zone_restriction);
     results.push({
       layerLabel,
       name: String(name),
-      details: detailParts.join("\n"),
+      details,
       featureId: attrs.label || feature.id || undefined,
+      restriction: structured !== "UNKNOWN" ? structured : restrictionFromText(`${name}\n${details}`),
+      ...(attrs.zone_restriction ? { restrictionRaw: String(attrs.zone_restriction) } : {}),
     });
   }
 
@@ -674,11 +684,15 @@ export function parseLuWmsToGeozoneInfo(features: Record<string, string>[]): Geo
         ? { validStartTs: startMs > 0 ? startMs : null, validEndTs: endMs > 0 ? endMs : null }
         : {};
 
+    const details = detailParts.join("\n");
     results.push({
       layerLabel,
       name,
-      details: detailParts.join("\n"),
+      details,
       featureId: nomZone || undefined,
+      // Gleiche Text-Heuristik wie der LU-OGC-Pfad (Zuständigkeit), sonst
+      // Text-Rückfall.
+      restriction: resp ? luRestrictionFromResponsibility(resp) : restrictionFromText(`${name}\n${details}`),
       ...validity,
     });
   }
@@ -819,6 +833,20 @@ const NL_LOCALTYPE_DE: Record<string, string> = {
   Laagvlieggebied: "Tieffluggebiet",
   Gevaarlijk: "Gefahrengebiet (Danger)",
 };
+
+// PDOK-Felder localtype/sourceTxt → geschlossene Einstufung.
+export function nlRestriction(localtype: string, sourceTxt: string): Restriction {
+  const lt = (localtype || "").toLowerCase();
+  const src = (sourceTxt || "").toLowerCase();
+  if (lt === "natura2000") return "NATURE";
+  if (lt === "verboden" || /verboden/.test(src)) return "PROHIBITED";
+  if (/toegestaan/.test(src)) return "CONDITIONAL";
+  if (lt === "beperking" || /beperkt/.test(src)) return "RESTRICTED";
+  if (lt === "militair") return "RESTRICTED";
+  if (lt === "ctr") return "REQ_AUTHORISATION";
+  if (lt === "tma" || lt === "laagvlieggebied" || lt === "gevaarlijk") return "CONDITIONAL";
+  return "UNKNOWN";
+}
 
 function translateNlLocalType(localtype: string): string {
   return NL_LOCALTYPE_DE[localtype] || localtype;
@@ -1183,6 +1211,8 @@ async function queryNlPdokWmsFeatureInfo(
         details: details.join("\n"),
         featureId: f.id,
         polygonRings,
+        // PDOK-Schutzgebiete (NNN, Natura 2000).
+        restriction: "NATURE",
       });
     }
     return out;
@@ -1237,6 +1267,8 @@ export function parseNlGeozoneResponse(data: any, layerLabel: string): GeozoneFe
       details: detailParts.join("\n"),
       featureId: fid,
       polygonRings,
+      restriction: nlRestriction(localtype, sourceTxt),
+      ...(localtype ? { restrictionRaw: localtype } : {}),
     });
   }
 
@@ -1261,6 +1293,7 @@ export function parseNlLandingsiteResponse(data: any, layerLabel: string): Geozo
       name: txtname,
       details: detailParts.join("\n"),
       featureId: feature.id || undefined,
+      restriction: restrictionFromText(`${txtname}\n${detailParts.join("\n")}`),
     });
   }
 
@@ -1411,6 +1444,7 @@ export function frZoneFromWfsFeature(rawFeature: any): GeozoneFeatureInfo | null
     polygonRings: polygonGroups.flat(),
     polygonGroups,
     country: "FR",
+    restriction: frRestrictionFromText(limite, remarque),
   };
 }
 
@@ -1492,7 +1526,7 @@ export async function queryFrWmsFeaturesFrom(
             if (rings.length > 0) polygonRings = rings;
           }
         }
-        out.push({ layerLabel, name, details, featureId: fid, polygonRings });
+        out.push({ layerLabel, name, details, featureId: fid, polygonRings, restriction: frRestrictionFromText(limite, remarque) });
       }
     }
     return out;

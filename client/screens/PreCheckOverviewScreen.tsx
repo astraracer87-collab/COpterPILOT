@@ -28,6 +28,8 @@ import { attributionLabel } from "@/lib/sourceAttribution";
 import { Spacing, Typography, BorderRadius } from "@/constants/theme";
 import type { FlightCheckParamList } from "@/navigation/FlightCheckNavigator";
 import { uncoveredGeozoneSources, sourceCoverageWarning, type GeozoneSourceCoverage } from "@/lib/geozoneCoverage";
+import { classifyPlanningZones } from "@/lib/restrictionPlanning";
+import { maxRestrictionVerdict, zonePolicy, RESTRICTION_POLICY } from "../../shared/restrictionPolicy";
 import {
   queryGeozonesInAreaWithCoverage,
   GeozoneFeatureInfo,
@@ -388,6 +390,8 @@ export default function PreCheckOverviewScreen() {
 
   const isGeozoneCoveredByAV = (gz: GeozoneFeatureInfo): boolean => {
     if (!hasValidBundeslandErlaubnis) return false;
+    // Policy: nur abdeckbare Einstufungen (REQ_AUTHORISATION).
+    if (!zonePolicy(gz).coverableByAuthorisation) return false;
     // Nur AV-fähige § 21h-Kategorien; Luftsicherheits-/zustimmungspflichtige
     // Zonen (Flugplätze/HEMS, CTR, Industrie/Energie, Behörden) sind nie gedeckt.
     // Nur DEUTSCHE Zonen — eine Landes-AV deckt keine ausländischen Zonen.
@@ -404,9 +408,15 @@ export default function PreCheckOverviewScreen() {
   const isZoneRelevantInTime = (gz: GeozoneFeatureInfo): boolean => isZoneActiveInContext(gz, preCheckTimeContext);
   const geozones = allGeozones.filter(isZoneRelevantInTime);
   const timeInactiveGeozones = allGeozones.filter((gz) => !isZoneRelevantInTime(gz));
-  const coveredGeozones = geozones.filter(isGeozoneCoveredByAV);
-  const uncoveredGeozones = geozones.filter((gz) => !isGeozoneCoveredByAV(gz));
-  const hasAnyGeozones = geozones.length > 0 || tempRestrictions.length > 0;
+  // Einstufung über die Policy-Tabelle (wie die Planungsliste): Info-Zonen
+  // (NO_RESTRICTION) brauchen keine Bestätigung, Flugverbot → NO-GO im Urteil.
+  const zoneClass = classifyPlanningZones(geozones.filter((gz) => !gz.informationalOnly), { isCoveredByAV: isGeozoneCoveredByAV });
+  const tempClass = classifyPlanningZones(tempRestrictions.filter(isZoneRelevantInTime), { isCoveredByAV: () => false });
+  const restrictionVerdict = maxRestrictionVerdict([zoneClass.verdict, tempClass.verdict]);
+  const infoGeozones = zoneClass.infoZones;
+  const coveredGeozones = zoneClass.coveredZones;
+  const uncoveredGeozones = zoneClass.uncoveredZones;
+  const hasAnyGeozones = coveredGeozones.length > 0 || uncoveredGeozones.length > 0 || tempRestrictions.length > 0;
   const totalNotams = notams.active.length + notams.upcoming.length;
   // Abdeckungslücke (Review-Fix 4): kein Datensatz / Abruffehler / Land ohne
   // automatische Prüfung. Ein kompletter Ladefehler zählt ebenso — der Status
@@ -449,6 +459,7 @@ export default function PreCheckOverviewScreen() {
     if (sessionId) {
       await updateFlightSession(sessionId, {
         hasRestrictions: hasAnyRestrictions,
+        restrictionVerdict,
         detectedGeozones: geozones.map((g) => g.name),
       });
     }
@@ -459,6 +470,7 @@ export default function PreCheckOverviewScreen() {
       hasRestrictions: hasAnyRestrictions,
       restrictionStatus,
       restrictionNotes,
+      restrictionVerdict,
       droneId,
       sessionId,
     });
@@ -725,8 +737,8 @@ export default function PreCheckOverviewScreen() {
                 // Zeitgesteuerte Zonen, die jetzt UND zur geplanten Zeit inaktiv
                 // sind, abgeschwächt zeichnen (gleicher Kontext wie die Liste).
                 const inactiveInTime = !isZoneRelevantInTime(gz);
-                const fill = inactiveInTime ? "rgba(142,142,147,0.06)" : (gz.fillColor ?? "rgba(0,122,255,0.12)");
-                const stroke = inactiveInTime ? "rgba(142,142,147,0.6)" : (gz.strokeColor ?? "rgba(0,122,255,0.85)");
+                const fill = inactiveInTime ? "rgba(142,142,147,0.06)" : (gz.fillColor ?? zonePolicy(gz).fill);
+                const stroke = inactiveInTime ? "rgba(142,142,147,0.6)" : (gz.strokeColor ?? zonePolicy(gz).stroke);
                 return groups.map((group, ri) => {
                   const [outer, ...holes] = smoothRingGroup(group);
                   if (!outer || outer.length < 3) return null;
@@ -884,6 +896,11 @@ export default function PreCheckOverviewScreen() {
               </ThemedText>
             </Card>
             ) : null}
+            {infoGeozones.length > 0 ? (
+              <ThemedText style={[styles.geozoneDetails, { color: theme.textTertiary }]} testID="precheck-info-zones-hint">
+                {`Nur Info (keine Beschränkung): ${infoGeozones.map((gz) => gz.name).join(", ")}`}
+              </ThemedText>
+            ) : null}
             {timeInactiveGeozones.length > 0 ? (
               <ThemedText style={[styles.geozoneDetails, { color: theme.textTertiary }]} testID="precheck-time-inactive-hint">
                 {timeInactiveGeozones.map((gz) => `${gz.name}: ${ed269InactiveInfoText(gz, plannedFlightDate ? "planned" : "now")}`).join("\n")}
@@ -919,15 +936,34 @@ export default function PreCheckOverviewScreen() {
                       Weitere Geozonen ({uncoveredGeozones.length})
                     </ThemedText>
                   </View>
-                  {uncoveredGeozones.map((gz, i) => (
-                    <Card key={`uncov-${i}`} style={[styles.geozoneCard, { borderLeftColor: "#FF9500", borderLeftWidth: 2 }]}>
-                      <View style={[styles.geozoneBadge, { backgroundColor: "#FF950020" }]}>
-                        <ThemedText style={[styles.geozoneBadgeText, { color: "#FF9500" }]}>{gz.layerLabel}</ThemedText>
+                  {uncoveredGeozones.map((gz, i) => {
+                    const pol = zoneClass.assessment(gz).policy;
+                    return (
+                    <Card key={`uncov-${i}`} style={[styles.geozoneCard, { borderLeftColor: pol.color, borderLeftWidth: 2 }]}>
+                      <View style={[styles.geozoneBadge, { backgroundColor: `${pol.color}20` }]}>
+                        <ThemedText style={[styles.geozoneBadgeText, { color: pol.color }]}>{gz.layerLabel} · {pol.labelDe}</ThemedText>
                       </View>
                       <ThemedText style={styles.geozoneName}>{gz.name}</ThemedText>
                       {gz.details ? (
                         <ThemedText style={[styles.geozoneDetails, { color: theme.textTertiary }]} numberOfLines={2}>{gz.details}</ThemedText>
                       ) : null}
+                    </Card>
+                    );
+                  })}
+                </View>
+              ) : null}
+
+              {infoGeozones.length > 0 ? (
+                <View testID="precheck-info-zones">
+                  <View style={styles.subSectionHeader}>
+                    <Feather name="info" size={12} color={RESTRICTION_POLICY.NO_RESTRICTION.color} />
+                    <ThemedText style={[styles.subSectionTitle, { color: RESTRICTION_POLICY.NO_RESTRICTION.color }]}>
+                      Nur Info, keine Beschränkung ({infoGeozones.length})
+                    </ThemedText>
+                  </View>
+                  {infoGeozones.map((gz, i) => (
+                    <Card key={`info-${i}`} style={[styles.geozoneCard, { borderLeftColor: RESTRICTION_POLICY.NO_RESTRICTION.color, borderLeftWidth: 2 }]}>
+                      <ThemedText style={styles.geozoneName}>{gz.name}</ThemedText>
                     </Card>
                   ))}
                 </View>
@@ -961,9 +997,9 @@ export default function PreCheckOverviewScreen() {
                     </ThemedText>
                   </View>
                   {tempRestrictions.map((tr, i) => (
-                    <Card key={`temp-${i}`} style={[styles.geozoneCard, { borderLeftColor: "#FF3B30", borderLeftWidth: 2 }]}>
-                      <View style={[styles.geozoneBadge, { backgroundColor: "#FF3B3020" }]}>
-                        <ThemedText style={[styles.geozoneBadgeText, { color: "#FF3B30" }]}>Temporär</ThemedText>
+                    <Card key={`temp-${i}`} style={[styles.geozoneCard, { borderLeftColor: zonePolicy(tr).color, borderLeftWidth: 2 }]}>
+                      <View style={[styles.geozoneBadge, { backgroundColor: `${zonePolicy(tr).color}20` }]}>
+                        <ThemedText style={[styles.geozoneBadgeText, { color: zonePolicy(tr).color }]}>Temporär · {zonePolicy(tr).labelDe}</ThemedText>
                       </View>
                       <ThemedText style={styles.geozoneName}>{tr.name}</ThemedText>
                     </Card>

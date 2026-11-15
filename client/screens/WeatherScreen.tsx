@@ -63,7 +63,7 @@ export default function WeatherScreen() {
     return { start, end: new Date(start.getTime() + 3600000) };
   });
 
-  const { latitude, longitude, hasRestrictions, restrictionStatus, restrictionNotes, droneId, sessionId } = route.params;
+  const { latitude, longitude, hasRestrictions, restrictionStatus, restrictionNotes, restrictionVerdict, droneId, sessionId } = route.params;
 
   useEffect(() => {
     let cancelled = false;
@@ -208,6 +208,7 @@ export default function WeatherScreen() {
         hasRestrictions,
         restrictionStatus,
         restrictionNotes,
+        restrictionVerdict,
         weatherData: weather,
         droneId: droneId,
         limits: limits,
@@ -221,6 +222,7 @@ export default function WeatherScreen() {
         hasRestrictions,
         restrictionStatus,
         restrictionNotes,
+        restrictionVerdict,
         weatherData: weather,
         droneId: droneId,
         limits: limits,

@@ -110,7 +110,7 @@ function compactWholeDaySchedule(schedule: any[]): any[] {
 /** Einstufung (§5.5): Feldwert ist brauchbar und bleibt erhalten. */
 export function finnishRestriction(zone: any): string {
   const r = normalizeEd269Restriction(String(zone?.restriction ?? ""));
-  return r || "REQ_AUTHORISATION";
+  return r === "UNKNOWN" ? "REQ_AUTHORISATION" : r;
 }
 
 function isTemporary(app: any[] | undefined): boolean {

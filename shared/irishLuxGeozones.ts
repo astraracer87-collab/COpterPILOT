@@ -3,6 +3,7 @@
 // docs/luxembourg-geozones-integration.md.
 // Bewusst frei von React-Native-Importen (unter tsx/Node testbar).
 import { normalizeEd269Restriction } from "./ed269Restriction";
+import type { Restriction } from "./restrictionPolicy";
 import { simplifyGeometry } from "./dutchGeozones";
 
 export const IE_GEOZONE_SOURCE_LABEL = "Irish Aviation Authority (ED-269)";
@@ -83,12 +84,19 @@ export function normalizeIrishZones(body: any): Feature[] {
 // Luxemburg (OGC API Features, natives Geoportail-Schema)
 // ---------------------------------------------------------------------------
 
+/** LU-Einstufung aus dem Zuständigkeitstext (OGC „responsabilite“ bzw. WMS
+ * „Responsability“): autorisation → Genehmigung, interdi… → Verbot, sonst
+ * Auflagen. */
+export function luRestrictionFromResponsibility(resp: string): Restriction {
+  return /autorisation/i.test(resp) ? "REQ_AUTHORISATION" : /interdi/i.test(resp) ? "PROHIBITED" : "CONDITIONAL";
+}
+
 export function normalizeLuxembourgFeature(f: Feature): Feature | null {
   if (!f?.geometry) return null;
   const p = f.properties || {};
   if (String(p.statut ?? "PROD").toUpperCase() !== "PROD") return null;
   const resp = String(p.responsabilite ?? "");
-  const restriction = /autorisation/i.test(resp) ? "REQ_AUTHORISATION" : /interdi/i.test(resp) ? "PROHIBITED" : "CONDITIONAL";
+  const restriction = luRestrictionFromResponsibility(resp);
   const lines: string[] = [];
   if (p.description) lines.push(String(p.description));
   if (resp) lines.push(`Zuständig: ${resp}`);

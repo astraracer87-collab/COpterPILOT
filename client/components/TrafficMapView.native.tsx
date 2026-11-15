@@ -27,6 +27,7 @@ import { splitCountriesByAccess, countryName } from "../../shared/countryEntitle
 import { useAuth } from "@/lib/auth";
 import { windFacilitiesAsGeozones, supplementalLinesAsGeozones, supplementalInfrastructureAsGeozones, infrastructureMapGeometry } from "@/lib/energyInfrastructureZones";
 import { getGermanWindFacility100mPoints } from "../../shared/germanEnergyInfrastructure";
+import { zonePolicy } from "../../shared/restrictionPolicy";
 import { useTiledGeozoneIsos } from "@/lib/geozoneTiles/useTiledGeozones";
 import CtrInfoCard from "@/components/CtrInfoCard";
 import AirportWeatherSheet from "@/components/AirportWeatherSheet";
@@ -707,8 +708,9 @@ export const MAIN_MAP_HTML = `<!DOCTYPE html>
       for (var k = 0; k < z.r.length; k++){
         var poly = z.r[k]; // [Aussenring, ...Loecher] -> Leaflet sticht Loecher aus
         if (poly && poly.length >= 1 && poly[0] && poly[0].length >= 3) {
-          // z.ia: zeitgesteuerte Zone, derzeit inaktiv -> abgeschwächt + gestrichelt.
-          L.polygon(poly, { color: z.s || "rgba(0,122,255,0.85)", opacity: z.ia ? 0.45 : 0.95, weight: 2, dashArray: z.ia ? "6 4" : null, fillColor: z.f || "rgba(0,122,255,0.15)", fillOpacity: z.ia ? 0.3 : 1, interactive: false, smoothFactor: 0 }).addTo(vzLayer);
+          // z.ia: zeitgesteuerte Zone, derzeit inaktiv -> abgeschwächt + fein gestrichelt.
+          // z.tp: temporäre Zone (Gültigkeitsfenster) -> kräftiger Strich-Punkt-Rand.
+          L.polygon(poly, { color: z.s || "rgba(142,142,147,0.9)", opacity: z.ia ? 0.45 : 0.95, weight: z.tp && !z.ia ? 3 : 2, dashArray: z.ia ? "6 4" : (z.tp ? "12 4 2 4" : null), fillColor: z.f || "rgba(142,142,147,0.18)", fillOpacity: z.ia ? 0.3 : 1, interactive: false, smoothFactor: 0 }).addTo(vzLayer);
         }
       }
     }
@@ -1657,7 +1659,8 @@ export default function TrafficMapView({
         // Server als WMS-artige PNG-Kachel gezeichnet. Sie bleiben hier nur als
         // unsichtbares Polygon für die Tap-Abfrage (vzHitsAt) erhalten — `hide`
         // unterdrückt das doppelte Zeichnen. Temporäre Zonen sind NICHT in den
-        // (24 h gecachten) Kacheln und werden weiterhin orange gezeichnet.
+        // (24 h gecachten) Kacheln und werden weiterhin gezeichnet (Farbe nach
+        // Einstufung, gestrichelter Rand als Temporär-Markierung).
         // Die deutschen 100-m-Windkraft-Pufferzonen (energy-zone:*) werden IMMER
         // gezeichnet: Früher wurden sie ab Zoom 12 zugunsten serverseitiger
         // Anlagen-Kacheln ausgeblendet — die gibt es in der RC-Version nicht mehr.
@@ -1666,10 +1669,12 @@ export default function TrafficMapView({
           r: polys,
           p: infrastructureMapGeometry(z.infrastructureGeometry).points,
           l: infrastructureMapGeometry(z.infrastructureGeometry).lines,
-          // Aktive temporäre/NOTAM-Zonen orange einfärben, klar abgegrenzt vom
-          // permanenten Geozonen-Styling.
-          f: isTemp ? "rgba(255,149,0,0.18)" : (z.fillColor ?? "rgba(0,122,255,0.15)"),
-          s: isTemp ? "rgba(255,149,0,0.95)" : (z.strokeColor ?? "rgba(0,122,255,0.85)"),
+          // Farbe immer nach Einstufung (Policy-Tabelle) – auch temporäre Zonen.
+          // Temporär wird über das Strichmuster (tp) markiert, nicht mehr über
+          // ein pauschales Orange.
+          f: z.fillColor ?? zonePolicy(z).fill,
+          s: z.strokeColor ?? zonePolicy(z).stroke,
+          tp: isTemp,
           hide,
           t: z.name,
           d: details,

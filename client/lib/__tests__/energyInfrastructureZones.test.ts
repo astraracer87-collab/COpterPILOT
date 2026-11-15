@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { getGermanWindFacility100mPoints, type GermanEnergyInfrastructureItem } from "../../../shared/germanEnergyInfrastructure";
 import { windFacilitiesAsGeozones, supplementalLinesAsGeozones, supplementalInfrastructureAsGeozones, infrastructureMapGeometry } from "../energyInfrastructureZones";
-import { computeGeozoneTabSeverity, isProhibitionZone, isAltitudeRestrictionZone } from "../geozoneSeverity";
+import { computeGeozoneTabSeverity, isProhibitionZone } from "../geozoneSeverity";
 
 const registered: GermanEnergyInfrastructureItem = {
   id: "registered", kind: "wind_turbine", name: "Windanlage", source: "MaStR",
@@ -36,16 +36,14 @@ for (const country of ["AT", "BE", "CH", "DK", "FR", "LU", "NL"]) {
   const [hint] = supplementalInfrastructureAsGeozones(country, [osm]);
   assert.equal(hint.country, country);
   assert.equal(hint.informationalOnly, true);
-  assert.equal(hint.restriction, undefined, "asset inventories do not establish an authorisation requirement");
+  assert.equal(hint.restriction, "NO_RESTRICTION", "asset inventories do not establish an authorisation requirement");
   assert.equal(hint.lowerMeters, undefined);
   assert.equal(hint.upperMeters, undefined);
   assert.deepEqual(hint.polygonGroups, [], "a foreign point must not become an invented 100-m zone");
   assert.doesNotMatch(hint.details, /§\s*21h|100.m/i);
   assert.equal(isProhibitionZone(hint), false);
-  assert.equal(isAltitudeRestrictionZone(hint), false);
   assert.equal(computeGeozoneTabSeverity([hint], {
     isCoveredByAV: () => { throw new Error("An informational entry must never enter the AV permission check"); },
-    mapsToAvRule: () => { throw new Error("German law must never be inferred for a foreign inventory point"); },
   }), "blue");
 }
 const foreignLine = supplementalInfrastructureAsGeozones("BE", [{

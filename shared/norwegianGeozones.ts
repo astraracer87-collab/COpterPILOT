@@ -78,7 +78,7 @@ export function norwegianRestriction(zone: any): string {
   if (reasons.includes("NATURE")) return "NATURE";
   if (raw === "PROHIBITED") return "PROHIBITED";
   if (raw === "REQ_AUTHORISATION" && NO_FLIGHT_BAN_RE.test(String(zone?.message ?? ""))) return "PROHIBITED";
-  return raw || "REQ_AUTHORISATION";
+  return raw === "UNKNOWN" ? "REQ_AUTHORISATION" : raw;
 }
 
 /** Wandelt das nackte dronesoner.no-Array in GeoJSON-Features um. */

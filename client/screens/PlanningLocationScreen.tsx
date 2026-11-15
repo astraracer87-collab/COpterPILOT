@@ -43,6 +43,7 @@ import {
 } from "@/lib/vlos";
 import { queryGeozonesInArea, type GeozoneFeatureInfo, TEMP_RESTRICTION_LAYER_LABEL } from "@/lib/geozones";
 import { assessGeozoneAltitudeConflict, DEFAULT_REACHABLE_ALTITUDE_M } from "../../shared/geozoneAltitudeFilter";
+import { maxRestrictionVerdict, zonePolicy } from "../../shared/restrictionPolicy";
 import { isZoneActiveInContext } from "../../shared/ed269Restriction";
 import { filterGeozoneDetailLines } from "@/lib/sourceAttribution";
 
@@ -665,14 +666,21 @@ export default function PlanningLocationScreen() {
   const touchedAssessment = useMemo(() => {
     const planningContext = { kind: "planned" as const, planned: null };
     const activeZones = touchedGeozones.filter((g) => isZoneActiveInContext(g, planningContext));
-    const assessed = activeZones.map((g) => ({
+    // Policy: reine Info-Zonen (NO_RESTRICTION) sind nie ein Konflikt.
+    const restrictive = activeZones.filter((g) => zonePolicy(g).verdict !== "info");
+    const assessed = restrictive.map((g) => ({
       g,
       a: assessGeozoneAltitudeConflict(g, maxAltitude),
+      pol: zonePolicy(g),
     }));
+    const conflicts = assessed.filter((x) => !x.a.clearedByAltitude);
     return {
-      conflicts: assessed.filter((x) => !x.a.clearedByAltitude),
+      conflicts,
       cleared: assessed.filter((x) => x.a.clearedByAltitude),
+      info: activeZones.filter((g) => zonePolicy(g).verdict === "info"),
       inactive: touchedGeozones.filter((g) => !activeZones.includes(g)),
+      // Höchstes Policy-Urteil der Konfliktzonen (Vorschau-Farbe).
+      verdict: maxRestrictionVerdict(conflicts.map((x) => x.pol.verdict)),
     };
   }, [touchedGeozones, maxAltitude]);
 
@@ -1353,27 +1361,30 @@ export default function PlanningLocationScreen() {
                 </ThemedText>
               </View>
             ) : touchedAssessment.conflicts.length > 0 ? (
-              <View style={[styles.touchedBox, { backgroundColor: theme.statusCautionBackground, borderColor: theme.statusCaution }]}>
+              <View style={[styles.touchedBox, touchedAssessment.verdict === "nogo"
+                ? { backgroundColor: theme.statusNoGoBackground, borderColor: theme.statusNoGo }
+                : { backgroundColor: theme.statusCautionBackground, borderColor: theme.statusCaution }]}>
                 <View style={styles.touchedHeader}>
-                  <Feather name="alert-triangle" size={14} color={theme.statusCaution} />
-                  <ThemedText style={[styles.touchedTitle, { color: theme.statusCaution }]}>
+                  <Feather name={touchedAssessment.verdict === "nogo" ? "alert-octagon" : "alert-triangle"} size={14} color={touchedAssessment.verdict === "nogo" ? theme.statusNoGo : theme.statusCaution} />
+                  <ThemedText style={[styles.touchedTitle, { color: touchedAssessment.verdict === "nogo" ? theme.statusNoGo : theme.statusCaution }]}>
                     {touchedAssessment.conflicts.length} Geozone{touchedAssessment.conflicts.length === 1 ? "" : "n"} im Umkreis
+                    {touchedAssessment.verdict === "nogo" ? " – darunter Flugverbot" : ""}
                   </ThemedText>
                 </View>
-                {touchedAssessment.conflicts.slice(0, 6).map(({ g, a }, idx) => (
+                {touchedAssessment.conflicts.slice(0, 6).map(({ g, a, pol }, idx) => (
                   <Pressable
                     key={`${g.layerLabel}-${g.name}-${idx}`}
                     style={styles.touchedRow}
                     onPress={() => openZoneDetail(g)}
                     testID={`button-geozone-detail-conflict-${idx}`}
                   >
-                    <View style={[styles.touchedDot, { backgroundColor: theme.statusCaution }]} />
+                    <View style={[styles.touchedDot, { backgroundColor: pol.color }]} />
                     <View style={{ flex: 1 }}>
                       <ThemedText style={[styles.touchedRowName, { color: theme.text }]} numberOfLines={2}>
                         {g.name}
                       </ThemedText>
                       <ThemedText style={[styles.touchedRowLayer, { color: theme.textSecondary }]} numberOfLines={1}>
-                        {g.layerLabel}{a.label ? ` · ${a.label}` : ""}{g.ed269Applicability?.length ? " · zeitweise aktiv" : ""}
+                        {g.layerLabel} · {pol.labelDe}{a.label && a.label !== pol.labelDe ? ` · ${a.label}` : ""}{g.ed269Applicability?.length ? " · zeitweise aktiv" : ""}
                       </ThemedText>
                     </View>
                     <Feather name="chevron-right" size={16} color={theme.textTertiary} style={styles.touchedChevron} />
@@ -1459,6 +1470,13 @@ export default function PlanningLocationScreen() {
                     {touchedAssessment.inactive.length} zeitgesteuerte Zone{touchedAssessment.inactive.length === 1 ? "" : "n"} im Umkreis derzeit inaktiv – Details im nächsten Schritt.
                   </ThemedText>
                 ) : null}
+              </View>
+            ) : touchedAssessment.inactive.length === 0 ? (
+              <View style={[styles.geozoneHint, { backgroundColor: theme.backgroundSecondary }]} testID="geozone-info-only-hint">
+                <Feather name="info" size={14} color={theme.statusGo} />
+                <ThemedText style={[styles.geozoneHintText, { color: theme.textSecondary }]}>
+                  {touchedAssessment.info.length} Info-Zone{touchedAssessment.info.length === 1 ? "" : "n"} im Umkreis – keine Beschränkung.
+                </ThemedText>
               </View>
             ) : (
               <View style={[styles.geozoneHint, { backgroundColor: theme.backgroundSecondary }]}>

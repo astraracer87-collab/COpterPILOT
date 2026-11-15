@@ -34,6 +34,7 @@ import {
 import { smoothRingGroup, simplifyRingGroup } from "@/lib/ringSimplify";
 import { nativeMapBasemapProps } from "@/lib/mapBasemap";
 import { entitlementGrantsCountry } from "../../shared/countryEntitlements";
+import { zonePolicy } from "../../shared/restrictionPolicy";
 import { useAuth } from "@/lib/auth";
 import { infrastructureMapGeometry } from "@/lib/energyInfrastructureZones";
 import {
@@ -126,7 +127,8 @@ export default function PlanningZoneFocusScreen() {
   const infrastructureShape = useMemo(() => infrastructureMapGeometry(zone.infrastructureGeometry), [zone.infrastructureGeometry]);
   const hasGeometry = groups.length > 0 || infrastructureShape.points.length > 0 || infrastructureShape.lines.length > 0;
 
-  const highlightColor = zone.strokeColor || theme.statusCaution || "#FF9500";
+  // Farbe nach Einstufung (Policy-Tabelle), falls die Quelle keine liefert.
+  const highlightColor = zone.strokeColor || zonePolicy(zone).color;
   const fillColor = zone.fillColor || (highlightColor + "33");
 
   // Fallback (Quellen ohne Geometrie): Geozonen-WMS/Vektor-Kachel für das Land
@@ -348,12 +350,12 @@ export default function PlanningZoneFocusScreen() {
           </View>
           <ThemedText style={styles.zoneName}>{zone.name || "Unbenannte Zone"}</ThemedText>
 
-          {zone.restriction ? (
-            <View style={styles.dataRow}>
-              <ThemedText style={[styles.dataLabel, { color: theme.textSecondary }]}>Beschränkung</ThemedText>
-              <ThemedText style={[styles.dataValue, { color: theme.text }]}>{zone.restriction}</ThemedText>
-            </View>
-          ) : null}
+          <View style={styles.dataRow}>
+            <ThemedText style={[styles.dataLabel, { color: theme.textSecondary }]}>Beschränkung</ThemedText>
+            <ThemedText style={[styles.dataValue, { color: zonePolicy(zone).color }]}>
+              {zonePolicy(zone).labelDe}{zone.restrictionRaw ? ` (${zone.restrictionRaw})` : ""}
+            </ThemedText>
+          </View>
 
           {alt ? (
             <View style={styles.dataRow}>

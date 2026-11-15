@@ -129,6 +129,8 @@ export type FlightPlanningParamList = {
     hasRestrictions?: boolean;
     restrictionStatus?: "approved" | "limited";
     restrictionNotes?: string;
+    /** Höchstes Policy-Urteil der Geozonen (nogo = Flugverbot ohne Begründung). */
+    restrictionVerdict?: "nogo" | "caution" | "info";
     /** Gegenprüfung der offiziellen Staatskarte (Länder mit eigenen Daten). */
     officialMapCrossCheck?: { blocking: boolean; note?: string };
     /** Pilot hat in FR mit MTOM >= 800 g bestätigt fortzufahren OBWOHL

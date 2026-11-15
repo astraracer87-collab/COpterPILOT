@@ -8,72 +8,28 @@
 
 import { calculateSolarTimes } from "./solar";
 
-// Normalisiert die unterschiedlichen ED-269-Beschränkungs-/Typ-Schreibweisen
-// verschiedener Anbieter auf einen einheitlichen Schlüssel. Belgien
-// (Droneguide) nutzt z. B. `type` mit Werten wie REQ_AUTH/RESTRICTED, Österreich
-// `restriction` mit REQ_AUTHORISATION.
-export function normalizeEd269Restriction(raw: string): string {
-  const v = (raw || "").toString().toUpperCase().trim().replace(/[\s-]+/g, "_");
-  switch (v) {
-    case "REQ_AUTH":
-    case "REQ_AUTHORISATION":
-    case "REQ_AUTHORIZATION":
-    case "AUTHORISATION":
-    case "AUTHORIZATION":
-    case "REQUIRES_AUTHORISATION":
-      return "REQ_AUTHORISATION";
-    case "PROHIBITED":
-    case "FORBIDDEN":
-    case "NO_FLY":
-      return "PROHIBITED";
-    case "RESTRICTED":
-      return "RESTRICTED";
-    case "CONDITIONAL":
-    case "CONDITIONS":
-      return "CONDITIONAL";
-    case "NO_RESTRICTION":
-    case "NONE":
-    case "INFORMATION":
-    case "INFO":
-      return "NO_RESTRICTION";
-    case "NATURE":
-    case "NATURSCHUTZ":
-    case "NATURA":
-      return "NATURE";
-    default:
-      return v;
-  }
+// Beschränkungs-Normalisierung und Farben kommen aus der EINEN Policy-Tabelle
+// (shared/restrictionPolicy.ts). Die ED-269-Namen bleiben als dünne Aliase
+// erhalten, damit bestehende Importpfade stabil bleiben.
+import { normalizeRestriction, restrictionColors, type Restriction } from "./restrictionPolicy";
+
+/** Normalisiert jede ED-269-/ED-318-/Anbieter-Schreibweise (REQ_AUTH,
+ * REQ_AUTHORIZATION, INFORMATION, { type } …) auf die geschlossene Union;
+ * leer/unbekannt → "UNKNOWN". */
+export function normalizeEd269Restriction(raw: unknown): Restriction {
+  return normalizeRestriction(raw);
 }
 
-// ED-269-Restriction -> Anzeigefarbe (rgba). PROHIBITED rot, REQ_AUTHORISATION
-// orange, CONDITIONAL gelb, NO_RESTRICTION blau/grün.
-export function ed269RestrictionColors(restriction: string): { fill: string; stroke: string } {
-  switch (normalizeEd269Restriction(restriction)) {
-    case "PROHIBITED":
-      return { fill: "rgba(255,59,48,0.20)", stroke: "rgba(255,59,48,0.95)" };
-    case "RESTRICTED":
-      return { fill: "rgba(255,99,71,0.18)", stroke: "rgba(255,69,58,0.95)" };
-    case "REQ_AUTHORISATION":
-      return { fill: "rgba(255,149,0,0.18)", stroke: "rgba(255,149,0,0.95)" };
-    case "CONDITIONAL":
-      return { fill: "rgba(255,204,0,0.18)", stroke: "rgba(255,159,10,0.95)" };
-    case "NO_RESTRICTION":
-      return { fill: "rgba(52,199,89,0.15)", stroke: "rgba(52,199,89,0.9)" };
-    // Naturschutz (Naturområder): kräftiges Waldgrün, bewusst dunkler als das
-    // systemGrün von NO_RESTRICTION, damit Naturschutzzonen von reinen
-    // Aufmerksamkeitszonen (Farve 5) unterscheidbar bleiben.
-    case "NATURE":
-      return { fill: "rgba(46,125,50,0.22)", stroke: "rgba(27,94,32,0.95)" };
-    default:
-      return { fill: "rgba(0,122,255,0.15)", stroke: "rgba(0,122,255,0.85)" };
-  }
+/** Anzeigefarbe (rgba) einer Einstufung – aus RESTRICTION_POLICY. */
+export function ed269RestrictionColors(restriction: unknown): { fill: string; stroke: string } {
+  return restrictionColors(restriction);
 }
 
 // Extrahiert die normalisierte Beschränkung aus den ED-269-Properties. Belgien
 // (skeyes) liefert restriction als Objekt { type: "PROHIBITED" }; AT/DK liefern
 // einen String. Beide Formen unterstützen (identisch zur Client-Parselogik in
 // client/lib/ed269.ts parseEd269ToGeozoneInfo).
-export function ed269RestrictionForProps(p: Record<string, any>): string {
+export function ed269RestrictionForProps(p: Record<string, any>): Restriction {
   const restrictionRaw =
     p?.restriction && typeof p.restriction === "object"
       ? (p.restriction as any).type

@@ -31,6 +31,7 @@ import { findNearbyCtrAirports, CTR_AIRPORTS } from "@/lib/ctrData";
 import { getCtrBandRings, getCtrLegendEntries, getCtrProvisionalNote } from "@/lib/ctrAltitude";
 import CtrInfoCard from "@/components/CtrInfoCard";
 import { splitCountriesByAccess, countryName } from "../../../shared/countryEntitlements";
+import { zonePolicy } from "../../../shared/restrictionPolicy";
 import type {
   EnergyFacility100mPoint,
   GermanEnergyInfrastructureItem,
@@ -240,8 +241,9 @@ const MAP_HTML = `<!DOCTYPE html>
       for (var k = 0; k < z.r.length; k++){
         var poly = z.r[k]; // [Aussenring, ...Loecher] -> Leaflet sticht Loecher aus
         if (poly && poly.length >= 1 && poly[0] && poly[0].length >= 3) {
-          // z.i: zeitgesteuerte Zone, derzeit inaktiv -> abgeschwächt + gestrichelt.
-          L.polygon(poly, { color: z.s || "rgba(0,122,255,0.85)", opacity: z.i ? 0.45 : 0.95, weight: 2, dashArray: z.i ? "6 4" : null, fillColor: z.f || "rgba(0,122,255,0.15)", fillOpacity: z.i ? 0.3 : 1, interactive: false, smoothFactor: 0 }).addTo(vzLayer);
+          // z.i: zeitgesteuerte Zone, derzeit inaktiv -> abgeschwächt + fein gestrichelt.
+          // z.t: temporäre Zone (Gültigkeitsfenster) -> kräftiger Strich-Punkt-Rand.
+          L.polygon(poly, { color: z.s || "rgba(142,142,147,0.9)", opacity: z.i ? 0.45 : 0.95, weight: z.t && !z.i ? 3 : 2, dashArray: z.i ? "6 4" : (z.t ? "12 4 2 4" : null), fillColor: z.f || "rgba(142,142,147,0.18)", fillOpacity: z.i ? 0.3 : 1, interactive: false, smoothFactor: 0 }).addTo(vzLayer);
         }
       }
     }
@@ -654,7 +656,7 @@ const MapPicker = forwardRef<MapPickerRef, MapPickerProps>(
 
     const vzPolys = useMemo(() => {
       void vzVersion;
-      const out: { r: [number, number][][][]; p?: [number, number][]; l?: [number, number][][]; s: string; f: string; i?: 1 }[] = [];
+      const out: { r: [number, number][][][]; p?: [number, number][]; l?: [number, number][][]; s: string; f: string; i?: 1; t?: 1 }[] = [];
       const nowDate = new Date();
       for (const iso of vectorCountries) {
         // Raster-Kachel-Land (z. B. Belgien): dauerhafte Zonen zeichnet die
@@ -677,8 +679,10 @@ const MapPicker = forwardRef<MapPickerRef, MapPickerProps>(
           if (polys.length === 0) continue;
           out.push({
             r: polys,
-            s: z.strokeColor ?? "rgba(0,122,255,0.85)",
-            f: z.fillColor ?? "rgba(0,122,255,0.15)",
+            // Farbe nach Einstufung (Policy-Tabelle), auch für temporäre Zonen.
+            s: z.strokeColor ?? zonePolicy(z).stroke,
+            f: z.fillColor ?? zonePolicy(z).fill,
+            ...(isTemp ? { t: 1 as const } : {}),
             // Zeitgesteuerte Zone (Fenster/Schedule), die jetzt nicht aktiv ist
             // (Karten-Zeitbezug: jetzt).
             ...(isZoneActiveInContext(z, { kind: "now", now: nowDate }) ? {} : { i: 1 as const }),

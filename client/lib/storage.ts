@@ -732,6 +732,9 @@ export interface FlightSession {
    *  undefined bei hasRestrictions=true = Status ungeklärt (→ mind. CAUTION). */
   restrictionStatus?: "approved" | "limited";
   restrictionNotes?: string;
+  /** Höchstes Policy-Urteil der Geozonen (shared/restrictionPolicy):
+   *  "nogo" = aktive Flugverbotszone ohne dokumentierte Begründung → NO-GO. */
+  restrictionVerdict?: "nogo" | "caution" | "info";
   detectedGeozones?: string[];
   savedGeozoneFeatures?: SavedGeozoneFeature[];
   savedDipulRestrictions?: SavedDipulRestriction[];

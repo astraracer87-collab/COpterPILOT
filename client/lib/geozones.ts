@@ -114,6 +114,7 @@ import {
   COUNTRY_WMS_MAX_NATIVE_ZOOM,
 } from "@/lib/geozoneZoom";
 import { buildVectorGeozoneTileUrlFrom } from "@/lib/geozoneTileUrl";
+import { deRestrictionForLayer, restrictionFromText } from "../../shared/restrictionPolicy";
 export {
   LEAFLET_WMS_BBOX_FN_JS,
   GEOZONE_TILE_BBOX_PLACEHOLDER,
@@ -2129,6 +2130,8 @@ function humanizeTypeCode(typeCode: string): string {
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+const DIPUL_WMS_LAYER_KEYS = new Set(GEOZONE_LAYERS.map((l) => l.wmsLayer));
+
 function parsePlainTextFeatureInfo(text: string, layerLookup: Record<string, string>): GeozoneFeatureInfo[] {
   const results: GeozoneFeatureInfo[] = [];
   const blocks = text.split(/Results for FeatureType '([^']+)':/);
@@ -2198,11 +2201,16 @@ function parsePlainTextFeatureInfo(text: string, layerLookup: Record<string, str
         detailParts.push(`${displayKey}: ${displayVal}`);
       }
 
+      const details = detailParts.join("\n");
       results.push({
         layerLabel,
         name,
-        details: detailParts.join("\n"),
+        details,
         featureId: props.uuid || props.UUID || props.external_reference || props.id || undefined,
+        // dipul-Layer: Einstufung aus dem Layer; andere WMS: Text-Rückfall.
+        restriction: DIPUL_WMS_LAYER_KEYS.has(layerKey)
+          ? deRestrictionForLayer(layerKey, `${name}\n${details}`)
+          : restrictionFromText(`${name}\n${details}`),
       });
     }
   }

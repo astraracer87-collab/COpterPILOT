@@ -51,7 +51,7 @@ export default function PlanningResultScreen() {
   const [crossCheck, setCrossCheck] = useState<{ blocking: boolean; note?: string } | null>(null);
   // Ergebnis der Einschränkungs-Stufe (Geozonen/§21h/AV/Ausnahmen), in der
   // Session gespeichert von PlanningDetails. Fließt ins Gesamturteil ein.
-  const [restriction, setRestriction] = useState<{ hasRestrictions: boolean; restrictionStatus?: "approved" | "limited" }>({ hasRestrictions: false });
+  const [restriction, setRestriction] = useState<ReturnType<typeof restrictionAssessmentInput>>({ hasRestrictions: false });
   // Speichern erst, wenn die Session (inkl. Einschränkungs-Ergebnis) geladen ist.
   const [sessionLoaded, setSessionLoaded] = useState(false);
   const [notamUnknown, setNotamUnknown] = useState(false);
@@ -87,6 +87,9 @@ export default function PlanningResultScreen() {
     plannedDateTime,
     latitude,
     longitude,
+    // Höchstes Policy-Urteil der Geozonen aus der Session (PROHIBITED ohne
+    // Begründung → NO-GO).
+    restrictionVerdict: restriction.restrictionVerdict,
   };
 
   const assessment = forecastWeather 

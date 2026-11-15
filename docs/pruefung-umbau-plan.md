@@ -128,3 +128,27 @@ alle Länderlisten werden daraus abgeleitet.
 - Offen für B6/B7: client/lib/ed269Notams.ts vertauscht beim Zonenmittelpunkt
   Breite/Länge ([lat, lon] als [lon, lat] gelesen); NOTAM-Screens haben noch
   eine eigene Aktiv-/Bald-aktiv-Logik für NOTAM-Datensätze.
+
+## Funde/Entscheidungen aus B2 (2026-11-15)
+
+- Einstufung + Policy: shared/restrictionPolicy.ts (`Restriction`,
+  `normalizeRestriction`, `RESTRICTION_POLICY`, `zoneRestriction`,
+  `assessZoneRestriction`). Planungsliste: client/lib/restrictionPlanning.ts;
+  Radar-Reiter: client/lib/geozoneSeverity.ts – beide über
+  `assessZoneRestriction` (gleiche Reiterfarbe je Zone).
+- Reiter rot = aktive Zone mit Schwere ≥ 3 ohne AV-Abdeckung (Verbot,
+  Sperrgebiet, Genehmigungspflicht). Folge: ausländische REQ_AUTHORISATION-
+  Zonen und DE-CTR/Flughäfen färben den Reiter jetzt rot (bisher orange).
+- DE (dipul hat keine Einstufung, Ableitung aus dem Layer): ED-R RESTRICTED;
+  CTR/Flughäfen REQ_AUTHORISATION; Flugplätze/HEMS, Modellflug, Hängegleiter
+  CONDITIONAL; temporäre Betriebseinschränkungen PROHIBITED (außer Text nennt
+  Genehmigung/Zustimmung); alle übrigen § 21h-Kategorien inkl. Naturschutz
+  REQ_AUTHORISATION (AV-Abdeckung weiter nur über isDe21hZoneAvEligible).
+  Fachlich zu bestätigen.
+- Urteil: `restrictionVerdict` (nogo|caution|info) in Route-Params und
+  Flugsession; `assessWeather` (Kontext) macht aus "nogo" ein NO-GO. Planung:
+  Flugverbot mit Begründung übersteuerbar (Notiz im Protokoll). Pre-Check
+  reicht das Urteil bis ResultsScreen durch (dort Bestätigung des NO-GO).
+- Offen: FlightCheck-RestrictionsScreen und Pdf-Export färben noch nicht
+  nach Policy; Ausnahme-Schlüssel ist jetzt inhaltsbasiert
+  (Teil von S1), featureId-Pflicht folgt in B7.

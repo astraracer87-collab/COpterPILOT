@@ -1,4 +1,5 @@
 import React from "react";
+import type { RestrictionVerdict } from "../../shared/restrictionPolicy";
 import { Pressable, Text, StyleSheet } from "react-native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { useRoute, RouteProp } from "@react-navigation/native";
@@ -34,13 +35,15 @@ export type FlightCheckParamList = {
   LocationPicker: { latitude: number; longitude: number; droneId: string; sessionId?: string; countryIso?: string };
   Map: { latitude: number; longitude: number; droneId: string; sessionId?: string; countryIso?: string; pilotElevation?: number };
   Restrictions: { latitude: number; longitude: number; droneId: string; sessionId?: string };
-  Weather: { latitude: number; longitude: number; hasRestrictions: boolean; restrictionStatus?: "approved" | "limited"; restrictionNotes?: string; droneId: string; sessionId?: string };
+  Weather: { latitude: number; longitude: number; hasRestrictions: boolean; restrictionStatus?: "approved" | "limited"; restrictionNotes?: string; restrictionVerdict?: RestrictionVerdict; droneId: string; sessionId?: string };
   FpvSelect: { 
     latitude: number; 
     longitude: number; 
     hasRestrictions: boolean; 
     restrictionStatus?: "approved" | "limited";
     restrictionNotes?: string;
+    /** Höchstes Policy-Urteil der Geozonen (nogo = Flugverbot aktiv). */
+    restrictionVerdict?: RestrictionVerdict;
     weatherData: any;
     droneId: string;
     limits: WeatherLimits;
@@ -53,6 +56,8 @@ export type FlightCheckParamList = {
     hasRestrictions: boolean; 
     restrictionStatus?: "approved" | "limited";
     restrictionNotes?: string;
+    /** Höchstes Policy-Urteil der Geozonen (nogo = Flugverbot aktiv). */
+    restrictionVerdict?: RestrictionVerdict;
     weatherData: any;
     droneId: string;
     limits: WeatherLimits;
@@ -68,6 +73,8 @@ export type FlightCheckParamList = {
     hasRestrictions: boolean; 
     restrictionStatus?: "approved" | "limited";
     restrictionNotes?: string;
+    /** Höchstes Policy-Urteil der Geozonen (nogo = Flugverbot aktiv). */
+    restrictionVerdict?: RestrictionVerdict;
     weatherData: any;
     droneId: string;
     limits: WeatherLimits;

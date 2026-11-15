@@ -24,6 +24,7 @@ import { DANISH_GEOZONE_SOURCE_LABEL } from "../../shared/danishGeozones";
 import { belgianAltitudeMeters } from "../../shared/belgianGeozones";
 import { normalizeAltitudeReference, type AltitudeReference } from "../../shared/geozoneAltitudeFilter";
 import { ed269SourceInfo } from "../../shared/ed269SourceInfo";
+import { RESTRICTIONS, RESTRICTION_POLICY, type Restriction } from "../../shared/restrictionPolicy";
 // Beschränkungs-Normalisierung, Farben und Gültigkeitsfenster leben in shared/,
 // damit der Server (Kachel-Rasterisierung) und der Client GENAU dieselbe
 // Klassifizierung/Färbung verwenden. Hier nur re-exportieren, damit bestehende
@@ -82,14 +83,10 @@ export function ed269MaxFlightHeightAglM(p: Record<string, any>): number | undef
   return Number.isFinite(n) && n > 0 ? n : undefined;
 }
 
-export const ED269_RESTRICTION_LABELS: Record<string, string> = {
-  PROHIBITED: "Verboten",
-  RESTRICTED: "Beschränkt",
-  REQ_AUTHORISATION: "Genehmigung erforderlich",
-  CONDITIONAL: "Bedingt zulässig",
-  NO_RESTRICTION: "Keine Beschränkung",
-  NATURE: "Naturschutz",
-};
+// Labels kommen aus der Policy-Tabelle (einzige Quelle).
+export const ED269_RESTRICTION_LABELS: Record<Restriction, string> = Object.fromEntries(
+  RESTRICTIONS.map((r) => [r, RESTRICTION_POLICY[r].labelDe]),
+) as Record<Restriction, string>;
 
 // Quellen-/Anbieterbezeichnung je Land für ED-269-Vektorzonen (Popup-Untertitel).
 export const ED269_SOURCE_LABELS: Record<string, string> = {
@@ -242,16 +239,20 @@ export function parseEd269ToGeozoneInfo(
     if (polygonRings.length === 0) continue;
 
     // Belgien (skeyes) liefert restriction als Objekt { type: "PROHIBITED" };
-    // AT/DK liefern einen String. Beide Formen unterstützen.
-    const restrictionRaw =
+    // AT/DK liefern einen String. Beide Formen unterstützen. Ergebnis ist immer
+    // ein Wert der geschlossenen Union (unbekannt → UNKNOWN).
+    const restrictionRawValue =
       p.restriction && typeof p.restriction === "object"
         ? (p.restriction as any).type
         : p.restriction;
-    const restriction = normalizeEd269Restriction(
-      (restrictionRaw ?? p.type ?? p.zoneRestriction ?? "").toString(),
-    );
+    const restrictionSource = (restrictionRawValue ?? p.type ?? p.zoneRestriction ?? "").toString();
+    const restriction = normalizeEd269Restriction(restrictionSource);
     const colors = ed269RestrictionColors(restriction);
-    const restrictionLabel = ED269_RESTRICTION_LABELS[restriction] ?? (restriction || "Beschränkung");
+    // Unbekannte Rohwerte bleiben zur Anzeige erhalten (nie für Entscheidungen).
+    const restrictionLabel =
+      restriction === "UNKNOWN" && restrictionSource.trim()
+        ? `${ED269_RESTRICTION_LABELS.UNKNOWN} (${restrictionSource.trim()})`
+        : ED269_RESTRICTION_LABELS[restriction];
 
     // Höhen: Österreich liefert lowerMeters/upperMeters (bereits Meter). Belgien
     // (Droneguide) liefert lowerLimit/upperLimit + uomDimensions (M/FT). Beides
@@ -355,6 +356,7 @@ export function parseEd269ToGeozoneInfo(
       polygonGroups,
       country: countryIso.toUpperCase(),
       restriction,
+      restrictionRaw: restrictionSource && restrictionSource !== restriction ? restrictionSource : undefined,
       fillColor: colors.fill,
       strokeColor: colors.stroke,
       lowerMeters,

@@ -1,4 +1,5 @@
 import type { GeoJsonGeometryLike } from "./germanEnergyInfrastructure";
+import type { Restriction } from "./restrictionPolicy";
 
 /** Conditional legal guidance, never a machine-readable flight clearance. */
 export interface InfrastructureFlightRule {
@@ -31,7 +32,13 @@ export interface GeozoneFeatureInfo {
   /** One entry per polygon: outer ring followed by holes. */
   polygonGroups?: [number, number][][][];
   country?: string;
-  restriction?: string;
+  /** Geschlossene Einstufung (shared/restrictionPolicy.ts). Policy-Tabelle
+   * entscheidet Farbe, Label, Liste, Radar-Reiter und Urteil. Für Altdaten aus
+   * dem Cache immer über zoneRestriction() lesen. */
+  restriction: Restriction;
+  /** Rohwert der Quelle (z. B. "REQ_AUTHORIZATION", "AUTHORISATION") – nur
+   * zur Anzeige, nie für Entscheidungen. */
+  restrictionRaw?: string;
   fillColor?: string;
   strokeColor?: string;
   lowerMeters?: number;

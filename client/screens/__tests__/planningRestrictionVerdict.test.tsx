@@ -272,6 +272,85 @@ describe("Einschränkungs-Ergebnis erreicht das Gesamturteil", () => {
   });
 });
 
+// B2: Policy-Urteil. Eine aktive Flugverbotszone (PROHIBITED) ohne
+// dokumentierte Begründung ist NO-GO – auch wenn allgemein "Genehmigung liegt
+// vor" gewählt wurde. Mit Begründung (Urteil caution) bleibt es beim bisherigen
+// Einschränkungs-Pfad.
+describe("Policy-Urteil (restrictionVerdict) erreicht das Gesamturteil", () => {
+  const { RESTRICTION_NOGO_TEXT } = jest.requireActual("@/lib/assessment");
+
+  function hasLabel(tree: ReactTestRenderer, label: string): boolean {
+    return tree.root.findAll((n) => typeof n.type !== "string" && n.props?.accessibilityLabel === label).length > 0;
+  }
+
+  it("Flugverbot ohne Begründung → NO-GO, Speichern erst nach bewusster Übersteuerung", async () => {
+    mockRouteParams = {
+      ...baseDetailsParams,
+      hasRestrictions: true,
+      restrictionStatus: "approved",
+      restrictionVerdict: "nogo",
+      restrictionNotes: NOTES,
+    };
+    const details = await render(PlanningDetailsScreen);
+    await press(details, "In Übersicht speichern");
+    act(() => details.unmount());
+    currentTree = null;
+    const sessionId = Object.keys(mockSessions)[0];
+    expect(mockSessions[sessionId].restrictionVerdict).toBe("nogo");
+
+    mockRouteParams = resultParams(sessionId);
+    const result = await render(PlanningResultScreen);
+    // NO-GO-Banner statt "Planung speichern".
+    expect(hasLabel(result, "Planung speichern")).toBe(false);
+    expect(hasLabel(result, "Trotzdem durchführen")).toBe(true);
+
+    // Bewusst übersteuern (Alert-Bestätigung) und speichern.
+    (Alert.alert as jest.Mock).mockImplementation((_t: string, _m: string, buttons: any[]) => {
+      buttons?.find((b) => b.style === "destructive")?.onPress?.();
+    });
+    await press(result, "Trotzdem durchführen");
+    await press(result, "Planung speichern");
+    const session = mockSessions[sessionId];
+    expect(session.status).toBe("nogo");
+    expect(session.reasons).toEqual(expect.arrayContaining([expect.objectContaining({ type: "caution", message: RESTRICTION_NOGO_TEXT })]));
+    expect(session.planning.noGoOverride).toEqual(expect.objectContaining({ originalStatus: "nogo" }));
+  });
+
+  it("Flugverbot mit Begründung (caution) → kein NO-GO, mindestens CAUTION", async () => {
+    const session = await planThroughDetailsAndResult({
+      hasRestrictions: true,
+      restrictionStatus: undefined,
+      restrictionVerdict: "caution",
+      restrictionNotes: "Flugverbot bewusst übersteuert: Zone X (Begründung: Sondergenehmigung)",
+    });
+    expect(session.restrictionVerdict).toBe("caution");
+    expect(session.status).toBe("caution");
+  });
+
+  it("nur Info-Zonen (info) + gutes Wetter → GO", async () => {
+    const session = await planThroughDetailsAndResult({
+      hasRestrictions: false,
+      restrictionVerdict: "info",
+    });
+    expect(session.status).toBe("go");
+  });
+
+  it("bestehende Session: veraltetes nogo wird bei neuer Einstufung überschrieben", async () => {
+    mockSessions["old"] = {
+      id: "old",
+      droneId: "drone-1",
+      hasRestrictions: true,
+      restrictionVerdict: "nogo",
+      status: "nogo",
+      planning: { plannedDate: FUTURE_DATE, plannedTime: "12:00", checklistCompleted: [] },
+    };
+    mockRouteParams = { ...baseDetailsParams, sessionId: "old", hasRestrictions: false };
+    const details = await render(PlanningDetailsScreen);
+    await press(details, "In Übersicht speichern");
+    expect(mockSessions["old"].restrictionVerdict).toBeUndefined();
+  });
+});
+
 // Review-Fix 5: Fehlgeschlagene NOTAM-Abfrage (z. B. Autorouter HTTP 401 ohne
 // Token) darf nicht als grünes "Keine im Umkreis" erscheinen und nicht als
 // sauberes Ergebnis ins Urteil eingehen.

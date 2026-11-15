@@ -13,6 +13,7 @@ import {
   zoneEndedLongAgo,
 } from "../../../shared/ed269Restriction";
 import { ed318Applicability } from "../../../shared/ed318Pure";
+import { restrictionLabelDe } from "../../../shared/restrictionPolicy";
 import { TILE_STORE_ATTRIBUTION, type TileStoreIso } from "./tileStoreCore";
 
 const DIPUL_LAYER_BY_NAME = new Map(GEOZONE_LAYERS.map((l) => [l.wmsLayer, l]));
@@ -81,13 +82,6 @@ export function czCategory(name: string, identifier: string, authority: string):
   return "Geozonen ČR";
 }
 
-const CZ_TYPE_DE: Record<string, string> = {
-  PROHIBITED: "Flugverbot",
-  REQ_AUTHORISATION: "Genehmigung erforderlich",
-  CONDITIONAL: "Bedingt zulässig (Auflagen)",
-  NO_RESTRICTION: "Keine Beschränkung",
-};
-
 function czLimitMeters(v: unknown, uom: string): number | undefined {
   const n = Number(v);
   if (!Number.isFinite(n)) return undefined;
@@ -116,7 +110,8 @@ export function czZoneFromStored(f: any): GeozoneFeatureInfo | null {
   const identifier = String(p.identifier ?? "");
   const name = localized(p.name, ["cs", "en"]) || identifier || "Geozone";
   const authority = Array.isArray(p.zoneAuthority) ? p.zoneAuthority.map((a: any) => localized(a?.name, ["cs", "en"])).filter(Boolean).join(", ") : "";
-  const restriction = normalizeEd269Restriction(String(p.type ?? ""));
+  const restrictionSource = String(p.type ?? "");
+  const restriction = normalizeEd269Restriction(restrictionSource);
   const colors = ed269RestrictionColors(restriction);
   const layer = f?.geometry?.layer ?? {};
   const uom = String(layer.uom ?? "m");
@@ -133,7 +128,7 @@ export function czZoneFromStored(f: any): GeozoneFeatureInfo | null {
   const details: string[] = [
     `Zone: ${name}`,
     `Kategorie: ${category}`,
-    `Beschränkung: ${CZ_TYPE_DE[restriction] ?? restriction}`,
+    `Beschränkung: ${restrictionLabelDe(restriction)}`,
     `Höhe: ${altitudeLabel}`,
   ];
   if (upperMeters != null && upperMeters <= 0) details.push("Hinweis: Höhengrenze 0 m – Flug nur mit Genehmigung.");
@@ -162,6 +157,7 @@ export function czZoneFromStored(f: any): GeozoneFeatureInfo | null {
     polygonGroups,
     country: "CZ",
     restriction,
+    restrictionRaw: restrictionSource && restrictionSource !== restriction ? restrictionSource : undefined,
     fillColor: colors.fill,
     strokeColor: colors.stroke,
     lowerMeters,

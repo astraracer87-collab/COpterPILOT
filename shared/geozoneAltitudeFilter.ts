@@ -10,6 +10,8 @@
 // (DE/CH/LU/NL/FR) sind hier NICHT erfasst – sie werden serverseitig zu
 // Kachelbildern zusammengesetzt und lassen sich nicht client-seitig filtern.
 
+import { normalizeRestriction, restrictionFromText } from "./restrictionPolicy";
+
 // Standard-erreichbare Höhe (EU Open-Kategorie: 120 m AGL), wenn keine Drohne
 // gewählt ist bzw. keine geplante Höhe vorliegt.
 export const DEFAULT_REACHABLE_ALTITUDE_M = 120;
@@ -121,12 +123,6 @@ export interface GeozoneAltitudeClassification {
   label: string | null;
 }
 
-// Schlüsselwörter, die ein Flugverbot / eine genehmigungspflichtige Sperrung
-// signalisieren (DE/FR/EN/NL). "Sperrungen" (NOTAM-Quellenhinweis) bleibt
-// bewusst außen vor.
-const NO_FLY_TEXT_RE =
-  /(flugverbot|verboten|gesperrt|sperrgebiet|interdit|interdiction|prohibit|forbidden|no[\s-]?fly|geen\s+drone|verboden|überflug ist strafbar)/i;
-
 // Expliziter Max-Flughöhe-Satz mit Zahl, mehrsprachig:
 //   DE  "Maximale Flughöhe 100 m" / "max. Höhe 50 m" / "Höhenbeschränkung 80 m"
 //   FR  "hauteur maximale de vol de 50 m" / "altitude maximale 100 m"
@@ -157,31 +153,29 @@ function parseMaxHeightFromText(text: string): number | null {
 export function classifyGeozoneAltitude(
   zone: ZoneAltitudeClassificationInput,
 ): GeozoneAltitudeClassification {
-  const restriction = String(zone.restriction ?? "").toUpperCase();
   const text = [zone.name, zone.layerLabel, zone.details, zone.altitudeLabel]
     .filter((s): s is string => typeof s === "string" && s.length > 0)
     .join(" ");
+  // Strukturierte Einstufung (Policy-Union) hat Vorrang. Der Klartext-Rückfall
+  // NO_FLY_TEXT_RE greift NUR für reine Textzonen ohne Einstufung (UNKNOWN,
+  // z. B. WMS-GetFeatureInfo ohne strukturierte Felder).
+  const structured = normalizeRestriction(zone.restriction);
+  const restriction = structured !== "UNKNOWN" ? structured : restrictionFromText(text);
 
   // 1) Echtes Flugverbot -> immer Konflikt.
-  if (
-    restriction === "PROHIBITED" ||
-    restriction.includes("PROHIBIT") ||
-    NO_FLY_TEXT_RE.test(text)
-  ) {
+  if (restriction === "PROHIBITED") {
     return { kind: "noFly", ceilingM: null, label: "Flugverbot" };
   }
 
-  // Strukturierte, autoritative Genehmigungspflicht aus dem restriction-Feld der
-  // Quelle (ED-269 REQ_AUTHORISATION bzw. Schreibvarianten mit AUTHORIS/AUTHORIZ).
-  // Sie ist ein verlässliches Regulierungs-Signal und sticht IMMER — auch einen
-  // genannten Max-Flughöhe-Wert. ED-269 RESTRICTED/CONDITIONAL/NATURE zählen
-  // NICHT als Genehmigungspflicht; sie werden aber ebenso wenig über ihre
-  // Volumen-Obergrenze freigegeben (die Beschränkung gilt INNERHALB des Volumens).
+  // Strukturierte Freigabe-/Genehmigungspflicht (REQ_AUTHORISATION, RESTRICTED
+  // = „Freigabe nötig“). Sie ist ein verlässliches Regulierungs-Signal und
+  // sticht IMMER — auch einen genannten Max-Flughöhe-Wert. CONDITIONAL/NATURE
+  // zählen NICHT als Genehmigungspflicht; sie werden aber ebenso wenig über
+  // ihre Volumen-Obergrenze freigegeben (die Beschränkung gilt INNERHALB des
+  // Volumens). NO_RESTRICTION-Zonen sind nur Info und werden von den
+  // Aufrufern gar nicht als Konflikt geführt.
   const restrictionRequiresAuth =
-    restriction === "REQ_AUTHORISATION" ||
-    restriction.includes("AUTHORIS") ||
-    restriction.includes("AUTHORIZ") ||
-    restriction.includes("REQ_AUTH");
+    restriction === "REQ_AUTHORISATION" || restriction === "RESTRICTED";
 
   // 2b) Explizites strukturiertes Feld "max. Flughöhe AGL ohne Genehmigung"
   //     (maxFlightHeightAglM, z. B. SE CTR/TIZ/ATZ 50 m, aus den Normalisierern
