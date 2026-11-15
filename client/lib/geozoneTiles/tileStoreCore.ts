@@ -522,8 +522,8 @@ export function readCzZipEntry(zip: Uint8Array, name: string): any[] {
 
 /** Quellen-/Lizenzhinweise je Land (Pflicht-Attribution). */
 export const TILE_STORE_ATTRIBUTION: Record<TileStoreIso, { label: string; license?: string; url?: string }> = {
-  // ENAIRE verlangt ausdrücklich den Rechtehinweis („© ENAIRE“).
-  ES: { label: "© ENAIRE", url: "https://drones.enaire.es" },
+  // ENAIRE verlangt ausdrücklich den Rechtehinweis („© ENAIRE – AIS“).
+  ES: { label: "© ENAIRE – AIS", url: "https://drones.enaire.es" },
   DE: {
     label: "dipul, CC-BY-ND 4.0",
     license: "CC BY-ND 4.0",

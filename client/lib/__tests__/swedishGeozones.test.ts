@@ -15,8 +15,9 @@ import {
   seNotamIsAirspaceRestriction,
   seWfsRestriction,
   textSaysProhibited,
+  ed318IssuedDateDe,
 } from "../../../shared/swedishGeozones";
-import { swedenWfsUrl } from "../geozoneDirect/swedenSource";
+import { SE_ED318_FALLBACK_URL, SE_ED318_URL, fetchSwedenEd318, swedenWfsUrl } from "../geozoneDirect/swedenSource";
 import { parseEd269ToGeozoneInfo, ed269IsActiveAt } from "../ed269";
 
 // Gekürzte echte Daten (abgerufen 2026-11-15, CC BY 4.0 LFV/Transportstyrelsen).
@@ -265,5 +266,31 @@ describe("Schweden – WFS-Luftraum (LFV)", () => {
     assert.match(ctr!.details, /unter 50 m über Grund/);
     const sup = zones.find((z) => z.name.startsWith("ESR833"));
     assert.ok(sup!.links?.some((l) => l.label === "AIP SUP öffnen"));
+  });
+});
+
+describe("Schweden – ED-318: Datenstand und zweite Adresse", () => {
+  it("Quellenzeile zeigt das Datum aus metadata.issued", () => {
+    assert.equal(ed318IssuedDateDe(ed318), "29.10.2026");
+    const feats = normalizeEd318Collection(ed318, new Date("2026-11-15T12:00:00Z"));
+    assert.ok(feats.length > 0);
+    for (const f of feats) {
+      assert.match(f.properties.message, /Quelle: LFV Drönarkartan \/ Transportstyrelsen \(ED-318, Datenstand 29\.10\.2026\), CC BY 4\.0\./);
+      assert.equal(f.properties.datasetIssued, "2026-10-29T00:00:00Z");
+    }
+    const noMeta = normalizeEd318Collection({ ...ed318, metadata: undefined }, new Date("2026-11-15T12:00:00Z"));
+    assert.match(noMeta[0].properties.message, /\(ED-318\), CC BY 4\.0\./);
+  });
+
+  it("dronechart.lfv.se fällt aus → daim.lfv.se", async () => {
+    const calls: string[] = [];
+    const body = await fetchSwedenEd318(async (url) => {
+      calls.push(url);
+      if (url === SE_ED318_URL) throw new Error("HTTP 503");
+      return ed318;
+    });
+    assert.deepEqual(calls, [SE_ED318_URL, SE_ED318_FALLBACK_URL]);
+    assert.equal(body, ed318);
+    assert.equal(SE_ED318_FALLBACK_URL, "https://daim.lfv.se/echarts/dronechart/data/uas_zones_ED318.json");
   });
 });

@@ -41,19 +41,69 @@ export async function fetchIreland(): Promise<GeoFeature[]> {
   return finalizeDirectFeatures(features as unknown as GeoFeature[], "ie");
 }
 
-export async function fetchLuxembourg(): Promise<GeoFeature[]> {
-  // Bevorzugt: ED-269 (CC0). Der Dienst ist zeitweise defekt (422) → OGC-Rückfall.
+/** ED-269-Feed höchstens so oft prüfen (live seit Wochen HTTP 422). */
+export const LU_ED269_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+let luEd269LastCheckAt = 0;
+let luEd269LastResult: { at: number; ok: boolean; count?: number; error?: string } | null = null;
+
+/** Ergebnis der letzten ED-269-Prüfung (Diagnose). */
+export function luxembourgEd269CheckStatus(): typeof luEd269LastResult {
+  return luEd269LastResult;
+}
+
+/** Nur für Tests. */
+export function __resetLuxembourgForTests(): void {
+  luEd269LastCheckAt = 0;
+  luEd269LastResult = null;
+}
+
+async function tryLuxembourgEd269(fetchJson: (url: string) => Promise<any>, now: number): Promise<GeoFeature[]> {
+  luEd269LastCheckAt = now;
   try {
-    const body = await directFetchJson(LU_ED269_URL);
+    const body = await fetchJson(LU_ED269_URL);
     const features = ed269ZonesToFeatures(body, { source: "DAC / Geoportail Luxembourg (CC0)" }) as unknown as GeoFeature[];
-    if (features.length > 0) return finalizeDirectFeatures(features, "lu");
+    luEd269LastResult = { at: now, ok: features.length > 0, count: features.length };
+    return features;
   } catch (e) {
-    console.warn("[geozoneDirect] LU: ED-269-Dienst nicht verfügbar, nutze OGC-Features:", (e as Error)?.message || e);
+    luEd269LastResult = { at: now, ok: false, error: (e as Error)?.message || String(e) };
+    console.warn("[geozoneDirect] LU: ED-269-Prüfung fehlgeschlagen:", luEd269LastResult.error);
+    return [];
   }
-  // Beide Höhenschichten laden; schlägt eine fehl, wird abgebrochen statt einen
-  // halben Bestand zu speichern (der alte, vollständige Cache bleibt dann).
-  const bodies = await Promise.all(LU_OGC_URLS.map((u) => directFetchJson(u)));
-  const features = mergeLuxembourgOgc(bodies);
-  if (features.length === 0) throw new Error("Geoportail lieferte keine Zonen");
-  return finalizeDirectFeatures(features as unknown as GeoFeature[], "lu");
+}
+
+/**
+ * Luxemburg: OGC-Features (1927 + 1928) ZUERST; der ED-269-Feed (seit
+ * Wochen HTTP 422) nur noch höchstens einmal täglich als Prüfung bzw. als
+ * Rückfall, wenn OGC ausfällt. Beide Höhenschichten müssen laden – sonst kein
+ * halber Bestand (der alte, vollständige Cache bleibt).
+ */
+export async function loadLuxembourg(
+  fetchJson: (url: string) => Promise<any> = (u) => directFetchJson(u),
+  now: number = Date.now(),
+): Promise<GeoFeature[]> {
+  let ogcError: unknown = null;
+  let ogc: GeoFeature[] = [];
+  try {
+    const bodies = await Promise.all(LU_OGC_URLS.map((u) => fetchJson(u)));
+    ogc = mergeLuxembourgOgc(bodies) as unknown as GeoFeature[];
+    if (ogc.length === 0) ogcError = new Error("Geoportail lieferte keine Zonen");
+  } catch (e) {
+    ogcError = e;
+    console.warn("[geozoneDirect] LU: OGC-Features nicht verfügbar, versuche ED-269:", (e as Error)?.message || e);
+  }
+  if (ogc.length > 0) {
+    if (now - luEd269LastCheckAt >= LU_ED269_CHECK_INTERVAL_MS) {
+      const check = await tryLuxembourgEd269(fetchJson, now);
+      if (check.length > 0) console.log(`[geozoneDirect] LU: ED-269-Feed wieder verfügbar (${check.length} Zonen) – OGC bleibt Hauptquelle`);
+    }
+    return finalizeDirectFeatures(ogc, "lu");
+  }
+  const ed269 = await tryLuxembourgEd269(fetchJson, now);
+  if (ed269.length > 0) return finalizeDirectFeatures(ed269, "lu");
+  throw ogcError instanceof Error ? ogcError : new Error("Geoportail lieferte keine Zonen");
+}
+
+export async function fetchLuxembourg(): Promise<GeoFeature[]> {
+  return loadLuxembourg();
 }

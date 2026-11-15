@@ -172,6 +172,20 @@ export function storedCoverageStatus(
   return { status: "ok" };
 }
 
+/**
+ * Teilbestand eines Abrufs (Ed269Dataset.partialNote, z. B. „1 von 18 Ebenen
+ * nicht abrufbar“) → mindestens "partial" mit diesem Hinweis (Befund
+ * unbekannt, ≥ CAUTION). Ohne Hinweis unverändert.
+ */
+export function withPartialDatasetNote(
+  stored: { status: GeozoneSourceStatus; note?: string },
+  partialNote: string | null | undefined,
+): { status: GeozoneSourceStatus; note?: string } {
+  if (!partialNote) return stored;
+  const note = [partialNote, stored.note].filter(Boolean).join(" · ");
+  return { status: worseSourceStatus(stored.status, "partial"), note };
+}
+
 // Wie queryEd269CachedFeaturesFrom, liefert aber zusätzlich den Status der
 // Quelle: kein Datensatz -> "missing", Ausnahme -> "error", älter als das
 // Aktualisierungsintervall -> "stale", sonst "ok". Wirft nie.
@@ -194,7 +208,10 @@ export async function queryEd269CachedFeaturesWithStatusFrom(
     const fetchedAt = ds.fetchedAt > 0 ? ds.fetchedAt : undefined;
     // Altersschwelle laut Registry-Policy: dauerhafte Zonen staleWarnAfterMs
     // (28 Tage), temporäre Zonen im Bestand temporaryStaleAfterMs (24 h, Teil A).
-    const stored = storedCoverageStatus(iso, ds.fetchedAt, ds.imported ? undefined : ds.fetchedAt);
+    const stored = withPartialDatasetNote(
+      storedCoverageStatus(iso, ds.fetchedAt, ds.imported ? undefined : ds.fetchedAt),
+      ds.imported ? undefined : ds.partialNote,
+    );
     const status: GeozoneSourceStatus = stored.status;
     let bbox: [number, number, number, number] | undefined;
     if (!fullCountry) {

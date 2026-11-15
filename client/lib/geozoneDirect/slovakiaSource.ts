@@ -7,9 +7,14 @@
 //     VFRM/VFRM_popup/MapServer/5 „Airspace“ (`f=geojson`, WGS84, volle
 //     Präzision, paginiert über resultOffset/resultRecordCount +
 //     exceededTransferLimit; maxRecordCount 1000).
-//  Beide Quellen werden parallel geladen; fällt eine aus, wird die andere
-//  allein verwendet (Warnung). Liefern beide nichts, wird geworfen.
-// Pflicht-Attribution: „© LPS SR“ bzw. „© Dopravný úrad SR“.
+//  3. LPS SR, Live-Reservierungen Hosted/Reservation_(Public)2 (Rückfall
+//     Reservation_(Public)) mit dem Filter der Webseite + Health-Check
+//     Hosted/Status_(Public): R/TRA/TSA nur in Reservierungsfenstern aktiv
+//     (eigene, befristete Zonen mit den Höhen der Reservierung). Ohne
+//     Reservierungsdaten bleiben sie wie bisher dauerhaft aktiv.
+//  Alle Quellen werden parallel geladen; fällt DÚ oder LPS aus, wird die
+//  andere allein verwendet (Warnung). Liefern beide nichts, wird geworfen.
+// Pflicht-Attribution: „VFR Manual, LPS SR, š. p.“ bzw. „© Dopravný úrad SR“.
 // Bewusst frei von React-Native-/Expo-Importen (unter tsx/Node testbar).
 import type { GeoFeature } from "./ed269Sources";
 import { directFetchJson, directFetchText, finalizeDirectFeatures } from "./directFetchUtil";
@@ -19,8 +24,14 @@ import {
   SK_GEOZONE_SOURCE_LABEL,
   decodeSkDuArchive,
   findSkDuZipUrl,
+  SK_RESERVATION_LAYER_FALLBACK_URL,
+  SK_RESERVATION_LAYER_URL,
   normalizeSlovakiaWithStats,
   skLpsQueryUrl,
+  skReservationHealth,
+  skReservationQueryUrl,
+  skStatusQueryUrl,
+  type SkReservationHealth,
 } from "../../../shared/slovakGeozones";
 import { fetchArcgisPaged } from "../../../shared/geozoneKit/arcgis";
 
@@ -72,12 +83,48 @@ export async function fetchSlovakiaDuKml(
   return kml;
 }
 
+const RES_TIMEOUT_MS = 30_000;
+
+/** Live-Reservierungen (Reservation_(Public)2, Rückfall Reservation_(Public)). */
+export async function fetchSlovakiaReservationsRaw(fetchJson: FetchJson = directFetchJson): Promise<any[]> {
+  let lastError: unknown;
+  for (const layerUrl of [SK_RESERVATION_LAYER_URL, SK_RESERVATION_LAYER_FALLBACK_URL]) {
+    try {
+      return await fetchArcgisPaged({
+        pageUrl: (offset, count) => skReservationQueryUrl(layerUrl, offset, count),
+        fetchJson,
+        pageSize: PAGE_SIZE,
+        maxPages: 5,
+        timeoutMs: RES_TIMEOUT_MS,
+      });
+    } catch (e) {
+      lastError = e;
+      console.warn("[geozoneDirect] SK: Reservierungen nicht abrufbar:", layerUrl, (e as Error)?.message || e);
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
+
+/** Health-Check des AUP/UUP-Imports; Fehler beim Abruf → unzuverlässig. */
+export async function fetchSlovakiaReservationHealth(fetchJson: FetchJson = directFetchJson, now = Date.now()): Promise<SkReservationHealth> {
+  try {
+    return skReservationHealth(await fetchJson(skStatusQueryUrl(), RES_TIMEOUT_MS), now);
+  } catch (e) {
+    return { ok: false, note: `Aktivierungsdaten (AUP/UUP) evtl. nicht aktuell (Status nicht abrufbar: ${(e as Error)?.message || e})` };
+  }
+}
+
 /** Laden + normalisieren (testbar mit eigenen Fetchern). */
 export async function loadSlovakia(f: SlovakiaFetchers = {}): Promise<GeoFeature[]> {
-  const [du, lps] = await Promise.allSettled([
+  const json = f.json ?? directFetchJson;
+  const now = f.now ?? Date.now();
+  const [du, lps, res, health] = await Promise.allSettled([
     fetchSlovakiaDuKml(f.text ?? directFetchText, f.bytes ?? fetchBytesWithTimeout),
-    fetchSlovakiaLpsRaw(f.json ?? directFetchJson),
+    fetchSlovakiaLpsRaw(json),
+    fetchSlovakiaReservationsRaw(json),
+    fetchSlovakiaReservationHealth(json, now),
   ]);
+  if (res.status === "rejected") console.warn("[geozoneDirect] SK: ohne Reservierungsdaten – R/TRA/TSA bleiben dauerhaft aktiv");
   if (du.status === "rejected") console.warn("[geozoneDirect] SK: DÚ-Geozonen nicht verfügbar:", du.reason);
   if (lps.status === "rejected") console.warn("[geozoneDirect] SK: LPS-Lufträume nicht verfügbar:", lps.reason);
   const duKml = du.status === "fulfilled" ? du.value : undefined;
@@ -86,7 +133,14 @@ export async function loadSlovakia(f: SlovakiaFetchers = {}): Promise<GeoFeature
     const reason = lps.status === "rejected" ? lps.reason : du.status === "rejected" ? du.reason : undefined;
     throw new Error(`LPS SR / Dopravný úrad lieferten keine Zonen${reason ? `: ${String((reason as any)?.message ?? reason)}` : ""}`);
   }
-  const { features, dropped } = normalizeSlovakiaWithStats({ duKml, lps: lpsRaw, now: f.now });
+  const { features, dropped, activation } = normalizeSlovakiaWithStats({
+    duKml,
+    lps: lpsRaw,
+    now,
+    reservations: res.status === "fulfilled" ? res.value : undefined,
+    reservationHealth: health.status === "fulfilled" ? health.value : undefined,
+  });
+  if (activation.loaded && !activation.reliable) console.warn("[geozoneDirect] SK:", activation.healthNote);
   const summary: Record<string, number> = {};
   for (const d of dropped) summary[d.reason] = (summary[d.reason] ?? 0) + 1;
   if (dropped.length > 0) console.log(`[geozoneDirect] SK: ${dropped.length} Zone(n) nicht übernommen:`, summary);

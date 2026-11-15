@@ -19,10 +19,11 @@ import {
   roundFeatureCoords,
   type GeoFeature,
 } from "./ed269Sources";
-import { finalizeDirectFeatures } from "./directFetchUtil";
+import { fetchCoverageOf, finalizeDirectFeatures, mergeCarriedOverFeatures } from "./directFetchUtil";
 import { GEOZONE_IMPORT_ONLY_ISOS } from "../../../shared/geozoneImport";
 import {
   ED269_STORE_REFRESH_MS,
+  TEMPORARY_ZONES_MAX_AGE_MS,
   geozoneRefreshPolicy,
   getGeozoneSourceMeta,
   resolveGeozoneSourceIso,
@@ -78,6 +79,12 @@ export type Ed269Dataset = {
   features: GeoFeature[];
   /** Gesetzt, wenn der Bestand aus einem Datei-Import stammt. */
   imported?: Ed269ImportMeta;
+  /**
+   * Teilbestand (eine Teilquelle fehlte, withFetchCoverage): deutscher Hinweis
+   * → Abdeckung „partial“ (Befund unbekannt, ≥ CAUTION) bis zum nächsten
+   * vollständigen Abruf.
+   */
+  partialNote?: string;
 };
 
 export type Ed269ImportMeta = { source: string; importedAt: number; fileName: string };
@@ -193,11 +200,25 @@ function download(iso: string): Promise<Ed269Dataset | null> {
   const p = (async () => {
     try {
       // Download-Anzeige (app-weit): „Lädt: Österreich – Geozonen …“
-      const features = await trackDownload(
+      const fetched = await trackDownload(
         { id: `ed269:${iso}`, iso: iso.toUpperCase(), labelDe: "Geozonen", kind: "geozones" },
         () => fetchEd269CountryFeatures(iso),
       );
-      const ds: Ed269Dataset = { iso, fetchedAt: Date.now(), version: STORE_FORMAT_VERSION, features };
+      // Teilbestand: Hinweis speichern und Zonen der ausgefallenen Teilquelle
+      // aus dem vorherigen (heruntergeladenen) Bestand übernehmen.
+      const coverage = fetchCoverageOf(fetched);
+      let features = fetched;
+      if (coverage?.keepPrevious) {
+        const prev = memory.get(iso) ?? (await readFromDisk(iso));
+        if (prev && !prev.imported) features = mergeCarriedOverFeatures(fetched, prev.features, coverage.keepPrevious);
+      }
+      const ds: Ed269Dataset = {
+        iso,
+        fetchedAt: Date.now(),
+        version: STORE_FORMAT_VERSION,
+        features,
+        ...(coverage?.partialNote ? { partialNote: coverage.partialNote } : {}),
+      };
       remember(iso, ds);
       lastFailureAt.delete(iso);
       await writeToDisk(ds);
@@ -221,7 +242,9 @@ function download(iso: string): Promise<Ed269Dataset | null> {
 }
 
 function isFresh(ds: Ed269Dataset, now: number): boolean {
-  const maxAgeMs = geozoneRefreshPolicy(ds.iso)?.maxAgeMs ?? ED269_REFRESH_AFTER_MS;
+  let maxAgeMs = geozoneRefreshPolicy(ds.iso)?.maxAgeMs ?? ED269_REFRESH_AFTER_MS;
+  // Teilbestand: bald erneut versuchen (kurzer Cache wie temporäre Zonen).
+  if (ds.partialNote) maxAgeMs = Math.min(maxAgeMs, TEMPORARY_ZONES_MAX_AGE_MS);
   return ds.version === STORE_FORMAT_VERSION && now - ds.fetchedAt < maxAgeMs;
 }
 
@@ -314,12 +337,18 @@ export async function refreshEd269Dataset(iso: string): Promise<boolean> {
 }
 
 /** Stand des Gerätecaches (für Status-/Debug-Anzeigen). */
-export function getEd269DatasetStatus(iso: string): { fetchedAt: number | null; count: number; imported?: Ed269ImportMeta } {
+export function getEd269DatasetStatus(iso: string): {
+  fetchedAt: number | null;
+  count: number;
+  imported?: Ed269ImportMeta;
+  partialNote?: string;
+} {
   const ds = recall(cacheKey(iso));
   return {
     fetchedAt: ds && ds.fetchedAt > 0 ? ds.fetchedAt : null,
     count: ds?.features.length ?? 0,
     ...(ds?.imported ? { imported: ds.imported } : {}),
+    ...(ds?.partialNote ? { partialNote: ds.partialNote } : {}),
   };
 }
 

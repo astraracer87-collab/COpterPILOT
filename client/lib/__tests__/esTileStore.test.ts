@@ -133,7 +133,7 @@ describe("ES – Feldzuordnung insignias → ED-318 → App", () => {
     assert.equal(z.layerLabel, "ENAIRE – Infrastruktur");
     assert.equal(z.country, "ES");
     assert.equal(z.restriction, "REQ_AUTHORISATION");
-    assert.match(z.details, /© ENAIRE/);
+    assert.match(z.details, /© ENAIRE – AIS/);
   });
 });
 
@@ -298,7 +298,7 @@ describe("ES – Registry & Offline-Teile", () => {
     assert.ok(TILE_STORE_ISOS.includes("ES") && isTileStoreIso("es"));
     assert.deepEqual(tileStorePartsOf("ES"), ["base", "infra", "enp"]);
     assert.deepEqual(TILE_STORE_OPTIONAL_PARTS.DE, ["wohn"]);
-    assert.equal(getGeozoneSource("ES")!.tileAttribution?.label, "© ENAIRE");
+    assert.equal(getGeozoneSource("ES")!.tileAttribution?.label, "© ENAIRE – AIS");
   });
 
   it("Datenstand: Paket + eigener NOTAM-Stand", async () => {

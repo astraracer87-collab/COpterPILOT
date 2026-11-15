@@ -6,9 +6,16 @@
 // Bewusst frei von React-Native-/Expo-Importen, damit die Normalisierung unter
 // tsx/Node testbar bleibt. Persistenz/Refresh liegt in ed269Store.ts.
 import {
+  DK_LIVE_LAYERS,
+  DK_WEBMAP_DATA_URL,
   normalizeDanishFeatures,
+  normalizeDanishLiveLayers,
   normalizeDanishNatureFeatures,
+  resolveDanishLiveLayers,
+  type DanishGeoFeature,
+  type DanishLiveLayerKey,
 } from "../../../shared/danishGeozones";
+import { arcgisQueryUrl, fetchArcgisPaged } from "../../../shared/geozoneKit/arcgis";
 import { normalizeAustrianEd269Placeholder } from "../../../shared/ed269Restriction";
 import { ED269_FETCH_ISOS, getGeozoneSourceMeta, resolveGeozoneSourceIso } from "../../../shared/geozoneSourceMeta";
 import { normalizeEstonianProps } from "../../../shared/estonianGeozones";
@@ -28,6 +35,7 @@ import { fetchIceland } from "./icelandSource";
 import { fetchUnitedKingdom } from "./ukSource";
 import { fetchRomania } from "./romaniaSource";
 import { fetchMalta } from "./maltaSource";
+import { fetchCoverageOf, withFetchCoverage, type DirectFetchCoverage } from "./directFetchUtil";
 
 export const LT_GEOZONE_SOURCE_LABEL = "Oro navigacija (ED-269)";
 import { fetchSweden } from "./swedenSource";
@@ -313,6 +321,11 @@ async function fetchDenmark(): Promise<GeoFeature[]> {
     // vorhandener Gerätebestand erhalten bleibt.
     throw new Error("Dänische Geozonen nicht erreichbar");
   }
+  // NOTAM-Ebenen + An-/Abflugflächen (nicht im Tagesexport, live geprüft
+  // 2026-11-15). Optional: fehlt eine Ebene, bleibt der Rest; Abdeckung
+  // „partial“ und die Zonen dieser Ebene kommen aus dem letzten Stand.
+  const live = await fetchDanishLiveLayers();
+  features = [...features, ...finalize(live.features as unknown as GeoFeature[], "dk")];
   for (const url of [DK_NATURE_ZONES_URL, DK_NATURE_ZONES_FALLBACK_URL]) {
     try {
       const body = await fetchJson(url);
@@ -326,7 +339,63 @@ async function fetchDenmark(): Promise<GeoFeature[]> {
       console.warn("[geozoneDirect] DK: Naturschutzzonen nicht erreichbar:", url, (e as Error)?.message || e);
     }
   }
-  return features;
+  return withFetchCoverage(features, live.coverage);
+}
+
+const DK_LIVE_LAYER_LABEL_DE: Record<DanishLiveLayerKey, string> = {
+  active: "NOTAM aktiv",
+  awareness: "NOTAM Achtung",
+  inactive: "NOTAM angekündigt",
+  disabled: "gelbe Restriktionsgebiete",
+  corridors: "An-/Abflugflächen",
+};
+
+/**
+ * DK-Live-Ebenen laden: Dienstnamen aus der Web Map 4d73b795… (Rückfall
+ * bekannte Pfade), je Ebene `f=geojson` paginiert. Nie mit Zugangsdaten.
+ */
+export async function fetchDanishLiveLayers(
+  fetchJsonFn: (url: string, timeoutMs?: number) => Promise<any> = fetchJson,
+  now: number = Date.now(),
+): Promise<{ features: DanishGeoFeature[]; coverage?: DirectFetchCoverage }> {
+  let webmap: any = null;
+  try {
+    webmap = await fetchJsonFn(DK_WEBMAP_DATA_URL, 30_000);
+  } catch (e) {
+    console.warn("[geozoneDirect] DK: Web Map nicht lesbar, nutze bekannte Dienstnamen:", (e as Error)?.message || e);
+  }
+  const urls = resolveDanishLiveLayers(webmap);
+  const keys = DK_LIVE_LAYERS.map((d) => d.key);
+  const results = await Promise.allSettled(
+    keys.map((key) =>
+      fetchArcgisPaged({
+        pageUrl: (offset, count) => arcgisQueryUrl(urls[key].url, { offset, count }),
+        fetchJson: fetchJsonFn,
+        pageSize: 2000,
+        maxPages: 10,
+        timeoutMs: 60_000,
+      }),
+    ),
+  );
+  const byLayer: Partial<Record<DanishLiveLayerKey, DanishGeoFeature[]>> = {};
+  const failed: DanishLiveLayerKey[] = [];
+  results.forEach((r, i) => {
+    if (r.status === "fulfilled") byLayer[keys[i]] = r.value as DanishGeoFeature[];
+    else {
+      failed.push(keys[i]);
+      console.warn(`[geozoneDirect] DK: Ebene ${keys[i]} nicht abrufbar:`, (r.reason as Error)?.message || r.reason);
+    }
+  });
+  const features = normalizeDanishLiveLayers(byLayer, now);
+  if (failed.length === 0) return { features };
+  const failedSet = new Set<string>(failed);
+  return {
+    features,
+    coverage: {
+      partialNote: `Dänemark: ${failed.map((k) => DK_LIVE_LAYER_LABEL_DE[k]).join(", ")} nicht abrufbar – temporäre Beschränkungen evtl. unvollständig (letzter Stand)`,
+      keepPrevious: (p) => failedSet.has(String(p.dkLayer ?? "")),
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -540,6 +609,8 @@ export async function fetchEd269CountryFeatures(iso: string): Promise<GeoFeature
   const fetcher = ED269_DIRECT_COUNTRIES.includes(key.toLowerCase()) ? ED269_FETCHERS[key] : undefined;
   if (!fetcher) throw new Error(`Kein Vektor-Geozonen-Feed für ${iso}`);
   let features = await fetcher();
+  // Teil-Abdeckung (withFetchCoverage) über die Nachbearbeitung hinweg erhalten.
+  const coverage = fetchCoverageOf(features);
   const meta = getGeozoneSourceMeta(key);
   if (meta?.frequentisAvm) {
     // hidden (AT sys_*) und Welt-Polygone schon hier verwerfen, nicht erst in
@@ -554,5 +625,5 @@ export async function fetchEd269CountryFeatures(iso: string): Promise<GeoFeature
       properties: normalizeAustrianEd269Placeholder((feature.properties as Record<string, any>) || {}),
     }));
   }
-  return roundFeatureCoords(features);
+  return withFetchCoverage(roundFeatureCoords(features), coverage);
 }

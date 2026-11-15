@@ -1,5 +1,6 @@
-// Abruf Island (Samgöngustofa / ISAVIA) – GeoServer-WFS auf gis.is, GeoJSON,
-// ohne Authentifizierung. Siehe docs/iceland-samgongustofa-api-integration.md
+// Abruf Island (Samgöngustofa / ISAVIA) – GeoServer-WFS auf gis.is bzw.
+// gis.natt.is, GeoJSON, ohne Authentifizierung. Zonen aus BEIDEN Layern:
+// dronemap_ice_geom (Webseite, bevorzugt) + dronemap_isl_geom (ergänzend). Siehe docs/iceland-samgongustofa-api-integration.md
 // und shared/icelandicGeozones.ts (Einstufung, Höhen, Texte).
 import type { GeoFeature } from "./ed269Sources";
 import { directFetchJson, finalizeDirectFeatures } from "./directFetchUtil";
@@ -7,8 +8,11 @@ import {
   IS_CLOSURES_LAYER,
   IS_WFS_FALLBACK_URL,
   IS_WFS_PAGE_SIZE,
+  IS_WEBSITE_WFS_URL,
+  IS_WEBSITE_ZONES_LAYER,
   IS_WFS_URL,
   IS_ZONES_LAYER,
+  mergeIcelandicZoneLayers,
   icelandWfsHasMore,
   icelandWfsUrl,
   mergeIcelandicFeatures,
@@ -41,8 +45,34 @@ async function fetchLayer(layer: string): Promise<any[]> {
   }
 }
 
+/** Layer der Webseite: zuerst gis.natt.is (Webseite), dann gis.is. */
+async function fetchWebsiteLayer(): Promise<any[]> {
+  try {
+    return await fetchLayerFrom(IS_WEBSITE_WFS_URL, IS_WEBSITE_ZONES_LAYER);
+  } catch (e) {
+    console.warn("[geozoneDirect] IS: dronemap_ice_geom über gis.natt.is fehlgeschlagen, nutze gis.is:", (e as Error)?.message || e);
+    return await fetchLayerFrom(IS_WFS_URL, IS_WEBSITE_ZONES_LAYER);
+  }
+}
+
+/**
+ * Beide Zonen-Layer laden (Webseite bevorzugt, älterer Layer ergänzt ohne
+ * Doppelungen). Fällt einer aus, gilt der andere allein; beide aus → Fehler.
+ */
+export async function loadIcelandZones(
+  fetchWebsite: () => Promise<any[]> = fetchWebsiteLayer,
+  fetchLegacy: () => Promise<any[]> = () => fetchLayer(IS_ZONES_LAYER),
+): Promise<ReturnType<typeof normalizeIcelandicZones>> {
+  const [web, legacy] = await Promise.allSettled([fetchWebsite(), fetchLegacy()]);
+  if (web.status === "rejected") console.warn("[geozoneDirect] IS: dronemap_ice_geom nicht abrufbar:", (web.reason as Error)?.message || web.reason);
+  if (legacy.status === "rejected") console.warn("[geozoneDirect] IS: dronemap_isl_geom nicht abrufbar:", (legacy.reason as Error)?.message || legacy.reason);
+  const webZones = web.status === "fulfilled" ? normalizeIcelandicZones(web.value) : [];
+  const legacyZones = legacy.status === "fulfilled" ? normalizeIcelandicZones(legacy.value) : [];
+  return mergeIcelandicZoneLayers(webZones, legacyZones);
+}
+
 export async function fetchIceland(): Promise<GeoFeature[]> {
-  const zones = normalizeIcelandicZones(await fetchLayer(IS_ZONES_LAYER));
+  const zones = await loadIcelandZones();
   if (zones.length === 0) throw new Error("Samgöngustofa lieferte keine Zonen");
 
   // Temporäre Sperrungen sind optional – ein Fehler hier darf die Zonen nicht kosten.

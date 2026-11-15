@@ -12,6 +12,11 @@ import {
   normalizeSloveniaFeature,
   normalizeSloveniaLayersWithStats,
   parseSiAllowedUpTo,
+  parseSiZone,
+  resolveSloveniaLayersFromWebmap,
+  siLayerDefFor,
+  siServicePathFromUrl,
+  SI_WEBMAP_DATA_URL,
   siLayerByKey,
   siLayerUrl,
   sloveniaArcgisPage,
@@ -21,7 +26,8 @@ import {
   translateSiZoneName,
   type SiLayerDef,
 } from "../../../shared/slovenianGeozones";
-import { loadSlovenia } from "../geozoneDirect/sloveniaSource";
+import { loadSlovenia, resolveSloveniaLayers } from "../geozoneDirect/sloveniaSource";
+import { fetchCoverageOf, mergeCarriedOverFeatures } from "../geozoneDirect/directFetchUtil";
 import { parseEd269ToGeozoneInfo } from "../ed269";
 
 // Gekürzter ECHTER Auszug der 18 Zonen-Layer der WebMap „UAS GEO ZONES - May
@@ -318,11 +324,111 @@ describe("sloveniaSource – loadSlovenia", () => {
     assert.equal(urls.length, 2);
   });
 
-  it("wirft, wenn ein Layer dauerhaft fehlschlägt (kein Teilbestand)", async () => {
-    await assert.rejects(loadSlovenia(mockFetch("ctr")), /CAA Slovenia: 1 Ebene\(n\) nicht abrufbar: CTR \(HTTP 500\)/);
+  it("eine fehlende Ebene: Rest wird gespeichert, Abdeckung „partial“ mit Hinweis, CTR aus dem letzten Stand", async () => {
+    const out = await loadSlovenia(mockFetch("ctr"));
+    assert.ok(out.length > 0);
+    assert.ok(!out.some((f) => f.properties.siLayer === "ctr"));
+    const cov = fetchCoverageOf(out);
+    assert.ok(cov?.partialNote);
+    assert.match(cov!.partialNote!, /^CAA Slovenia: 1 von 18 Ebenen nicht abrufbar \(CTR\)/);
+    // ed269Store übernimmt die CTR-Zonen des vorherigen Bestands
+    const previous = await loadSlovenia(mockFetch());
+    const merged = mergeCarriedOverFeatures(out, previous, cov!.keepPrevious);
+    const ctr = merged.filter((f) => f.properties.siLayer === "ctr");
+    assert.equal(ctr.length, previous.filter((f) => f.properties.siLayer === "ctr").length);
+    assert.ok(ctr.every((f) => f.properties._carriedOver === true));
+    assert.equal(merged.length, previous.length, "keine Doppelungen");
+  });
+
+  it("wirft, wenn alle Ebenen fehlschlagen", async () => {
+    await assert.rejects(loadSlovenia(async () => { throw new Error("HTTP 500"); }), /CAA Slovenia: 18 Ebene\(n\) nicht abrufbar/);
   });
 
   it("wirft bei leerer Antwort", async () => {
     await assert.rejects(loadSlovenia(async () => ({ type: "FeatureCollection", features: [] })), /keine Zonen/);
+  });
+});
+
+describe("slovenianGeozones – Ebenen dynamisch aus der Web Map", () => {
+  // ECHTE operationalLayers der Web Map 14c35a6c… (2026-11-15, nur id/title/url/layerType)
+  const webmap = JSON.parse(readFileSync(join(__dirname, "fixtures/si-caa-webmap-sample.json"), "utf8"));
+
+  it("erkennt alle 18 Zonen-Ebenen; FIR, Pozidano und Skiciraj entfallen", () => {
+    const r = resolveSloveniaLayersFromWebmap(webmap);
+    assert.equal(r.layers.length, 18);
+    assert.deepEqual(r.generic, []);
+    assert.deepEqual(new Set(r.layers.map((l) => l.key)), new Set(SI_LAYERS.map((l) => l.key)));
+    assert.ok(r.skipped.includes("FIR"));
+    assert.ok(r.skipped.includes("Pozidano-built"));
+    assert.ok(r.skipped.includes("Skiciraj"));
+    assert.ok(!r.layers.some((l) => /Pozidano|FIR2/.test(l.service)));
+  });
+
+  it("folgt ausgetauschten Diensten (ELES_2023 → ELES_2025, Luka_Koper_25 → _26) über Dienst-Präfix", () => {
+    const changed = JSON.parse(JSON.stringify(webmap));
+    for (const l of changed.operationalLayers) {
+      if (l.title === "ELES") l.url = `${SI_ARCGIS_BASE}/ELES_2025/FeatureServer/0`;
+      if (l.title === "Port of Koper - 2025") {
+        l.title = "Port of Koper - 2026";
+        l.url = `${SI_ARCGIS_BASE}/Luka_Koper_26/FeatureServer/0`;
+      }
+    }
+    const r = resolveSloveniaLayersFromWebmap(changed);
+    const eles = r.layers.find((l) => l.key === "eles")!;
+    assert.equal(eles.service, "ELES_2025/FeatureServer/0");
+    assert.equal(siLayerUrl(eles), `${SI_ARCGIS_BASE}/ELES_2025/FeatureServer/0`);
+    assert.deepEqual(eles.restriction, ["OMEJITEV", "RESTRICT_"], "Feldzuordnung bleibt");
+    assert.equal(r.layers.find((l) => l.key === "port_koper")!.service, "Luka_Koper_26/FeatureServer/0");
+    assert.equal(r.layers.length, 18);
+  });
+
+  it("unbekannte Ebene wird generisch gelesen (restrict…/subject/except…), vorsichtig genehmigungspflichtig", () => {
+    const changed = JSON.parse(JSON.stringify(webmap));
+    changed.operationalLayers.push({ title: "GO_10_NEW", url: `${SI_ARCGIS_BASE}/GO_10_NEW/FeatureServer/0`, layerType: "ArcGISFeatureLayer" });
+    const r = resolveSloveniaLayersFromWebmap(changed);
+    assert.deepEqual(r.generic, ["GO_10_NEW"]);
+    const g = r.layers.find((l) => l.key === "wm_go_10_new")!;
+    assert.equal(g.kind, "other");
+    const raw = {
+      type: "Feature",
+      properties: { OBJECTID: 3, Naziv: "Skladišče X", Subject: "Storage X", Omejitev: "Prepovedano", Restrict_: "Forbidden", Izjema: "Z dovoljenjem", Exception: "With permission" },
+      geometry: SQUARE,
+    };
+    const zone = parseSiZone(raw.properties, g);
+    assert.equal(zone.nameOriginal, "Skladišče X");
+    assert.equal(zone.restrictionSl, "Prepovedano");
+    assert.equal(zone.exceptions.length, 1);
+    const f = normalizeSloveniaFeature(raw, g)!;
+    assert.equal(f.properties.restriction, "PROHIBITED");
+    assert.equal(f.properties.identifier, "SI-wm_go_10_new-3");
+    const noText = normalizeSloveniaFeature({ ...raw, properties: { OBJECTID: 4, Naziv: "Y" } }, g)!;
+    assert.equal(noText.properties.restriction, "REQ_AUTHORISATION");
+  });
+
+  it("Dienstpfad nur für Ebenen unter dem CAA-Dienstverzeichnis", () => {
+    assert.equal(siServicePathFromUrl(`${SI_ARCGIS_BASE}/CTR_WGS_24/FeatureServer/0`), "CTR_WGS_24/FeatureServer/0");
+    assert.equal(siServicePathFromUrl("https://example.com/arcgis/rest/services/X/FeatureServer/0"), null);
+    assert.equal(siServicePathFromUrl(undefined), null);
+    assert.equal(siLayerDefFor("Heliports", "Heliports_May_26/FeatureServer/0")?.key, "heliport");
+    assert.equal(siLayerDefFor("TES power plant", "x/FeatureServer/0")?.key, "tes");
+  });
+
+  it("loadSlovenia liest die Web Map; Rückfall auf die feste Liste, wenn sie fehlt", async () => {
+    const calls: string[] = [];
+    const fetchJson = async (url: string) => {
+      calls.push(url);
+      if (url === SI_WEBMAP_DATA_URL) return webmap;
+      const layer = SI_LAYERS.find((l) => url.startsWith(`${siLayerUrl(l)}/query`));
+      if (!layer) throw new Error(`unerwartete URL ${url}`);
+      const offset = Number(new URL(url).searchParams.get("resultOffset"));
+      return offset > 0 ? { ...layerFc(layer.key), features: [] } : layerFc(layer.key);
+    };
+    const out = await loadSlovenia(fetchJson);
+    assert.equal(calls[0], SI_WEBMAP_DATA_URL);
+    assert.equal(out.length, 20);
+    assert.equal(fetchCoverageOf(out), undefined, "vollständig");
+    const fb = await resolveSloveniaLayers(async () => { throw new Error("HTTP 503"); });
+    assert.equal(fb.fromWebmap, false);
+    assert.equal(fb.layers, SI_LAYERS);
   });
 });

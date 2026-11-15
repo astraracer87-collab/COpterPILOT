@@ -300,13 +300,34 @@ describe("parseEd269ToGeozoneInfo – Restriction -> Farbe/Label", () => {
     assert.match(z.details, /Luftverkehrsregeln 2014, § 18b Abs\. 4/);
     assert.match(z.details, /Zustimmungspflichtig/);
     assert.match(z.details, /Zuständige Stelle: Austro Control/);
-    assert.doesNotMatch(z.details, /EXCLUDED|Ausnahmen|Bedingungen|regulationExemption/);
+    // P3: Bedingungscode nur als Infotext, nie als Freigabe (Beschränkung bleibt)
+    assert.match(
+      z.details,
+      /Bedingungscode der Behörde \(nur Information, keine Freigabe – Bedeutung nicht bestätigt\): EXCLUDED\/LOS=VLOS\/ALTITUDE_AGL_MAX=30\/MTOM_G_MAX=249 \(Sichtverbindung \(VLOS\) · max\. 30 m über Grund · Startmasse max\. 249 g\)/,
+    );
+    assert.equal(z.restriction, "CONDITIONAL");
+    assert.doesNotMatch(z.details, /Ausnahmen|regulationExemption/);
     assert.deepEqual(z.links, [
       { label: "Rechtsgrundlage öffnen", url: "https://ris.bka.gv.at/rule" },
       { label: "Webseite: Austro Control", url: "https://www.dronespace.at/" },
       { label: "E-Mail: dronespace@austrocontrol.at", url: "dronespace@austrocontrol.at" },
     ]);
   });
+  it("Bedingungscode mit Behörde (echter Wert aus dem AT-Feed 2026-11-15) ändert die Einstufung nie", () => {
+    const [z] = parseEd269ToGeozoneInfo([makeFeature({
+      restriction: "REQ_AUTHORISATION",
+      extendedProperties: {
+        authorityRequirementConditions: [{
+          authority: "Austro Control GmbH - Drone Competence Center - Auto",
+          condition: "INCLUDED/LOS=VLOS/ALTITUDE_AGL_MAX=121/MTOM_G_MAX=25000",
+        }],
+      },
+    })], "AT");
+    assert.equal(z.restriction, "REQ_AUTHORISATION");
+    assert.match(z.details, /Austro Control GmbH - Drone Competence Center - Auto: INCLUDED\/LOS=VLOS\/ALTITUDE_AGL_MAX=121\/MTOM_G_MAX=25000 \(Sichtverbindung \(VLOS\) · max\. 121 m über Grund · Startmasse max\. 25 kg\)/);
+    assert.match(z.details, /keine Freigabe/);
+  });
+
   it("wertet regulationExemption YES nicht als Freigabe oder Ausnahme", () => {
     const [z] = parseEd269ToGeozoneInfo([
       makeFeature({ restriction: "REQ_AUTHORISATION", regulationExemption: "YES" }),

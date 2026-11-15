@@ -1,0 +1,130 @@
+{
+ "_source": "https://www.arcgis.com/sharing/rest/content/items/14c35a6c4d5a472ea2ed5b2a75abc690/data?f=json (abgerufen 2026-11-15, nur id/title/url/layerType der operationalLayers)",
+ "operationalLayers": [
+  {
+   "id": "bdd0342f7dc544e6a59ceb697f524448",
+   "title": "Triglav National Park",
+   "url": "https://services6.arcgis.com/1F2lR3M9nMUYDj5l/arcgis/rest/services/UAS_GEO_ZONES___March_2022_WFL1/FeatureServer/12",
+   "layerType": "ArcGISFeatureLayer"
+  },
+  {
+   "id": "1912c339284-layer-18",
+   "title": "CTR",
+   "url": "https://services6.arcgis.com/1F2lR3M9nMUYDj5l/arcgis/rest/services/CTR_WGS_24/FeatureServer/0",
+   "layerType": "ArcGISFeatureLayer"
+  },
+  {
+   "id": "029d79db6c404e2fbc4b573015b47892",
+   "title": "Restricted - Area",
+   "url": "https://services6.arcgis.com/1F2lR3M9nMUYDj5l/arcgis/rest/services/UAS_GEO_ZONES___March_2022_WFL1/FeatureServer/11",
+   "layerType": "ArcGISFeatureLayer"
+  },
+  {
+   "id": "94c64fbf1a5b4129abf0d8db2b5984ab",
+   "title": "TEŠ power plant",
+   "url": "https://services6.arcgis.com/1F2lR3M9nMUYDj5l/arcgis/rest/services/UAS_GEO_ZONES___March_2022_WFL1/FeatureServer/8",
+   "layerType": "ArcGISFeatureLayer"
+  },
+  {
+   "id": "4a11cb5bc56b4a0aa74dc244f56d1548",
+   "title": "Coal mine Premogovnik Velenje",
+   "url": "https://services6.arcgis.com/1F2lR3M9nMUYDj5l/arcgis/rest/services/UAS_GEO_ZONES___March_2022_WFL1/FeatureServer/7",
+   "layerType": "ArcGISFeatureLayer"
+  },
+  {
+   "id": "82e56d2134f94b649ab59ab6775260ba",
+   "title": "Nuclear power plant - prohibited",
+   "url": "https://services6.arcgis.com/1F2lR3M9nMUYDj5l/arcgis/rest/services/UAS_GEO_ZONES___March_2022_WFL1/FeatureServer/0",
+   "layerType": "ArcGISFeatureLayer"
+  },
+  {
+   "id": "17f69237481-layer-15",
+   "title": "FIR",
+   "url": "https://services6.arcgis.com/1F2lR3M9nMUYDj5l/arcgis/rest/services/FIR2/FeatureServer/0",
+   "layerType": "ArcGISFeatureLayer"
+  },
+  {
+   "id": "e1a294f4cf2644b99e8c2de7fe57740c",
+   "title": "Danger area",
+   "url": "https://services6.arcgis.com/1F2lR3M9nMUYDj5l/arcgis/rest/services/UAS_GEO_ZONES___March_2022_WFL1/FeatureServer/10",
+   "layerType": "ArcGISFeatureLayer"
+  },
+  {
+   "id": "185a07ff570-layer-28",
+   "title": "ELES",
+   "url": "https://services6.arcgis.com/1F2lR3M9nMUYDj5l/arcgis/rest/services/ELES_2023/FeatureServer/0",
+   "layerType": "ArcGISFeatureLayer"
+  },
+  {
+   "id": "185ab6530ef-layer-17",
+   "title": "Aerodrome VFR",
+   "url": "https://services6.arcgis.com/1F2lR3M9nMUYDj5l/arcgis/rest/services/letalisca_VFR_jan2023/FeatureServer/0",
+   "layerType": "ArcGISFeatureLayer"
+  },
+  {
+   "id": "185ab5a2118-layer-17",
+   "title": "Aerodrome IFR",
+   "url": "https://services6.arcgis.com/1F2lR3M9nMUYDj5l/arcgis/rest/services/letalisca_IFR_jan23/FeatureServer/0",
+   "layerType": "ArcGISFeatureLayer"
+  },
+  {
+   "id": "1864aab8847-layer-17",
+   "title": "airfield",
+   "url": "https://services6.arcgis.com/1F2lR3M9nMUYDj5l/arcgis/rest/services/airfields_WGS_jan23/FeatureServer/0",
+   "layerType": "ArcGISFeatureLayer"
+  },
+  {
+   "id": "18683346848-layer-17",
+   "title": "Public interest sites - heliports",
+   "url": "https://services6.arcgis.com/1F2lR3M9nMUYDj5l/arcgis/rest/services/PIS_feb_23/FeatureServer/0",
+   "layerType": "ArcGISFeatureLayer"
+  },
+  {
+   "id": "18fbdedf178-layer-17",
+   "title": "Heliport",
+   "url": "https://services6.arcgis.com/1F2lR3M9nMUYDj5l/arcgis/rest/services/Heliports_May_24/FeatureServer/0",
+   "layerType": "ArcGISFeatureLayer"
+  },
+  {
+   "id": "19137071a47-layer-18",
+   "title": "Pozidano-built",
+   "url": "https://services6.arcgis.com/1F2lR3M9nMUYDj5l/arcgis/rest/services/Pozidano_built_May24/FeatureServer/0",
+   "layerType": "ArcGISFeatureLayer"
+  },
+  {
+   "id": "197599c38b2-layer-17",
+   "title": "Port of Koper - 2025",
+   "url": "https://services6.arcgis.com/1F2lR3M9nMUYDj5l/arcgis/rest/services/Luka_Koper_25/FeatureServer/0",
+   "layerType": "ArcGISFeatureLayer"
+  },
+  {
+   "id": "198cbc8534f-layer-18",
+   "title": "GO_07_SERMIN",
+   "url": "https://services6.arcgis.com/1F2lR3M9nMUYDj5l/arcgis/rest/services/GO_07_SERMIN/FeatureServer/0",
+   "layerType": "ArcGISFeatureLayer"
+  },
+  {
+   "id": "19995294bae-layer-19",
+   "title": "ModelarskeCone",
+   "url": "https://services6.arcgis.com/1F2lR3M9nMUYDj5l/arcgis/rest/services/ModelarskeCone/FeatureServer/0",
+   "layerType": "ArcGISFeatureLayer"
+  },
+  {
+   "id": "19cada79502-layer-19",
+   "title": "GO.08 URSIKS",
+   "url": "https://services6.arcgis.com/1F2lR3M9nMUYDj5l/arcgis/rest/services/UAS_URSIKS/FeatureServer/0",
+   "layerType": "ArcGISFeatureLayer"
+  },
+  {
+   "id": "19cadaaaf76-layer-20",
+   "title": "Skiciraj",
+   "layerType": "ArcGISFeatureLayer"
+  },
+  {
+   "id": "19e49c0e1f7-layer-31",
+   "title": "GO_09_SND",
+   "url": "https://services6.arcgis.com/1F2lR3M9nMUYDj5l/arcgis/rest/services/GO_09_SND/FeatureServer/0",
+   "layerType": "ArcGISFeatureLayer"
+  }
+ ]
+}

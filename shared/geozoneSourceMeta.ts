@@ -237,6 +237,8 @@ export const GEOZONE_SOURCE_META: readonly GeozoneSourceMeta[] = [
     labelDe: "Luxemburg",
     ...vector,
     provider: "Direction de l'Aviation Civile (DAC) / Geoportail Luxembourg",
+    usage:
+      "Drohnen-Geozonen als Vektordaten: OGC-Features des Geoportails (Höhenschichten 1927/1928) als Hauptquelle; der ED-269-Feed (zeitweise HTTP 422) wird höchstens einmal täglich geprüft bzw. als Rückfall genutzt.",
     ...L.cc0,
     writtenPermission: true,
     url: "https://drones.geoportail.lu",
@@ -280,6 +282,9 @@ export const GEOZONE_SOURCE_META: readonly GeozoneSourceMeta[] = [
   },
   {
     // Austro Control / Dronespace (Frequentis-AVM): ~291 Zonen, ganzes Land laden.
+    // authorityRequirementConditions (z. B. „EXCLUDED/LOS=VLOS/
+    // ALTITUDE_AGL_MAX=30/MTOM_G_MAX=249“, live 12 Zonen) erscheinen nur als
+    // Infotext (shared/ed269SourceInfo.ts), nie als Freigabe.
     iso: "AT",
     labelDe: "Österreich",
     ...vector,
@@ -314,6 +319,9 @@ export const GEOZONE_SOURCE_META: readonly GeozoneSourceMeta[] = [
     ...vector,
     notamListOrder: 3,
     provider: "Trafikstyrelsen (Dänische Verkehrsbehörde) – dronezoner.dk",
+    usage:
+      "Drohnenzonen (Tagesexport), Naturschutzzonen sowie live von dronezoner.eu: NOTAM-Ebenen (aktiv/Achtung/angekündigt/gelbe Restriktionsgebiete) und An-/Abflugflächen; Dienstnamen aus der Web Map.",
+    note: "Öffentliche Feature-Services ohne Token – Zugangsdaten aus der Seitenkonfiguration der Karte werden nie verwendet.",
     license:
       "Freie Nutzung mit Quellenangabe („Data kan frit anvendes med kildeangivelse“), per E-Mail bestätigt",
     writtenPermission: true,
@@ -343,6 +351,7 @@ export const GEOZONE_SOURCE_META: readonly GeozoneSourceMeta[] = [
     labelDe: "Schweden",
     ...vector,
     provider: "LFV Drönarkartan / Transportstyrelsen",
+    note: "ED-318-Datei von dronechart.lfv.se (Rückfall daim.lfv.se); der Datenstand (issued) steht in der Quellenzeile jeder Zone.",
     ...L.ccBy4,
     writtenPermission: false,
     url: "https://dronechart.lfv.se",
@@ -371,7 +380,7 @@ export const GEOZONE_SOURCE_META: readonly GeozoneSourceMeta[] = [
     provider: "ENAIRE – Drones (insignias-MapServer)",
     usage:
       "Drohnen-Geozonen (Luftfahrt, urbane Zonen, Infrastruktur, Naturschutz) als Vektordaten – offline als Paket mit abwählbaren Teilen, online je Ausschnitt; NOTAM für UAS live.",
-    license: "Nutzung laut schriftlicher Freigabe von ENAIRE; Rechtehinweis „© ENAIRE“ Pflicht",
+    license: "Nutzung laut schriftlicher Freigabe von ENAIRE; Rechtehinweis „© ENAIRE – AIS“ Pflicht",
     writtenPermission: true,
     url: "https://drones.enaire.es",
     note: "Volle Geometrie-Genauigkeit (keine Vereinfachung). Infrastruktur- und Naturschutz-Teil sind sehr groß (je über 100 MB Download).",
@@ -444,6 +453,8 @@ export const GEOZONE_SOURCE_META: readonly GeozoneSourceMeta[] = [
     labelDe: "Island",
     ...vector,
     provider: "Samgöngustofa / ISAVIA / gis.is",
+    usage:
+      "Drohnenzonen der offiziellen Karte (gis.natt.is, dronemap_ice_geom) ergänzt um weitere Zonen aus dronemap_isl_geom (ohne Doppelungen) sowie temporäre Sperrungen.",
     writtenPermission: true,
     url: "https://gis.is",
   },
@@ -468,6 +479,8 @@ export const GEOZONE_SOURCE_META: readonly GeozoneSourceMeta[] = [
     labelDe: "Slowenien",
     ...vector,
     provider: "Javna agencija za civilno letalstvo RS (CAA Slovenia) / Slovenia Control",
+    usage:
+      "UAS-Geozonen der offiziellen Karte „UAS GEO ZONES“ – Ebenen werden bei jedem Abruf aus der Web Map gelesen; fehlt eine Ebene, gilt die Abdeckung als unvollständig. Bebaute Gebiete (Pozidano) nicht enthalten.",
     writtenPermission: true,
     url: "https://www.caa.si",
   },
@@ -493,6 +506,9 @@ export const GEOZONE_SOURCE_META: readonly GeozoneSourceMeta[] = [
     ...vector,
     provider:
       "Dopravný úrad SR (Drohnenzonen „Zemepisné oblasti UAS“) / Letové prevádzkové služby SR (Lufträume)",
+    usage:
+      "Drohnen-Geozonen (Dopravný úrad, KML) und drohnenrelevante Lufträume (LPS SR, VFR Manual) inkl. Live-Reservierungen: R/TRA/TSA nur in Reservierungsfenstern aktiv (Höhen der Reservierung).",
+    license: "Attribution „VFR Manual, LPS SR, š. p.“ (LPS-Daten) bzw. „© Dopravný úrad SR“",
     writtenPermission: true,
     url: "https://letectvo.nsat.sk/bezpilotne-letectvo/zemepisne-oblasti-uas/",
   },
@@ -524,9 +540,12 @@ export const GEOZONE_SOURCE_META: readonly GeozoneSourceMeta[] = [
     labelDe: "Norwegen",
     ...vector,
     provider: "Luftfartstilsynet – dronesoner.no",
+    usage:
+      "ED-269-Tagesdatei plus in ED-269 fehlende Ebenen aus dronesoner.no/data/ (NOTAM-Verbote, NOTAM-/Echtzeit-Gefahrengebiete, gemeldete Drohnenflüge, per NOTAM aktivierbare R-Gebiete, CTR/TIZ, RMZ/TMZ).",
     ...L.nlod2,
     writtenPermission: false,
     url: "https://dronesoner.no",
+    note: "Botschafts-Zonen stammen aus OpenStreetMap: © OpenStreetMap contributors (ODbL).",
   },
   {
     // ŘLP ČR: ED-318-Kacheln nur über das Geozonen-Paket (ZIP ≈ 36 MB). Es

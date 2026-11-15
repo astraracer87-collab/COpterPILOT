@@ -310,7 +310,7 @@ describe("tiled vector geozones (DE/FR/CZ) and Liechtenstein", () => {
   it("Spain: tiled store with selectable parts (infra/enp) and size estimates", async () => {
     const es = offlineCountries().find((c) => c.iso === "ES")!;
     expect(es.geozoneKind).toBe("tilestore");
-    expect(es.geozoneAttribution?.label).toBe("© ENAIRE");
+    expect(es.geozoneAttribution?.label).toBe("© ENAIRE – AIS");
     const c = { ...defaultConfig("ES"), map: false, obstacles: false };
     expect(c).toMatchObject({ esInfra: true, esEnp: true });
     expect(storePartsFor(c)).toEqual(["base", "infra", "enp"]);

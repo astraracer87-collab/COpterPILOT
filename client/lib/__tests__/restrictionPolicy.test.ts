@@ -53,10 +53,12 @@ import { normalizeUkAixm } from "../../../shared/ukGeozones";
 import { parseAixmDatasetSync } from "../../../shared/geozoneKit/aixm";
 import { normalizeGodroneFeature } from "../../../shared/dutchGeozones";
 import { croatiaFeaturesFromPushes } from "../geozoneDirect/croatiaSource";
-import { normalizeIcelandicZones } from "../../../shared/icelandicGeozones";
+import { mergeIcelandicZoneLayers, normalizeIcelandicZones } from "../../../shared/icelandicGeozones";
 import { ed318ZonesToFeatures } from "../../../shared/ed318Pure";
 import { SE_WFS_LAYERS, normalizeSwedishWfsFeatures } from "../../../shared/swedishGeozones";
-import { SI_LAYERS, normalizeSloveniaLayersWithStats } from "../../../shared/slovenianGeozones";
+import { normalizeSloveniaLayersWithStats, resolveSloveniaLayersFromWebmap } from "../../../shared/slovenianGeozones";
+import { normalizeDanishLiveLayers } from "../../../shared/danishGeozones";
+import { mergeNorwayDataLayers } from "../../../shared/norwegianGeozones";
 import { normalizeSlovakiaWithStats } from "../../../shared/slovakGeozones";
 import { finlandFeaturesFromBody } from "../geozoneDirect/finlandSource";
 import { polandFeaturesFromKml } from "../geozoneDirect/polandSource";
@@ -275,19 +277,56 @@ const FIXTURE_SOURCES: { fixture: string[]; iso: string; features: () => any[] }
     },
   },
   {
-    fixture: ["si-caa-arcgis-sample.json"],
+    // Ebenen aus der echten Web Map (Dienstpfade), Features aus dem Layer-Auszug
+    fixture: ["si-caa-arcgis-sample.json", "si-caa-webmap-sample.json"],
     iso: "SI",
     features: () => {
       const fx = json("si-caa-arcgis-sample.json");
+      const { layers } = resolveSloveniaLayersFromWebmap(json("si-caa-webmap-sample.json"));
       return normalizeSloveniaLayersWithStats(
-        SI_LAYERS.map((layer) => ({ layer, features: fx.layers[layer.key]?.features ?? [] })),
+        layers.map((layer) => ({ layer, features: fx.layers[layer.key]?.features ?? [] })),
       ).features;
     },
   },
   {
-    fixture: ["sk-du-uas-zones-sample.kml", "sk-lps-arcgis-sample.json"],
+    fixture: ["sk-du-uas-zones-sample.kml", "sk-lps-arcgis-sample.json", "sk-lps-reservations-sample.json"],
     iso: "SK",
-    features: () => normalizeSlovakiaWithStats({ duKml: text("sk-du-uas-zones-sample.kml"), lps: slovakLps(), now: NOW.getTime() }).features,
+    features: () =>
+      normalizeSlovakiaWithStats({
+        duKml: text("sk-du-uas-zones-sample.kml"),
+        lps: slovakLps(),
+        now: Date.parse("2026-11-15T12:00:00Z"),
+        reservations: json("sk-lps-reservations-sample.json").reservations.features,
+        reservationHealth: { ok: true },
+      }).features,
+  },
+  {
+    fixture: ["dk-dronezoner-live-sample.json"],
+    iso: "DK",
+    features: () => {
+      const fx = json("dk-dronezoner-live-sample.json");
+      return normalizeDanishLiveLayers(
+        { awareness: fx.awareness.features, disabled: fx.disabled.features, corridors: fx.corridors.features },
+        Date.parse("2026-11-15T16:20:00Z"),
+      );
+    },
+  },
+  {
+    fixture: ["no-dronesoner-data-sample.json"],
+    iso: "NO",
+    features: () => {
+      const fx = json("no-dronesoner-data-sample.json");
+      const files = Object.fromEntries(Object.entries(fx.files).map(([k, v]: [string, any]) => [k, v.features]));
+      return mergeNorwayDataLayers([], files, { now: Date.parse("2026-11-15T16:30:00Z") }).features;
+    },
+  },
+  {
+    fixture: ["is-samgongustofa-ice-isl-sample.json"],
+    iso: "IS",
+    features: () => {
+      const fx = json("is-samgongustofa-ice-isl-sample.json");
+      return mergeIcelandicZoneLayers(normalizeIcelandicZones(fx.ice), normalizeIcelandicZones(fx.isl));
+    },
   },
   { fixture: ["traficom-uas-zones-sample.json"], iso: "FI", features: () => finlandFeaturesFromBody(json("traficom-uas-zones-sample.json"), NOW) },
   { fixture: ["pansa_kml_sample.kml"], iso: "PL", features: () => polandFeaturesFromKml(text("pansa_kml_sample.kml")) },

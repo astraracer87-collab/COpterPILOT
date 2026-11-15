@@ -7,7 +7,8 @@
 //     applicability-Einträge) – siehe ed269IsNotamEligible;
 //  2. sie stammt aus einer Temporär-Ebene (DE dipul
 //     „temporaere_betriebseinschraenkungen“ = Ebene „Temporäre Beschränkungen“,
-//     LU-TSA, HR-Reservierungen, IS-Sperrungen, LV-/ES-NOTAM-Ebenen – diese
+//     NO „obs_sanntid_fareomrader“ (Echtzeit-Gefahrengebiete), LU-TSA,
+//     HR-Reservierungen, IS-Sperrungen, LV-/ES-NOTAM-Ebenen – diese
 //     Normalisierer setzen dafür ein Gültigkeitsfenster bzw. `isNotam`);
 //  3. ihr Gültigkeitsfenster (Start UND Ende) ist kürzer als
 //     TEMPORARY_ZONE_MAX_VALIDITY_DAYS (30 Tage, gleiche Grenze wie die
@@ -28,8 +29,12 @@ const MAX_VALIDITY_MS = TEMPORARY_ZONE_MAX_VALIDITY_DAYS * 86_400_000;
 
 /** Ebenen-Bezeichnungen der Temporär-Ebenen (GeozoneFeatureInfo.layerLabel). */
 export const TEMPORARY_LAYER_LABELS = ["Temporäre Beschränkungen", "LU Aktivierbare UAS-Zonen"];
-/** dipul-Ebene der temporären Betriebseinschränkungen. */
-export const TEMPORARY_LAYER_IDS = ["temporaere_betriebseinschraenkungen"];
+/**
+ * Temporär-Ebenen nach Roh-`_layer`: dipul-Ebene der temporären
+ * Betriebseinschränkungen; NO dronesoner.no „obs_sanntid_fareomrader“
+ * (Echtzeit-aktivierte Gefahrengebiete, live).
+ */
+export const TEMPORARY_LAYER_IDS = ["temporaere_betriebseinschraenkungen", "obs_sanntid_fareomrader"];
 
 function shortWindow(start: number | null | undefined, end: number | null | undefined): boolean {
   return start != null && end != null && Number.isFinite(start) && Number.isFinite(end) && end - start < MAX_VALIDITY_MS;

@@ -120,13 +120,24 @@ export type SiZoneKind =
   | "airfield"
   | "heliport"
   | "prison"
-  | "model";
+  | "model"
+  /** Ebene der Web-Map ohne bekannte Feldzuordnung (generisch gelesen). */
+  | "other";
 
 /** Feldpaar [slowenisch, englisch] – die Daten tragen beide Sprachen. */
 type FieldPair = [string, string];
 
 export interface SiLayerDef {
   key: string;
+  /**
+   * Zuordnung einer Web-Map-Ebene zu dieser Feld-Definition: weitere Titel
+   * (zusätzlich zu `title`, Vergleich gefaltet/klein) bzw. Präfixe des
+   * Dienstnamens (z. B. „ELES_“ für ELES_2023 → ELES_2025). Ebenen im
+   * gemeinsamen Dienst UAS_GEO_ZONES… werden nur über den Titel erkannt.
+   */
+  match?: { titles?: string[]; servicePrefixes?: string[] };
+  /** Felder je Feature tolerant erkennen (restrict…, subject, except…), siehe siAutoFieldLayer. */
+  autoFields?: boolean;
   /** Titel der Ebene in der offiziellen WebMap. */
   title: string;
   /** Pfad relativ zu SI_ARCGIS_BASE: „<Dienst>/FeatureServer/<id>“. */
@@ -163,7 +174,7 @@ export const SI_LAYERS: SiLayerDef[] = [
     info: ["Information", "Informacije"],
   },
   {
-    key: "ctr", title: "CTR", service: "CTR_WGS_24/FeatureServer/0", kind: "ctr",
+    key: "ctr", title: "CTR", service: "CTR_WGS_24/FeatureServer/0", kind: "ctr", match: { servicePrefixes: ["CTR_WGS"] },
     defaultRestriction: "REQ_AUTHORISATION", nameFields: ["OBMOCJE"], nameEnFields: ["Subject"],
     restriction: ["OMEJITEV", "UAS_restriction2"],
     exceptions: [
@@ -174,10 +185,11 @@ export const SI_LAYERS: SiLayerDef[] = [
   },
   {
     key: "restricted", title: "Restricted - Area", service: `${UAS}/11`, kind: "restricted",
+    match: { titles: ["Restricted area", "Restricted areas"] },
     defaultRestriction: "REQ_AUTHORISATION", nameFields: ["IME"], notam: ["glej_NOTAM", "Check_NOTAM"],
   },
   {
-    key: "tes", title: "TEŠ power plant", service: `${UAS}/8`, kind: "infrastructure",
+    key: "tes", title: "TEŠ power plant", service: `${UAS}/8`, kind: "infrastructure", match: { titles: ["TES"] },
     defaultRestriction: "PROHIBITED", nameFields: ["Naziv"], nameEnFields: ["Subject"],
     restriction: ["Omejitev", "Restrict_"], exceptions: [{ label: "Ausnahmen", fields: ["Izjema", "Exception"] }],
     reason: ["Razlog", "Reason"], regulation: ["Zakonodaja", "Regulation"],
@@ -190,22 +202,24 @@ export const SI_LAYERS: SiLayerDef[] = [
   },
   {
     key: "jek", title: "Nuclear power plant - prohibited", service: `${UAS}/0`, kind: "nuclear",
+    match: { titles: ["Nuclear power plant"] },
     defaultRestriction: "PROHIBITED", nameFields: ["Naziv"], nameEnFields: ["Zone"],
     restriction: ["UAS_omejitve", "UAS_restrictions"],
     exceptions: [{ label: "Ausnahmen (Kategorie „speziell“)", fields: ["Izjeme_posebna", "Exceptions_specific"] }],
   },
   {
-    key: "danger", title: "Danger area", service: `${UAS}/10`, kind: "danger",
+    key: "danger", title: "Danger area", service: `${UAS}/10`, kind: "danger", match: { titles: ["Danger areas"] },
     defaultRestriction: "CONDITIONAL", nameFields: ["Naziv"], notam: ["Check_NOTAM"],
   },
   {
-    key: "eles", title: "ELES", service: "ELES_2023/FeatureServer/0", kind: "infrastructure",
+    key: "eles", title: "ELES", service: "ELES_2023/FeatureServer/0", kind: "infrastructure", match: { servicePrefixes: ["ELES_"] },
     defaultRestriction: "PROHIBITED", nameFields: ["NAZIV"], nameEnFields: ["SUBJECT"],
     restriction: ["OMEJITEV", "RESTRICT_"], exceptions: [{ label: "Ausnahmen", fields: ["IZJEMA", "EXCEPTION"] }],
     reason: ["RAZLOG", "REASON"], regulation: ["ZAKON", "REGUL"], form: ["Obrazec"],
   },
   {
     key: "aerodrome_vfr", title: "Aerodrome VFR", service: "letalisca_VFR_jan2023/FeatureServer/0", kind: "aerodrome",
+    match: { servicePrefixes: ["letalisca_VFR"] },
     defaultRestriction: "PROHIBITED", nameFields: ["letalisce"], nameEnFields: ["Subject"], namePrefix: "Flugplatz",
     restriction: ["UAS_omejitve", "UAS_restriction"],
     exceptions: [{ label: EXC_OPEN_SPECIFIC, fields: ["Izjeme_odprta_posebna", "Exceptions_open_specific"] }],
@@ -213,6 +227,7 @@ export const SI_LAYERS: SiLayerDef[] = [
   },
   {
     key: "aerodrome_ifr", title: "Aerodrome IFR", service: "letalisca_IFR_jan23/FeatureServer/0", kind: "aerodrome",
+    match: { servicePrefixes: ["letalisca_IFR"] },
     defaultRestriction: "PROHIBITED", nameFields: ["LETALISCE"], nameEnFields: ["Subject"], namePrefix: "Flughafen",
     restriction: ["UAS_omejitve", "UAS_restriction"],
     exceptions: [
@@ -223,17 +238,20 @@ export const SI_LAYERS: SiLayerDef[] = [
   },
   {
     key: "airfield", title: "airfield", service: "airfields_WGS_jan23/FeatureServer/0", kind: "airfield",
+    match: { titles: ["airfields"], servicePrefixes: ["airfields_WGS"] },
     defaultRestriction: "PROHIBITED", nameFields: ["Ime"], namePrefix: "Flugfeld",
     restriction: ["UAS_omejit", "UAS_restri"], exceptions: [{ label: "Ausnahmen", fields: ["izjeme", "exceptions"] }],
   },
   {
     key: "pis_heliport", title: "Public interest sites - heliports", service: "PIS_feb_23/FeatureServer/0",
+    match: { servicePrefixes: ["PIS_"] },
     kind: "heliport", defaultRestriction: "PROHIBITED", nameFields: ["Naziv"], nameEnFields: ["Subject"],
     namePrefix: "Hubschrauberlandeplatz",
     restriction: ["UAS_omejit", "UAS_restri"], exceptions: [{ label: "Ausnahmen", fields: ["Izjeme_za", "Exceptions"] }],
   },
   {
     key: "heliport", title: "Heliport", service: "Heliports_May_24/FeatureServer/0", kind: "heliport",
+    match: { titles: ["Heliports"], servicePrefixes: ["Heliports_"] },
     defaultRestriction: "PROHIBITED", nameFields: ["Obmocje"], nameEnFields: ["Contact_approval"],
     namePrefix: "Hubschrauberlandeplatz",
     restriction: ["UAS_omejitve", "UAS_restriction"], exceptions: [{ label: "Ausnahmen", fields: ["Izjeme", "Exceptions"] }],
@@ -241,12 +259,14 @@ export const SI_LAYERS: SiLayerDef[] = [
   },
   {
     key: "port_koper", title: "Port of Koper - 2025", service: "Luka_Koper_25/FeatureServer/0", kind: "infrastructure",
+    match: { titles: ["Port of Koper"], servicePrefixes: ["Luka_Koper", "Luka_KP"] },
     defaultRestriction: "PROHIBITED", nameFields: ["Naziv"], nameEnFields: ["Subject"],
     restriction: ["omejitev", "Restric"], exceptions: [{ label: "Ausnahmen", fields: ["Izjema", "Exempt"] }],
     reason: ["Razlog", "Reason"], regulation: ["Zakonodaja", "Regul"], contact: ["Kontakt", "Contact"],
   },
   {
     key: "sermin", title: "GO_07_SERMIN", service: "GO_07_SERMIN/FeatureServer/0", kind: "infrastructure",
+    match: { servicePrefixes: ["GO_07_SERMIN"] },
     defaultRestriction: "PROHIBITED", nameFields: ["NAME", "Naziv"], nameEnFields: ["Subject"],
     namePrefix: "Petrol-Terminal Sermin",
     restriction: ["omejitev", "Restrict_"], exceptions: [{ label: "Ausnahmen", fields: ["Izjema", "Exception"] }],
@@ -254,11 +274,13 @@ export const SI_LAYERS: SiLayerDef[] = [
   },
   {
     key: "model", title: "ModelarskeCone", service: "ModelarskeCone/FeatureServer/0", kind: "model",
+    match: { servicePrefixes: ["ModelarskeCone"] },
     defaultRestriction: "CONDITIONAL", nameFields: ["Obmocje"], nameEnFields: ["Subject"], namePrefix: "Modellfluggelände",
     restriction: ["Omejitve", "Restrict_"], contact: ["Kontakt", "Contact"],
   },
   {
     key: "ursiks", title: "GO.08 URSIKS", service: "UAS_URSIKS/FeatureServer/0", kind: "prison",
+    match: { titles: ["GO_08_URSIKS"], servicePrefixes: ["UAS_URSIKS"] },
     defaultRestriction: "PROHIBITED", nameFields: ["naziv"], nameEnFields: ["subject"],
     restriction: ["omejitev", "Restrict_"], exceptions: [{ label: "Ausnahmen", fields: ["Izjema", "Exception"] }],
     reason: ["Razlog", "Reason"], regulation: ["Zakonodaja", "Regulation"], contact: ["Kontakt", "Contact"],
@@ -266,6 +288,7 @@ export const SI_LAYERS: SiLayerDef[] = [
   },
   {
     key: "snd", title: "GO_09_SND", service: "GO_09_SND/FeatureServer/0", kind: "infrastructure",
+    match: { servicePrefixes: ["GO_09_SND"] },
     defaultRestriction: "PROHIBITED", nameFields: ["NAZIV"], nameEnFields: ["SUBJECT"],
     restriction: ["Omejitev", "Restrict_"], exceptions: [{ label: "Ausnahmen", fields: ["Izjema", "Exception"] }],
     reason: ["RAZLOG", "REASON"], regulation: ["Zakonodaja", "Regulation"], contact: ["Kontakt", "Contact"],
@@ -278,6 +301,173 @@ export function siLayerUrl(layer: SiLayerDef): string {
 
 export function siLayerByKey(key: string): SiLayerDef | undefined {
   return SI_LAYERS.find((l) => l.key === key);
+}
+
+// ---------------------------------------------------------------------------
+// Ebenen dynamisch aus der Web Map (Pflicht laut Doku: die CAA tauscht bei
+// Updates ganze Dienste aus, z. B. ELES_2023 → ELES_2025, Luka_KP →
+// Luka_Koper_25). SI_LAYERS ist nur noch die Feldzuordnung (über Titel bzw.
+// Dienst-Präfix) und der Rückfall, wenn die Web Map nicht lesbar ist.
+// ---------------------------------------------------------------------------
+
+/** Web-Map-Definition (JSON) der offiziellen UAS-Karte. */
+export const SI_WEBMAP_DATA_URL = `https://www.arcgis.com/sharing/rest/content/items/${SI_UAS_WEBMAP_ID}/data?f=json`;
+
+/**
+ * Bewusst NICHT übernommene Ebenen der Web Map: FIR (Linie, keine Zone),
+ * Pozidano (bebaute Gebiete, ≈ 190 000 Polygone – zurückgestellt, PO),
+ * Skiciraj (Zeichenebene ohne Dienst).
+ */
+const SI_EXCLUDED_TITLE_RE = /^(?:fir|skiciraj)$|pozidano/;
+const SI_EXCLUDED_SERVICE_RE = /^(?:fir\d*|pozidano)/i;
+
+export interface SiResolvedLayers {
+  /** Zu ladende Ebenen (Feldzuordnung + aktueller Dienstpfad). */
+  layers: SiLayerDef[];
+  /** Titel der Web-Map-Ebenen ohne bekannte Feldzuordnung (generisch gelesen). */
+  generic: string[];
+  /** Bewusst ausgelassene Ebenen (FIR, Pozidano, ohne Dienst-URL …). */
+  skipped: string[];
+}
+
+/** Dienstpfad „<Dienst>/FeatureServer/<id>“ aus einer Ebenen-URL unter SI_ARCGIS_BASE; sonst null. */
+export function siServicePathFromUrl(url: unknown): string | null {
+  const u = String(url ?? "").trim().replace(/\/+$/, "");
+  const m = u.match(/\/rest\/services\/(.+\/FeatureServer\/\d+)$/i);
+  if (!m || !u.toLowerCase().startsWith(SI_ARCGIS_BASE.toLowerCase())) return null;
+  return m[1];
+}
+
+function siServiceName(servicePath: string): string {
+  return servicePath.split("/")[0] ?? "";
+}
+
+/** Feld-Definition für eine Web-Map-Ebene (Titel, sonst Dienst-Präfix); null = unbekannt. */
+export function siLayerDefFor(title: string, servicePath: string, defs: readonly SiLayerDef[] = SI_LAYERS): SiLayerDef | null {
+  const t = siKey(title);
+  if (t) {
+    for (const d of defs) {
+      const titles = [d.title, ...(d.match?.titles ?? [])].map(siKey);
+      if (titles.includes(t)) return d;
+    }
+  }
+  const svc = siServiceName(servicePath).toLowerCase();
+  if (svc) {
+    for (const d of defs) {
+      if ((d.match?.servicePrefixes ?? []).some((pre) => svc.startsWith(pre.toLowerCase()))) return d;
+    }
+  }
+  return null;
+}
+
+function slug(s: string): string {
+  return foldSl(s).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40) || "ebene";
+}
+
+/** Generische Definition für eine unbekannte Ebene (Felder je Feature erkannt, vorsichtig genehmigungspflichtig). */
+export function siGenericLayerDef(title: string, servicePath: string): SiLayerDef {
+  return {
+    key: `wm_${slug(siServiceName(servicePath) || title)}`,
+    title: title || siServiceName(servicePath),
+    service: servicePath,
+    kind: "other",
+    defaultRestriction: "REQ_AUTHORISATION",
+    nameFields: [],
+    autoFields: true,
+  };
+}
+
+function walkWebmapLayers(list: unknown, out: { title: string; url: unknown }[]): void {
+  if (!Array.isArray(list)) return;
+  for (const l of list) {
+    if (!l || typeof l !== "object") continue;
+    const o = l as Record<string, any>;
+    if (Array.isArray(o.layers) && !o.url) walkWebmapLayers(o.layers, out);
+    else out.push({ title: String(o.title ?? "").trim(), url: o.url });
+  }
+}
+
+/**
+ * Ebenen aus der Web-Map-Definition (`…/items/<id>/data?f=json` →
+ * operationalLayers[].url, Gruppen rekursiv). Bekannte Ebenen erhalten ihre
+ * Feldzuordnung (Titel/Dienst-Präfix) mit dem AKTUELLEN Dienstpfad; unbekannte
+ * werden generisch gelesen; FIR/Pozidano/Ebenen ohne Dienst entfallen.
+ */
+export function resolveSloveniaLayersFromWebmap(webmap: any, defs: readonly SiLayerDef[] = SI_LAYERS): SiResolvedLayers {
+  const entries: { title: string; url: unknown }[] = [];
+  walkWebmapLayers(webmap?.operationalLayers, entries);
+  const layers: SiLayerDef[] = [];
+  const generic: string[] = [];
+  const skipped: string[] = [];
+  const usedKeys = new Set<string>();
+  const usedServices = new Set<string>();
+  for (const { title, url } of entries) {
+    const servicePath = siServicePathFromUrl(url);
+    if (!servicePath) {
+      skipped.push(title || String(url ?? "?"));
+      continue;
+    }
+    if (SI_EXCLUDED_TITLE_RE.test(siKey(title)) || SI_EXCLUDED_SERVICE_RE.test(siServiceName(servicePath))) {
+      skipped.push(title || servicePath);
+      continue;
+    }
+    if (usedServices.has(servicePath.toLowerCase())) continue;
+    const def = siLayerDefFor(title, servicePath, defs);
+    let layer: SiLayerDef;
+    if (def && !usedKeys.has(def.key)) {
+      layer = { ...def, service: servicePath };
+    } else {
+      layer = siGenericLayerDef(title, servicePath);
+      if (usedKeys.has(layer.key)) layer = { ...layer, key: `${layer.key}_${layers.length}` };
+      generic.push(title || servicePath);
+    }
+    usedKeys.add(layer.key);
+    usedServices.add(servicePath.toLowerCase());
+    layers.push(layer);
+  }
+  return { layers, generic, skipped };
+}
+
+// Tolerante Feldnamen (Doku: „Feldnamen je Layer verschieden … auf
+// restrict*/subject/except* zurückfallen“), SL zuerst, EN danach.
+const AUTO_FIELDS: { [K in "name" | "nameEn" | "restriction" | "exception" | "reason" | "regulation" | "contact" | "upper"]: [RegExp, RegExp?] } = {
+  name: [/^(?:naziv|ime|ime_znamen|obmocje|letalisce|name)$/i],
+  nameEn: [/^(?:subject|zone)$/i],
+  restriction: [/^(?:uas_)?omejit/i, /^(?:uas_)?restri/i],
+  exception: [/^izjem/i, /^(?:except|exempt)/i],
+  reason: [/^razlog/i, /^reason/i],
+  regulation: [/^zakon/i, /^regul/i],
+  contact: [/^kontakt/i, /^contact/i],
+  upper: [/^visina$/i, /^upper$/i],
+};
+
+function firstKey(keys: string[], re: RegExp | undefined): string | undefined {
+  return re ? keys.find((k) => re.test(k)) : undefined;
+}
+
+/** Ebene mit `autoFields`: Feldnamen aus den Attributen eines Features ableiten. */
+export function siAutoFieldLayer(layer: SiLayerDef, props: Record<string, any>): SiLayerDef {
+  if (!layer.autoFields) return layer;
+  const keys = Object.keys(props ?? {});
+  const pair = (k: keyof typeof AUTO_FIELDS): [string, string] | undefined => {
+    const sl = firstKey(keys, AUTO_FIELDS[k][0]);
+    const en = firstKey(keys, AUTO_FIELDS[k][1]);
+    return sl || en ? [sl ?? "", en ?? ""] : undefined;
+  };
+  const one = (k: keyof typeof AUTO_FIELDS): string[] =>
+    [firstKey(keys, AUTO_FIELDS[k][0]), firstKey(keys, AUTO_FIELDS[k][1])].filter((x): x is string => !!x);
+  const exc = pair("exception");
+  return {
+    ...layer,
+    nameFields: one("name"),
+    nameEnFields: one("nameEn"),
+    restriction: pair("restriction"),
+    exceptions: exc ? [{ label: "Ausnahmen", fields: exc }] : undefined,
+    reason: pair("reason"),
+    regulation: pair("regulation"),
+    contact: one("contact"),
+    upper: one("upper"),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -598,6 +788,7 @@ const KIND_DE: Record<SiZoneKind, string> = {
   heliport: "Hubschrauberlandeplatz",
   prison: "Justizvollzugsanstalt",
   model: "Modellfluggelände",
+  other: "Geozone (UAS)",
 };
 
 const RESTRICTION_DE: Record<SiRestriction, string> = {
@@ -640,7 +831,8 @@ function urlField(props: Record<string, any>, names: string[] | undefined): stri
 }
 
 /** Behördenfelder eines Features (Layer-spezifisch) auslesen. */
-export function parseSiZone(props: Record<string, any>, layer: SiLayerDef): SiParsedZone {
+export function parseSiZone(props: Record<string, any>, layerDef: SiLayerDef): SiParsedZone {
+  const layer = siAutoFieldLayer(layerDef, props);
   const pair = (fp?: FieldPair): [string, string] =>
     fp ? [clean(field(props, fp[0])), clean(field(props, fp[1]))] : ["", ""];
   const [restrictionSl, restrictionEn] = pair(layer.restriction);

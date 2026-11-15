@@ -46,8 +46,11 @@
 //      VFRM_popup_fis/MapServer/0 Airspace_sectors_FIS (FIS-Sektoren, keine
 //        Beschränkung). Airspaces/MapServer/0 (Wurzelordner, 274 Lufträume inkl.
 //        Paragliding-Gebiete „W“) – Obermenge für die bemannte Luftfahrt.
-//      Hosted/Reservation_(Public)/FeatureServer/0 – Live-Reservierungen
-//        (LARA/AMA: aktive R/TRA mit Start/Ende); hier noch nicht verwendet.
+//      Hosted/Reservation_(Public)2/FeatureServer/0 – Live-Reservierungen
+//        (LARA: AMA/NAM, Start/Ende/Höhen; Name live geprüft 2026-11-15: die
+//        Web Map der Seite 81b2bf20… nutzt „(Public)2“, „(Public)“ existiert
+//        mit gleichen Daten ohne label-Felder → Rückfall), Hosted/Status_(Public)
+//        = Stand des AUP/UUP-Imports (Health-Check). Siehe „Reservierungen“ unten.
 //      Ordner Utilities: Token erforderlich; inspire/*: INSPIRE-Verkehrsnetz.
 //
 // ---------------------------------------------------------------------------
@@ -156,7 +159,8 @@ import {
 } from "./geozoneKit/messages";
 
 export const SK_GEOZONE_SOURCE_LABEL = "Dopravný úrad SR / LPS SR";
-export const SK_GEOZONE_ATTRIBUTION = "© LPS SR";
+/** Pflicht-Attribution der LPS-Daten laut VFR-Manual-Karte (Doku). */
+export const SK_GEOZONE_ATTRIBUTION = "VFR Manual, LPS SR, š. p.";
 /** Attribution der drohnenspezifischen Geozonen (Dopravný úrad). */
 export const SK_DU_ATTRIBUTION = "© Dopravný úrad SR";
 
@@ -579,11 +583,13 @@ export function buildSkLpsMessageDe(
   d: SkLpsDecision,
   lower: SkLimit | undefined,
   upper: SkLimit | undefined,
+  activation?: SkStaticActivation,
 ): string {
   const lines: string[] = [];
   lines.push(`Typ: ${LPS_KIND_DE[d.kind]} – ${RESTRICTION_DE[d.restriction]}`);
-  const note = LPS_NOTE[d.kind];
+  const note = activation?.note ?? LPS_NOTE[d.kind];
   if (note) lines.push(note);
+  if (activation) lines.push(...activation.lines);
   if (d.kind === "ctr" && /^UK/.test(clean(p.IDENT_TXT))) {
     lines.push("Ukrainische Kontrollzone (Uschhorod), die in slowakisches Gebiet hineinreicht; nicht in den slowakischen UAS-Geozonen enthalten.");
   }
@@ -619,7 +625,7 @@ export function buildSkLpsMessageDe(
 }
 
 /** Einzelnes LPS-Feature normalisieren; null ohne Fläche. Ausschlüsse prüft der Aufrufer. */
-export function normalizeSkLpsFeature(raw: any, decision?: SkLpsDecision): SkFeature | null {
+export function normalizeSkLpsFeature(raw: any, decision?: SkLpsDecision, act?: SkActivationContext): SkFeature | null {
   const geometry = skGeometry(raw?.geometry);
   if (!geometry) return null;
   const p: Record<string, any> = raw?.properties ?? {};
@@ -629,7 +635,8 @@ export function normalizeSkLpsFeature(raw: any, decision?: SkLpsDecision): SkFea
   const type = clean(p.TYPE_CODE) || clean(p.LOCALTYPE_TXT) || "X";
   const ident = clean(p.IDENT_TXT) || String(p.OBJECTID ?? "?");
   const identifier = `SK-LPS-${type}${clean(p.LOCALTYPE_TXT) ? `-${clean(p.LOCALTYPE_TXT)}` : ""}-${ident}`;
-  const message = buildSkLpsMessageDe(p, d, lower, upper);
+  const activation = act ? skStaticActivation(d.kind, clean(p.IDENT_TXT), act) : undefined;
+  const message = buildSkLpsMessageDe(p, d, lower, upper, activation);
   const props: Record<string, any> = {
     identifier,
     name: translateSkLpsName(p, d.kind),
@@ -651,9 +658,297 @@ export function normalizeSkLpsFeature(raw: any, decision?: SkLpsDecision): SkFea
     skIdent: clean(p.IDENT_TXT) || undefined,
     infoUrl: SK_VFRM_MAP_URL,
     infoUrlLabel: "VFR-Manual-Karte (LPS SR)",
+    applicability: activation?.applicability,
+    skActivation: activation?.mode,
   };
   for (const k of Object.keys(props)) if (props[k] === undefined) delete props[k];
   return { type: "Feature", id: identifier, geometry, properties: props };
+}
+
+// ---------------------------------------------------------------------------
+// LPS: Live-Reservierungen (Aktivierung R/TRA/TSA über AUP/UUP)
+// ---------------------------------------------------------------------------
+//
+// Quelle (live geprüft 2026-11-15): Hosted/Reservation_(Public)2/FeatureServer/0
+// (Web Map der VFRM-Seite, Ebene „Airspace activation“), Rückfall
+// Hosted/Reservation_(Public). Felder: airspace (= IDENT_TXT des statischen
+// Luftraums, z. B. „LZR24“), airspace_type (AMA = AUP/UUP, NAM = national),
+// status, startdate/enddate (ms, UTC), base/top_ („5000 FEET“, „125 FL“,
+// „0 FL“ = GND), lower_uom/upper_uom (AMSL/GND), type_code, localtype_txt,
+// label/label2. Filter wie die Webseite (SK_RESERVATION_WHERE).
+//
+// Regeln:
+//  - Zeitgesteuerte Typen (R, TRA, TSA) gelten nur in Reservierungsfenstern.
+//    Jede Reservierung wird eine EIGENE Zone („… – Aktivierung“) mit Geometrie
+//    und Höhen der Reservierung (Vorrang vor den statischen Höhen) und
+//    Gültigkeitsfenster = Reservierung (temporär nach geozoneTemporary).
+//  - Der statische Luftraum gilt bis zum Abdeckungshorizont als nicht aktiv
+//    und danach vorsorglich wieder als aktiv (applicability ab Horizont).
+//    Horizont = frühestes der spätesten Fensterenden je Quelle (AMA/NAM),
+//    höchstens 36 h nach Abruf.
+//  - Health-Check Hosted/Status_(Public): Import-Status ≠ „success“ oder
+//    letzter Import älter als 30 min → Reservierungen gelten als unzuverlässig:
+//    statische Zonen bleiben dauerhaft aktiv (wie ohne Reservierungsdaten),
+//    Hinweis „Aktivierungsdaten (AUP/UUP) evtl. nicht aktuell“; die
+//    Reservierungs-Zonen bleiben (nur strenger, nie lockernd).
+//  - Ohne Reservierungsdaten (Abruf gescheitert): bisheriges Verhalten
+//    (dauerhaft aktiv, Hinweis auf Statusprüfung).
+//  - P/D/CTR/PROTECT/ATZ bleiben dauerhaft; ihre Reservierungen (NAM) werden
+//    nicht als eigene Zone übernommen (keine Doppelung).
+
+const SK_HOSTED = "https://gis.lps.sk/server/rest/services/Hosted";
+export const SK_RESERVATION_LAYER_URL = `${SK_HOSTED}/Reservation_(Public)2/FeatureServer/0`;
+export const SK_RESERVATION_LAYER_FALLBACK_URL = `${SK_HOSTED}/Reservation_(Public)/FeatureServer/0`;
+export const SK_STATUS_LAYER_URL = `${SK_HOSTED}/Status_(Public)/FeatureServer/0`;
+/** Filter der VFR-Manual-Seite (Doku, live geprüft: 19 → 17, ohne NPZ). */
+export const SK_RESERVATION_WHERE =
+  "(lower_fl<>'FL' OR lower_val<=195) AND (localtype_txt IS NULL OR localtype_txt<>'NPZ') AND status IN ('ACTIVE','APPROVED','ALLOCATED','REFERENCE_ALLOCATED','PENDING')";
+/** Zeitgesteuerte Arten: aktiv nur laut Reservierung. */
+export const SK_TIME_CONTROLLED_KINDS: readonly SkLpsKind[] = ["restricted", "tra", "tsa"];
+export const SK_RESERVATION_HORIZON_MAX_MS = 36 * 60 * 60 * 1000;
+/** Letzter AUP/UUP-Import älter als das → Reservierungen unzuverlässig. */
+export const SK_STATUS_MAX_AGE_MS = 30 * 60 * 1000;
+const OPEN_AFTER_HORIZON_MS = 365 * 24 * 60 * 60 * 1000;
+export const SK_ACTIVATION_STALE_DE = "Aktivierungsdaten (AUP/UUP) evtl. nicht aktuell";
+
+export function skReservationQueryUrl(layerUrl: string = SK_RESERVATION_LAYER_URL, offset = 0, count = 1000): string {
+  return arcgisQueryUrl(layerUrl, { offset, count, orderByFields: "objectid", where: SK_RESERVATION_WHERE });
+}
+
+export function skStatusQueryUrl(): string {
+  const params = new URLSearchParams({
+    where: "1=1",
+    outFields: "statusama,statusnam,overallstatus,latestupdate,statussource",
+    returnGeometry: "false",
+    f: "json",
+  });
+  return `${SK_STATUS_LAYER_URL}/query?${params.toString()}`;
+}
+
+export interface SkReservationHealth {
+  ok: boolean;
+  /** Letzter Import (ms), falls bekannt. */
+  latestUpdate?: number;
+  note?: string;
+}
+
+/** Health-Check aus Status_(Public) (`f=json` oder `f=geojson`). */
+export function skReservationHealth(body: any, now: number): SkReservationHealth {
+  const rows: Record<string, any>[] = Array.isArray(body?.features)
+    ? body.features.map((f: any) => f?.attributes ?? f?.properties ?? {})
+    : [];
+  let latest: number | undefined;
+  const failed: string[] = [];
+  for (const r of rows) {
+    for (const k of ["statusama", "statusnam", "overallstatus"]) {
+      const v = clean(r[k]);
+      if (v && v.toLowerCase() !== "success") failed.push(`${k}=${v}`);
+    }
+    const t = Number(r.latestupdate);
+    if (Number.isFinite(t) && t > 0 && (latest == null || t > latest)) latest = t;
+  }
+  if (failed.length > 0) return { ok: false, latestUpdate: latest, note: `${SK_ACTIVATION_STALE_DE} (Import-Status: ${failed.join(", ")})` };
+  if (latest != null && now - latest > SK_STATUS_MAX_AGE_MS) {
+    return { ok: false, latestUpdate: latest, note: `${SK_ACTIVATION_STALE_DE} (letzter Import ${utcText(latest)})` };
+  }
+  return { ok: true, latestUpdate: latest };
+}
+
+/** „5000 FEET“, „125 FL“, „0 FL“ (= GND) samt UOM (AMSL/GND/SFC) → SkLimit. */
+export function skReservationLimit(text: unknown, uom: unknown): SkLimit | undefined {
+  const t = clean(text).toUpperCase();
+  const m = t.match(/^(-?\d+(?:[.,]\d+)?)\s*(FL|FEET|FT|M)?$/);
+  if (!m) return undefined;
+  const n = Number(m[1].replace(",", "."));
+  const unit = m[2] ?? "";
+  if (n === 0) return { meters: 0, reference: "AGL", label: "GND" };
+  if (unit === "FL") return skLimit(n, "FL", "STD");
+  const u = clean(uom).toUpperCase();
+  const code = u === "GND" || u === "SFC" || u === "AGL" ? "SFC" : "MSL";
+  return skLimit(n, unit === "M" ? "M" : "FT", code);
+}
+
+export interface SkReservationWindow {
+  ident: string;
+  source: string;
+  start: number;
+  end: number;
+  status: string;
+  lower?: SkLimit;
+  upper?: SkLimit;
+}
+
+function utcText(ts: number): string {
+  return `${new Date(ts).toISOString().slice(0, 16).replace("T", " ")} UTC`;
+}
+
+function windowLineDe(w: SkReservationWindow): string {
+  return `${utcText(w.start)} – ${utcText(w.end)} (${w.source || "?"}, ${limitDe(w.lower, false)} – ${limitDe(w.upper, true)})`;
+}
+
+/** Reservierungen → Fenster je Luftraum-Kennung (ungültige Zeiten entfallen). */
+export function skReservationWindows(raws: readonly any[]): Map<string, SkReservationWindow[]> {
+  const out = new Map<string, SkReservationWindow[]>();
+  for (const raw of raws ?? []) {
+    const p = raw?.properties ?? raw?.attributes ?? {};
+    const ident = clean(p.airspace).toUpperCase();
+    const start = Number(p.startdate);
+    const end = Number(p.enddate);
+    if (!ident || !Number.isFinite(start) || !Number.isFinite(end) || end <= start) continue;
+    const w: SkReservationWindow = {
+      ident,
+      source: clean(p.airspace_type).toUpperCase(),
+      start,
+      end,
+      status: clean(p.status).toUpperCase(),
+      lower: skReservationLimit(p.base, p.lower_uom),
+      upper: skReservationLimit(p.top_, p.upper_uom),
+    };
+    const list = out.get(ident) ?? [];
+    list.push(w);
+    out.set(ident, list);
+  }
+  for (const list of out.values()) list.sort((a, b) => a.start - b.start);
+  return out;
+}
+
+/**
+ * Abdeckungshorizont: je Quelle (AMA/NAM) das späteste Fensterende, davon das
+ * früheste (deckt eine Quelle nur den heutigen Tag ab, gilt das für alle);
+ * mindestens `now`, höchstens now + 36 h.
+ */
+export function skReservationHorizon(windows: Map<string, SkReservationWindow[]>, now: number): number {
+  const maxBySource = new Map<string, number>();
+  for (const list of windows.values()) {
+    for (const w of list) maxBySource.set(w.source, Math.max(maxBySource.get(w.source) ?? 0, w.end));
+  }
+  if (maxBySource.size === 0) return now;
+  const h = Math.min(...maxBySource.values());
+  return Math.max(now, Math.min(h, now + SK_RESERVATION_HORIZON_MAX_MS));
+}
+
+export interface SkActivationContext {
+  now: number;
+  /** Reservierungen geladen (Abruf erfolgreich). */
+  loaded: boolean;
+  /** Geladen UND Health-Check ok → Fenster gelten als Aktivitätsplan. */
+  reliable: boolean;
+  horizon: number;
+  windows: Map<string, SkReservationWindow[]>;
+  healthNote?: string;
+}
+
+export interface SkStaticActivation {
+  mode: "reservations" | "unreliable" | "none";
+  note: string;
+  lines: string[];
+  applicability?: any[];
+}
+
+const LPS_KIND_SHORT_DE: Partial<Record<SkLpsKind, string>> = {
+  restricted: "Militärisches/behördliches Flugbeschränkungsgebiet",
+  tra: "Temporär reserviertes Gebiet (militärisch)",
+  tsa: "Temporär abgetrenntes Gebiet",
+};
+
+/** Aktivierungsregel des statischen Luftraums (nur zeitgesteuerte Arten), sonst undefined. */
+export function skStaticActivation(kind: SkLpsKind, ident: string, act: SkActivationContext): SkStaticActivation | undefined {
+  if (!SK_TIME_CONTROLLED_KINDS.includes(kind)) return undefined;
+  const base = LPS_KIND_SHORT_DE[kind] ?? LPS_KIND_DE[kind];
+  const list = (act.windows.get(ident.toUpperCase()) ?? []).filter((w) => w.end >= act.now);
+  const lines = list.length
+    ? [`Reservierungen (LPS SR, UTC): ${list.map(windowLineDe).join("; ")} – jeweils als eigene Zone „… – Aktivierung“ mit den Höhen der Reservierung.`]
+    : [];
+  if (!act.loaded) {
+    return { mode: "none", note: LPS_NOTE[kind] ?? "", lines: [] };
+  }
+  if (!act.reliable) {
+    return {
+      mode: "unreliable",
+      note: `${base}; Aktivierung über AUP/UUP bzw. NOTAM. ${act.healthNote ?? SK_ACTIVATION_STALE_DE} – die Zone wird vorsichtshalber als dauerhaft aktiv behandelt. Vor dem Flug den Status prüfen.`,
+      lines,
+    };
+  }
+  const openEnd = new Date(act.horizon + OPEN_AFTER_HORIZON_MS).toISOString();
+  return {
+    mode: "reservations",
+    note: `${base}; aktiv nur laut Reservierung (AUP/UUP, LPS SR). Ab ${utcText(act.horizon)} liegen keine Reservierungsdaten vor – dann vorsorglich als aktiv gewertet.`,
+    lines: lines.length ? lines : [`Bis ${utcText(act.horizon)} keine Reservierung.`],
+    applicability: [{ permanent: "NO", startDateTime: new Date(act.horizon).toISOString(), endDateTime: openEnd }],
+  };
+}
+
+/** Eine Reservierung (nur zeitgesteuerte Arten) → eigene, befristete Zone; null = übersprungen. */
+export function normalizeSkReservation(
+  raw: any,
+  staticProps: Record<string, any> | undefined,
+  now: number,
+): { feature: SkFeature | null; reason?: SkDropReason } {
+  const p: Record<string, any> = raw?.properties ?? {};
+  const ident = clean(p.airspace).toUpperCase();
+  const start = Number(p.startdate);
+  const end = Number(p.enddate);
+  if (!ident || !Number.isFinite(start) || !Number.isFinite(end) || end <= start) return { feature: null, reason: "no_geometry" };
+  if (end < now) return { feature: null, reason: "expired" };
+  const classProps = staticProps ?? { TYPE_CODE: p.type_code, LOCALTYPE_TXT: p.localtype_txt, ACTIVITY_CODE: p.activity_code };
+  const d = classifySkLps(classProps);
+  if (d.excluded) return { feature: null, reason: d.excluded };
+  if (!SK_TIME_CONTROLLED_KINDS.includes(d.kind)) return { feature: null, reason: "permanent_static" };
+  const lower = skReservationLimit(p.base, p.lower_uom);
+  const upper = skReservationLimit(p.top_, p.upper_uom);
+  if (skLowerAboveDroneHeight(lower)) return { feature: null, reason: "above_drone_height" };
+  const geometry = skGeometry(raw?.geometry);
+  if (!geometry) return { feature: null, reason: "no_geometry" };
+  const src = clean(p.airspace_type).toUpperCase();
+  const label = clean(p.label) || ident.replace(/^LZ/, "");
+  const baseName = staticProps
+    ? translateSkLpsName(staticProps, d.kind)
+    : `${LPS_KIND_DE[d.kind]} ${label}${clean(p.label2) ? ` ${skTitleCase(clean(p.label2))}` : ""}`;
+  const identifier = `SK-RES-${ident}-${new Date(start).toISOString().slice(0, 16)}`;
+  const w: SkReservationWindow = { ident, source: src, start, end, status: clean(p.status).toUpperCase(), lower, upper };
+  const lines: string[] = [
+    `Typ: ${LPS_KIND_DE[d.kind]} – AKTIVIERT laut Reservierung (${src === "AMA" ? "AUP/UUP" : src === "NAM" ? "nationale Reservierung" : src || "LPS SR"}) – ${RESTRICTION_DE[d.restriction]}`,
+    `Aktiv: ${utcText(start)} – ${utcText(end)}`,
+    `Vertikale Grenzen der Reservierung (haben Vorrang vor den veröffentlichten): ${limitDe(lower, false)} – ${limitDe(upper, true)}`,
+    `Status: ${w.status || "?"}`,
+  ];
+  const act = clean(p.activity_code).toUpperCase();
+  if (act) lines.push(`Aktivität: ${ACTIVITY_DE[act] ?? SEE_ORIGINAL_DE}`);
+  lines.push(sourceLineDe(`${SK_GEOZONE_SOURCE_LABEL} – VFR-Manual, Luftraumaktivierung ${ident}`, SK_GEOZONE_ATTRIBUTION, "AUP/NOTAM"));
+  const original = [
+    "Ebene: Hosted/Reservation_(Public)2 „Airspace activation“ (LPS SR)",
+    ...["airspace", "airspace_type", "status", "base", "top_", "type_code", "localtype_txt", "activity_code", "label", "label2", "lastupdate"]
+      .filter((k) => clean(p[k]))
+      .map((k) => `${k}: ${clean(p[k])}`),
+    `startdate: ${new Date(start).toISOString()}`,
+    `enddate: ${new Date(end).toISOString()}`,
+  ].join("\n");
+  const message = appendOriginalText(lines, original, { always: true }).join("\n");
+  const props: Record<string, any> = {
+    identifier,
+    name: `${baseName} – Aktivierung`,
+    restriction: d.restriction,
+    lowerMeters: lower?.meters ?? 0,
+    lowerReference: lower?.meters ? lower.reference : "AGL",
+    upperMeters: upper?.meters,
+    upperReference: upper?.reference,
+    validStartTs: start,
+    validEndTs: end,
+    applicability: [{ permanent: "NO", startDateTime: new Date(start).toISOString(), endDateTime: new Date(end).toISOString() }],
+    message,
+    extendedProperties: localizedExtendedProperties(message, original, "sk", { always: true }),
+    country: "SVK",
+    source: SK_GEOZONE_SOURCE_LABEL,
+    attribution: SK_GEOZONE_ATTRIBUTION,
+    skSource: "lps-reservation",
+    skKind: d.kind,
+    skIdent: ident,
+    skReservationSource: src || undefined,
+    infoUrl: SK_VFRM_MAP_URL,
+    infoUrlLabel: "VFR-Manual-Karte (LPS SR)",
+  };
+  for (const k of Object.keys(props)) if (props[k] === undefined) delete props[k];
+  return { feature: { type: "Feature", id: identifier, geometry, properties: props } };
 }
 
 // ---------------------------------------------------------------------------
@@ -1091,11 +1386,13 @@ export function decodeSkDuArchive(bytes: Uint8Array): string {
 // Kombination
 // ---------------------------------------------------------------------------
 
-export type SkDropReason = SkExclusionReason | "no_geometry" | "duplicate" | "expired";
+export type SkDropReason = SkExclusionReason | "no_geometry" | "duplicate" | "expired" | "permanent_static";
 
 export interface SkNormalizeResult {
   features: SkFeature[];
-  dropped: { source: "du" | "lps"; name: string; reason: SkDropReason }[];
+  dropped: { source: "du" | "lps" | "reservation"; name: string; reason: SkDropReason }[];
+  /** Aktivierungs-Kontext (Horizont, Zuverlässigkeit); ohne Reservierungen loaded=false. */
+  activation: SkActivationContext;
 }
 
 export interface SkNormalizeInput {
@@ -1105,6 +1402,13 @@ export interface SkNormalizeInput {
   duKml?: string;
   /** Bezugszeit für abgelaufene befristete Zonen (Default: jetzt). */
   now?: number;
+  /**
+   * Live-Reservierungen (Reservation_(Public)2, f=geojson). undefined = nicht
+   * geladen (Abruf gescheitert) → zeitgesteuerte Zonen dauerhaft aktiv.
+   */
+  reservations?: any[];
+  /** Health-Check (Status_(Public)); fehlt = als gesund gewertet. */
+  reservationHealth?: SkReservationHealth;
 }
 
 /** DÚ-Geozonen + LPS-Lufträume → Features + Verwerfungsstatistik. */
@@ -1149,7 +1453,21 @@ export function normalizeSlovakiaWithStats(input: SkNormalizeInput): SkNormalize
     }
   }
 
+  // Reservierungen (Aktivierung R/TRA/TSA)
+  const resLoaded = Array.isArray(input.reservations);
+  const windows = resLoaded ? skReservationWindows(input.reservations as any[]) : new Map<string, SkReservationWindow[]>();
+  const health = input.reservationHealth ?? { ok: true };
+  const activation: SkActivationContext = {
+    now,
+    loaded: resLoaded,
+    reliable: resLoaded && health.ok,
+    horizon: skReservationHorizon(windows, now),
+    windows,
+    healthNote: health.ok ? undefined : health.note,
+  };
+
   // 2) LPS (ergänzend)
+  const staticByIdent = new Map<string, Record<string, any>>();
   const seenLps = new Set<string>();
   for (const raw of input.lps ?? []) {
     const p = raw?.properties ?? {};
@@ -1176,11 +1494,13 @@ export function normalizeSlovakiaWithStats(input: SkNormalizeInput): SkNormalize
       dropped.push({ source: "lps", name: label, reason: "above_drone_height" });
       continue;
     }
-    const f = normalizeSkLpsFeature(raw, d);
+    const f = normalizeSkLpsFeature(raw, d, activation);
     if (!f) {
       dropped.push({ source: "lps", name: label, reason: "no_geometry" });
       continue;
     }
+    const identUp = clean(p.IDENT_TXT).toUpperCase();
+    if (identUp && SK_TIME_CONTROLLED_KINDS.includes(d.kind)) staticByIdent.set(identUp, p);
     const id = String(f.properties.identifier);
     if (ids.has(id)) {
       let n = 2;
@@ -1191,7 +1511,32 @@ export function normalizeSlovakiaWithStats(input: SkNormalizeInput): SkNormalize
     ids.add(String(f.properties.identifier));
     features.push(f);
   }
-  return { features, dropped };
+
+  // 3) Reservierungen als eigene, befristete Zonen (Join airspace ↔ IDENT_TXT)
+  if (resLoaded) {
+    const allStatic = new Map<string, Record<string, any>>();
+    for (const raw of input.lps ?? []) {
+      const p = raw?.properties ?? {};
+      const id = clean(p.IDENT_TXT).toUpperCase();
+      if (id && !allStatic.has(id)) allStatic.set(id, p);
+    }
+    for (const raw of input.reservations ?? []) {
+      const ident = clean(raw?.properties?.airspace).toUpperCase();
+      const r = normalizeSkReservation(raw, staticByIdent.get(ident) ?? allStatic.get(ident), now);
+      if (!r.feature) {
+        dropped.push({ source: "reservation", name: ident || "?", reason: r.reason ?? "no_geometry" });
+        continue;
+      }
+      const id = String(r.feature.properties.identifier);
+      if (ids.has(id)) {
+        dropped.push({ source: "reservation", name: ident, reason: "duplicate" });
+        continue;
+      }
+      ids.add(id);
+      features.push(r.feature);
+    }
+  }
+  return { features, dropped, activation };
 }
 
 export function normalizeSlovakia(input: SkNormalizeInput): SkFeature[] {

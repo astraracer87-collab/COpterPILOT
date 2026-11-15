@@ -18,8 +18,11 @@ import {
   mergeIcelandicFeatures,
   normalizeIcelandicClosures,
   normalizeIcelandicZones,
+  IS_WEBSITE_WFS_URL,
+  IS_WEBSITE_ZONES_LAYER,
+  mergeIcelandicZoneLayers,
 } from "../../../shared/icelandicGeozones";
-import { fetchIceland } from "../geozoneDirect/icelandSource";
+import { fetchIceland, loadIcelandZones } from "../geozoneDirect/icelandSource";
 
 // Gekürzter ECHTER WFS-Abzug von samgongustofa:dronemap_isl_geom (gis.is,
 // 2026-11-15): 9 von 271 Zonen, Geometrien unverändert; numberReturned an die
@@ -210,5 +213,43 @@ describe("Island – WFS-Abruf", () => {
     }) as typeof fetch;
     const out = await fetchIceland();
     assert.equal(out.length, 9);
+  });
+});
+
+// Beide Zonen-Layer: dronemap_ice_geom (Webseite, bevorzugt) + dronemap_isl_geom.
+// ECHTE Auszüge (2026-11-15): Surtsey liegt mit identischer Geometrie in beiden
+// Layern, Dettifoss nur im Webseiten-Layer, Glerárvirkjun 1 nur im älteren.
+
+const iceIsl = JSON.parse(readFileSync(join(__dirname, "fixtures/is-samgongustofa-ice-isl-sample.json"), "utf8"));
+
+describe("Island – Layer der Webseite (dronemap_ice_geom) + dronemap_isl_geom", () => {
+  it("Webseiten-Layer bevorzugt, gleiche Geometrie nur einmal, Rest ergänzt", () => {
+    const merged = mergeIcelandicZoneLayers(normalizeIcelandicZones(iceIsl.ice), normalizeIcelandicZones(iceIsl.isl));
+    const ids = merged.map((f) => f.properties.identifier).sort();
+    assert.deepEqual(ids, ["NFZ-195", "UGZ-150", "UGZ-19"]);
+    const surtsey = merged.filter((f) => f.properties.name === "Surtsey");
+    assert.equal(surtsey.length, 1);
+    assert.equal(surtsey[0].properties.isLayer, "dronemap_ice_geom");
+    assert.equal(merged.find((f) => f.properties.identifier === "NFZ-195")!.properties.isLayer, "dronemap_isl_geom");
+  });
+
+  it("Einstufung REQ_AUTHORISATION, ab Boden ohne Obergrenze; Behördentext als Hinweis", () => {
+    const merged = mergeIcelandicZoneLayers(normalizeIcelandicZones(iceIsl.ice), normalizeIcelandicZones(iceIsl.isl));
+    for (const f of merged) {
+      assert.equal(f.properties.restriction, "REQ_AUTHORISATION");
+      assert.equal(f.properties.lowerMeters, 0);
+      assert.equal(f.properties.upperMeters, undefined);
+    }
+    const dettifoss = merged.find((f) => f.properties.identifier === "UGZ-19")!;
+    assert.match(dettifoss.properties.message, /Hinweis der Behörde: „No drone flights allowed in this area\.“/);
+  });
+
+  it("ein Layer fällt aus → der andere allein; Konstanten der Webseite", async () => {
+    const onlyLegacy = await loadIcelandZones(async () => { throw new Error("HTTP 503"); }, async () => iceIsl.isl.features);
+    assert.equal(onlyLegacy.length, 2);
+    const onlyWeb = await loadIcelandZones(async () => iceIsl.ice.features, async () => { throw new Error("HTTP 503"); });
+    assert.equal(onlyWeb.length, 2);
+    assert.equal(IS_WEBSITE_ZONES_LAYER, "samgongustofa:dronemap_ice_geom");
+    assert.ok(IS_WEBSITE_WFS_URL.startsWith("https://gis.natt.is/"));
   });
 });

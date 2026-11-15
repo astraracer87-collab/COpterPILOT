@@ -1141,3 +1141,106 @@ EU-Browser-Kontext) – gebaut aus Doku, Referenzskript und Fixtures.
 - **Offen / Gerät**: Laufzeit und Speicher unter Hermes messen (Android RC);
   `res.arrayBuffer()` für 0,5 MB auf dem Gerät; Darstellung FRZ+RPZ in der
   Zonen-Info; Lizenz/AGB (kommerzielle Weitergabe) gegen die UK-Vereinbarung.
+
+## Stand P2/P3 SI, SK, DK, NO, IS, SE, LU, ES, AT (2026-11-15)
+
+Live getestet aus der US-Sandbox (alle Hosts erreichbar außer
+droneluftrom.no; dronesoner.no ging), kleine echte Fixtures unter
+client/lib/__tests__/fixtures/ (Attribute/Geometrien unverändert, Teilmengen).
+
+- **Teil-Abdeckung je Abruf (neu, gemeinsam)**: Ein Fetcher hängt mit
+  `withFetchCoverage(features, { partialNote, keepPrevious })`
+  (client/lib/geozoneDirect/directFetchUtil.ts, WeakMap – die Rückgabe bleibt
+  `GeoFeature[]`) eine Begleitinfo an; `fetchEd269CountryFeatures` reicht sie
+  durch. ed269Store speichert `partialNote` im Bestand und übernimmt aus dem
+  vorherigen (nicht importierten) Bestand die Zonen mit `keepPrevious(props)`
+  (`mergeCarriedOverFeatures`, `_carriedOver: true`, Dedupe über
+  `identifier`). Teilbestand → nach 10 min erneut versuchen. Abdeckung:
+  `withPartialDatasetNote` (client/lib/geozoneCoverage.ts) → mindestens
+  „partial“ mit dem Hinweis (Befund unbekannt, ≥ CAUTION). Genutzt von SI, DK, NO.
+- **SI** (sloveniaSource.ts, slovenianGeozones.ts): Ebenen bei jedem Abruf aus
+  der Web Map `14c35a6c…/data?f=json` (operationalLayers[].url, Gruppen
+  rekursiv). `SI_LAYERS` ist nur noch Feldzuordnung (Titel bzw.
+  `match.servicePrefixes`, z. B. `ELES_`, `Luka_Koper`/`Luka_KP`) + Rückfall.
+  Unbekannte Ebene → generische Definition (`kind: "other"`, `autoFields`:
+  Felder je Feature über restrict…/subject/except…/razlog/zakon/kontakt,
+  vorsichtig REQ_AUTHORISATION). FIR, Pozidano (zurückgestellt), Skiciraj
+  ausgelassen. Eine Ebene scheitert (nach Wiederholung) → Rest gespeichert,
+  „partial“ mit „CAA Slovenia: 1 von 18 Ebenen nicht abrufbar (CTR) – deren
+  Zonen fehlen bzw. stammen aus dem letzten Stand“, CTR aus dem letzten
+  Stand; alle scheitern → Fehler. Live: 18 Ebenen, 130 Zonen.
+- **SK** (slovakiaSource.ts, slovakGeozones.ts „LPS: Live-Reservierungen“):
+  `Hosted/Reservation_(Public)2` (Web Map der VFRM-Seite; `(Public)` gleicher
+  Inhalt ohne label → Rückfall) mit dem Webseiten-Filter
+  `SK_RESERVATION_WHERE` (live 19 → 17, NPZ raus). Join `airspace` ↔
+  `IDENT_TXT`. Zeitgesteuert: R, TRA, TSA. Je Reservierung eigene Zone
+  „<Luftraum> – Aktivierung“: Geometrie/Höhen der Reservierung (`base`/`top_`
+  „5000 FEET“/„125 FL“/„0 FL“ = GND, Bezug aus lower_uom; Vorrang vor den
+  statischen Höhen), `validStartTs/EndTs` = Fenster → temporär (kurzer Cache
+  10 min bei Prüfungen, ≤ 24 h sonst „partial“). Statische R/TRA/TSA:
+  applicability ab Horizont (frühestes der spätesten Fensterenden je
+  AMA/NAM, max. 36 h) → bis dahin inaktiv, danach vorsorglich aktiv; Text
+  listet die Fenster. P/D/CTR/PROTECT/ATZ dauerhaft (ihre NAM-Reservierungen
+  → `permanent_static`, keine Doppelung). Health-Check `Status_(Public)`:
+  statusama/statusnam/overallstatus ≠ „success“ oder `latestupdate` > 30 min
+  (live alle ≈ 2 min) → unzuverlässig: statische Zonen dauerhaft aktiv mit
+  „Aktivierungsdaten (AUP/UUP) evtl. nicht aktuell“, Reservierungs-Zonen
+  bleiben (nur strenger). Ohne Reservierungsdaten: bisheriges Verhalten.
+  Attribution jetzt „VFR Manual, LPS SR, š. p.“. Live: 13
+  Aktivierungszonen, 41 statische R/TRA zeitgesteuert, 401 Zonen gesamt.
+- **DK** (danishGeozones.ts „Live-Ebenen“, ed269Sources.ts
+  `fetchDanishLiveLayers`): Tagesexport live 1.793 Zonen ohne NOTAM/
+  Anflugflächen. Dienstnamen aus Web Map 4d73b795… (Titel „NOTAMS - …“,
+  „GUL …“, „…udflyvning…“ bzw. Dienst-Präfix; Rückfall bekannte Pfade),
+  öffentlich ohne Token (APP_CONFIG-Zugangsdaten nie). active/awareness/
+  inactive → NOTAM-Zonen (`isNotam`, Fenster aus StartDate/EndDate, Untergrenze
+  aus LimitMeter/LimitFod, Zeitplan nur Text, Roh-NOTAM im Original);
+  RESTRICTED → RESTRICTED, DANGER/AWARENESS → CONDITIONAL, Verbotstext →
+  PROHIBITED. disabled_notams (53 gelbe EK R/D/TSA) → „<Name> (<Ort>) – nicht
+  aktiviert“, bis Abruf + 2 h inaktiv (`DK_DISABLED_HORIZON_MS`), danach
+  vorsorglich aktiv, nicht temporär. Dedupe über den Namen (aktiv > Achtung >
+  angekündigt > deaktiviert). Ind__og_udflyvningsplaner/188 (186) →
+  „An-/Abflugfläche <Ort> (<ICAO>)“, CONDITIONAL. Ebene fehlt → „partial“ +
+  letzter Stand (`dkLayer`). Live: +242 Zonen, DK gesamt 2.027.
+- **NO** (norwegianGeozones.ts „/data/“, norwaySource.ts `loadNorway`): ED-269
+  bleibt Pflicht; aus /data/ nur Fehlendes (Name bzw. Kennung END…/EN R…):
+  forbud_notam (PROHIBITED, NOTAM), obs_fareomrader, obs_sanntid_fareomrader
+  (Temporär-Ebene `_layer`, in `TEMPORARY_LAYER_IDS`), obs_droneflyging,
+  obs_notam_soner, luftrom_ctr_tiz, luftrom_rmz_tmz (CONDITIONAL),
+  obs_flyplasser (derzeit alle in ED-269). Höhen per `parseHeight` (FL → STD).
+  `notam_status.json`: NOTAM-Dateien nur bei neuem `oppdatert_iso`, feste
+  täglich (Speicher im Modul); `kilder_feilet`/`antall_feilet` bzw. fehlende
+  Datei → „partial“. Attribution „… (NLOD 2.0); © OpenStreetMap contributors
+  (ODbL)“ (Botschaften im ED-269-Satz aus OSM). Live: 1.389 + 153 = 1.542
+  Zonen, 72 temporär; zweiter Abruf lädt keine Datei neu.
+- **IS** (icelandicGeozones.ts `mergeIcelandicZoneLayers`, icelandSource.ts
+  `loadIcelandZones`): `dronemap_ice_geom` (Webseite, gis.natt.is/geoserver/
+  samgongustofa/ows, Rückfall gis.is) vollständig + `dronemap_isl_geom` nur
+  mit anderer Geometrie; Behördentext „No drone flights allowed in this area.“
+  als Hinweis; REQ_AUTHORISATION, ab Boden ohne Obergrenze. Live 229 Zonen
+  (171 + 58; isl hatte 56 doppelte Geometrien).
+- **SE**: `SE_ED318_FALLBACK_URL` (daim.lfv.se, live identisch);
+  Quellenzeile „Quelle: LFV Drönarkartan / Transportstyrelsen (ED-318,
+  Datenstand 29.10.2026), CC BY 4.0.“ aus `metadata.issued`, `datasetIssued`.
+- **LU** (`loadLuxembourg`): OGC 1927 + 1928 zuerst; ED-269 (live HTTP 422)
+  höchstens einmal täglich als Prüfung (`luxembourgEd269CheckStatus`) bzw.
+  als Rückfall, wenn OGC ausfällt.
+- **ES**: Attribution „© ENAIRE – AIS“ (Normalisierer, Kachel-Attribution,
+  Registry-Lizenztext).
+- **AT**: `authorityRequirementConditions` als Infozeile
+  („Bedingungscode der Behörde (nur Information, keine Freigabe – Bedeutung
+  nicht bestätigt): …“, bekannte Schlüssel wörtlich ausgeschrieben), nie für
+  Einstufung/Befund.
+- **Registry** (shared/geozoneSourceMeta.ts): usage/license/note für LU, AT,
+  DK, SE, ES, IS, SI, SK, NO angepasst. `arcgisQueryUrl` kennt `where`.
+- **Tests**: slovenianGeozones (Web Map, Dienstwechsel, generische Ebene,
+  Teilbestand), slovakGeozones (Filter, Höhen, Health, Horizont, Fenster,
+  Rückfall-Dienst), danishLiveLayers, norwayDataLayers, icelandicGeozones,
+  swedishGeozones, luxembourgOgcMerge, austriaGeozones,
+  geozoneCoverageStatus, restrictionPolicy (alle neuen Fixtures).
+- **Nur auf dem Gerät prüfbar**: Abrufzeiten/Größen auf der RC (DK +0,2 MB
+  NOTAM/Flächen bei jedem 10-min-Prüf-Abruf, NO +≈ 1,1 MB beim ersten Abruf
+  pro Tag), Anzeige der „partial“-Hinweise, SK-Aktivierungszonen über
+  Mitternacht (Horizont-Wechsel), DK-Anflugflächen in der gruppierten Liste,
+  ob gis.natt.is/dronesoner.no/gis.lps.sk aus dem EU-Mobilnetz ohne
+  Browser-UA antworten.

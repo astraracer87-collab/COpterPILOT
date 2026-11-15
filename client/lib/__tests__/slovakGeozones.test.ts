@@ -22,12 +22,25 @@ import {
   skTitleCase,
   translateSkDuRestriction,
   translateSkLpsName,
+  SK_RESERVATION_LAYER_FALLBACK_URL,
+  SK_RESERVATION_LAYER_URL,
+  SK_RESERVATION_WHERE,
+  SK_STATUS_LAYER_URL,
+  skReservationHealth,
+  skReservationHorizon,
+  skReservationLimit,
+  skReservationQueryUrl,
+  skReservationWindows,
 } from "../../../shared/slovakGeozones";
+import { zoneActivityAt } from "../../../shared/ed269Restriction";
+import { isTemporaryGeozoneProps } from "../../../shared/geozoneTemporary";
 import { parseKmlPlacemarks } from "../../../shared/kmlParse";
 import { loadSlovakia } from "../geozoneDirect/slovakiaSource";
 import { parseEd269ToGeozoneInfo } from "../ed269";
 
 // Gekürzte ECHTE Auszüge (abgerufen 2026-11-15):
+//  - LPS SR Hosted/Reservation_(Public)2 (3 von 19 Reservierungen: LZTRA3,
+//    LZR24 = AMA, LZP1 = NAM) und Hosted/Status_(Public) (2 Zeilen, success).
 //  - LPS SR VFRM_popup/MapServer/5 (f=geojson, outSR=4326): 22 von 178
 //    Lufträumen, Attribute und Geometrien unverändert. Enthält je Typ
 //    mindestens einen Vertreter, u. a. RAS/MRVA, RAS/NPZ, RAS/ATZ, RAS/RMZ,
@@ -38,6 +51,8 @@ const lpsBody = JSON.parse(readFileSync(join(__dirname, "fixtures/sk-lps-arcgis-
 const lps: any[] = lpsBody.features;
 const duKml = readFileSync(join(__dirname, "fixtures/sk-du-uas-zones-sample.kml"), "utf8");
 const NOW = Date.parse("2026-11-15T12:00:00Z");
+const resFixture = JSON.parse(readFileSync(join(__dirname, "fixtures/sk-lps-reservations-sample.json"), "utf8"));
+const reservations: any[] = resFixture.reservations.features;
 
 const rawByIdent = (ident: string, type?: string) =>
   lps.find((f) => f.properties.IDENT_TXT === ident && (!type || f.properties.TYPE_CODE === type));
@@ -311,6 +326,8 @@ describe("slovakGeozones – Abruf", () => {
       now: NOW,
       json: async (url) => {
         urls.push(url);
+        if (url.includes("/Hosted/Reservation_")) return resFixture.reservations;
+        if (url.includes("/Hosted/Status_")) return resFixture.status;
         return lpsBody;
       },
       text: async () => html,
@@ -323,7 +340,9 @@ describe("slovakGeozones – Abruf", () => {
     assert.ok(out.every((f: any) => f.properties._country === "sk" && Array.isArray(f.bbox)));
     assert.ok(out.some((f: any) => f.properties.skSource === "du"));
     assert.ok(out.some((f: any) => f.properties.skSource === "lps"));
+    assert.ok(out.some((f: any) => f.properties.skSource === "lps-reservation"));
     assert.equal(urls.filter((u) => u.includes("/MapServer/5/query")).length, 1); // < Seitengröße → eine Seite
+    assert.equal(urls.filter((u) => u.includes("Reservation_(Public)2")).length, 1);
   });
 
   it("fällt bei DÚ-Ausfall auf LPS zurück und wirft, wenn beide leer sind", async () => {
@@ -356,6 +375,144 @@ describe("slovakGeozones – Darstellung über parseEd269ToGeozoneInfo", () => {
     assert.equal(tma.lowerReference, "MSL");
     assert.ok(Math.abs((tma.lowerMeters ?? 0) - 457.2) < 1e-6);
     assert.equal(SK_GEOZONE_SOURCE_LABEL, "Dopravný úrad SR / LPS SR");
-    assert.equal(SK_GEOZONE_ATTRIBUTION, "© LPS SR");
+    assert.equal(SK_GEOZONE_ATTRIBUTION, "VFR Manual, LPS SR, š. p.");
+  });
+});
+
+describe("slovakGeozones – Live-Reservierungen (R/TRA nur in Reservierungsfenstern)", () => {
+  const STATUS_NOW = Math.max(...resFixture.status.features.map((f: any) => f.attributes.latestupdate)) + 5 * 60_000;
+  const at = (iso: string) => new Date(iso);
+  const byId = (fs: any[], id: string) => fs.find((f) => f.properties.identifier === id);
+  const norm = (extra: Record<string, unknown> = {}) =>
+    normalizeSlovakiaWithStats({ lps, duKml, now: NOW, reservations, reservationHealth: { ok: true }, ...extra });
+
+  it("Abfrage nutzt den Webseiten-Filter auf Reservation_(Public)2", () => {
+    const u = new URL(skReservationQueryUrl());
+    assert.equal(`${u.origin}${decodeURIComponent(u.pathname)}`, `${SK_RESERVATION_LAYER_URL}/query`);
+    assert.equal(u.searchParams.get("where"), SK_RESERVATION_WHERE);
+    assert.match(SK_RESERVATION_WHERE, /localtype_txt<>'NPZ'/);
+    assert.ok(SK_RESERVATION_LAYER_FALLBACK_URL.endsWith("Reservation_(Public)/FeatureServer/0"));
+  });
+
+  it("Reservierungshöhen: „0 FL“ = GND, „125 FL“ = Flugfläche, „5000 FEET“ + AMSL", () => {
+    assert.deepEqual(skReservationLimit("0 FL", "GND"), { meters: 0, reference: "AGL", label: "GND" });
+    assert.equal(skReservationLimit("125 FL", "")!.reference, "STD");
+    const ft = skReservationLimit("5000 FEET", "AMSL")!;
+    assert.equal(ft.reference, "MSL");
+    assert.ok(Math.abs(ft.meters! - 1524) < 1e-6);
+    assert.equal(skReservationLimit("1000 FEET", "SFC")!.reference, "AGL");
+    assert.equal(skReservationLimit("", ""), undefined);
+  });
+
+  it("Health-Check: success + frischer Import ok; alt oder Fehler → unzuverlässig", () => {
+    assert.equal(skReservationHealth(resFixture.status, STATUS_NOW).ok, true);
+    const old = skReservationHealth(resFixture.status, STATUS_NOW + 2 * 3600_000);
+    assert.equal(old.ok, false);
+    assert.match(old.note!, /Aktivierungsdaten \(AUP\/UUP\) evtl\. nicht aktuell \(letzter Import/);
+    const failed = skReservationHealth({ features: [{ attributes: { statusama: "failed", latestupdate: STATUS_NOW } }] }, STATUS_NOW);
+    assert.equal(failed.ok, false);
+    assert.match(failed.note!, /statusama=failed/);
+    assert.ok(SK_STATUS_LAYER_URL.includes("Status_(Public)"));
+  });
+
+  it("Horizont: frühestes der spätesten Fensterenden je Quelle (NAM bis 00:00 UTC)", () => {
+    const w = skReservationWindows(reservations);
+    assert.deepEqual([...w.keys()].sort(), ["LZP1", "LZR24", "LZTRA3"]);
+    assert.equal(new Date(skReservationHorizon(w, NOW)).toISOString(), "2026-11-16T00:00:00.000Z");
+    assert.equal(skReservationHorizon(new Map(), NOW), NOW);
+  });
+
+  it("Reservierung = eigene befristete Zone mit Reservierungshöhen (Vorrang), temporär", () => {
+    const { features, dropped } = norm();
+    const r24 = features.find((f) => f.properties.skSource === "lps-reservation" && f.properties.skIdent === "LZR24")!;
+    assert.ok(r24);
+    assert.match(r24.properties.name, /LZR24 .*– Aktivierung$/);
+    assert.equal(r24.properties.restriction, "RESTRICTED");
+    assert.equal(r24.properties.lowerMeters, 0);
+    assert.equal(r24.properties.upperReference, "STD"); // Reservierung bis FL80, statisch bis FL245
+    assert.ok(Math.abs(r24.properties.upperMeters - 80 * 100 * 0.3048) < 1e-6);
+    assert.equal(r24.properties.validStartTs, Date.parse("2026-11-15T06:00:00Z"));
+    assert.equal(r24.properties.validEndTs, Date.parse("2026-11-16T06:00:00Z"));
+    assert.equal(zoneActivityAt(r24.properties as any, at("2026-11-15T12:00:00Z")), "active");
+    assert.equal(zoneActivityAt(r24.properties as any, at("2026-11-16T07:00:00Z")), "inactive");
+    assert.equal(isTemporaryGeozoneProps(r24.properties, "SK"), true);
+    assert.match(r24.properties.message, /Vertikale Grenzen der Reservierung \(haben Vorrang/);
+    assert.match(r24.properties.message, /VFR Manual, LPS SR, š\. p\./);
+    const tra = features.find((f) => f.properties.skSource === "lps-reservation" && f.properties.skIdent === "LZTRA3")!;
+    assert.equal(tra.properties.lowerReference, "MSL");
+    // P1 bleibt dauerhaft (statisch), keine doppelte Reservierungs-Zone
+    assert.ok(!features.some((f) => f.properties.skSource === "lps-reservation" && f.properties.skIdent === "LZP1"));
+    assert.ok(dropped.some((d) => d.source === "reservation" && d.name === "LZP1" && d.reason === "permanent_static"));
+  });
+
+  it("statische R/TRA: bis zum Horizont nicht aktiv, danach vorsorglich aktiv; P bleibt dauerhaft", () => {
+    const { features, activation } = norm();
+    assert.equal(activation.reliable, true);
+    const r24 = byId(features, "SK-LPS-R-LZR24");
+    assert.equal(r24.properties.skActivation, "reservations");
+    const app = { ed269Applicability: r24.properties.applicability };
+    assert.equal(zoneActivityAt(app, at("2026-11-15T12:00:00Z")), "inactive");
+    assert.equal(zoneActivityAt(app, at("2026-11-16T01:00:00Z")), "active");
+    assert.match(r24.properties.message, /aktiv nur laut Reservierung/);
+    assert.match(r24.properties.message, /Reservierungen \(LPS SR, UTC\): 2026-11-15 06:00 UTC – 2026-11-16 06:00 UTC \(AMA/);
+    assert.equal(isTemporaryGeozoneProps(r24.properties, "SK"), false, "statische Zone bleibt dauerhaft");
+    // TRA3 ohne eigene Reservierung (aus dem Satz entfernt): ebenfalls nicht aktiv bis zum Horizont
+    const noTra = norm({ reservations: reservations.filter((r) => r.properties.airspace !== "LZTRA3") }).features;
+    const tra3 = byId(noTra, "SK-LPS-TRA-LZTRA3");
+    assert.equal(zoneActivityAt({ ed269Applicability: tra3.properties.applicability }, at("2026-11-15T12:00:00Z")), "inactive");
+    assert.match(tra3.properties.message, /Bis 2026-11-16 00:00 UTC keine Reservierung/);
+    const p1 = byId(features, "SK-LPS-P-LZP1");
+    assert.equal(p1.properties.applicability, undefined);
+    assert.equal(p1.properties.skActivation, undefined);
+  });
+
+  it("Health-Check schlecht → statische Zonen dauerhaft aktiv mit Hinweis; Reservierungs-Zonen bleiben", () => {
+    const { features, activation } = norm({ reservationHealth: skReservationHealth(resFixture.status, STATUS_NOW + 2 * 3600_000) });
+    assert.equal(activation.reliable, false);
+    const r24 = byId(features, "SK-LPS-R-LZR24");
+    assert.equal(r24.properties.applicability, undefined);
+    assert.equal(r24.properties.skActivation, "unreliable");
+    assert.match(r24.properties.message, /evtl\. nicht aktuell/);
+    assert.ok(features.some((f) => f.properties.skSource === "lps-reservation"));
+  });
+
+  it("ohne Reservierungsdaten: bisheriges Verhalten (dauerhaft aktiv)", () => {
+    const { features, activation } = normalizeSlovakiaWithStats({ lps, duKml, now: NOW });
+    assert.equal(activation.loaded, false);
+    const r24 = byId(features, "SK-LPS-R-LZR24");
+    assert.equal(r24.properties.applicability, undefined);
+    assert.match(r24.properties.message, /vorsichtshalber als dauerhaft aktiv/);
+    assert.ok(!features.some((f) => f.properties.skSource === "lps-reservation"));
+  });
+
+  it("loadSlovakia: Reservation_(Public)2 fällt aus → Reservation_(Public); beide aus → dauerhaft aktiv", async () => {
+    const urls: string[] = [];
+    const out = await loadSlovakia({
+      now: NOW,
+      json: async (url) => {
+        urls.push(url);
+        if (url.includes("Reservation_(Public)2")) throw new Error("HTTP 404");
+        if (url.includes("/Hosted/Reservation_")) return resFixture.reservations;
+        if (url.includes("/Hosted/Status_")) return resFixture.status;
+        return lpsBody;
+      },
+      text: async () => {
+        throw new Error("HTTP 503");
+      },
+    });
+    assert.ok(urls.some((u) => u.includes("Reservation_(Public)/FeatureServer")));
+    assert.ok(out.some((f: any) => f.properties.skSource === "lps-reservation"));
+    const none = await loadSlovakia({
+      now: NOW,
+      json: async (url) => {
+        if (url.includes("/Hosted/")) throw new Error("HTTP 500");
+        return lpsBody;
+      },
+      text: async () => {
+        throw new Error("HTTP 503");
+      },
+    });
+    const r24 = none.find((f: any) => f.properties.identifier === "SK-LPS-R-LZR24")!;
+    assert.equal(r24.properties.applicability, undefined);
   });
 });

@@ -8,6 +8,7 @@ import {
   uncoveredGeozoneSources,
   geozoneCoverageWarning,
   worseSourceStatus,
+  withPartialDatasetNote,
 } from "../geozoneCoverage";
 import { __resetEd269StoreForTests } from "../geozoneDirect/ed269Store";
 
@@ -115,5 +116,19 @@ describe("summarizeGeozoneCoverage / Helfer", () => {
       geozoneCoverageWarning("Tschechien"),
       "Geozonen-Daten für Tschechien nicht verfügbar – Zonen bitte manuell prüfen.",
     );
+  });
+});
+
+describe("Teilbestand eines Abrufs (partialNote)", () => {
+  it("ok → partial mit Hinweis; stale bleibt stale; ohne Hinweis unverändert", () => {
+    assert.deepEqual(withPartialDatasetNote({ status: "ok" }, undefined), { status: "ok" });
+    assert.deepEqual(withPartialDatasetNote({ status: "ok" }, "CAA Slovenia: 1 von 18 Ebenen nicht abrufbar (CTR)"), {
+      status: "partial",
+      note: "CAA Slovenia: 1 von 18 Ebenen nicht abrufbar (CTR)",
+    });
+    const stale = withPartialDatasetNote({ status: "stale", note: "Temporäre Beschränkungen nicht aktuell" }, "X fehlt");
+    assert.equal(stale.status, "partial");
+    assert.equal(stale.note, "X fehlt · Temporäre Beschränkungen nicht aktuell");
+    assert.equal(summarizeGeozoneCoverage([{ iso: "SI", status: "partial", note: "X" }]), "partial");
   });
 });

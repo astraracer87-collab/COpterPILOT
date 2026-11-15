@@ -19,6 +19,8 @@ import { computeBbox, roundFeatureCoords, type GeoFeature } from "./ed269Sources
 export { SE_GEOZONE_SOURCE_LABEL };
 
 export const SE_ED318_URL = "https://dronechart.lfv.se/data/uas_zones_ED318.json";
+/** Zweite Adresse derselben Datei (live 2026-11-15 identisch, gleiches `issued`). */
+export const SE_ED318_FALLBACK_URL = "https://daim.lfv.se/echarts/dronechart/data/uas_zones_ED318.json";
 export const SE_WFS_URL = "https://daim.lfv.se/geoserver/wfs";
 
 const FETCH_TIMEOUT_MS = 60_000;
@@ -111,8 +113,20 @@ async function loadWfsLayer(layer: SeLayer, typeName: string, now: Date): Promis
  * `_country: "se"` und gekürzter Koordinatenpräzision. Wirft, wenn die
  * nationalen UAS-Zonen (ED-318) nicht geladen werden können.
  */
+/** ED-318-Datei laden: dronechart.lfv.se, Rückfall daim.lfv.se. */
+export async function fetchSwedenEd318(fetchJsonFn: (url: string) => Promise<any> = (u) => fetchJson(u)): Promise<any> {
+  try {
+    const body = await fetchJsonFn(SE_ED318_URL);
+    if (!Array.isArray(body?.features) || body.features.length === 0) throw new Error("ED-318 ohne Zonen");
+    return body;
+  } catch (e) {
+    console.warn("[geozoneDirect] SE: ED-318 über dronechart.lfv.se fehlgeschlagen, nutze daim.lfv.se:", (e as Error)?.message || e);
+    return await fetchJsonFn(SE_ED318_FALLBACK_URL);
+  }
+}
+
 export async function fetchSweden(now: Date = new Date()): Promise<GeoFeature[]> {
-  const ed318Body = await fetchJson(SE_ED318_URL);
+  const ed318Body = await fetchSwedenEd318();
   const uasZones = finalizeSe(normalizeEd318Collection(ed318Body, now));
   if (uasZones.length === 0) throw new Error("Transportstyrelsen (ED-318) lieferte keine UAS-Zonen");
 

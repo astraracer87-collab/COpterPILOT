@@ -20,11 +20,13 @@ export interface ArcgisQueryOptions {
   orderByFields?: string;
   /** Nachkommastellen der Geometrie (Standard: volle Präzision). */
   geometryPrecision?: number;
+  /** SQL-Filter (Standard "1=1"). */
+  where?: string;
 }
 
 /** Query-URL eines Layers (`<layerUrl>/query?…&f=geojson`). */
 export function arcgisQueryUrl(layerUrl: string, opts: ArcgisQueryOptions = {}): string {
-  const params = new URLSearchParams({ where: "1=1", outFields: "*", outSR: "4326", returnGeometry: "true" });
+  const params = new URLSearchParams({ where: opts.where || "1=1", outFields: "*", outSR: "4326", returnGeometry: "true" });
   if (opts.geometryPrecision != null) params.set("geometryPrecision", String(opts.geometryPrecision));
   if (opts.orderByFields) params.set("orderByFields", opts.orderByFields);
   params.set("resultOffset", String(opts.offset ?? 0));

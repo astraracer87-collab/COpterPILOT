@@ -378,7 +378,22 @@ export function ed318Applicability(value: unknown, now: Date = new Date()): any[
 }
 
 /** Ein ED-318-Feature → App-Feature (oder null, wenn unbrauchbar/abgelaufen). */
-export function normalizeEd318Feature(f: any, now: Date = new Date()): SeFeature | null {
+/** `metadata.issued` der ED-318-Datei als Datum „TT.MM.JJJJ“ (UTC); sonst undefined. */
+export function ed318IssuedDateDe(body: any): string | undefined {
+  const raw = body?.metadata?.issued ?? body?.metadata?.validFrom;
+  const t = Date.parse(String(raw ?? ""));
+  if (!Number.isFinite(t)) return undefined;
+  const d = new Date(t);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(d.getUTCDate())}.${pad(d.getUTCMonth() + 1)}.${d.getUTCFullYear()}`;
+}
+
+/** Quellenzeile der ED-318-Zonen mit Datenstand (`issued`). */
+export function ed318SourceLineDe(issuedDe?: string): string {
+  return `Quelle: LFV Drönarkartan / Transportstyrelsen (ED-318${issuedDe ? `, Datenstand ${issuedDe}` : ""}), CC BY 4.0.`;
+}
+
+export function normalizeEd318Feature(f: any, now: Date = new Date(), issuedDe?: string): SeFeature | null {
   if (!f || typeof f !== "object" || !f.geometry) return null;
   const p: Record<string, any> = f.properties || {};
   const g = f.geometry;
@@ -409,7 +424,7 @@ export function normalizeEd318Feature(f: any, now: Date = new Date()): SeFeature
   const msgEn = cleanText(pickLangText(p.message, ["en", "sv"]));
   const ext = p.extendedProperties?.text ? englishPartOfSeEnPrefixed(p.extendedProperties.text) : "";
   const summary = ed318GermanSummary(restriction, p, authorities);
-  const message = [summary, msgEn, ext].filter(Boolean).join("\n\n");
+  const message = [[summary, ed318SourceLineDe(issuedDe)].filter(Boolean).join("\n"), msgEn, ext].filter(Boolean).join("\n\n");
 
   const out: Record<string, any> = {
     identifier,
@@ -443,9 +458,11 @@ export function normalizeEd318Feature(f: any, now: Date = new Date()): SeFeature
 /** ED-318-FeatureCollection → App-Features. */
 export function normalizeEd318Collection(body: any, now: Date = new Date()): SeFeature[] {
   const raw = Array.isArray(body?.features) ? body.features : Array.isArray(body) ? body : [];
+  const issuedDe = ed318IssuedDateDe(body);
   const out: SeFeature[] = [];
   for (const f of raw) {
-    const n = normalizeEd318Feature(f, now);
+    const n = normalizeEd318Feature(f, now, issuedDe);
+    if (n && issuedDe) n.properties.datasetIssued = String(body?.metadata?.issued ?? body?.metadata?.validFrom);
     if (n) out.push(n);
   }
   return out;

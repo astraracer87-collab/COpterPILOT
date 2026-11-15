@@ -22,7 +22,7 @@
 // Präfixe egal), Datumswerte als Epoch-ms (ArcGIS) ODER ISO-String (WFS).
 //
 // Spanische Behördentexte (Message, RestrictionConditions) bleiben im Original;
-// die App übersetzt separat. Pflicht-Attribution: „© ENAIRE“.
+// die App übersetzt separat. Pflicht-Attribution: „© ENAIRE – AIS“ (Doku).
 //
 // Bewusst frei von React-Native-Importen (unter tsx/Node testbar).
 import { normalizeEd269Restriction } from "./ed269Restriction";
@@ -32,7 +32,7 @@ import { cleanText as kitCleanText, round1 } from "./geozoneKit/text";
 import { arcgisPage, ensureLonLat } from "./geozoneKit";
 
 export const ES_GEOZONE_SOURCE_LABEL = "ENAIRE (ED-318)";
-export const ES_GEOZONE_ATTRIBUTION = "© ENAIRE";
+export const ES_GEOZONE_ATTRIBUTION = "© ENAIRE – AIS";
 
 export type EsLayer = "ZGUAS_Aero" | "ZGUAS_Urbano" | "ZGUAS_Infraestructuras";
 export const ES_LAYERS: EsLayer[] = ["ZGUAS_Aero", "ZGUAS_Urbano", "ZGUAS_Infraestructuras"];

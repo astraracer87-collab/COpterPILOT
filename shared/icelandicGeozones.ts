@@ -58,6 +58,18 @@ export const IS_GEOZONE_ATTRIBUTION = "© Samgöngustofa / ISAVIA / gis.is";
 export const IS_WFS_URL = "https://gis.is/geoserver/wfs";
 export const IS_WFS_FALLBACK_URL = "https://gis.natt.is/geoserver/wfs";
 export const IS_ZONES_LAYER = "samgongustofa:dronemap_isl_geom";
+/**
+ * Layer der offiziellen Drohnenkarte (island.is/dronakort → gis.natt.is):
+ * 171 Zonen „UGZ-<n>“, restriction REQ_AUTHORISATION, message „No drone
+ * flights allowed in this area.“, klarere Namen („Akureyri flugvöllur“,
+ * „Japan Sendiráð“). Live 2026-11-15: auf gis.is und gis.natt.is identisch;
+ * 157 der 171 Geometrien sind exakt auch in dronemap_isl_geom (271 „NFZ-<n>“,
+ * u. a. zusätzlich viele Kleinwasserkraftwerke). Bevorzugt wird der Layer der
+ * Webseite; aus dronemap_isl_geom kommen nur Zonen mit anderer Geometrie dazu.
+ */
+export const IS_WEBSITE_ZONES_LAYER = "samgongustofa:dronemap_ice_geom";
+/** Host der Webseite (OWS des Arbeitsbereichs samgongustofa). */
+export const IS_WEBSITE_WFS_URL = "https://gis.natt.is/geoserver/samgongustofa/ows";
 export const IS_CLOSURES_LAYER = "samgongustofa:skyndilokanir_dronar";
 /** Seitengröße für WFS-Paging (count/startIndex). Live: 271 Zonen → 1 Seite. */
 export const IS_WFS_PAGE_SIZE = 1000;
@@ -207,6 +219,8 @@ export function normalizeIcelandicFeature(f: any): IsFeature | null {
   const restriction = icelandicRestriction(p);
   const category = icelandicZoneCategory(name);
   const lines = [`Kategorie: ${IS_CATEGORY_LABELS_DE[category]}`, ...icelandicCategoryTexts(category)];
+  const original = String(p.message ?? "").trim();
+  if (original && !lines.includes(original)) lines.push(`Hinweis der Behörde: „${original}“`);
   const props: Record<string, any> = {
     ...p,
     identifier: identifier || undefined,
@@ -300,6 +314,34 @@ export function normalizeIcelandicZones(body: any): IsFeature[] {
 export function normalizeIcelandicClosures(body: any, now: Date = new Date()): IsFeature[] {
   const raw: any[] = Array.isArray(body) ? body : Array.isArray(body?.features) ? body.features : [];
   return dedupe(raw.map((f) => normalizeIcelandicClosure(f, now)));
+}
+
+function geometryKey(f: IsFeature): string {
+  return `${f.geometry?.type}:${JSON.stringify(f.geometry?.coordinates)}`;
+}
+
+/**
+ * Zonen beider Layer zusammenführen: Layer der Webseite (dronemap_ice_geom)
+ * vollständig, aus dronemap_isl_geom nur Zonen mit anderer Geometrie (exakt
+ * gleiche Fläche = dieselbe Zone, keine Doppelung). Einstufung bleibt
+ * REQ_AUTHORISATION (bzw. strenger), ab Boden ohne Obergrenze (SFC–UNL).
+ */
+export function mergeIcelandicZoneLayers(website: IsFeature[], legacy: IsFeature[]): IsFeature[] {
+  const out: IsFeature[] = [];
+  const geoms = new Set<string>();
+  for (const f of website) {
+    f.properties.isLayer = "dronemap_ice_geom";
+    geoms.add(geometryKey(f));
+    out.push(f);
+  }
+  for (const f of legacy) {
+    const k = geometryKey(f);
+    if (geoms.has(k)) continue;
+    geoms.add(k);
+    f.properties.isLayer = "dronemap_isl_geom";
+    out.push(f);
+  }
+  return dedupe(out);
 }
 
 /** Zonen + Sperrungen zusammenführen (Dedupe über `identifier`). */
