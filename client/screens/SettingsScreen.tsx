@@ -552,6 +552,13 @@ export default function SettingsScreen() {
           </View>
           <Feather name="chevron-right" size={20} color={theme.textTertiary} />
         </Card>
+        <Card style={styles.menuItem} onPress={() => navigation.navigate("RcKeyTest")} testID="menu-rc-key-test">
+          <View style={styles.menuRow}>
+            <Feather name="radio" size={20} color={theme.primary} />
+            <ThemedText style={styles.menuText}>Tasten der Fernsteuerung</ThemedText>
+          </View>
+          <Feather name="chevron-right" size={20} color={theme.textTertiary} />
+        </Card>
 
         <ThemedText style={[styles.sectionTitle, { color: theme.textSecondary, marginTop: Spacing["2xl"] }]}>
           ÜBER

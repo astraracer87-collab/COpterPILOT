@@ -27,6 +27,7 @@ import TcasSettingsScreen from "@/screens/TcasSettingsScreen";
 import PrivacyPolicyScreen from "@/screens/PrivacyPolicyScreen";
 import LegalDocumentScreen, { type LegalDocKey } from "@/screens/LegalDocumentScreen";
 import MyDataScreen from "@/screens/MyDataScreen";
+import RcKeyTestScreen from "@/screens/RcKeyTestScreen";
 import { useScreenOptions } from "@/hooks/useScreenOptions";
 
 export type SettingsStackParamList = {
@@ -61,6 +62,7 @@ export type SettingsStackParamList = {
   CountryDetail: { iso: string };
   DflightItalyGuide: { droneId?: string } | undefined;
   Naturschutz: undefined;
+  RcKeyTest: undefined;
 };
 
 const Stack = createNativeStackNavigator<SettingsStackParamList>();
@@ -198,6 +200,11 @@ export default function SettingsStackNavigator() {
         name="RcOfflineMaps"
         component={RcOfflineMapsScreen}
         options={{ headerTitle: "Karten & Offline" }}
+      />
+      <Stack.Screen
+        name="RcKeyTest"
+        component={RcKeyTestScreen}
+        options={{ headerTitle: "Tasten der Fernsteuerung" }}
       />
       <Stack.Screen
         name="DataSources"

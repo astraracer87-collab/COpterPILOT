@@ -176,8 +176,8 @@ class RcKeysModule(private val reactContext: ReactApplicationContext) : ReactCon
   override fun invalidate() {
     if (contextRef?.get() === reactContext) {
       contextRef = null
-      captureMode = false
-      listening = false
+      captureEnabled = false
+      listeningEnabled = false
     }
     super.invalidate()
   }
@@ -185,14 +185,14 @@ class RcKeysModule(private val reactContext: ReactApplicationContext) : ReactCon
   /** Aufnahme-Modus: Steuerkreuz/Enter/Bild-Tasten usw. abfangen (nur Tasten-Test). */
   @ReactMethod
   fun setCaptureMode(enabled: Boolean) {
-    captureMode = enabled
+    captureEnabled = enabled
   }
 
   /** Ereignisse nur senden, solange JS zuhört (sonst kein Aufwand im normalen Betrieb). */
   @ReactMethod
   fun setListening(enabled: Boolean) {
     contextRef = WeakReference(reactContext)
-    listening = enabled
+    listeningEnabled = enabled
     if (!enabled) lastMotionKey = null
   }
 
@@ -216,7 +216,7 @@ class RcKeysModule(private val reactContext: ReactApplicationContext) : ReactCon
       map.putString("display", Build.DISPLAY)
       map.putString("release", Build.VERSION.RELEASE)
       map.putInt("sdkInt", Build.VERSION.SDK_INT)
-      map.putBoolean("captureMode", captureMode)
+      map.putBoolean("captureMode", captureEnabled)
       val devices = Arguments.createArray()
       for (id in InputDevice.getDeviceIds()) {
         val d = InputDevice.getDevice(id) ?: continue
@@ -251,8 +251,8 @@ class RcKeysModule(private val reactContext: ReactApplicationContext) : ReactCon
     const val NAME = "RcKeys"
     private const val MOTION_MIN_INTERVAL_MS = 33L
 
-    @Volatile @JvmStatic var captureMode: Boolean = false
-    @Volatile @JvmStatic var listening: Boolean = false
+    @Volatile private var captureEnabled: Boolean = false
+    @Volatile private var listeningEnabled: Boolean = false
     private var contextRef: WeakReference<ReactApplicationContext>? = null
 
     private val handler by lazy { Handler(Looper.getMainLooper()) }
@@ -361,7 +361,7 @@ class RcKeysModule(private val reactContext: ReactApplicationContext) : ReactCon
     /** true = Taste abfangen (nur im Aufnahme-Modus, nie System-/Zurück-Tasten). */
     @JvmStatic
     fun shouldConsumeKey(keyCode: Int, deviceId: Int): Boolean {
-      if (!captureMode) return false
+      if (!captureEnabled) return false
       if (deviceId == KeyCharacterMap.VIRTUAL_KEYBOARD) return false
       if (NEVER_CONSUME.contains(keyCode)) return false
       return CAPTURE.contains(keyCode) ||
@@ -372,7 +372,7 @@ class RcKeysModule(private val reactContext: ReactApplicationContext) : ReactCon
     @JvmStatic
     fun handleKeyEvent(event: KeyEvent): Boolean {
       val consume = shouldConsumeKey(event.keyCode, event.deviceId)
-      if (listening) {
+      if (listeningEnabled) {
         try {
           val m = Arguments.createMap()
           m.putString("type", "key")
@@ -424,7 +424,7 @@ class RcKeysModule(private val reactContext: ReactApplicationContext) : ReactCon
       val stick = isCaptureSource(event)
       val mouse = event.isFromSource(InputDevice.SOURCE_MOUSE) || event.isFromSource(InputDevice.SOURCE_TOUCHPAD)
       val action = event.actionMasked
-      if (listening && (stick || mouse)) {
+      if (listeningEnabled && (stick || mouse)) {
         try {
           // Maus/Touchpad: nur Rad und Knöpfe (keine Zeiger-Bewegung)
           val relevant = if (mouse && !stick) {
@@ -436,7 +436,7 @@ class RcKeysModule(private val reactContext: ReactApplicationContext) : ReactCon
         } catch (ignored: Throwable) {
         }
       }
-      return captureMode && stick
+      return captureEnabled && stick
     }
 
     private fun reportMotion(event: MotionEvent, stick: Boolean) {
@@ -467,7 +467,7 @@ class RcKeysModule(private val reactContext: ReactApplicationContext) : ReactCon
       m.putInt("buttonState", event.buttonState)
       m.putMap("axes", axes)
       m.putBoolean("centered", !any)
-      m.putBoolean("consumed", captureMode && stick)
+      m.putBoolean("consumed", captureEnabled && stick)
       m.putDouble("eventTime", event.eventTime.toDouble())
       m.putDouble("timestamp", System.currentTimeMillis().toDouble())
       val now = SystemClock.uptimeMillis()
