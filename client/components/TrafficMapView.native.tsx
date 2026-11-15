@@ -27,6 +27,7 @@ import { useAuth } from "@/lib/auth";
 import { windFacilitiesAsGeozones, supplementalLinesAsGeozones, supplementalInfrastructureAsGeozones, infrastructureMapGeometry } from "@/lib/energyInfrastructureZones";
 import { getGermanWindFacility100mPoints } from "../../shared/germanEnergyInfrastructure";
 import { getApiUrl } from "@/lib/query-client";
+import { useTiledGeozoneIsos } from "@/lib/geozoneTiles/useTiledGeozones";
 import CtrInfoCard from "@/components/CtrInfoCard";
 import AirportWeatherSheet from "@/components/AirportWeatherSheet";
 
@@ -1245,6 +1246,15 @@ export default function TrafficMapView({
     (iso: string) => settledZoom >= getVectorMinZoom(iso),
     [settledZoom],
   );
+  // Länder mit Offline-Kachelspeicher (DE/FR/CZ) werden ab ihrer Vektor-
+  // Schwelle als Polygone aus dem Speicher gezeichnet; darunter (Übersicht)
+  // bleibt – sofern vorhanden – das WMS-Bild.
+  const tiledIsos = useTiledGeozoneIsos();
+  const geozoneLayersKey = geozoneLayers?.length ? geozoneLayers.join(",") : "";
+  const isTiledVector = useCallback(
+    (iso: string) => tiledIsos.has(iso) && isVectorCountryVisible(iso),
+    [tiledIsos, isVectorCountryVisible],
+  );
 
   // Zoom-abhängiger Marker-/Trail-Cap (wie zuvor).
   const markerCap = useMemo(() => {
@@ -1281,10 +1291,18 @@ export default function TrafficMapView({
     };
   }, [countryListKey, entitlement]);
 
+  // Länder, deren Zonen gerade aus dem Kachelspeicher gezeichnet werden
+  // (String-Schlüssel, damit die Kachel-Ebenen nur beim Wechsel neu entstehen).
+  const tiledVectorKey = useMemo(
+    () => (countryListKey ? countryListKey.split(",") : []).filter((iso) => isTiledVector(iso)).join(","),
+    [countryListKey, isTiledVector],
+  );
+
   // Eine serverseitig gecachte XYZ-Kachel-URL pro freigeschaltetem Land.
   const geozoneTileUrls = useMemo(() => {
+    const tiledNow = new Set(tiledVectorKey ? tiledVectorKey.split(",") : []);
     const countries = (countryListKey ? countryListKey.split(",") : []).filter(
-      (iso) => !lockedSet.has(iso),
+      (iso) => !lockedSet.has(iso) && !tiledNow.has(iso),
     );
     return countries.map((iso) => {
       // Vektor-Länder ohne WMS (z. B. Belgien) werden serverseitig zu PNG-Kacheln
@@ -1302,7 +1320,7 @@ export default function TrafficMapView({
         : fallbackLayers;
       return buildGeozoneTileUrls(layerSet, iso).map((url) => ({ iso, url }));
     }).flat().filter((t) => t.url);
-  }, [countryListKey, geozoneLayers, countryIso, lockedSet]);
+  }, [countryListKey, geozoneLayers, countryIso, lockedSet, tiledVectorKey]);
 
   // ED-269-Vektorländer (ohne WMS, z. B. AT/BE/DK) aus dem sichtbaren Viewport
   // laden. Quelle ist settledRegion (Gestenende), damit sich die Polygone nicht
@@ -1323,7 +1341,7 @@ export default function TrafficMapView({
     // wird bereits landesweit gezeichnet.
     const isos = (countryListKey ? countryListKey.split(",") : []).filter(
       (i) =>
-        getCountryGeozoneConfig(i).featureInfoType === "ed269-cached" &&
+        (getCountryGeozoneConfig(i).featureInfoType === "ed269-cached" || isTiledVector(i)) &&
         isVectorCountryVisible(i) &&
         !lockedSet.has(i),
     );
@@ -1390,6 +1408,9 @@ export default function TrafficMapView({
           iso,
           GEOZONE_VECTOR_MAX_FEATURES,
           loadsFullCountryVectorZones(iso),
+          undefined,
+          // DE-Kachelspeicher: nur die gewählten dipul-Ebenen zeichnen
+          iso === "DE" && iso === countryIso?.toUpperCase() && geozoneLayersKey ? { layers: geozoneLayersKey.split(",") } : undefined,
         ).catch(() => [] as GeozoneFeatureInfo[]);
         return { iso, res };
       }),
@@ -1408,7 +1429,7 @@ export default function TrafficMapView({
       publish();
     });
     return () => { cancelled = true; };
-  }, [countryListKey, isVectorCountryVisible, lockedSet, settledRegion.latitude, settledRegion.longitude, settledRegion.latitudeDelta, settledRegion.longitudeDelta]);
+  }, [countryListKey, isVectorCountryVisible, isTiledVector, lockedSet, countryIso, geozoneLayersKey, settledRegion.latitude, settledRegion.longitude, settledRegion.latitudeDelta, settledRegion.longitudeDelta]);
 
   // Hinweis "Hineinzoomen", wenn ein Vektor-Land (ED-269, z. B. DK) sichtbar ist,
   // dessen Zonen aber wegen zu weiter Sicht (< seiner Mindestschwelle) noch nicht

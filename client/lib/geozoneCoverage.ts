@@ -23,6 +23,13 @@ import { queryEd269Features } from "./geozoneDirect/ed269Query";
 // Grenzen weit ins Nachbarland reichen (z. B. die FR-Box über die belgische
 // Grenze) und so fremde Zonen/Texte in die Flugbereichsliste mischen würden.
 
+// Liechtenstein hat keinen eigenen Geozonen-Datensatz: seine Zonen stehen im
+// Schweizer BAZL-Datensatz (CH). Ein als „LI“ erkannter Punkt zählt daher für
+// die Abdeckung als CH, damit Karte und Zonencheck die BAZL-Zonen laden.
+function liToCh(iso: string | null): string | null {
+  return iso && iso.toUpperCase() === "LI" ? "CH" : iso;
+}
+
 // Fragt den ED-269-Bestand (AT/BE/DK) für die per bbox abgesteckte Umgebung ab
 // und normalisiert ihn zu GeozoneFeatureInfo. Früher ein Aufruf des Server-
 // Endpoints `/api/cached/geozones`; das Backend existiert nicht mehr. Jetzt
@@ -94,7 +101,8 @@ export function getCountriesInRadius(
   const isSupported = (iso: string | null): iso is string => !!iso && supported.has(iso.toUpperCase());
 
   const found: string[] = [];
-  const add = (iso: string | null) => {
+  const add = (raw: string | null) => {
+    const iso = liToCh(raw);
     if (isSupported(iso)) {
       const up = iso.toUpperCase();
       if (!found.includes(up)) found.push(up);
@@ -162,7 +170,8 @@ export function getViewportCountries(
   const isSupported = (iso: string | null): iso is string => !!iso && supported.has(iso);
 
   const found: string[] = [];
-  const add = (iso: string | null) => {
+  const add = (raw: string | null) => {
+    const iso = liToCh(raw);
     if (isSupported(iso) && !found.includes(iso)) found.push(iso);
   };
 

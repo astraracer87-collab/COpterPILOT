@@ -20,6 +20,8 @@ import { Spacing, Typography, BorderRadius, Colors } from "@/constants/theme";
 import type { FlightPlanningParamList } from "@/navigation/FlightPlanningNavigator";
 import { geozoneIsActiveAt, ed269InactiveInfoText } from "@/lib/ed269";
 import { queryGeozonesInArea, GeozoneFeatureInfo, DipulGeozoneSourceStatus, separateTempRestrictions, getCountryGeozoneConfig, getCountriesInRadius, DipulTempRestriction, DipulTempRestrictionsResult, fetchNearbyTempRestrictionsRaw, loadRadarSettings, saveRadarSettings, HU_GEOZONE_RASTER_HINT } from "@/lib/geozones";
+import { getTilePartMeta } from "@/lib/geozoneTiles/tileStore";
+import { TILE_STORE_ATTRIBUTION } from "@/lib/geozoneTiles/tileStoreCore";
 import { fetchElevation } from "@/lib/elevation";
 import { partitionByReachability, DEFAULT_REACHABLE_ALTITUDE_M, assessGeozoneAltitudeConflict } from "../../shared/geozoneAltitudeFilter";
 import { findMilLowFlightAreasContaining, findMilLowFlightAreasIntersectingRadius, MIL_LOW_FLIGHT_LABEL, MIL_LOW_FLIGHT_SOURCE_URL, MIL_LOW_FLIGHT_ACTIVATION_TEXT, MIL_LOW_FLIGHT_DATA_STAND, classifyMilLowFlightHits, getStatusLabel as getMilStatusLabel, getStatusColor as getMilStatusColor } from "@/lib/milLowFlight";
@@ -727,7 +729,18 @@ export default function PlanningRestrictionsScreen() {
               onPress={() => openLink("https://www.dipul.de/homepage/de/aktuelle-meldungen/vektordaten-der-geografischen-gebiete-verfuegbar/").catch(() => {})}
             >
               <ThemedText style={[styles.dipulSourceLink, { color: theme.primary }]}>
-                Quelle: dipul · CC-BY-ND 4.0
+                Quelle: dipul
+              </ThemedText>
+            </Pressable>
+            <Pressable
+              accessibilityRole="link"
+              onPress={() => openLink(TILE_STORE_ATTRIBUTION.DE.url!, "CC BY-ND 4.0").catch(() => {})}
+            >
+              <ThemedText style={[styles.dipulSourceLink, { color: theme.primary }]}>
+                {TILE_STORE_ATTRIBUTION.DE.label}
+                {getTilePartMeta("DE")?.createdAt
+                  ? ` · Offline-Daten vom ${new Date(getTilePartMeta("DE")!.createdAt).toLocaleDateString("de-DE")}`
+                  : ""}
               </ThemedText>
             </Pressable>
           </View>

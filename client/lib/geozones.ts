@@ -14,6 +14,12 @@ import { isLoggedInSync } from "@/lib/auth";
 import { isOfflineNow } from "@/lib/network";
 import { getOfflinePackFeatures } from "@/lib/offlineStore";
 import {
+  hasTiledGeozones,
+  queryTiledGeozones,
+  queryTiledGeozonesAtPoint,
+} from "@/lib/geozoneTiles/tileStore";
+import { bboxAround } from "@/lib/geozoneTiles/tileStoreCore";
+import {
   queryChRestIdentifyFrom,
   queryDipulWfsFeaturesFrom,
   DipulWfsAccessError,
@@ -118,14 +124,15 @@ export {
   COUNTRY_WMS_MAX_NATIVE_ZOOM,
 } from "@/lib/geozoneZoom";
 
-export type CountryIsoWithGeozones = "DE" | "CH" | "LU" | "NL" | "FR" | "AT" | "BE" | "DK" | "EE" | "FI" | "NO" | "SE" | "IE" | "PT" | "ES" | "PL" | "LT" | "IT" | "GB" | "IS" | "CY" | "HR" | "SI" | "HU" | "BG" | "LV";
+export type CountryIsoWithGeozones = "DE" | "CH" | "LU" | "NL" | "FR" | "AT" | "BE" | "DK" | "EE" | "FI" | "NO" | "SE" | "IE" | "PT" | "ES" | "PL" | "LT" | "IT" | "GB" | "IS" | "CY" | "HR" | "SI" | "HU" | "BG" | "LV" | "CZ";
 
 export interface CountryGeozoneConfig {
   iso: CountryIsoWithGeozones;
   wmsBaseUrl: string;
   wmsVersion: string;
   layers: GeozoneLayer[];
-  featureInfoType: "wms-plain" | "rest-json" | "ogc-features" | "wfs-json" | "wms-fr" | "ed269-cached" | "none";
+  // "tiles": nur Offline-Kachelspeicher (geozoneTiles/, z. B. CZ ED-318)
+  featureInfoType: "wms-plain" | "rest-json" | "ogc-features" | "wfs-json" | "wms-fr" | "ed269-cached" | "tiles" | "none";
   restIdentifyUrl?: string;
   restIdentifyLayers?: string[];
   alwaysVisibleLayerIds: string[];
@@ -429,6 +436,18 @@ export const COUNTRY_GEOZONE_CONFIGS: Record<string, CountryGeozoneConfig> = {
     wmsVersion: "1.3.0",
     layers: [],
     featureInfoType: "ed269-cached",
+    alwaysVisibleLayerIds: [],
+    forceEnabledLayerIds: [],
+  },
+  CZ: {
+    // Tschechien (ŘLP ČR): ED-318-Kacheln, nur über das Offline-Paket
+    // „Geozonen“ (geozoneTiles/). Ohne gespeicherten Bestand keine Zonen –
+    // hasOwnMap("CZ") ist dann false (Hinweis zur manuellen Prüfung).
+    iso: "CZ",
+    wmsBaseUrl: "",
+    wmsVersion: "1.3.0",
+    layers: [],
+    featureInfoType: "tiles",
     alwaysVisibleLayerIds: [],
     forceEnabledLayerIds: [],
   },
@@ -844,7 +863,14 @@ export async function queryEd269CachedFeatures(
   limit?: number,
   fullCountry?: boolean,
   maxValidityDays?: number,
+  opts?: { layers?: string[] },
 ): Promise<GeozoneFeatureInfo[]> {
+  // DE/FR/CZ mit Offline-Kachelspeicher: nur die Kacheln des Ausschnitts lesen
+  // (nie das ganze Land, keine NOTAM-artige Gesamtabfrage).
+  if (hasTiledGeozones(iso)) {
+    if (fullCountry || maxValidityDays) return [];
+    return (await queryTiledGeozones(iso, bboxAround(lat, lon, radiusKm), { limit, layers: opts?.layers })) ?? [];
+  }
   // Offline: zuerst das gespeicherte Paket nutzen (die Geometrie-/Radius-
   // Filterung erledigt ohnehin queryGeozonesInArea nachgelagert). Nur wenn kein
   // Paket existiert, fällt der Netzwerkpfad durch (liefert offline i. d. R. []).
@@ -1415,6 +1441,9 @@ async function queryFrWmsFeatures(
   return queryFrWmsFeaturesFrom(COUNTRY_GEOZONE_CONFIGS.FR.wmsBaseUrl, lat, lon, radiusKm);
 }
 
+// dipul-Ebenen ohne WFS-Veröffentlichung (nur WMS-GetFeatureInfo, nur online).
+const DIPUL_WMS_ONLY_LAYERS = ["modellflugplaetze", "haengegleiter"];
+
 export interface DipulGeozoneSourceStatus {
   mode: "vector" | "mixed" | "legacy";
   approximateLayers: string[];
@@ -1452,6 +1481,7 @@ async function queryWmsFeatureInfoLayers(
         bboxLatDelta,
         bboxLonDelta,
         iso,
+        true,
       ).catch(() => [] as GeozoneFeatureInfo[]),
     ),
   );
@@ -1600,9 +1630,25 @@ async function queryGeozonesForCountry(
 ): Promise<GeozoneFeatureInfo[]> {
   const config = getCountryGeozoneConfig(iso);
 
+  // Offline-Kachelspeicher (DE/FR/CZ) hat Vorrang – auch online.
+  if (hasTiledGeozones(config.iso)) {
+    const tiled = await queryTiledGeozones(config.iso, bboxAround(lat, lon, radiusKm));
+    if (tiled) {
+      if (config.iso !== "DE") return tiled;
+      // Modellflugplätze/Hängegleiter gibt es nicht im dipul-WFS: online per WMS ergänzen
+      onDipulSourceStatus?.({ mode: "vector", approximateLayers: [] });
+      if (isOfflineNow()) return tiled;
+      const extra = await queryWmsFeatureInfoLayers(DIPUL_WMS_ONLY_LAYERS, lat, lon, radiusKm, "DE").catch(() => []);
+      return [...tiled, ...extra];
+    }
+  }
+
   if (config.iso === "DE") {
     return queryDipulGeozones(lat, lon, radiusKm, onDipulSourceStatus);
   }
+
+  // CZ: Zonen nur aus dem Offline-Paket
+  if (config.featureInfoType === "tiles") return [];
 
   if (config.iso === "CH") {
     // BAZL-Vektorzonen plus Zusatz-Ebenen (Ruhezonen, Wohngebiete) per REST
@@ -1764,8 +1810,24 @@ export async function queryGeozoneFeatureInfo(
   latDelta: number,
   lonDelta: number,
   countryIso?: string,
+  // intern: Kachelspeicher überspringen (DE-WMS-Ergänzung)
+  skipTiles?: boolean,
 ): Promise<GeozoneFeatureInfo[]> {
   const config = getCountryGeozoneConfig(countryIso);
+
+  // Offline-Kachelspeicher (DE/FR/CZ): Zonen am Tipp-Punkt lokal bestimmen.
+  if (!skipTiles && hasTiledGeozones(config.iso)) {
+    const deLayers = config.iso === "DE" ? layers : undefined;
+    const tiled = await queryTiledGeozonesAtPoint(config.iso, lat, lon, { layers: deLayers });
+    if (tiled) {
+      if (config.iso !== "DE" || isOfflineNow()) return tiled;
+      const wmsOnly = DIPUL_WMS_ONLY_LAYERS.filter((l) => layers.includes(l));
+      if (wmsOnly.length === 0) return tiled;
+      const extra = await queryGeozoneFeatureInfo(wmsOnly, lat, lon, mapWidth, mapHeight, latDelta, lonDelta, "DE", true).catch(() => []);
+      return [...tiled, ...extra];
+    }
+  }
+  if (config.featureInfoType === "tiles") return [];
 
   if (config.iso === "CH") {
     // Zusatz-Ebenen (Ruhezonen, Wohngebiete); die BAZL-Zonen sind Vektoren mit eigenem Popup.

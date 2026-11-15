@@ -212,3 +212,11 @@ describe("getViewportCountries – AT im Viewport an der Grenze", () => {
     assert.ok(out.every((iso) => SUPPORTED_ISOS.includes(iso)), `nicht unterstütztes ISO: ${out.join(",")}`);
   });
 });
+
+describe("Liechtenstein nutzt den Schweizer BAZL-Datensatz", () => {
+  it("zählt einen Punkt in Vaduz als CH (Karte + Zonencheck)", () => {
+    const isos = [...SUPPORTED_ISOS];
+    assert.deepEqual(getViewportCountries(isos, 47.141, 9.521).slice(0, 1), ["CH"]);
+    assert.equal(getCountriesInRadius(isos, 47.141, 9.521, 1)[0], "CH");
+  });
+});

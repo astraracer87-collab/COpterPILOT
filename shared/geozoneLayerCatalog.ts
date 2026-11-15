@@ -214,6 +214,7 @@ export const NATIVE_GEOZONE_LAYER_CATALOG: NativeGeozoneCountryLayers[] = [
   { iso: "AT", layers: [] },
   { iso: "BE", layers: [] },
   { iso: "DK", layers: [] },
+  { iso: "CZ", layers: [] },
 ];
 
 // Baut die früher pro Land/Layer gespeicherten Alt-Layer-Referenzen (für die

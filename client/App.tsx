@@ -4,10 +4,13 @@ import { NavigationContainer } from "@react-navigation/native";
 import { navigationRef } from "@/navigation/navigationRef";
 import { startZoneTranslation } from "@/lib/zoneTranslationStore";
 import { initDflightAccessFlag } from "@/lib/geozoneDirect/dflightAuth";
+import { startGeozoneTileStore } from "@/lib/geozoneTiles/tileStore";
 
 // Übersetzungs-Cache der Behördentexte laden (offline) und neue Texte nachziehen
 startZoneTranslation();
 initDflightAccessFlag();
+// Offline-Geozonen DE/FR/CZ (Kachelspeicher): Bestand bekannt machen, AIRAC-Aktualisierung
+startGeozoneTileStore();
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";

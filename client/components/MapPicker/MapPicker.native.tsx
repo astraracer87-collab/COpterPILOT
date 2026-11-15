@@ -38,6 +38,7 @@ import type {
 import { useAuth } from "@/lib/auth";
 import { supplementalInfrastructureAsGeozones, infrastructureMapGeometry } from "@/lib/energyInfrastructureZones";
 import { getApiUrl } from "@/lib/query-client";
+import { useTiledGeozoneIsos } from "@/lib/geozoneTiles/useTiledGeozones";
 
 function hexToRgba(hex: string, alpha: number): string {
   const h = hex.replace("#", "");
@@ -566,10 +567,19 @@ const MapPicker = forwardRef<MapPickerRef, MapPickerProps>(
 
     // WMS-Kachel-Ebenen (eine pro Land — bündelt alle Layer; das WMS scheitert
     // ab ~28 Layern, deshalb serverseitig zu EINER Kachel kombiniert).
+    // Länder mit Offline-Kachelspeicher (DE/FR/CZ): ab ihrer Vektor-Schwelle
+    // Polygone aus dem Speicher statt WMS-Bild.
+    const tiledIsos = useTiledGeozoneIsos();
+    const tiledVectorKey = useMemo(
+      () => [...tiledIsos].filter((iso) => viewZoom >= getVectorMinZoom(iso)).sort().join(","),
+      [tiledIsos, viewZoom],
+    );
     const geoTiles = useMemo(() => {
+      const tiledNow = new Set(tiledVectorKey ? tiledVectorKey.split(",") : []);
       const wmsMnz = (iso?: string) => getCountryGeozoneConfig(iso).wmsMaxNativeZoom;
       if (useViewportCountries) {
         const wmsT = visibleViewportCountries
+          .filter((iso) => !tiledNow.has(iso))
           .map((iso) => getCountryGeozoneConfig(iso))
           .filter((cfg) => hasGeozoneTileOverlay(cfg.iso))
           .map((cfg) => {
@@ -589,6 +599,7 @@ const MapPicker = forwardRef<MapPickerRef, MapPickerProps>(
       }
       // Einzelland-Modus: gesperrtes Land bekommt kein Overlay.
       if (countryIso && lockedSet.has(countryIso)) return [];
+      if (countryIso && tiledNow.has(getCountryGeozoneConfig(countryIso).iso)) return [];
       // Raster-Vektor-Land (z. B. Belgien): serverseitige PNG-Kachel.
       if (countryIso && isRasterTiledVectorCountry(countryIso)) {
         return [{ u: buildVectorGeozoneTileUrl(countryIso), p: geoOpacity, mnz: wmsMnz(countryIso) }];
@@ -598,20 +609,21 @@ const MapPicker = forwardRef<MapPickerRef, MapPickerProps>(
       }
       // Fallback: alle Layer des (Standard-)Landes in EINER Kachel (z. B. Wetter-Picker).
       return buildGeozoneTileUrls(getAllLayerNames(), countryIso).map((u) => ({ u, p: geoOpacity, mnz: wmsMnz(countryIso), a: getGeozoneTileAttribution(countryIso) }));
-    }, [useViewportCountries, visibleViewportCountries, geozoneLayers, countryIso, geoOpacity, lockedSet]);
+    }, [useViewportCountries, visibleViewportCountries, geozoneLayers, countryIso, geoOpacity, lockedSet, tiledVectorKey]);
 
-    // Vektor-Länder (ED-269: AT/BE/DK), die im Overlay-Set liegen.
+    // Vektor-Länder (ED-269: AT/BE/DK …; Kachelspeicher: DE/FR/CZ), die im Overlay-Set liegen.
     const vectorCountries = useMemo(() => {
+      const isVector = (iso: string) => getCountryGeozoneConfig(iso).featureInfoType === "ed269-cached" || tiledIsos.has(iso);
       if (useViewportCountries) {
-        return visibleViewportCountries.filter((iso) => getCountryGeozoneConfig(iso).featureInfoType === "ed269-cached");
+        return visibleViewportCountries.filter(isVector);
       }
       if (countryIso && lockedSet.has(countryIso)) return [];
       if (geozoneLayers && geozoneLayers.length > 0) {
         const cfg = getCountryGeozoneConfig(countryIso);
-        return cfg.featureInfoType === "ed269-cached" ? [cfg.iso] : [];
+        return isVector(cfg.iso) ? [cfg.iso] : [];
       }
       return [] as string[];
-    }, [useViewportCountries, visibleViewportCountries, geozoneLayers, countryIso, lockedSet]);
+    }, [useViewportCountries, visibleViewportCountries, geozoneLayers, countryIso, lockedSet, tiledIsos]);
 
     // Pro-Land geladene Vektor-Zonen (ED-269). Lade-Effekt füllt die Ref und
     // erhöht den Versions-Zähler, damit das stateJson neu berechnet wird.
@@ -647,6 +659,8 @@ const MapPicker = forwardRef<MapPickerRef, MapPickerProps>(
               iso,
               GEOZONE_VECTOR_MAX_FEATURES,
               loadsFullCountryVectorZones(iso),
+              undefined,
+              iso === "DE" && !useViewportCountries && geozoneLayers?.length ? { layers: geozoneLayers } : undefined,
             );
             if (cancelled) return;
             vzByIsoRef.current[iso] = feats;

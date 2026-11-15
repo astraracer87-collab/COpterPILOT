@@ -42,9 +42,17 @@ export const GEOZONE_VECTOR_MIN_ZOOM = 9;
 // DK: KEIN Override — bleibt beim höheren Default (z9), weil seine bbox-Abfrage
 // bei weiter Sicht sonst eine landesweite Massenabfrage (~1700 Zonen) ins
 // 12-s-Client-Timeout zieht (Datenmengen-/Timeout-Schutz).
+//
+// DE/FR/CZ (Offline-Kachelspeicher, geozoneTiles/): sehr dichte Bestände
+// (DE ≈ 83 000 Zonen, teils MB-große Polygone) – Vektor-Zeichnung erst ab z10;
+// darunter bleibt online das WMS-Bild (CZ: Hinweis „Hineinzoomen“ entfällt,
+// da CZ kein WMS hat – unter z10 einfach keine Zonen).
 export const GEOZONE_VECTOR_COUNTRY_MIN_ZOOM: Record<string, number> = {
   BE: GEOZONE_TILE_MIN_ZOOM,
   AT: GEOZONE_TILE_MIN_ZOOM,
+  DE: 10,
+  FR: 10,
+  CZ: 10,
 };
 
 // Liefert die Vektor-Mindestzoomstufe für ein Land (pro-Land-Override oder Default).

@@ -20,6 +20,7 @@ import {
   estimateSize,
   formatMB,
   freeDiskMB,
+  TILE_STORE_DOWNLOAD_MB,
   loadOfflineConfigs,
   obstacleTilesStored,
   offlineCountries,
@@ -31,6 +32,7 @@ import {
   type PackProgress,
 } from "@/lib/offlineMaps";
 import { getObstaclesEnabled, setObstaclesEnabled } from "@/lib/obstacles";
+import { openLink } from "@/lib/webBrowser";
 import { clearGoogleKey, getGoogleKey, setGoogleKey } from "@/lib/googleTiles";
 import { clearDeeplKey, getDeeplKey, setDeeplKey } from "@/lib/zoneTranslationStore";
 import { clearDflightCredentials, getDflightCredentials, setDflightCredentials } from "@/lib/geozoneDirect/dflightAuth";
@@ -498,13 +500,39 @@ export default function OfflineMapsScreen() {
                       country.geozoneKind === "tiles"
                         ? `ab Zoom 11 · ca. ${formatMB(est.geoMB)}`
                         : country.geozoneKind === "vector"
-                          ? `alle Zonen des Landes (Behördendaten) · ca. ${formatMB(est.geoMB)}`
-                          : "für dieses Land keine Geozonen-Daten"
+                          ? country.iso === "LI"
+                            ? `im Schweizer BAZL-Datensatz enthalten (wird mit geladen) · ca. ${formatMB(est.geoMB)}`
+                            : `alle Zonen des Landes (Behördendaten) · ca. ${formatMB(est.geoMB)}`
+                          : country.geozoneKind === "tilestore"
+                            ? `alle Zonen des Landes als Vektordaten, gekachelt · ca. ${formatMB(est.geoMB - est.wohnMB)}` +
+                              ` (Download ca. ${formatMB(TILE_STORE_DOWNLOAD_MB[country.iso] ?? 0)})`
+                            : "für dieses Land keine Geozonen-Daten"
                     }
                     value={c.geozones}
                     onChange={(v) => update(country.iso, { geozones: v })}
                     disabled={!country.hasGeozones}
                   />
+                  {country.iso === "DE" && country.geozoneKind === "tilestore" ? (
+                    <Row
+                      label="Wohngebiete (Wohngrundstücke) offline speichern"
+                      sub={`Wohngrundstücke aller Gemeinden (§ 21h LuftVO) · zusätzlich ca. ${formatMB(est.wohnMB || 175)} (Download ca. ${formatMB(TILE_STORE_DOWNLOAD_MB.DE_WOHN)}). Ohne diese Daten werden Wohngebiete offline nicht erkannt.`}
+                      value={c.wohngebiete !== false}
+                      onChange={(v) => update(country.iso, { wohngebiete: v })}
+                      disabled={!c.geozones}
+                    />
+                  ) : null}
+                  {country.geozoneAttribution && c.geozones ? (
+                    <Pressable
+                      disabled={!country.geozoneAttribution.url}
+                      onPress={() => country.geozoneAttribution?.url && openLink(country.geozoneAttribution.url, "Lizenz / Quelle").catch(() => {})}
+                    >
+                      <ThemedText style={[styles.small, { color: theme.textSecondary }]}>
+                        Quelle Geozonen: {country.geozoneAttribution.label}
+                        {country.geozoneAttribution.url ? " ↗" : ""}
+                        {" · alle 28 Tage (AIRAC) im WLAN automatisch aktualisiert"}
+                      </ThemedText>
+                    </Pressable>
+                  ) : null}
                   {c.geozones && country.geozoneKind === "tiles" ? (
                     <View>
                       <ThemedText style={[styles.small, { color: theme.textSecondary }]}>Detail: {DETAIL_LABELS[c.geoMaxZoom]}</ThemedText>
@@ -523,7 +551,7 @@ export default function OfflineMapsScreen() {
                     <View style={[styles.progressBox, { backgroundColor: theme.backgroundSecondary }]}>
                       {packs.map((p) => (
                         <ThemedText key={p.key} style={styles.small}>
-                          {KIND_LABEL[p.kind] ?? p.kind}
+                          {p.key.endsWith(":geo:wohn") ? "Wohngebiete" : KIND_LABEL[p.kind] ?? p.kind}
                           {p.key.includes(":sat:") ? ` (${p.key.split(":")[2].replace(/^de-dop-/, "").toUpperCase()})` : ""}:{" "}
                           {p.state === "error"
                             ? `Fehler – ${p.error ?? "erneut versuchen"}`

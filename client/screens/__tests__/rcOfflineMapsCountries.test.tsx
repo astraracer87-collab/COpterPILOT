@@ -40,6 +40,25 @@ jest.mock("@/lib/geozoneDirect/ed269Store", () => ({
   refreshEd269Dataset: (iso: string) => mockRefreshEd269(iso),
 }));
 
+const mockDownloadTileStore = jest.fn(async (iso: string, opts: any) => {
+  const parts = iso === "DE" && opts?.wohn ? ["base", "wohn"] : ["base"];
+  return parts.map((part) => {
+    const p = { iso, part, done: 3, total: 3, bytes: 1000, state: "complete" };
+    opts?.onProgress?.(p);
+    return p;
+  });
+});
+const mockDeleteTileStore = jest.fn(async (_iso: string, _part?: string) => {});
+jest.mock("@/lib/geozoneTiles/tileStore", () => ({
+  downloadTileStore: (iso: string, opts: any) => mockDownloadTileStore(iso, opts),
+  deleteTileStore: (iso: string, part?: string) => mockDeleteTileStore(iso, part),
+  getTilePartMeta: () => null,
+  loadTileStoreMeta: async () => {},
+  hasTiledGeozones: () => false,
+  queryTiledGeozones: async () => null,
+  queryTiledGeozonesAtPoint: async () => null,
+}));
+
 jest.mock("@/lib/obstacles", () => ({
   OBSTACLE_TILE_ZOOM: 10,
   tilesForBounds: (w: number, s: number, e: number, n: number) => {
@@ -60,6 +79,8 @@ beforeEach(async () => {
   mockDownloadAsync.mockClear();
   mockDeleteAsync.mockClear();
   mockRefreshEd269.mockClear();
+  mockDownloadTileStore.mockClear();
+  mockDeleteTileStore.mockClear();
   await AsyncStorage.clear();
 });
 
@@ -228,5 +249,56 @@ describe("deleteCountry", () => {
       (await AsyncStorage.getItem("@copterpilot/offline_progress")) ?? "{}",
     );
     expect(Object.keys(left)).toEqual(["CH:map"]);
+  });
+});
+
+describe("tiled vector geozones (DE/FR/CZ) and Liechtenstein", () => {
+  it("uses the tiled vector store for DE/FR/CZ and the CH file for LI", () => {
+    const byIso = Object.fromEntries(offlineCountries().map((c) => [c.iso, c]));
+    for (const iso of ["DE", "FR", "CZ"]) {
+      expect(byIso[iso].geozoneKind).toBe("tilestore");
+      expect(byIso[iso].hasGeozones).toBe(true);
+      expect(byIso[iso].geozoneAttribution?.label).toBeTruthy();
+    }
+    expect(byIso.DE.geozoneAttribution?.label).toBe("dipul, CC-BY-ND 4.0");
+    expect(byIso.DE.geozoneAttribution?.url).toBe("https://creativecommons.org/licenses/by-nd/4.0/legalcode.de");
+    expect(byIso.LI.geozoneKind).toBe("vector");
+    expect(defaultConfig("LI").geozones).toBe(true);
+    expect(defaultConfig("DE").wohngebiete).toBe(true);
+  });
+
+  it("estimates DE with and without Wohngebiete", () => {
+    const base = { ...defaultConfig("DE"), map: false, obstacles: false };
+    const withWohn = estimateSize(base);
+    const without = estimateSize({ ...base, wohngebiete: false });
+    expect(withWohn.wohnMB).toBeGreaterThan(100);
+    expect(without.wohnMB).toBe(0);
+    expect(withWohn.geoMB - without.geoMB).toBe(withWohn.wohnMB);
+    expect(estimateSize({ ...defaultConfig("CZ"), map: false, obstacles: false }).geoMB).toBeGreaterThan(30);
+  });
+
+  it("LI: loads the Swiss BAZL dataset (contains Liechtenstein)", async () => {
+    const packs: any[] = [];
+    await startCountryDownload({ ...defaultConfig("LI"), map: false, obstacles: false }, (p) => packs.push(p), () => {}, () => false);
+    expect(mockRefreshEd269).toHaveBeenCalledWith("LI");
+    expect(packs[packs.length - 1]).toMatchObject({ key: "LI:geo:vector", state: "complete" });
+  });
+
+  it("DE: downloads the vector store incl. Wohngebiete, no WMS raster tiles", async () => {
+    const packs: any[] = [];
+    await startCountryDownload({ ...defaultConfig("DE"), map: false, obstacles: false }, (p) => packs.push(p), () => {}, () => false);
+    expect(mockDownloadTileStore).toHaveBeenCalledWith("DE", expect.objectContaining({ wohn: true }));
+    expect(mockDownloadAsync).not.toHaveBeenCalled();
+    const keys = new Set(packs.filter((p) => p.state === "complete").map((p) => p.key));
+    expect(keys).toEqual(new Set(["DE:geo:store", "DE:geo:wohn"]));
+  });
+
+  it("DE: deselecting Wohngebiete drops that part, deleting the country drops the store", async () => {
+    await startCountryDownload({ ...defaultConfig("DE"), map: false, obstacles: false }, () => {}, () => {}, () => false);
+    await startCountryDownload({ ...defaultConfig("DE"), map: false, obstacles: false, wohngebiete: false }, () => {}, () => {}, () => false);
+    expect(mockDeleteTileStore).toHaveBeenCalledWith("DE", "wohn");
+    expect(mockDownloadTileStore).toHaveBeenLastCalledWith("DE", expect.objectContaining({ wohn: false }));
+    await deleteCountry("DE");
+    expect(mockDeleteTileStore).toHaveBeenCalledWith("DE", undefined);
   });
 });

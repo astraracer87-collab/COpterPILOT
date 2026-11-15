@@ -9,8 +9,10 @@
  *
  * Wählbar sind alle Länder der App (OFFLINE_APP_COUNTRIES). Karte/Luftbild nur,
  * wo mapSources.ts eine frei speicherbare amtliche Quelle kennt; Geozonen als
- * Kacheln (WMS/XYZ, z. B. DE/CH/HU) oder als Vektordaten (ED-269-Gerätecache,
- * z. B. AT/NO/ES); Hindernisse überall.
+ * Kacheln (WMS/XYZ, z. B. CH/HU), als Vektordatei (ED-269-Gerätecache, z. B.
+ * AT/NO/ES; LI über den Schweizer BAZL-Datensatz) oder – für große Länder –
+ * als gekachelter Vektor-Speicher (geozoneTiles/: DE dipul-WFS, FR IGN-WFS,
+ * CZ ŘLP ED-318); Hindernisse überall.
  */
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as FileSystem from "expo-file-system/legacy";
@@ -27,6 +29,8 @@ import { detectCountryFromCoordinates } from "../../shared/countryDetection";
 import { detectBundeslandFromCoordinates } from "@/lib/countryMaps";
 import { isEd269DirectCountry } from "@/lib/geozoneDirect/ed269Sources";
 import { refreshEd269Dataset } from "@/lib/geozoneDirect/ed269Store";
+import { deleteTileStore, downloadTileStore, getTilePartMeta, loadTileStoreMeta } from "@/lib/geozoneTiles/tileStore";
+import { TILE_STORE_ATTRIBUTION, isTileStoreIso, type TileStorePart } from "@/lib/geozoneTiles/tileStoreCore";
 import { OBSTACLE_TILE_ZOOM, deleteObstacleTiles, hasObstacleTile, loadObstacleTile, tilesForBounds } from "@/lib/obstacles";
 
 export type DetailLevel = 11 | 12 | 13 | 14 | 15;
@@ -40,6 +44,8 @@ export interface CountryOfflineConfig {
   geozones: boolean;
   geoMaxZoom: DetailLevel;
   obstacles: boolean;
+  /** DE: Wohngrundstücke (dipul) im Geozonen-Speicher mitspeichern */
+  wohngebiete?: boolean;
 }
 
 export const DETAIL_LABELS: Record<DetailLevel, string> = {
@@ -62,6 +68,20 @@ const GEO_KB_PER_TILE = 6;
 const OBSTACLE_KB_PER_TILE = 120;
 /** Vektor-Geozonen (ED-269-Datei eines Landes) – grobe Größe */
 const VECTOR_GEO_MB = 3;
+/** BAZL-Datei (CH, deckt LI mit ab) ist deutlich größer (~18 MB) */
+const VECTOR_GEO_MB_BY_ISO: Record<string, number> = { CH: 18, LI: 18 };
+/**
+ * Gekachelter Vektor-Speicher (geozoneTiles/): gemessene Gerätegrößen
+ * (komprimierte Datensätze + Index), Stand 15.11.2026:
+ *   DE dipul-WFS: 72 672 Zonen, 226 MB + 5 MB Index (Download ≈ 204 MB gzip)
+ *   DE Wohngrundstücke: 10 791 Zonen, 166 MB + 1 MB (Download ≈ 160 MB gzip)
+ *   FR Géoplateforme-WFS: 89 736 Zonen, 103 MB + 7 MB (Download ≈ 79 MB gzip)
+ *   CZ ŘLP ED-318: 136 547 Zonen, 73 MB + 9 MB (Download 35 MB ZIP)
+ * Aufgerundet für die Speicherplatz-Prüfung.
+ */
+export const TILE_STORE_MB: Record<string, number> = { DE: 240, FR: 115, CZ: 85 };
+export const TILE_STORE_WOHN_MB = 175;
+export const TILE_STORE_DOWNLOAD_MB: Record<string, number> = { DE: 205, FR: 80, CZ: 36, DE_WOHN: 160 };
 const PARALLEL = 6;
 
 // ---------------------------------------------------------------------------
@@ -116,7 +136,7 @@ function fillTemplate(t: string, x: number, y: number, z: number): string {
 // Konfiguration
 // ---------------------------------------------------------------------------
 
-export type GeozoneOfflineKind = "tiles" | "vector" | "none";
+export type GeozoneOfflineKind = "tiles" | "vector" | "tilestore" | "none";
 
 export interface OfflineCountryInfo {
   iso: string;
@@ -125,16 +145,20 @@ export interface OfflineCountryInfo {
   hasMap: boolean;
   hasSatellite: boolean;
   hasGeozones: boolean;
-  /** Geozonen als Kacheln (WMS/XYZ) oder als Vektordatei (ED-269-Gerätecache) */
+  /** Geozonen als Kacheln (WMS/XYZ), Vektordatei (ED-269-Gerätecache) oder gekachelter Vektor-Speicher */
   geozoneKind: GeozoneOfflineKind;
+  /** Quellen-/Lizenzhinweis der Geozonen (Pflicht-Attribution) */
+  geozoneAttribution?: { label: string; url?: string };
   /** Hinweis, wenn es keine frei speicherbare Grundkarte gibt */
   note?: string;
 }
 
 /** Wie werden die Geozonen eines Landes offline gespeichert? */
 export function geozoneOfflineKind(iso: string): GeozoneOfflineKind {
+  if (isTileStoreIso(iso)) return "tilestore";
   if (geozoneTemplates(iso).length > 0) return "tiles";
-  if (isEd269DirectCountry(iso)) return "vector";
+  // Liechtenstein steckt im Schweizer BAZL-Datensatz (ed269Store: li -> ch)
+  if (isEd269DirectCountry(iso) || String(iso).toUpperCase() === "LI") return "vector";
   return "none";
 }
 
@@ -155,6 +179,7 @@ export function offlineCountries(): OfflineCountryInfo[] {
       hasSatellite: !!p?.satellite?.length,
       hasGeozones: geozoneKind !== "none",
       geozoneKind,
+      geozoneAttribution: isTileStoreIso(c.iso) ? TILE_STORE_ATTRIBUTION[c.iso] : undefined,
       note: hasMap ? undefined : noOfflineBasemapNote(c.label, geozoneKind !== "none"),
     });
   }
@@ -172,6 +197,7 @@ export function defaultConfig(iso: string): CountryOfflineConfig {
     geozones: geozoneOfflineKind(iso) !== "none",
     geoMaxZoom: 12,
     obstacles: true,
+    ...(iso === "DE" ? { wohngebiete: true } : {}),
   };
 }
 
@@ -261,7 +287,10 @@ const LAND_SHARE = 0.65;
 export interface SizeEstimate {
   mapMB: number;
   satMB: number;
+  /** Geozonen gesamt (DE inkl. Wohngebiete, falls gewählt) */
   geoMB: number;
+  /** davon DE-Wohngrundstücke */
+  wohnMB: number;
   obstaclesMB: number;
   totalMB: number;
 }
@@ -273,6 +302,7 @@ export function estimateSize(c: CountryOfflineConfig): SizeEstimate {
   let mapMB = 0;
   let satMB = 0;
   let geoMB = 0;
+  let wohnMB = 0;
   let obstaclesMB = 0;
   if (c.map && p?.map) {
     mapMB = mb(tileCount(p.map.bounds, Math.max(MAP_MIN_ZOOM, p.map.minzoom ?? 0), Math.min(c.mapMaxZoom, p.map.maxzoom)), p.map.kbPerTile);
@@ -285,10 +315,17 @@ export function estimateSize(c: CountryOfflineConfig): SizeEstimate {
   if (c.geozones && bounds) {
     const kind = geozoneOfflineKind(c.iso);
     if (kind === "tiles") geoMB = mb(tileCount(bounds, GEOZONE_MIN_ZOOM, c.geoMaxZoom), GEO_KB_PER_TILE) * geozoneTemplates(c.iso).length;
-    else if (kind === "vector") geoMB = VECTOR_GEO_MB;
+    else if (kind === "vector") geoMB = VECTOR_GEO_MB_BY_ISO[c.iso] ?? VECTOR_GEO_MB;
+    else if (kind === "tilestore") {
+      geoMB = TILE_STORE_MB[c.iso] ?? 0;
+      if (c.iso === "DE" && c.wohngebiete !== false) {
+        wohnMB = TILE_STORE_WOHN_MB;
+        geoMB += wohnMB;
+      }
+    }
   }
   if (c.obstacles && bounds) obstaclesMB = (tilesForBounds(...bounds).length * LAND_SHARE * OBSTACLE_KB_PER_TILE) / 1024;
-  return { mapMB, satMB, geoMB, obstaclesMB, totalMB: mapMB + satMB + geoMB + obstaclesMB };
+  return { mapMB, satMB, geoMB, wohnMB, obstaclesMB, totalMB: mapMB + satMB + geoMB + obstaclesMB };
 }
 
 export function formatMB(mb: number): string {
@@ -314,6 +351,9 @@ type PackKind = "map" | "sat" | "geo";
 /** Fortschritts-Schlüssel der Vektor-Geozonen (keine Kacheln) */
 const vectorGeoKey = (iso: string) => `${iso}:geo:vector`;
 const VECTOR_TEMPLATE_PREFIX = "ed269:";
+/** Gekachelter Vektor-Speicher: `${iso}:geo:store` bzw. `DE:geo:wohn` */
+const storeGeoKey = (iso: string, part: TileStorePart) => `${iso}:geo:${part === "base" ? "store" : "wohn"}`;
+const STORE_TEMPLATE_PREFIX = "tilestore:";
 
 interface PackPlan {
   key: string;
@@ -385,7 +425,7 @@ function plansFor(c: CountryOfflineConfig): PackPlan[] {
       });
     }
   }
-  if (c.geozones) {
+  if (c.geozones && geozoneOfflineKind(c.iso) === "tiles") {
     geozoneTemplates(c.iso).forEach((t, i) => {
       plans.push({
         key: `${c.iso}:geo:${i}`,
@@ -457,15 +497,28 @@ async function saveProgress(p: StoredProgress): Promise<void> {
 
 export async function packStatuses(iso: string): Promise<PackProgress[]> {
   const prog = await loadProgress();
+  if (isTileStoreIso(iso)) await loadTileStoreMeta().catch(() => {});
   return Object.entries(prog)
     .filter(([k]) => k.startsWith(`${iso}:`))
-    .map(([k, v]) => ({
-      key: k,
-      kind: k.split(":")[1] as PackKind,
-      percentage: v.total ? Math.min(100, (v.done / v.total) * 100) : 0,
-      bytes: v.bytes,
-      state: v.total && v.done >= v.total ? "complete" : "inactive",
-    }));
+    .map(([k, v]) => {
+      // Vektor-Speicher: maßgeblich ist der tatsächlich gespeicherte Bestand
+      if (v.template.startsWith(STORE_TEMPLATE_PREFIX)) {
+        const part = v.template.split(":")[2] as TileStorePart;
+        const meta = getTilePartMeta(iso, part);
+        if (meta?.complete) {
+          return { key: k, kind: "geo" as PackKind, percentage: 100, bytes: meta.dataBytes, state: "complete" as const };
+        }
+        const pct = v.total ? Math.min(99, (v.done / v.total) * 100) : 0;
+        return { key: k, kind: "geo" as PackKind, percentage: pct, bytes: v.bytes, state: "inactive" as const };
+      }
+      return {
+        key: k,
+        kind: k.split(":")[1] as PackKind,
+        percentage: v.total ? Math.min(100, (v.done / v.total) * 100) : 0,
+        bytes: v.bytes,
+        state: v.total && v.done >= v.total ? ("complete" as const) : ("inactive" as const),
+      };
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -505,6 +558,12 @@ function templateUsedElsewhere(progress: StoredProgress, ownKey: string, templat
 /** Kachel-Ordner eines Pakets löschen – außer andere Pakete teilen ihn. */
 async function dropPack(progress: StoredProgress, levels: Record<string, number>, key: string): Promise<void> {
   const tpl = progress[key]?.template ?? "";
+  if (tpl.startsWith(STORE_TEMPLATE_PREFIX)) {
+    const [, iso, part] = tpl.split(":");
+    await deleteTileStore(iso, part as TileStorePart).catch(() => {});
+    delete progress[key];
+    return;
+  }
   if (tpl && !tpl.startsWith(VECTOR_TEMPLATE_PREFIX) && !templateUsedElsewhere(progress, key, tpl)) {
     const h = tileSourceHash(tpl);
     await FileSystem.deleteAsync(`${TILE_ROOT}${h}/`, { idempotent: true }).catch(() => {});
@@ -524,8 +583,11 @@ export async function startCountryDownload(
 
   const plans = plansFor(c);
   const vectorGeo = c.geozones && geozoneOfflineKind(c.iso) === "vector";
+  const storeGeo = c.geozones && geozoneOfflineKind(c.iso) === "tilestore";
+  const storeParts: TileStorePart[] = storeGeo ? (c.iso === "DE" && c.wohngebiete !== false ? ["base", "wohn"] : ["base"]) : [];
   const wanted = new Set(plans.map((p) => p.key));
   if (vectorGeo) wanted.add(vectorGeoKey(c.iso));
+  for (const part of storeParts) wanted.add(storeGeoKey(c.iso, part));
   const progress = await loadProgress();
   const levels = await loadLevels();
 
@@ -555,6 +617,12 @@ export async function startCountryDownload(
         error: c.iso === "IT" ? "d-flight-Zugang fehlt oder Anmeldung fehlgeschlagen" : "Geozonen konnten nicht geladen werden",
       });
     }
+  }
+
+  // Gekachelter Vektor-Speicher (DE/FR/CZ): alle Zonen des Landes
+  if (storeParts.length > 0 && !shouldStop()) {
+    const failed = await downloadStorePacks(c, storeParts, progress, onPack, shouldStop);
+    if (failed) return;
   }
 
   for (const plan of plans) {
@@ -630,6 +698,35 @@ export async function startCountryDownload(
   }
 }
 
+/** Lädt die Teile des Vektor-Speichers; true bei Fehler (Download abbrechen). */
+async function downloadStorePacks(
+  c: CountryOfflineConfig,
+  parts: TileStorePart[],
+  progress: StoredProgress,
+  onPack: (p: PackProgress) => void,
+  shouldStop: () => boolean,
+): Promise<boolean> {
+  const results = await downloadTileStore(c.iso, {
+    wohn: parts.includes("wohn"),
+    shouldStop,
+    onProgress: (p) => {
+      const key = storeGeoKey(c.iso, p.part);
+      const total = Math.max(1, p.total);
+      progress[key] = { done: p.state === "complete" ? total : p.done, total, bytes: p.bytes, maxZoom: 0, template: `${STORE_TEMPLATE_PREFIX}${c.iso}:${p.part}` };
+      onPack({
+        key,
+        kind: "geo",
+        percentage: p.state === "complete" ? 100 : (p.done / total) * 100,
+        bytes: p.bytes,
+        state: p.state,
+        error: p.error,
+      });
+    },
+  });
+  await saveProgress(progress);
+  return results.some((r) => r.state === "error");
+}
+
 export async function pauseCountryDownload(_iso: string): Promise<void> {
   // Der Download prüft shouldStop(); hier nichts weiter zu tun.
 }
@@ -642,6 +739,7 @@ export async function deleteCountry(iso: string): Promise<void> {
   }
   await saveProgress(progress);
   await saveLevels(levels);
+  if (isTileStoreIso(iso)) await deleteTileStore(iso).catch(() => {});
 
   const list = (await loadOfflineConfigs()).filter((x) => x.iso !== iso);
   const bounds = countryOfflineBounds(iso);

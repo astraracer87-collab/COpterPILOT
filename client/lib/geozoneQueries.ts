@@ -88,7 +88,7 @@ function dipulGeometryToGroups(geometry: any): [number, number][][][] {
   return [];
 }
 
-function dipulZoneFromFeature(
+export function dipulZoneFromFeature(
   rawFeature: any,
   layer: GeozoneLayer,
 ): GeozoneFeatureInfo | null {
@@ -1342,6 +1342,54 @@ export function translateFrLimite(limite: string): string {
   return translateFrRemarque(v);
 }
 
+// Name + Detailtext einer französischen Beschränkungszone (WMS- und WFS-Pfad).
+function frZoneText(limite: string, remarque: string): { name: string; details: string } {
+  const translatedLimit = translateFrLimite(limite);
+  const typeKey = classifyFrRestrictionType(limite, remarque);
+  const typeInfo = FR_ZONE_TYPES[typeKey];
+  const details: string[] = [];
+  details.push(`Zonentyp: ${typeInfo.label}`);
+  if (translatedLimit) details.push(`Beschränkung: ${translatedLimit}`);
+  const translatedRemarque = translateFrRemarque(remarque);
+  if (translatedRemarque && translatedRemarque !== translatedLimit) {
+    details.push(`Hinweis: ${translatedRemarque}`);
+  }
+  details.push(`Auflagen: ${typeInfo.auflage}`);
+  details.push(`Kontakt: ${typeInfo.kontakt}`);
+  details.push(
+    "Quelle: DGAC / Géoplateforme. Vor dem Flug AlphaTango registrieren "
+    + "und temporäre Sperrungen (NOTAM/SIA) prüfen.",
+  );
+  return { name: typeInfo.label, details: details.join("\n") };
+}
+
+export const FR_WFS_URL = "https://data.geopf.fr/wfs/ows";
+export const FR_WFS_TYPENAME = "TRANSPORTS.DRONES.RESTRICTIONS:carte_restriction_drones_lf";
+export const FR_RESTRICTIONS_LAYER_LABEL = "Drohnen-Beschränkungen (DGAC)";
+
+/**
+ * Zone aus einem Feature des Géoplateforme-WFS (`carte_restriction_drones_lf`,
+ * Felder `limite`/`remarque`, Geometrie in EPSG:4326 lon/lat). Genutzt vom
+ * Offline-Kachelspeicher (geozoneTiles/). null ohne Flächengeometrie.
+ */
+export function frZoneFromWfsFeature(rawFeature: any): GeozoneFeatureInfo | null {
+  const polygonGroups = dipulGeometryToGroups(rawFeature?.geometry);
+  if (polygonGroups.length === 0) return null;
+  const p = rawFeature?.properties && typeof rawFeature.properties === "object" ? rawFeature.properties : {};
+  const limite = (p.limite ?? "").toString().trim();
+  const remarque = (p.remarque ?? "").toString().trim();
+  const { name, details } = frZoneText(limite, remarque);
+  return {
+    layerLabel: FR_RESTRICTIONS_LAYER_LABEL,
+    name,
+    details,
+    featureId: String(rawFeature?.id || `${limite}|${remarque}`),
+    polygonRings: polygonGroups.flat(),
+    polygonGroups,
+    country: "FR",
+  };
+}
+
 // Frankreich (DGAC / Géoplateforme-WMS) GetFeatureInfo. Bbox in EPSG:3857,
 // FORMAT=image/png + STYLES + INFO_FORMAT=application/json, Sampling aus
 // Mittelpunkt + 8 Randpunkten einer ~`radiusKm`-Box. Liefert `GeozoneFeatureInfo`
@@ -1404,23 +1452,7 @@ export async function queryFrWmsFeaturesFrom(
         const fid = f.id || `${limite}|${remarque}`;
         if (seen.has(fid)) continue;
         seen.add(fid);
-        const translatedLimit = translateFrLimite(limite);
-        const typeKey = classifyFrRestrictionType(limite, remarque);
-        const typeInfo = FR_ZONE_TYPES[typeKey];
-        const name = typeInfo.label;
-        const details: string[] = [];
-        details.push(`Zonentyp: ${typeInfo.label}`);
-        if (translatedLimit) details.push(`Beschränkung: ${translatedLimit}`);
-        const translatedRemarque = translateFrRemarque(remarque);
-        if (translatedRemarque && translatedRemarque !== translatedLimit) {
-          details.push(`Hinweis: ${translatedRemarque}`);
-        }
-        details.push(`Auflagen: ${typeInfo.auflage}`);
-        details.push(`Kontakt: ${typeInfo.kontakt}`);
-        details.push(
-          "Quelle: DGAC / Géoplateforme. Vor dem Flug AlphaTango registrieren "
-          + "und temporäre Sperrungen (NOTAM/SIA) prüfen.",
-        );
+        const { name, details } = frZoneText(limite, remarque);
         let polygonRings: [number, number][][] | undefined;
         const g = f.geometry;
         if (g && Array.isArray(g.coordinates)) {
@@ -1436,7 +1468,7 @@ export async function queryFrWmsFeaturesFrom(
             if (rings.length > 0) polygonRings = rings;
           }
         }
-        out.push({ layerLabel, name, details: details.join("\n"), featureId: fid, polygonRings });
+        out.push({ layerLabel, name, details, featureId: fid, polygonRings });
       }
     }
     return out;
