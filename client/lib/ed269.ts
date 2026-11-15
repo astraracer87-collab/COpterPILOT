@@ -1,4 +1,5 @@
 import { GODRONE_GEOZONE_SOURCE_LABEL } from "../../shared/dutchGeozones";
+import { translateTextDe, translateZoneNameDe } from "../../shared/zoneTranslate";
 import { EANS_GEOZONE_SOURCE_LABEL } from "../../shared/estonianGeozones";
 import { CH_GEOZONE_SOURCE_LABEL } from "../../shared/swissGeozones";
 import { FI_GEOZONE_SOURCE_LABEL } from "../../shared/finnishGeozones";
@@ -228,15 +229,27 @@ export function parseEd269ToGeozoneInfo(
           : ed269LimitMeters(p.upperLimit ?? p.upper, uom);
     const altitudeLabel = ed269AltitudeLabel(lowerMeters, upperMeters);
 
-    const name = (p.name || p.identifier || p.zoneId || "Geozone").toString();
+    const originalName = (p.name || p.identifier || p.zoneId || "Geozone").toString();
+    // Zonenname ins Deutsche (Gattungswörter übersetzt, Eigennamen bleiben)
+    const name = translateZoneNameDe(originalName);
 
     let message = "";
+    let hasGermanOriginal = false;
     const localized = p.extendedProperties?.localizedMessages;
     if (Array.isArray(localized) && localized.length > 0) {
-      const de = localized.find((m: any) => (m?.language || "").toLowerCase().startsWith("de")) ?? localized[0];
-      message = stripHtml((de?.message || de?.text || "").toString());
+      const deMsg = localized.find((m: any) => (m?.language || "").toLowerCase().startsWith("de"));
+      hasGermanOriginal = !!deMsg;
+      const pick = deMsg ?? localized.find((m: any) => (m?.language || "").toLowerCase().startsWith("en")) ?? localized[0];
+      message = stripHtml((pick?.message || pick?.text || "").toString());
     }
     if (!message) message = stripHtml((p.message || p.reason || p.description || "").toString());
+    // Behördentext ins Deutsche; das Original bleibt unten erhalten
+    const originalMessage = message;
+    if (message && !hasGermanOriginal) {
+      const tr = translateTextDe(message);
+      message = tr.text;
+    }
+    const messageTranslated = !!originalMessage && message !== originalMessage;
 
     const detailLines: string[] = [];
     // Den Zonennamen in der Beschreibung erneut aufgreifen, damit die Zone auch im
@@ -250,6 +263,12 @@ export function parseEd269ToGeozoneInfo(
     if (message) detailLines.push(message);
     const sourceInfo = ed269SourceInfo(p);
     detailLines.push(...sourceInfo.details);
+    // Rechtlich maßgeblich ist die Behördenfassung: Original immer mitgeben
+    if (messageTranslated || name !== originalName) {
+      detailLines.push("Originaltext der Behörde:");
+      if (name !== originalName) detailLines.push(originalName);
+      if (messageTranslated) detailLines.push(originalMessage);
+    }
 
     const { validStartTs, validEndTs } = ed269ValidityFromProps(p);
 

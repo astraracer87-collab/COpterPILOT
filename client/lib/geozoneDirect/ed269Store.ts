@@ -27,6 +27,14 @@ function cacheKey(iso: string | null | undefined): string {
   return c === "li" ? "ch" : c;
 }
 
+type DownloadHook = (iso: string, features: GeoFeature[]) => unknown;
+const downloadHooks = new Set<DownloadHook>();
+/** Wird nach jedem erfolgreichen Länder-Download aufgerufen. */
+export function onEd269Downloaded(hook: DownloadHook): () => void {
+  downloadHooks.add(hook);
+  return () => downloadHooks.delete(hook);
+}
+
 export const ED269_REFRESH_AFTER_MS = 24 * 60 * 60 * 1000;
 // Nach einem fehlgeschlagenen Download nicht bei jedem Karten-Pan erneut
 // versuchen (offline!), sondern frühestens nach dieser Pause.
@@ -125,6 +133,12 @@ function download(iso: string): Promise<Ed269Dataset | null> {
       memory.set(iso, ds);
       lastFailureAt.delete(iso);
       await writeToDisk(ds);
+      // z. B. fehlende Übersetzungen nachladen (zoneTranslationStore.ts)
+      for (const hook of downloadHooks) {
+        try {
+          void Promise.resolve(hook(iso, features)).catch(() => {});
+        } catch {}
+      }
       return ds;
     } catch (e) {
       lastFailureAt.set(iso, Date.now());

@@ -2,6 +2,10 @@ import React, { useEffect, useRef, useState, useCallback } from "react";
 import { StyleSheet, View, Text, Pressable, ScrollView, Platform, BackHandler, ActivityIndicator, AppState, type AppStateStatus } from "react-native";
 import { NavigationContainer } from "@react-navigation/native";
 import { navigationRef } from "@/navigation/navigationRef";
+import { startZoneTranslation } from "@/lib/zoneTranslationStore";
+
+// Übersetzungs-Cache der Behördentexte laden (offline) und neue Texte nachziehen
+startZoneTranslation();
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
