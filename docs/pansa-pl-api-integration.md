@@ -168,3 +168,33 @@ curl -s "https://api.dronemap.pansa.pl/v1/kml/filtered?extrude=false&types=DRAP,
   -H "Accept: application/vnd.google-earth.kml+xml" -o pl_zones.kml
 head -c 400 pl_zones.kml
 ```
+
+---
+
+## 8. Verifizierte Daten & Mapping (DE-IP, 2026-11-15)
+
+**Fixtures:** `docs/fixtures/pansa_kml_sample.kml` (2 Placemarks),
+Zonentypen vollständig in `pansa_zones_types.json` (34 Typen).
+
+### KML-Struktur (aus `kml/filtered`)
+Jedes `<Placemark>` trägt Typ **und Höhen in der `<description>`**:
+```
+<name>DRA-P 2550</name>
+<description>Restriction: N/A, Type: DRAP, Min: 0 ft, Max: 600 ft</description>
+<Polygon>…<coordinates>lon,lat,0 …</coordinates>…</Polygon>
+```
+Parser: Beschreibung mit
+`/Type:\s*(\w+),\s*Min:\s*(-?\d+)\s*ft,\s*Max:\s*(-?\d+)\s*ft/` auslesen →
+`Type`→Beschränkung (Tabelle unten), Höhen **ft→m** (`×0.3048`), Geometrie aus
+`<Polygon>`/`<MultiGeometry>`. (KML→GeoJSON via `togeojson` + Description-Regex,
+da die Höhen/Typen **nicht** in ExtendedData, sondern im Freitext stehen.)
+
+### `Type` → Beschränkung (aus allen 34 Typen abgeleitet, Präfix DRA-P/R/I)
+| Beschränkung | Typen |
+|---|---|
+| **PROHIBITED** (7) | `DRAP`, `MRT`, `TF`, `TFR`, `TMA`, `TS`, `TSA` |
+| **REQ_AUTHORISATION** (18) | `ATZ`, `ATZ1KM`, `ATZ6KM`, `CTR`, `CTR1KM`, `CTR6KM`, `D`, `DRAR`, `EPD`, `EPP`, `EPR`, `MCTR`, `MCTR2KM`, `P`, `R`, `RPA`, `TR`, `TRA` |
+| **NO_RESTRICTION / Info** (9) | `AAA`, `ADIZ`, `AREA`, `DRAI`, `EA`, `FIS`, `NW`, `RMZ`, `ROL` |
+
+Die Beschreibungstexte je Typ (EN/PL, Flugbedingungen, Kontakt) stehen im
+`zones/types`-Endpoint und können als Popup-Text genutzt werden.

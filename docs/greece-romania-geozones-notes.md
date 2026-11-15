@@ -76,3 +76,32 @@ Für echte Geozonen-Geometrien führt der öffentliche Weg **nicht** weiter. Opt
 
 **Status GR: offen** – ohne Vektordaten keine vollwertige Geo-Awareness;
 ED-269/AIXM beim Betreiber erfragen.
+
+---
+
+## Anhang RO: Verifizierte Felder & Mapping (DE-IP, 2026-11-15)
+
+**Fixtures:** `docs/fixtures/ro_zones_sample.geojson`, `docs/fixtures/ro_notam_sample.geojson`.
+
+### Quelle 1 – statische Zonen (`zone_restrictionate_uav.json`, 1.272 Features)
+| Feld | Beispiel | Mapping |
+|---|---|---|
+| `zone_id` | `RZ 1001` | ID/Name (Dedupe) |
+| `status` | `RESTRICTED` | → Beschränkung (`RESTRICTED`→`REQ_AUTHORISATION`; weitere Werte prüfen) |
+| `lower_lim` | `GND` | Untergrenze: `GND`→0 |
+| `upper_lim` | `120M AGL` | Obergrenze: `"120M AGL"`→120 m; auch `FL###` möglich → ×100 ft ×0.3048 |
+| `contact` | `ROMATSA +40… twr.arad@romatsa.ro` | Freigabestelle |
+
+Geometrie: `Polygon` (WGS84). Höhen-Parser nötig (`GND`/`### M AGL`/`FL###`).
+
+### Quelle 2 – NOTAM-UAV WFS (`restrictii_notam_pt_uav`, 226 Features)
+| Feld | Beispiel | Mapping |
+|---|---|---|
+| `serie` | `R5607/2026` | NOTAM-Kennung |
+| `dfrom` / `dto` | `2026-10-31T17:30:00Z` / … | Gültigkeit (zeitlich begrenzte Zone) |
+| `tip` | `R` | Typ (R=Restricted …) |
+| `mesaj` | voller NOTAM-Text (Q/A/B/C/D/E…-Zeilen) | Popup/Info; Höhen ggf. aus `F)/G)` |
+
+→ `shared/romaniaGeozones.ts`: beide Quellen mergen; statische Zonen als
+Dauerzonen, NOTAM als temporäre (über `dfrom`/`dto`). Dedupe statisch über
+`zone_id`, NOTAM über `serie`.
