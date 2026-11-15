@@ -17,6 +17,7 @@ umgangen, keine privaten Logins missbraucht. Teile der Abrufe liefen aus einer
 | [geozonen-quellen-uebersicht.md](geozonen-quellen-uebersicht.md) | **Länder-Gesamttabelle** (Quelle, Auth, Format, Status) + Technik-Gruppierung + wiederverwendbare Loader |
 | [offene-pruefpunkte.md](offene-pruefpunkte.md) | **Übergabeliste** aller offenen Punkte (für einen frischen Job) |
 | [geozonen-daten-abruf-DE-2026-11-15.md](geozonen-daten-abruf-DE-2026-11-15.md) | Bericht der **tatsächlich von DE abgerufenen Daten** (ES/PL/RO/LU) inkl. Größenwarnungen |
+| [handover-hauptjob-DE-2026-11-15.md](handover-hauptjob-DE-2026-11-15.md) | **Konsolidierte DE-Übergabe**: Erreichbarkeit DE/US, Abruf-Rezepte je Land, Datei-Inventar (`fixtures/`), MT-Normalizer |
 | [air-traffic-quellen.md](air-traffic-quellen.md) | **Luftverkehr**: ADS-B/OGN-Quellen + FlightRadar24 (feed.js, fertiger Code) |
 
 **Test-Fixtures** (getrimmte echte Antworten): [`docs/fixtures/`](fixtures/)
@@ -52,7 +53,7 @@ umgangen, keine privaten Logins missbraucht. Teile der Abrufe liefen aus einer
 | 🇱🇺 LU Luxemburg | 📥 🛠 Modul reparieren/einbinden | [luxembourg-geozones-integration.md](luxembourg-geozones-integration.md) |
 | 🇮🇹 IT Italien | 🔑 CSRF gelöst, Download erfassen | [dflight-it-api-integration.md](dflight-it-api-integration.md) |
 | 🇭🇺 HU Ungarn | 🔑 Vektor nur per Login (öffentl. Weg raster-only, verifiziert) | [hungary-mydronespace-api-integration.md](hungary-mydronespace-api-integration.md) |
-| 🇲🇹 MT Malta | 🔎 DDP-Filter-Parameter | [idronect-mt-api-integration.md](idronect-mt-api-integration.md) |
+| 🇲🇹 MT Malta | ✅ (DDP `{managedZones:true}`, 195) | [idronect-mt-api-integration.md](idronect-mt-api-integration.md) |
 | 🇨🇿 CZ Tschechien | 🔎 getGJ.php-Params | [czech-ans-api-integration.md](czech-ans-api-integration.md) |
 | 🇱🇻 LV Lettland | ✅ (ArcGIS + SOE-Aktivfilter) | [latvia-lgs-api-integration.md](latvia-lgs-api-integration.md) |
 | 🇩🇰 DK Dänemark | ✅ (ArcGIS, dronezoner.eu) | [denmark-dronezoner-api-integration.md](denmark-dronezoner-api-integration.md) |

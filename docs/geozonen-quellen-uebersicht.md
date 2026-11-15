@@ -32,7 +32,7 @@ Pro Land gibt es ein eigenes Detaildokument (`docs/<land>-…-integration.md`).
 | **IT** | d-flight | Login (Keycloak) + CSRF | ED-269 Download | 🔑 CSRF gelöst, Download-Format erfassen | `dflight-it-api-integration.md` |
 | **PL** | PANSA DroneMap | API-Key (`x-api-key`) → Bearer | KML | ✅ live abgerufen (DE-IP): 1.774 Zonen | `pansa-pl-api-integration.md` |
 | **ES** | ENAIRE | keine | ED-318 (ArcGIS MapServer) | ✅ KOMPLETT abgerufen (DE-IP, ~21k Feat.) | `enaire-es-api-integration.md` |
-| **MT** | iDronect / Transport Malta | keine (DDP) | Meteor-DDP (GeoJSON) | 📥 beschaffbar (Browser-Export, 195 Zonen) | `idronect-mt-api-integration.md` |
+| **MT** | iDronect / Transport Malta | keine (DDP) | Meteor-DDP (GeoJSON) | ✅ direkt abrufbar (`{managedZones:true}`, 195 Zonen) | `idronect-mt-api-integration.md` |
 | **HU** | MyDroneSpace / HungaroControl | Login (GoodID/Google) | GeoJSON (`/api/zones`) + WMTS-Raster | 🔑 Zonen brauchen Login; WMTS öffentlich | `hungary-mydronespace-api-integration.md` |
 | **CZ** | ANS CR / ŘLP | keine | ED-318 Download (offiziell) | ✅ einsatzbereit (aim.rlp.cz, ED-318) | `czech-ans-api-integration.md` |
 | **SK** | LPS SR | keine | ArcGIS MapServer-Query (GeoJSON) | ✅ einsatzbereit (178 Zonen, AIXM-Schema) | `slovakia-lps-api-integration.md` |
@@ -45,9 +45,9 @@ Pro Land gibt es ein eigenes Detaildokument (`docs/<land>-…-integration.md`).
 | **GR** | HASP/HCAA (DAGR) | keine (Freigabe) | WMS-KML + GetFeatureInfo | 📥 extrahierbar (Skript, CC BY-NC-ND) | `greece-romania-geozones-notes.md` |
 | **RO** | ROMATSA | keine | GeoServer WFS + JSON | ✅ live abgerufen (DE-IP): 1.272 + 226 Zonen | `greece-romania-geozones-notes.md` |
 
-**Zusammenfassung (31 Länder):** 27× ✅ einsatzbereit · 2× 📥 beschaffbar
-(Export/Skript: MT, GR) · 2× 🔑 Zugang offen (IT Login-Fetch, HU raster-only
-→ Login/Export). Neu verifiziert (DE-Session): EE, FR, DK, CH (+LI), NO, SE, LV;
+**Zusammenfassung (31 Länder):** 28× ✅ einsatzbereit · 1× 📥 beschaffbar
+(Skript: GR, WMS-KML) · 2× 🔑 Zugang offen (IT Login-Fetch, HU raster-only
+→ Login/Export). MT jetzt direkt per DDP (`{managedZones:true}`). Neu verifiziert (DE-Session): EE, FR, DK, CH (+LI), NO, SE, LV;
 RO/PL/ES live abgerufen; GB offizieller AIXM-Datensatz. Fertige Export-Skripte
 unter `docs/tools/<land>/` für PL, SE, SK, ES, RO, CY, CZ, SI, GR, MT.
 
