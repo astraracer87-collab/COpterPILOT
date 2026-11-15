@@ -3,6 +3,9 @@ name: APK bauen (DJI RC)
 on:
   push:
     branches: ['**']
+    paths-ignore:
+      - 'fcc-tool/**'
+      - '.github/workflows/fcc-tool.yml'
   workflow_dispatch:
 
 permissions:

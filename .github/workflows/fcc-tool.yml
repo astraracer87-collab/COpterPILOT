@@ -1,0 +1,45 @@
+name: FCC Tool bauen
+
+on:
+  push:
+    branches: ['**']
+    paths:
+      - 'fcc-tool/**'
+      - '.github/workflows/fcc-tool.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fcc-tool-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: fcc-tool
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Tests und APK
+        run: ./gradlew testReleaseUnitTest assembleRelease --no-daemon
+
+      - name: APK umbenennen
+        run: cp app/build/outputs/apk/release/app-release.apk FCC-Tool.apk
+
+      # Nur als Artefakt (nicht als öffentliches Release), da die Funktion in der EU nicht zulässig ist.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FCC-Tool
+          path: fcc-tool/FCC-Tool.apk
