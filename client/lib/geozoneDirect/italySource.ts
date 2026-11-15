@@ -35,6 +35,7 @@ import {
   type ItalianWfsLayer,
 } from "../../../shared/italianGeozones";
 import { fetchWfsPaged } from "../../../shared/geozoneKit/wfs";
+import { responseJsonYielding } from "../../../shared/yieldingWork";
 
 export {
   IT_DFLIGHT_ED269_URL,
@@ -138,7 +139,7 @@ async function fetchItalyWfsLayer(deps: ItalyFetchDeps, layer: ItalianWfsLayer, 
         );
       }
       if (!res.ok) throw new Error(`d-flight WFS (${LAYER_LABEL_DE[layer]}): HTTP ${res.status}`);
-      return await res.json();
+      return await responseJsonYielding(res as any);
     },
   });
 }

@@ -37,6 +37,7 @@ import { revalidateGeozoneSources } from "@/lib/geozoneSources/revalidate";
 import type { OfflineSyncCountryResult, OfflineSyncProgress } from "@/lib/countryUsageData";
 import { USAGE_ALIASES, USAGE_LABEL_OVERRIDES, usageIsoOf } from "@/lib/countryUsage";
 import { beginDownload, endDownload, progressDownload } from "@/lib/downloadActivity";
+import { shouldYield, yieldToUi } from "../../shared/yieldingWork";
 
 export type DetailLevel = 11 | 12 | 13 | 14 | 15;
 
@@ -569,9 +570,13 @@ function* planTiles(plan: PackPlan): Generator<[number, number, number]> {
   }
 }
 
-function planTileCount(plan: PackPlan): number {
+/** Kachelzahl eines Plans – bei großen Ländern Hunderttausende: in Zeitscheiben zählen. */
+async function planTileCount(plan: PackPlan): Promise<number> {
   let n = 0;
-  for (const _ of planTiles(plan)) n++;
+  for (const _ of planTiles(plan)) {
+    n++;
+    if ((n & 1023) === 0 && shouldYield()) await yieldToUi("offline-plan");
+  }
   return n;
 }
 
@@ -836,7 +841,7 @@ async function runCountryDownload(
     const hash = tileSourceHash(plan.template);
     let st = progress[plan.key];
     if (!st || st.maxZoom !== plan.maxZoom || st.template !== plan.template) {
-      st = { done: 0, total: planTileCount(plan), bytes: st?.bytes ?? 0, maxZoom: plan.maxZoom, template: plan.template };
+      st = { done: 0, total: await planTileCount(plan), bytes: st?.bytes ?? 0, maxZoom: plan.maxZoom, template: plan.template };
       progress[plan.key] = st;
     }
     if (st.total && st.done >= st.total) {
@@ -867,7 +872,10 @@ async function runCountryDownload(
 
     const it = planTiles(plan);
     // bereits erledigte Kacheln überspringen
-    for (let i = 0; i < st.done; i++) if (it.next().done) break;
+    for (let i = 0; i < st.done; i++) {
+      if (it.next().done) break;
+      if ((i & 1023) === 0 && shouldYield()) await yieldToUi("offline-skip");
+    }
 
     let lastSave = Date.now();
     let failures = 0;

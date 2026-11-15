@@ -17,6 +17,7 @@ import { restrictionLabelDe } from "../../../shared/restrictionPolicy";
 import { capUnlimited, formatHeightRangeDe, parseHeight, type Height } from "../../../shared/heights";
 import { TILE_STORE_ATTRIBUTION, type TileStoreIso } from "./tileStoreCore";
 import { normalizeEnaireInsigniasFeature } from "../../../shared/spanishGeozones";
+import { ES_NOTAM_COLORS, type EsNotamCategory } from "../../../shared/spanishNotams";
 
 const DIPUL_LAYER_BY_NAME = new Map(GEOZONE_LAYERS.map((l) => [l.wmsLayer, l]));
 
@@ -194,8 +195,15 @@ export function esZoneFromStored(f: any, now: Date = new Date()): GeozoneFeature
   const { parseEd269ToGeozoneInfo } = require("../ed269") as typeof import("../ed269");
   const [z] = parseEd269ToGeozoneInfo([n], "ES");
   if (!z) return null;
+  // NOTAM: Farben wie drones.enaire.es (R rot, UAS gelb, Warnung orange)
+  const cat = n.properties.notamCategory as EsNotamCategory | undefined;
+  const colors = cat && ES_NOTAM_COLORS[cat] ? { fillColor: ES_NOTAM_COLORS[cat].fill, strokeColor: ES_NOTAM_COLORS[cat].stroke } : {};
+  // Sperrgebiete: IDENT_TXT für die Verknüpfung mit statischen NOTAM-Aktivierungen
+  const ident = n.properties.esLayerKey === "es_restringidas" ? String(f?.properties?.IDENT_TXT ?? n.properties.identifier ?? "").trim() : "";
   return {
     ...z,
+    ...colors,
+    ...(ident ? { sourceIdent: ident } : {}),
     layerLabel: `ENAIRE – ${n.properties.esLayerLabel ?? "Geozonen"}`,
     details: `${z.details}\nQuelle: ${TILE_STORE_ATTRIBUTION.ES.label} (ENAIRE Drones, insignias)`,
     links: [...(z.links ?? []), { label: "ENAIRE Drones (verbindlich)", url: TILE_STORE_ATTRIBUTION.ES.url! }],

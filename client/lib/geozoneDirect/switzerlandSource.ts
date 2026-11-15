@@ -20,10 +20,12 @@ import {
   CH_ACTIVITY_ZONES_URL,
   CH_GEOZONES_URL,
   normalizeSwissActivityZones,
-  normalizeSwissEd269,
+  normalizeSwissEd269Feature,
   stripBom,
+  swissEd269Zones,
   type SwissFeature,
 } from "../../../shared/swissGeozones";
+import { parseJsonYielding, shouldYield, yieldToUi } from "../../../shared/yieldingWork";
 
 // CH_GEOZONE_SOURCE_LABEL = "BAZL / swisstopo (geo.admin.ch)" – Popup-/Quellen-
 // bezeichnung (Opendata BY: Quellenangabe Pflicht); definiert in shared/.
@@ -70,7 +72,8 @@ async function fetchLargeJson(url: string, timeoutMs: number): Promise<unknown> 
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const text = await res.text();
-    return JSON.parse(stripBom(text));
+    // ≈ 18 MB: in Zeitscheiben parsen (Ergebnis identisch zu JSON.parse)
+    return await parseJsonYielding(stripBom(text));
   } catch (e) {
     if ((e as Error)?.name === "AbortError") {
       throw new Error(`Zeitüberschreitung nach ${Math.round(timeoutMs / 1000)} s (${url})`);
@@ -99,7 +102,12 @@ function tagCountry(features: SwissFeature[]): GeoFeature[] {
  */
 export async function fetchSwitzerland(): Promise<GeoFeature[]> {
   const body = await fetchLargeJson(CH_GEOZONES_URL, CH_FETCH_TIMEOUT_MS);
-  const zones = normalizeSwissEd269(body);
+  // je Zone normalisieren, zwischendurch abgeben (≈ 140 ms Node am Stück)
+  const zones: SwissFeature[] = [];
+  for (const z of swissEd269Zones(body)) {
+    zones.push(...normalizeSwissEd269Feature(z, {}));
+    if (shouldYield()) await yieldToUi("ch-normalise");
+  }
   if (zones.length < CH_MIN_ZONES) {
     throw new Error(`BAZL lieferte nur ${zones.length} Zonen (erwartet > ${CH_MIN_ZONES})`);
   }

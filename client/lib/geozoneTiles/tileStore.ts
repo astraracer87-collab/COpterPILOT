@@ -26,10 +26,11 @@ import {
   DIPUL_TEMP_LAYER,
   DIPUL_WOHN_LAYER,
   FR_PAGE_SIZE,
-  appendFeatures,
+  appendFeaturesYielding,
   bboxAround,
   bboxIntersects,
   decodeRecord,
+  decodeRecordYielding,
   dipulPageUrl,
   emptyIndex,
   entryRange,
@@ -40,10 +41,10 @@ import {
   isTileStoreIso,
   TILE_STORE_ISOS,
   listCzZipEntries,
-  loadIndex,
+  loadIndexYielding,
   pageJobs,
   parseCzUasIndex,
-  queryIndex,
+  queryIndexYielding,
   readCzZipEntry,
   wfsCountUrl,
   wfsMatched,
@@ -63,9 +64,12 @@ import {
   esInsigniasLayer,
   esInsigniasLayersOf,
   esInsigniasPageUrl,
+  normalizeEnaireInsigniasFeature,
   tagEsInsigniasFeature,
   type EsInsigniasLayer,
 } from "../../../shared/spanishGeozones";
+import { esNotamStaticActivations, esNotamValidity, type EsNotamFeature } from "../../../shared/spanishNotams";
+import { __resetEsServicesForTests, resolveEsLayers, withEsLayer, type EsFetchJson } from "./esServices";
 import { arcgisPage } from "../../../shared/geozoneKit/arcgis";
 import { dedupeZones, dipulLayerOfId, zoneFromStored } from "./tileZones";
 import { setCountryAccessAvailable } from "../../../shared/countryDetection";
@@ -74,6 +78,8 @@ import { TEMPORARY_ZONES_MAX_AGE_MS } from "../../../shared/geozoneSourceMeta";
 import { loadLargePacksOnMobile, mayDownloadLargePack } from "../geozoneSources/largePackSetting";
 import { awaitCountryUsage, isGeozoneSourceEnabled } from "../countryUsage";
 import { beginDownload, endDownload, progressDownload } from "../downloadActivity";
+import { parseJsonYielding, responseJsonYielding, runForegroundWork, runInBackground, stringifyYielding, waitForIdle } from "../../../shared/yieldingWork";
+import { runAfterStartup } from "../backgroundWork";
 
 // ---------------------------------------------------------------------------
 // Umgebung (Dateisystem, Netz)
@@ -167,6 +173,7 @@ export function __setTileStoreEnvForTests(env: Partial<TileEnv> | null): void {
   esTempFetchedAt = null;
   esTempSignature = "";
   metaLoaded = null;
+  __resetEsServicesForTests();
 }
 
 // ---------------------------------------------------------------------------
@@ -263,7 +270,8 @@ async function readIndexFile(fs: TileFs, dir: string): Promise<TileIndexFile | n
   try {
     const raw = await fs.readText(`${dir}index.json`);
     if (!raw) return null;
-    const f = JSON.parse(raw) as TileIndexFile;
+    // DE: index.json ≈ 6 MB – in Zeitscheiben parsen (Reaktionsfähigkeit)
+    const f = (await parseJsonYielding(raw)) as TileIndexFile;
     return f && Array.isArray(f.entries) && Array.isArray(f.ids) ? f : null;
   } catch {
     return null;
@@ -280,7 +288,7 @@ function getLoadedIndex(iso: TileStoreIso, part: TileStorePart): Promise<LoadedT
       const fs = getEnv().fs;
       if (!fs) return null;
       const f = await readIndexFile(fs, partDir(fs, iso, part));
-      return f && f.complete ? loadIndex(f) : null;
+      return f && f.complete ? loadIndexYielding(f) : null;
     })();
     for (const k of [...indexCache.keys()]) if (k.startsWith(`${iso}/${part}/`)) indexCache.delete(k);
     indexCache.set(key, p);
@@ -341,15 +349,17 @@ async function readZones(
       `${partDir(fs, iso, part)}data.bin`,
       missing.map((i) => entryRange(idx.file, i)),
     );
-    missing.forEach((i, n) => {
+    // in Zeitscheiben entpacken/umwandeln (große Ausschnitte: Hunderte Zonen)
+    for (let n = 0; n < missing.length; n++) {
+      const i = missing[n];
       let z: GeozoneFeatureInfo | null = null;
       try {
-        z = zoneFromStored(iso, decodeRecord(bytes[n]));
+        z = zoneFromStored(iso, await decodeRecordYielding(bytes[n]));
       } catch {
         z = null;
       }
       cacheZone(prefix + i, z, (bytes[n]?.length ?? 0) * 4);
-    });
+    }
   }
   const out: GeozoneFeatureInfo[] = [];
   for (const i of entries) {
@@ -374,10 +384,19 @@ export interface TiledQueryOptions {
  * Zonen eines Landes im Ausschnitt aus dem Offline-Bestand. null, wenn kein
  * vollständiger Bestand vorliegt (Aufrufer nutzt dann den Online-Pfad).
  */
-export async function queryTiledGeozones(
+export function queryTiledGeozones(
   rawIso: string,
   bbox: LngLatBBox,
   opts: TiledQueryOptions = {},
+): Promise<GeozoneFeatureInfo[] | null> {
+  // Vordergrund: laufende Hintergrund-Jobs (Downloads) pausieren solange
+  return runForegroundWork(() => queryTiledGeozonesInner(rawIso, bbox, opts));
+}
+
+async function queryTiledGeozonesInner(
+  rawIso: string,
+  bbox: LngLatBBox,
+  opts: TiledQueryOptions,
 ): Promise<GeozoneFeatureInfo[] | null> {
   const iso = String(rawIso || "").toUpperCase();
   if (!isTileStoreIso(iso)) return null;
@@ -387,10 +406,10 @@ export async function queryTiledGeozones(
   const layerSet = iso === "DE" && opts.layers && opts.layers.length > 0 ? new Set(opts.layers) : null;
   const filter = layerSet ? (id: string) => layerSet.has(dipulLayerOfId(id)) : undefined;
   const zones: GeozoneFeatureInfo[] = [];
-  zones.push(...(await readZones(iso, "base", base, queryIndex(base, bbox, { filter, limit: opts.limit, stats: opts.stats }))));
+  zones.push(...(await readZones(iso, "base", base, await queryIndexYielding(base, bbox, { filter, limit: opts.limit, stats: opts.stats }))));
   if (iso === "DE" && (!layerSet || layerSet.has(DIPUL_WOHN_LAYER))) {
     const wohn = await getLoadedIndex(iso, "wohn");
-    if (wohn) zones.push(...(await readZones(iso, "wohn", wohn, queryIndex(wohn, bbox, { limit: opts.limit, stats: opts.stats }))));
+    if (wohn) zones.push(...(await readZones(iso, "wohn", wohn, await queryIndexYielding(wohn, bbox, { limit: opts.limit, stats: opts.stats }))));
   }
   if (iso === "DE" && opts.includeTemp !== false && (!layerSet || layerSet.has(DIPUL_TEMP_LAYER))) {
     zones.push(...(await getDeTempZones(bbox)));
@@ -399,10 +418,14 @@ export async function queryTiledGeozones(
     // abwählbare Teile (Infrastruktur, Naturschutz), sofern gespeichert
     for (const part of TILE_STORE_OPTIONAL_PARTS.ES) {
       const idx = await getLoadedIndex(iso, part);
-      if (idx) zones.push(...(await readZones(iso, part, idx, queryIndex(idx, bbox, { limit: opts.limit, stats: opts.stats }))));
+      if (idx) zones.push(...(await readZones(iso, part, idx, await queryIndexYielding(idx, bbox, { limit: opts.limit, stats: opts.stats }))));
     }
-    // NOTAM für UAS: online live (≤ 10 min), offline letzter Stand
-    if (opts.includeTemp !== false) zones.push(...(await getEsTempZones(bbox)));
+    // NOTAM für UAS: online live (≤ 10 min), offline letzter Stand; statische
+    // Aktivierungen an den festen Sperrgebieten anzeigen
+    if (opts.includeTemp !== false) {
+      zones.push(...(await getEsTempZones(bbox)));
+      return dedupeZones(annotateEsStaticActivations(zones, esTempCache?.features ?? []));
+    }
   }
   return dedupeZones(zones);
 }
@@ -584,20 +607,36 @@ function setEsTempFeatures(features: any[], fetchedAt: number, cacheAt: number):
   }
 }
 
-/** Alle NOTAM-Features (paginiert, markiert); null bei Fehler. */
+/** Netz für die ES-Dienstauflösung (Web Map, 404-Wiederholung). */
+const esFetchJson: EsFetchJson = (url, timeoutMs) => fetchJson(url, timeoutMs ?? 30_000, 1);
+
+/**
+ * Alle NOTAM-Features (markiert, Schlüssel notamId). Der ganze Bestand
+ * (≈ 730) passt in EINE Abfrage (resultRecordCount 3000); Weiterblättern nur
+ * bei exceededTransferLimit (oben oder in properties). Bewusst OHNE
+ * serverseitigen Zeitfilter (Doku NOTAM §2/§6: alles laden, Status in der App):
+ * der Server entfernt Abgelaufene selbst, künftige bleiben (geplant). Hier
+ * wird nur verworfen, was schon abgelaufen ist (itemC < jetzt). Der Bestand
+ * ersetzt den alten vollständig (Stornierungen = Verschwinden).
+ */
 async function fetchEsNotamFeatures(): Promise<any[] | null> {
-  const layer = esInsigniasLayer("es_notam");
-  if (!layer) return null;
-  const out: any[] = [];
-  for (let page = 0; page < 10; page++) {
-    const { features, exceeded } = arcgisPage(await fetchJson(esInsigniasPageUrl(layer, out.length, layer.pageSize), 30_000, 1));
-    for (const f of features) {
-      const t = tagEsInsigniasFeature(f, layer.key);
-      if (t) out.push(t);
+  return withEsLayer("es_notam", esFetchJson, async (layer) => {
+    const byId = new Map<string, any>();
+    let offset = 0;
+    const now = Date.now();
+    for (let page = 0; page < 5; page++) {
+      const { features, exceeded } = arcgisPage(await fetchJson(esInsigniasPageUrl(layer, offset, layer.pageSize), 30_000, 1));
+      offset += features.length;
+      for (const f of features) {
+        const end = esNotamValidity(f?.properties ?? {}).end;
+        if (end != null && end < now) continue;
+        const t = tagEsInsigniasFeature(f, layer.key);
+        if (t) byId.set(String(t.id), t); // gleiche notamId zwischen Seiten → einmal
+      }
+      if (features.length === 0 || !exceeded) break;
     }
-    if (features.length === 0 || (!exceeded && features.length < layer.pageSize)) break;
-  }
-  return out;
+    return [...byId.values()];
+  });
 }
 
 /**
@@ -651,6 +690,39 @@ export function queryEsTempZones(bbox: LngLatBBox): Promise<GeozoneFeatureInfo[]
   return getEsTempZones(bbox);
 }
 
+/**
+ * Statische NOTAM-Aktivierungen (AREA ESTATICA + ACTIVA) an die festen Zonen
+ * der Ebene ZG_Restringidas hängen (affectedElement ↔ IDENT_TXT): „NOTAM …:
+ * Zone LED90A ist jetzt aktiv (Höhe …, gültig …)“. Neue Objekte, der
+ * Zonen-Cache bleibt unverändert.
+ */
+export function annotateEsStaticActivations(zones: GeozoneFeatureInfo[], notamFeatures: any[], now = new Date()): GeozoneFeatureInfo[] {
+  const targets = zones.filter((z) => z.sourceIdent && String(z.featureId ?? "").startsWith("ES-es_restringidas."));
+  if (targets.length === 0 || notamFeatures.length === 0) return zones;
+  const normalized = notamFeatures
+    .map((f) => {
+      try {
+        return normalizeEnaireInsigniasFeature(f, now) as EsNotamFeature | null;
+      } catch {
+        return null;
+      }
+    })
+    .filter((f): f is EsNotamFeature => !!f);
+  const map = esNotamStaticActivations(normalized);
+  if (map.size === 0) return zones;
+  return zones.map((z) => {
+    const acts = z.sourceIdent && String(z.featureId ?? "").startsWith("ES-es_restringidas.") ? map.get(z.sourceIdent.toUpperCase()) : undefined;
+    if (!acts || acts.length === 0) return z;
+    return { ...z, details: `${acts.map((a) => a.line).join("\n")}\n${z.details}` };
+  });
+}
+
+/** ES-Zonen (Live-Pfad ohne Paket) um statische NOTAM-Aktivierungen ergänzen. */
+export async function withEsNotamActivations(zones: GeozoneFeatureInfo[]): Promise<GeozoneFeatureInfo[]> {
+  const feats = await getEsTempFeatures().catch(() => [] as any[]);
+  return annotateEsStaticActivations(zones, feats);
+}
+
 async function getEsTempZones(bbox: LngLatBBox): Promise<GeozoneFeatureInfo[]> {
   const feats = await getEsTempFeatures();
   const now = Date.now();
@@ -682,9 +754,12 @@ async function fetchJson(url: string, timeoutMs = 120_000, retries = 3): Promise
     try {
       const res = await env.fetch(url, { signal: ctrl.signal, headers: { Accept: "application/json" } });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return await res.json();
+      // große WFS-/ArcGIS-Seiten (bis > 10 MB) in Zeitscheiben parsen
+      return await responseJsonYielding(res);
     } catch (e) {
       lastErr = e;
+      // 404 = Dienst/Ebene gibt es nicht (mehr) – Wiederholen hilft nicht (ES: Web Map neu lesen)
+      if (e instanceof Error && /^HTTP 404$/.test(e.message)) break;
     } finally {
       clearTimeout(timer);
     }
@@ -800,41 +875,127 @@ function czSource(): PartSource {
  * resultRecordCount, OBJECTID-Reihenfolge), volle Geometrie-Präzision. Liefert
  * der Server weniger als angefragt (exceededTransferLimit), wird innerhalb des
  * Auftrags weitergeblättert – sonst fehlten Zonen.
+ *
+ * Layer-URLs bei jedem Sync frisch aus der Web Map (esServices.ts, 404 →
+ * einmal neu lesen). Ist ein Layer nicht abrufbar (Zählabfrage scheitert),
+ * wird der Rest gespeichert („partial“, `source.failedLayers`); seine Zonen
+ * werden – falls vorhanden – aus dem bisherigen Bestand übernommen
+ * (Auftrag `carry:<key>`, `source.carriedLayers`). Scheitern alle Layer, schlägt
+ * der Download fehl (der alte Bestand bleibt).
  */
 function esSource(part: TileStorePart): PartSource {
   const layers = esInsigniasLayersOf(part === "infra" ? "infra" : part === "enp" ? "enp" : "base");
   return {
     concurrency: part === "enp" ? 2 : 3,
     async listJobs() {
+      await resolveEsLayers(esFetchJson, { fresh: true });
       const jobs: TileJob[] = [];
       let matched = 0;
+      const failed: string[] = [];
+      let firstErr: unknown = null;
       for (const layer of layers) {
-        const total = esInsigniasCount(await fetchJson(esInsigniasCountUrl(layer), 60_000));
-        if (total == null) throw new Error("Anzahl der Zonen unbekannt");
-        jobs.push(...pageJobs(layer.key, total, layer.pageSize));
-        matched += total;
+        try {
+          const total = await withEsLayer(layer.key, esFetchJson, async (l) => esInsigniasCount(await fetchJson(esInsigniasCountUrl(l), 60_000)));
+          if (total == null) throw new Error("Anzahl der Zonen unbekannt");
+          jobs.push(...pageJobs(layer.key, total, layer.pageSize));
+          matched += total;
+        } catch (e) {
+          failed.push(layer.key);
+          firstErr = firstErr ?? e;
+        }
       }
-      if (matched === 0) throw new Error("Geodienst liefert keine Zonen");
-      return { jobs, source: { service: "enaire-insignias", matched } };
+      if (failed.length === layers.length) throw firstErr instanceof Error ? firstErr : new Error("ENAIRE nicht erreichbar");
+      const carried: string[] = [];
+      if (failed.length > 0) {
+        const prev = await previousPartIndex("ES", part);
+        for (const key of failed) {
+          if (prev && prev.ids.some((id) => id.startsWith(`${key}.`))) {
+            jobs.push({ id: `carry:${key}`, layer: key, entry: "carry" });
+            carried.push(key);
+          }
+        }
+        console.warn(`[geozoneTiles] ES/${part}: Ebene(n) nicht abrufbar:`, failed.join(", "), carried.length ? `(aus letztem Stand: ${carried.join(", ")})` : "");
+      }
+      if (matched === 0 && carried.length === 0) throw new Error("Geodienst liefert keine Zonen");
+      return {
+        jobs,
+        source: {
+          service: "enaire-insignias",
+          matched,
+          ...(failed.length ? { failedLayers: failed.join(","), carriedLayers: carried.join(",") } : {}),
+        },
+      };
     },
     async runJob(job) {
-      const layer = esInsigniasLayer(job.layer) as EsInsigniasLayer | null;
-      if (!layer) throw new Error(`Unbekannter ENAIRE-Layer ${job.layer}`);
-      const features: any[] = [];
-      let got = 0;
-      const want = job.count!;
-      for (let guard = 0; guard < 50 && got < want; guard++) {
-        const { features: page, exceeded } = arcgisPage(await fetchJson(esInsigniasPageUrl(layer, job.start! + got, want - got)));
-        got += page.length;
-        for (const f of page) {
-          const t = tagEsInsigniasFeature(f, layer.key);
-          if (t) features.push(t);
+      if (job.entry === "carry") return { features: await carryEsLayerFeatures(part, job.layer!), rawBytes: 0 };
+      const known = esInsigniasLayer(job.layer) as EsInsigniasLayer | null;
+      if (!known) throw new Error(`Unbekannter ENAIRE-Layer ${job.layer}`);
+      return withEsLayer(known.key, esFetchJson, async (layer) => {
+        const features: any[] = [];
+        let got = 0;
+        const want = job.count!;
+        for (let guard = 0; guard < 50 && got < want; guard++) {
+          const { features: page, exceeded } = arcgisPage(await fetchJson(esInsigniasPageUrl(layer, job.start! + got, want - got)));
+          got += page.length;
+          for (const f of page) {
+            const t = tagEsInsigniasFeature(f, layer.key);
+            if (t) features.push(t);
+          }
+          if (page.length === 0 || !exceeded) break;
         }
-        if (page.length === 0 || !exceeded) break;
-      }
-      return { features, rawBytes: 0 };
+        return { features, rawBytes: 0 };
+      });
     },
   };
+}
+
+/** Index des bisherigen (vollständigen) Bestands eines Teils; null ohne. */
+async function previousPartIndex(iso: TileStoreIso, part: TileStorePart): Promise<TileIndexFile | null> {
+  const fs = getEnv().fs;
+  if (!fs) return null;
+  const f = await readIndexFile(fs, partDir(fs, iso, part));
+  return f && f.complete ? f : null;
+}
+
+/** Zonen eines Layers aus dem bisherigen ES-Bestand (nicht abrufbarer Layer). */
+async function carryEsLayerFeatures(part: TileStorePart, key: string): Promise<any[]> {
+  const fs = getEnv().fs;
+  const prev = await previousPartIndex("ES", part);
+  if (!fs || !prev) return [];
+  const idx = prev.ids.map((id, i) => (id.startsWith(`${key}.`) ? i : -1)).filter((i) => i >= 0);
+  if (idx.length === 0) return [];
+  const bytes = await fs.readRanges(`${partDir(fs, "ES", part)}data.bin`, idx.map((i) => entryRange(prev, i)));
+  const out: any[] = [];
+  for (const b of bytes) {
+    try {
+      const f = decodeRecord(b);
+      if (f) out.push(f);
+    } catch {}
+  }
+  return out;
+}
+
+/** ES: Ebenen, die beim letzten Download fehlten (je Teil); leer = vollständig. */
+export function esFailedLayers(): { part: TileStorePart; failed: string[]; carried: string[] }[] {
+  const out: { part: TileStorePart; failed: string[]; carried: string[] }[] = [];
+  for (const part of tileStorePartsOf("ES")) {
+    const src = getTilePartMeta("ES", part)?.source;
+    const failed = String(src?.failedLayers ?? "").split(",").filter(Boolean);
+    if (failed.length === 0) continue;
+    out.push({ part, failed, carried: String(src?.carriedLayers ?? "").split(",").filter(Boolean) });
+  }
+  return out;
+}
+
+/** Deutscher Abdeckungs-Hinweis für einen ES-Teilbestand; null = vollständig. */
+export function esPartialNote(): string | null {
+  const parts = esFailedLayers();
+  if (parts.length === 0) return null;
+  const names = parts.flatMap((p) => p.failed.map((k) => esInsigniasLayer(k)?.labelDe ?? k));
+  const carried = parts.reduce((n, p) => n + p.carried.length, 0);
+  const total = parts.reduce((n, p) => n + p.failed.length, 0);
+  const tail = carried === total ? "deren Zonen stammen aus dem letzten Stand" : carried > 0 ? "deren Zonen fehlen bzw. stammen aus dem letzten Stand" : "deren Zonen fehlen";
+  return `ENAIRE: ${total} Ebene(n) beim letzten Abruf nicht erreichbar (${names.join(", ")}) – ${tail}`;
 }
 
 /** Aktuelle ŘLP-Veröffentlichung (Index-Seite) oder null. */
@@ -892,7 +1053,7 @@ async function downloadPartInner(
     const { jobs, source } = await src.listJobs(dir);
     idx.jobs = jobs;
     idx.source = source;
-    await fs.writeText(`${dir}index.json`, JSON.stringify(idx));
+    await fs.writeText(`${dir}index.json`, await stringifyYielding(idx));
   }
   const file = idx;
   const seen = new Set(file.ids);
@@ -923,8 +1084,10 @@ async function downloadPartInner(
         return;
       }
       // Anhängen strikt nacheinander (Offsets = Dateigröße)
-      writeChain = writeChain.then(async () => {
-        const { bytes } = appendFeatures(file, seen, res.features, dataSize);
+      // CPU-Phase (Komprimieren, Index) als Hintergrund-Job: nacheinander mit
+      // anderen schweren Phasen, in Zeitscheiben, pausiert bei Interaktion
+      writeChain = writeChain.then(() => runInBackground(`tiles:${iso}:${part}:${job.id}`, async (ctx) => {
+        const { bytes } = await appendFeaturesYielding(file, seen, res.features, dataSize, ctx);
         if (bytes.length > 0) {
           await fs.appendBytes(dataPath, bytes);
           dataSize += bytes.length;
@@ -934,16 +1097,18 @@ async function downloadPartInner(
         doneSet.add(job.id);
         if (Date.now() - lastSave > 15_000) {
           lastSave = Date.now();
-          await fs.writeText(`${dir}index.json`, JSON.stringify(file));
+          await fs.writeText(`${dir}index.json`, await stringifyYielding(file, ctx));
         }
         progress("active");
-      });
+      }));
       await writeChain;
     }
   };
   await Promise.all(Array.from({ length: Math.max(1, src.concurrency) }, worker));
-  await writeChain;
-  await fs.writeText(`${dir}index.json`, JSON.stringify(file));
+  await writeChain.catch((e) => {
+    failed = failed ?? (e instanceof Error ? e : new Error(String(e)));
+  });
+  await fs.writeText(`${dir}index.json`, await stringifyYielding(file));
   if (failed) return progress("error", (failed as Error).message || "Download fehlgeschlagen");
   if (doneSet.size < totalJobs) return progress("inactive");
 
@@ -956,7 +1121,7 @@ async function downloadPartInner(
   file.createdAt = Date.now();
   file.jobs = [];
   file.done = [];
-  await fs.writeText(`${dir}index.json`, JSON.stringify(file));
+  await fs.writeText(`${dir}index.json`, await stringifyYielding(file));
   await fs.writeText(`${dir}meta.json`, JSON.stringify(metaOf(file)));
   await src.finish?.(dir);
   const target = partDir(fs, iso, part);
@@ -1053,7 +1218,10 @@ export async function tileStoreRefreshDue(rawIso: string, now = Date.now()): Pro
   return (await tileStoreVersionCheck(rawIso, now)).due;
 }
 
-export type TileStoreDueReason = "age" | "airac" | "cz-folder" | "fr-count";
+export type TileStoreDueReason = "age" | "airac" | "cz-folder" | "fr-count" | "es-partial";
+
+/** ES: Teilbestand (Ebene fehlte) nach diesem Alter erneut laden (Doku: täglich). */
+export const ES_PARTIAL_RETRY_MS = 24 * 60 * 60 * 1000;
 
 export interface TileStoreVersionCheck {
   due: boolean;
@@ -1078,6 +1246,13 @@ export async function tileStoreVersionCheck(rawIso: string, now = Date.now()): P
   if (isIndexStale(meta, now)) return { due: true, reason: "age" };
   // DE (dipul), FR und ES (ENAIRE aktualisiert an AIRAC-Donnerstagen): Paket vor Beginn des aktuellen Zyklus
   if ((iso === "DE" || iso === "FR" || iso === "ES") && isBeforeCurrentAirac(meta.createdAt, now)) return { due: true, reason: "airac" };
+  // ES: beim letzten Download fehlte eine Ebene → nach einem Tag erneut versuchen
+  if (iso === "ES") {
+    for (const p of esFailedLayers()) {
+      const m = getTilePartMeta("ES", p.part);
+      if (m && now - m.createdAt > ES_PARTIAL_RETRY_MS) return { due: true, reason: "es-partial" };
+    }
+  }
   const env = getEnv();
   if (env.isOffline()) return { due: false, reason: null };
   if (iso === "CZ") {
@@ -1107,6 +1282,7 @@ export async function refreshDueTileStores(): Promise<void> {
   await awaitCountryUsage();
   for (const iso of tiledGeozoneIsos()) {
     try {
+      await waitForIdle();
       // Länder-Nutzung: aktive Länder (online/offline) halten ihr Paket aktuell
       if (!isGeozoneSourceEnabled(iso)) continue;
       if (!(await tileStoreRefreshDue(iso))) continue;
@@ -1132,7 +1308,8 @@ export function startGeozoneTileStore(refreshDelayMs = 60_000): void {
   loadTileStoreMeta()
     .then(syncFlags)
     .catch(() => {});
-  setTimeout(() => {
+  // nach dem Start-Bildschirm/Interaktionen; die Länder einzeln (refreshDueTileStores)
+  runAfterStartup(() => {
     refreshDueTileStores().catch(() => {});
   }, refreshDelayMs);
 }

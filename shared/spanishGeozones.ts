@@ -30,6 +30,7 @@ import { isoDurationText } from "./swedishGeozones";
 import { parseHeight } from "./geozoneKit/heights";
 import { cleanText as kitCleanText, round1 } from "./geozoneKit/text";
 import { arcgisPage, ensureLonLat } from "./geozoneKit";
+import { esNotamFixCircleGeometry, esNotamKey, normalizeEsNotamFeature } from "./spanishNotams";
 
 export const ES_GEOZONE_SOURCE_LABEL = "ENAIRE (ED-318)";
 export const ES_GEOZONE_ATTRIBUTION = "© ENAIRE – AIS";
@@ -668,6 +669,18 @@ export interface EsInsigniasLayer {
   defaultRestriction: string;
   /** Seitengröße beim Download (Antwort meist < ~3 MB) */
   pageSize: number;
+  /**
+   * Titel der Ebene in der Web Map von drones.enaire.es (stabil, anders als
+   * die versionierten Dienstpfade); Vergleich ohne Akzente/Groß-/Kleinschreibung.
+   */
+  titles: string[];
+  /** Naturschutz-Art (ENP bzw. Vogelschutz ZEPA) – gleiche Regeln. */
+  nature?: "enp" | "zepa";
+  /**
+   * Aktuelle Layer-URL (`…/MapServer/<id>`) aus der Web-Map-Definition;
+   * fehlt sie, gilt der feste Pfad service/layerId (nur Rückfall).
+   */
+  url?: string;
 }
 
 /**
@@ -679,17 +692,20 @@ export interface EsInsigniasLayer {
  * NOTAM Beschränkungsgebiet (Freigabe nötig).
  */
 export const ES_INSIGNIAS_LAYERS: readonly EsInsigniasLayer[] = [
-  { key: "es_eac_fiz", service: "NSF/Drones_ZG_Aero_V3", layerId: 1, part: "base", labelDe: "Kontrollierter Luftraum / FIZ", legacyLayer: "ZGUAS_Aero", defaultRestriction: "REQ_AUTHORISATION", pageSize: 300 },
-  { key: "es_avisos", service: "NSF/Drones_ZG_Aero_V3", layerId: 2, part: "base", labelDe: "Hinweise (AVISOS)", legacyLayer: "ZGUAS_Aero", defaultRestriction: "CONDITIONAL", pageSize: 100 },
-  { key: "es_rvf", service: "NSF/Drones_ZG_Aero_V3", layerId: 3, part: "base", labelDe: "Fotoflug-Beschränkung (RVF)", legacyLayer: "ZGUAS_Aero", defaultRestriction: "REQ_AUTHORISATION", pageSize: 300 },
-  { key: "es_aeromodelismo", service: "NSF/Drones_ZG_Aero_V3", layerId: 4, part: "base", labelDe: "Modellflug", legacyLayer: "ZGUAS_Aero", defaultRestriction: "CONDITIONAL", pageSize: 500 },
-  { key: "es_aerodromos", service: "NSF/Drones_ZG_Aero_V3", layerId: 6, part: "base", labelDe: "Flugplätze", legacyLayer: "ZGUAS_Aero", defaultRestriction: "REQ_AUTHORISATION", pageSize: 300 },
-  { key: "es_restringidas", service: "NSF/Drones_ZG_Aero_V3", layerId: 10, part: "base", labelDe: "Sperr-/Beschränkungsgebiete", legacyLayer: "ZGUAS_Aero", defaultRestriction: "REQ_AUTHORISATION", pageSize: 200 },
-  { key: "es_urbano", service: "NSF/Drones_ZG_Urbano_V0", layerId: 11, part: "base", labelDe: "Urbane Zonen", legacyLayer: "ZGUAS_Urbano", defaultRestriction: "CONDITIONAL", pageSize: 200 },
-  { key: "es_infra", service: "NSF/Drones_ZG_Infra_V0", layerId: 11, part: "infra", labelDe: "Infrastruktur", legacyLayer: "ZGUAS_Infraestructuras", defaultRestriction: "REQ_AUTHORISATION", pageSize: 200 },
-  { key: "es_enp0", service: "ENP/ENP_APP_Local_V4", layerId: 0, part: "enp", labelDe: "Naturschutz (ENP)", legacyLayer: "ZGUAS_Infraestructuras", defaultRestriction: "NATURE", pageSize: 20 },
-  { key: "es_enp1", service: "ENP/ENP_APP_Local_V4", layerId: 1, part: "enp", labelDe: "Naturschutz (ENP)", legacyLayer: "ZGUAS_Infraestructuras", defaultRestriction: "NATURE", pageSize: 20 },
-  { key: "es_notam", service: "NOTAM/NOTAM_UAS_APP_V3", layerId: 1, part: "temp", labelDe: "NOTAM (temporär)", legacyLayer: "ZGUAS_Aero", defaultRestriction: "RESTRICTED", pageSize: 1000 },
+  { key: "es_eac_fiz", service: "NSF/Drones_ZG_Aero_V3", layerId: 1, part: "base", labelDe: "Kontrollierter Luftraum / FIZ", legacyLayer: "ZGUAS_Aero", defaultRestriction: "REQ_AUTHORISATION", pageSize: 300, titles: ["ZG_EAC_FIZ", "EAC_FIZ"] },
+  { key: "es_avisos", service: "NSF/Drones_ZG_Aero_V3", layerId: 2, part: "base", labelDe: "Hinweise (AVISOS)", legacyLayer: "ZGUAS_Aero", defaultRestriction: "CONDITIONAL", pageSize: 100, titles: ["AVISOS", "ZG_AVISOS"] },
+  { key: "es_rvf", service: "NSF/Drones_ZG_Aero_V3", layerId: 3, part: "base", labelDe: "Fotoflug-Beschränkung (RVF)", legacyLayer: "ZGUAS_Aero", defaultRestriction: "REQ_AUTHORISATION", pageSize: 300, titles: ["ZG_RVF", "RVF"] },
+  { key: "es_aeromodelismo", service: "NSF/Drones_ZG_Aero_V3", layerId: 4, part: "base", labelDe: "Modellflug", legacyLayer: "ZGUAS_Aero", defaultRestriction: "CONDITIONAL", pageSize: 500, titles: ["AEROMODELISMO", "ZG_AEROMODELISMO"] },
+  // „ZG_Aeródromos“ (Zonen) – NICHT „AERODROMOS“ (Layer 0, nur Bezugspunkte)
+  { key: "es_aerodromos", service: "NSF/Drones_ZG_Aero_V3", layerId: 6, part: "base", labelDe: "Flugplätze", legacyLayer: "ZGUAS_Aero", defaultRestriction: "REQ_AUTHORISATION", pageSize: 300, titles: ["ZG_Aeródromos"] },
+  { key: "es_restringidas", service: "NSF/Drones_ZG_Aero_V3", layerId: 10, part: "base", labelDe: "Sperr-/Beschränkungsgebiete", legacyLayer: "ZGUAS_Aero", defaultRestriction: "REQ_AUTHORISATION", pageSize: 200, titles: ["ZG_Restringidas", "RESTRINGIDAS"] },
+  { key: "es_urbano", service: "NSF/Drones_ZG_Urbano_V0", layerId: 11, part: "base", labelDe: "Urbane Zonen", legacyLayer: "ZGUAS_Urbano", defaultRestriction: "CONDITIONAL", pageSize: 200, titles: ["ZG_Urbano", "URBANO"] },
+  { key: "es_infra", service: "NSF/Drones_ZG_Infra_V0", layerId: 11, part: "infra", labelDe: "Infrastruktur", legacyLayer: "ZGUAS_Infraestructuras", defaultRestriction: "REQ_AUTHORISATION", pageSize: 200, titles: ["ZG_Infraestructuras", "INFRAESTRUCTURAS", "ZG_Infra"] },
+  { key: "es_enp0", service: "ENP/ENP_APP_Local_V4", layerId: 0, part: "enp", labelDe: "Naturschutz (ENP)", legacyLayer: "ZGUAS_Infraestructuras", defaultRestriction: "NATURE", pageSize: 20, titles: ["ENP", "Espacios Naturales Protegidos"], nature: "enp" },
+  // ZEPA (Vogelschutzgebiete) – eigene Web-Map-Ebene, drohnenrelevant laut Doku (Anhang ES), gleiche Regeln wie ENP
+  { key: "es_enp1", service: "ENP/ENP_APP_Local_V4", layerId: 1, part: "enp", labelDe: "Vogelschutzgebiet (ZEPA)", legacyLayer: "ZGUAS_Infraestructuras", defaultRestriction: "NATURE", pageSize: 20, titles: ["ZEPA", "Zonas de Especial Protección para las Aves"], nature: "zepa" },
+  // NOTAM: ≈ 730 Features, maxRecordCount 3000 → ein Abruf (Doku NOTAM §2)
+  { key: "es_notam", service: "NOTAM/NOTAM_UAS_APP_V3", layerId: 1, part: "temp", labelDe: "NOTAM (temporär)", legacyLayer: "ZGUAS_Aero", defaultRestriction: "RESTRICTED", pageSize: 3000, titles: ["NOTAM", "NOTAM UAS"] },
 ];
 
 const ES_LAYER_BY_KEY = new Map(ES_INSIGNIAS_LAYERS.map((l) => [l.key, l]));
@@ -703,9 +719,14 @@ export function esInsigniasLayersOf(part: EsTilePart): EsInsigniasLayer[] {
   return ES_INSIGNIAS_LAYERS.filter((l) => l.part === part);
 }
 
-/** Layer-URL (`…/<Service>/MapServer/<id>`). */
-export function esInsigniasLayerUrl(l: EsInsigniasLayer): string {
+/** Fester Rückfall-Pfad (`…/<Service>/MapServer/<id>`), Stand Doku 2026-11. */
+export function esInsigniasDefaultUrl(l: EsInsigniasLayer): string {
   return `${ENAIRE_INSIGNIAS_BASE}/${l.service}/MapServer/${l.layerId}`;
+}
+
+/** Layer-URL: aus der Web Map aufgelöst, sonst der feste Rückfall-Pfad. */
+export function esInsigniasLayerUrl(l: EsInsigniasLayer): string {
+  return l.url || esInsigniasDefaultUrl(l);
 }
 
 /**
@@ -770,6 +791,18 @@ export function tagEsInsigniasFeature(f: any, key: string): any | null {
   const t = f?.geometry?.type;
   if (t !== "Polygon" && t !== "MultiPolygon") return null;
   const p = f.properties || {};
+  if (esInsigniasLayer(key)?.part === "temp") {
+    // NOTAM: Schlüssel notamId (OBJECTID wird bei jedem Neubefüllen neu
+    // vergeben, GFID ist die Quell-NOTAM-Nummer); nie über die Geometrie
+    // deduplizieren. Grobe 37-Punkt-Kreise fein neu erzeugen bzw. puffern.
+    const nid = esNotamKey(p);
+    const oid = nid ?? p.OBJECTID ?? p.objectid ?? f.id;
+    if (oid == null || oid === "") return null;
+    const fix = esNotamFixCircleGeometry(f.geometry, [p.itemE, p.itemQ, p.ITEME, p.ITEMQ].map((x) => (x == null ? "" : String(x))));
+    const props: Record<string, any> = { ...p, _esLayer: key };
+    if (fix.circle) props._esCircle = fix.circle;
+    return { type: "Feature", id: `${key}.${oid}`, geometry: fix.geometry, properties: props };
+  }
   const oid = p.OBJECTID ?? p.objectid ?? p.FID ?? f.id;
   if (oid == null || oid === "") return null;
   return { type: "Feature", id: `${key}.${oid}`, geometry: f.geometry, properties: { ...p, _esLayer: key } };
@@ -844,6 +877,14 @@ export function normalizeEnaireInsigniasFeature(f: any, now: Date = new Date()):
   const key = str(f.properties?._esLayer) || str(f.id).split(".")[0];
   const layer = esInsigniasLayer(key);
   if (!layer) return null;
+  if (layer.part === "temp") {
+    const g = f.geometry;
+    if (g.type !== "Polygon" && g.type !== "MultiPolygon") return null;
+    return normalizeEsNotamFeature(
+      { ...f, geometry: esEnsureLonLat({ type: g.type, coordinates: g.coordinates }) },
+      { now, sourceLabel: ES_GEOZONE_SOURCE_LABEL, attribution: ES_GEOZONE_ATTRIBUTION, layerKey: layer.key },
+    ) as EsFeature | null;
+  }
   const ed318 = esInsigniasToEd318Props(f.properties || {});
   const get = esAttributeReader(ed318);
   const known = esRestrictionKnown(get("Type"));
@@ -853,9 +894,11 @@ export function normalizeEnaireInsigniasFeature(f: any, now: Date = new Date()):
   let restriction = known ?? layer.defaultRestriction;
   const lines: string[] = [`ENAIRE-Ebene: ${layer.labelDe}`];
   if (!known && layer.defaultRestriction === "NATURE") {
-    lines.push("Naturschutzgebiet (Espacio Natural Protegido) – Schutzvorschriften beachten; Drohnenflug kann verboten oder genehmigungspflichtig sein.");
-  } else if (!known && layer.defaultRestriction === "RESTRICTED") {
-    lines.push("NOTAM für UAS – Beschränkungsgebiet: Einflug nur mit Freigabe; NOTAM-Text beachten.");
+    lines.push(
+      layer.nature === "zepa"
+        ? "Vogelschutzgebiet (ZEPA, Zona de Especial Protección para las Aves) – Schutzvorschriften beachten; Drohnenflug kann verboten oder genehmigungspflichtig sein."
+        : "Naturschutzgebiet (Espacio Natural Protegido) – Schutzvorschriften beachten; Drohnenflug kann verboten oder genehmigungspflichtig sein.",
+    );
   } else if (!known && restriction !== p.restriction) {
     // Layer-Default dieses Layers weicht vom ED-318-Layer-Default ab
     lines.push(restriction === "CONDITIONAL" ? "Flug unter Auflagen zulässig – Bedingungen im Originaltext beachten." : "Flug nur mit Genehmigung.");
@@ -868,14 +911,133 @@ export function normalizeEnaireInsigniasFeature(f: any, now: Date = new Date()):
   p.esLayerKey = layer.key;
   p.esLayerLabel = layer.labelDe;
   p.sourceLayer = layer.key;
-  p.legalBasis = layer.part === "enp" ? "Normativa de Espacios Naturales Protegidos" : ES_LAYER_LEGAL_BASIS[layer.legacyLayer];
+  p.legalBasis =
+    layer.nature === "zepa"
+      ? "Red Natura 2000 – Zona de Especial Protección para las Aves (ZEPA)"
+      : layer.part === "enp"
+        ? "Normativa de Espacios Naturales Protegidos"
+        : ES_LAYER_LEGAL_BASIS[layer.legacyLayer];
   // Je gespeicherter Zeile eindeutig (ED-318-Listen wie DailyPeriod kommen als
   // mehrere Zeilen mit gleichem Identifier – nicht zusammenführen, sonst ginge
   // beim Dedupe ein Zeitfenster verloren; Doppelanzeige ist die sichere Seite).
   p.zoneId = f.id != null && str(f.id) ? `ES-${str(f.id)}` : `ES-${layer.key}-${str(p.identifier)}`;
-  if (layer.part === "temp") {
-    p.isNotam = true;
-    p._notamEligible = true;
-  }
   return base;
+}
+
+// ---------------------------------------------------------------------------
+// Dienstnamen dynamisch aus der Web Map (Doku „Anhang ES (2)“): Die
+// Versionssuffixe (Drones_ZG_Aero_V3, Drones_ZG_Infra_V0, NOTAM_UAS_APP_V3,
+// ENP_APP_Local_V4) wechseln mit neuen ENAIRE-Versionen. Beim Sync wird die
+// Web-Map-Definition gelesen und die Layer-URL über den stabilen TITEL
+// zugeordnet; die festen Pfade oben sind nur Rückfall.
+// ---------------------------------------------------------------------------
+
+export const ES_WEBMAP_ITEM_ID = "b0449bba555240e9b93207cd8c190f21";
+export const ES_WEBMAP_DATA_URL = `https://servais.enaire.es/insigniap/sharing/rest/content/items/${ES_WEBMAP_ITEM_ID}/data?f=json`;
+
+/** Titel vergleichbar machen: ohne Akzente, klein, nur a–z/0–9 („ZG_Aeródromos“ → „zgaerodromos“). */
+export function esTitleKey(title: unknown): string {
+  return stripAccents(str(title)).toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+/** Katalog-Layer zu einem Web-Map-Titel; null = unbekannt. */
+export function esLayerForTitle(title: unknown, layers: readonly EsInsigniasLayer[] = ES_INSIGNIAS_LAYERS): EsInsigniasLayer | null {
+  const t = esTitleKey(title);
+  if (!t) return null;
+  return layers.find((l) => l.titles.some((x) => esTitleKey(x) === t)) ?? null;
+}
+
+const ES_SERVICE_URL_RE = /^https?:\/\/servais\.enaire\.es\/[^?#]*\/rest\/services\/[^?#]+\/(?:MapServer|FeatureServer)(?:\/(\d+))?\/?$/i;
+
+/**
+ * Nur ENAIRE-ArcGIS-Dienste unter servais.enaire.es (kein Webseiten-Proxy,
+ * keine Fremd-Hosts); http → https. Rückgabe ohne abschließenden „/“.
+ */
+export function esServiceUrl(url: unknown): { url: string; layerId: number | null } | null {
+  const u = str(url).replace(/\/+$/, "");
+  const m = u.match(ES_SERVICE_URL_RE);
+  if (!m) return null;
+  return { url: u.replace(/^http:\/\//i, "https://"), layerId: m[1] != null ? Number(m[1]) : null };
+}
+
+type WebmapEntry = { title: string; url: string; layerId: number | null; parentTitle?: string; siblings?: number };
+
+function walkEsWebmap(list: unknown, out: WebmapEntry[]): void {
+  if (!Array.isArray(list)) return;
+  for (const l of list) {
+    if (!l || typeof l !== "object") continue;
+    const o = l as Record<string, any>;
+    const title = str(o.title ?? o.name);
+    const svc = esServiceUrl(o.url);
+    if (svc && svc.layerId != null) {
+      out.push({ title, url: svc.url, layerId: svc.layerId });
+      continue;
+    }
+    if (svc) {
+      // Kartendienst (…/MapServer) mit Unterebenen [{ id, title|name, url? }]
+      const subs = Array.isArray(o.layers) ? o.layers : [];
+      const withId = subs.filter((x: any) => x && typeof x === "object" && (x.url || Number.isInteger(Number(x.id))));
+      if (withId.length === 0) {
+        out.push({ title, url: svc.url, layerId: null });
+        continue;
+      }
+      for (const sub of withId) {
+        const subSvc = esServiceUrl(sub.url);
+        if (subSvc && subSvc.layerId != null) out.push({ title: str(sub.title ?? sub.name), url: subSvc.url, layerId: subSvc.layerId, parentTitle: title, siblings: withId.length });
+        else if (!sub.url) {
+          const id = Number(sub.id);
+          out.push({ title: str(sub.title ?? sub.name), url: `${svc.url}/${id}`, layerId: id, parentTitle: title, siblings: withId.length });
+        }
+      }
+      continue;
+    }
+    // Gruppenebene ohne Dienst → rekursiv
+    if (Array.isArray(o.layers)) walkEsWebmap(o.layers, out);
+  }
+}
+
+export interface EsResolvedLayers {
+  /** Gesamter Katalog; `url` gesetzt, wo die Web Map die Ebene liefert. */
+  layers: EsInsigniasLayer[];
+  /** Schlüssel, deren URL aus der Web Map stammt. */
+  fromWebmap: string[];
+  /** Schlüssel ohne Treffer in der Web Map (fester Rückfall-Pfad). */
+  fallback: string[];
+  /** Web-Map-Ebenen ohne bekannte Zuordnung (nur fürs Log). */
+  unknown: string[];
+}
+
+/**
+ * Web-Map-Definition (`…/items/b0449bba…/data?f=json` → operationalLayers[]
+ * inkl. geschachtelter layers[] mit title/url) → Layer-URLs je Katalog-Layer,
+ * Zuordnung über den Titel (tolerant gegenüber Akzenten/Schreibweise).
+ * Kartendienst ohne Unterebenen-Angabe → Titel des Dienstes + bekannte
+ * Layer-Nummer; unbekannte Unterebene eines Dienstes mit passendem Titel
+ * (z. B. NOTAM → „Áreas“) nur bei gleicher Layer-Nummer bzw. einziger Unterebene.
+ */
+export function resolveEsLayersFromWebmap(webmap: any, catalog: readonly EsInsigniasLayer[] = ES_INSIGNIAS_LAYERS): EsResolvedLayers {
+  const entries: WebmapEntry[] = [];
+  walkEsWebmap(webmap?.operationalLayers, entries);
+  const urls = new Map<string, string>();
+  const unknown: string[] = [];
+  for (const e of entries) {
+    let def = esLayerForTitle(e.title, catalog);
+    if (!def && e.parentTitle) {
+      const parent = esLayerForTitle(e.parentTitle, catalog);
+      if (parent && (e.layerId === parent.layerId || e.siblings === 1)) def = parent;
+    }
+    if (!def) {
+      unknown.push(e.title || e.url);
+      continue;
+    }
+    if (urls.has(def.key)) continue;
+    urls.set(def.key, e.layerId != null ? e.url : `${e.url}/${def.layerId}`);
+  }
+  const layers = catalog.map((l) => (urls.has(l.key) ? { ...l, url: urls.get(l.key) } : { ...l }));
+  return {
+    layers,
+    fromWebmap: catalog.filter((l) => urls.has(l.key)).map((l) => l.key),
+    fallback: catalog.filter((l) => !urls.has(l.key)).map((l) => l.key),
+    unknown,
+  };
 }

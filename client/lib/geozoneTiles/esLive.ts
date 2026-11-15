@@ -8,6 +8,8 @@
 //    Layer-Satz zwischengespeichert; die Planung speichert die fertigen Zonen
 //    zusätzlich je Standort für offline (geozones.ts, offlineResultCache)
 //  - NOTAM für UAS kommen getrennt (tileStore getEsTempFeatures, ≤ 10 min)
+//  - Layer-URLs aus der Web Map (esServices.ts, gemerkt ≤ 6 h); 404 → Web Map
+//    einmal neu lesen und wiederholen; ein fehlender Layer → „partial“
 //
 // Bewusst frei von React-Native-Importen (unter tsx testbar; Netz injizierbar).
 import type { GeozoneFeatureInfo } from "../geozones";
@@ -23,6 +25,7 @@ import { TEMPORARY_ZONES_MAX_AGE_MS } from "../../../shared/geozoneSourceMeta";
 import { esZoneFromStored } from "./tileZones";
 import type { LngLatBBox } from "./tileStoreCore";
 import { trackDownload } from "../downloadActivity";
+import { __resetEsServicesForTests, withEsLayer } from "./esServices";
 
 export type EsFetchJson = (url: string, timeoutMs?: number) => Promise<any>;
 
@@ -50,6 +53,7 @@ const cache = new Map<string, { at: number; features: any[]; failed: string[] }>
 export function __setEsLiveFetchForTests(f: EsFetchJson | null): void {
   fetchJsonImpl = f ?? defaultFetchJson;
   cache.clear();
+  __resetEsServicesForTests();
 }
 
 /** Dauerhafte Zonen-Layer der gewählten Teile (ohne NOTAM). */
@@ -96,7 +100,7 @@ export async function queryEsLiveZones(bbox: LngLatBBox, parts: EsTilePart[] = [
     // Längere Live-Abfragen erscheinen in der Download-Anzeige (kurze < 1 s nicht)
     const results = await trackDownload(
       { id: "es-live", iso: "ES", labelDe: "Geozonen für den Kartenausschnitt", kind: "live" },
-      () => Promise.allSettled(layers.map((l) => fetchLayerBbox(l, bbox))),
+      () => Promise.allSettled(layers.map((l) => withEsLayer(l.key, fetchJsonImpl, (rl) => fetchLayerBbox(rl, bbox)))),
     );
     const failed = layers.filter((_, i) => results[i].status === "rejected").map((l) => l.key);
     if (failed.length === layers.length) {

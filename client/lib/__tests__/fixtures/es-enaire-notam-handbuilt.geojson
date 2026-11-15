@@ -1,0 +1,852 @@
+{
+ "type": "FeatureCollection",
+ "_comment": "HANDGEBAUT (nicht live abgerufen): Felder/Typen nach docs/enaire-es-notam-integration.md §4/§7 (40 Attribute, Unix-ms UTC, itemF/itemG-Text, LOWER_VAL/UPPER_VAL gerundete Fuß, 37-Punkt-Kreis, MultiPolygon, gleiche Geometrie LED120 ×2, FIR GMMM/Melilla, itemC 2050 = dauerhaft). Stand der Tests: 2026-11-15T12:00Z.",
+ "features": [
+  {
+   "type": "Feature",
+   "id": 264701,
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -1.55,
+       37.75
+      ],
+      [
+       -1.5,
+       37.75
+      ],
+      [
+       -1.5,
+       37.8
+      ],
+      [
+       -1.55,
+       37.8
+      ],
+      [
+       -1.55,
+       37.75
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "OBJECTID": 264701,
+    "notamId": "V03255/26",
+    "notamSerie": "V",
+    "notamNumber": 3255,
+    "notamYear": 2026,
+    "icaroCreationTime": 1794560400000,
+    "itemA": "LECM",
+    "itemB": 1794290400000,
+    "itemBstr": "10/11/2026 06:00:00",
+    "itemBIcaro": "2611100600",
+    "itemC": 1795874400000,
+    "itemCstr": "28/11/2026 14:00:00",
+    "itemCIcaro": "2611281400",
+    "itemD": "MON-FRI 0600-1400",
+    "itemE": "TEMPORARY RESERVED AREA TRA TOTANA ACTIVATED.\n     UAS FLT       NOT AFFECTED BY\n   OTHER RESTRICTIONS.",
+    "itemF": "SFC",
+    "itemG": "04300FT AMSL",
+    "LOWER_VAL": 0,
+    "UPPER_VAL": 4300,
+    "LOWER_VAL_AGL": null,
+    "FLYING_LEVELS_DESC": "SFC / 04300FT AMSL",
+    "itemQ": "LECM/QRTCA/IV/BO/W/000/040/4030N00345W005\nTIPO)RTCA",
+    "qcode": "RTCA",
+    "fir": "LECM",
+    "traffic": "IV",
+    "purpose": "BO",
+    "scope": "W",
+    "affectedElement": "DINV0325526",
+    "incidenceType": "AREA DINAMICA",
+    "incidenceQualifier": "ACTIVA",
+    "areaSactaName": "TRA TOTANA",
+    "sourceInformationNotam": "D5296/26",
+    "GFID": "D5296/26",
+    "icaoFormatText": "(V03255/26 NOTAMN\nQ) LECM/QRTCA/IV/BO/W/000/040/4030N00345W005\nA) LECM B) 2611100600 C) 2611281400\nD) MON-FRI 0600-1400\nE) TEMPORARY RESERVED AREA TRA TOTANA ACTIVATED.\n     UAS FLT       NOT AFFECTED BY\n   OTHER RESTRICTIONS.\nFUENTE INF)D5296/26\nF) SFC G) 04300FT AMSL)",
+    "DESCRIPTION": "<b>DESDE:</b> 10/11/2026 06:00:00<br><b>HASTA:</b> 28/11/2026 14:00:00<br /><b>HORARIO:</b> MON-FRI 0600-1400<br><b>DESCRIPCIÓN:</b> TEMPORARY RESERVED AREA TRA TOTANA ACTIVATED.\n     UAS FLT       NOT AFFECTED BY\n   OTHER RESTRICTIONS.",
+    "accion": null,
+    "geom_calc_date": null
+   }
+  },
+  {
+   "type": "Feature",
+   "id": 264702,
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -3.8,
+       43.4846531
+      ],
+      [
+       -3.8043047,
+       43.4843798
+      ],
+      [
+       -3.8084784,
+       43.4835681
+      ],
+      [
+       -3.8123944,
+       43.4822427
+      ],
+      [
+       -3.8159334,
+       43.480444
+      ],
+      [
+       -3.818988,
+       43.4782266
+      ],
+      [
+       -3.8214653,
+       43.4756579
+      ],
+      [
+       -3.8232902,
+       43.4728161
+      ],
+      [
+       -3.8244071,
+       43.4697874
+      ],
+      [
+       -3.8247824,
+       43.466664
+      ],
+      [
+       -3.8244046,
+       43.4635408
+      ],
+      [
+       -3.8232854,
+       43.4605126
+      ],
+      [
+       -3.821459,
+       43.4576715
+      ],
+      [
+       -3.8189808,
+       43.4551037
+      ],
+      [
+       -3.8159262,
+       43.4528872
+      ],
+      [
+       -3.812388,
+       43.4510893
+      ],
+      [
+       -3.8084737,
+       43.4497647
+      ],
+      [
+       -3.8043022,
+       43.4489535
+      ],
+      [
+       -3.8,
+       43.4486803
+      ],
+      [
+       -3.7956978,
+       43.4489535
+      ],
+      [
+       -3.7915263,
+       43.4497647
+      ],
+      [
+       -3.787612,
+       43.4510893
+      ],
+      [
+       -3.7840738,
+       43.4528872
+      ],
+      [
+       -3.7810192,
+       43.4551037
+      ],
+      [
+       -3.778541,
+       43.4576715
+      ],
+      [
+       -3.7767146,
+       43.4605126
+      ],
+      [
+       -3.7755954,
+       43.4635408
+      ],
+      [
+       -3.7752176,
+       43.466664
+      ],
+      [
+       -3.7755929,
+       43.4697874
+      ],
+      [
+       -3.7767098,
+       43.4728161
+      ],
+      [
+       -3.7785347,
+       43.4756579
+      ],
+      [
+       -3.781012,
+       43.4782266
+      ],
+      [
+       -3.7840666,
+       43.480444
+      ],
+      [
+       -3.7876056,
+       43.4822427
+      ],
+      [
+       -3.7915216,
+       43.4835681
+      ],
+      [
+       -3.7956953,
+       43.4843798
+      ],
+      [
+       -3.8,
+       43.4846531
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "OBJECTID": 264702,
+    "notamId": "V01001/26",
+    "notamSerie": "V",
+    "notamNumber": 1001,
+    "notamYear": 2026,
+    "icaroCreationTime": 1794560400000,
+    "itemA": "LECM",
+    "itemB": 1794643200000,
+    "itemBstr": "14/11/2026 08:00:00",
+    "itemBIcaro": "2611140800",
+    "itemC": 1794852000000,
+    "itemCstr": "16/11/2026 18:00:00",
+    "itemCIcaro": "2611161800",
+    "itemD": null,
+    "itemE": "UAS OPERATIONS WILL TAKE PLACE WI RADIUS OF 2KM CENTRED ON 432800N0034800W.",
+    "itemF": "SFC",
+    "itemG": "00120M AGL",
+    "LOWER_VAL": 0,
+    "UPPER_VAL": 400,
+    "LOWER_VAL_AGL": null,
+    "FLYING_LEVELS_DESC": "SFC / 00120M AGL",
+    "itemQ": "LECM/QWULW/IV/BO/W/000/040/4030N00345W005\nTIPO)WULW",
+    "qcode": "WULW",
+    "fir": "LECM",
+    "traffic": "IV",
+    "purpose": "BO",
+    "scope": "W",
+    "affectedElement": "DINV0100126",
+    "incidenceType": "AREA DINAMICA",
+    "incidenceQualifier": "ACTIVA",
+    "areaSactaName": "UAS SANTANDER",
+    "sourceInformationNotam": null,
+    "GFID": null,
+    "icaoFormatText": "(V01001/26 NOTAMN\nQ) LECM/QWULW/IV/BO/W/000/040/4030N00345W005\nA) LECM B) 2611140800 C) 2611161800\nE) UAS OPERATIONS WILL TAKE PLACE WI RADIUS OF 2KM CENTRED ON 432800N0034800W.\nF) SFC G) 00120M AGL)",
+    "DESCRIPTION": "<b>DESDE:</b> 14/11/2026 08:00:00<br><b>HASTA:</b> 16/11/2026 18:00:00<br /><b>HORARIO:</b> <br><b>DESCRIPCIÓN:</b> UAS OPERATIONS WILL TAKE PLACE WI RADIUS OF 2KM CENTRED ON 432800N0034800W.",
+    "accion": null,
+    "geom_calc_date": null
+   }
+  },
+  {
+   "type": "Feature",
+   "id": 264703,
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -0.9,
+       39.4
+      ],
+      [
+       -0.8200000000000001,
+       39.4
+      ],
+      [
+       -0.8200000000000001,
+       39.48
+      ],
+      [
+       -0.9,
+       39.48
+      ],
+      [
+       -0.9,
+       39.4
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "OBJECTID": 264703,
+    "notamId": "V02002/26",
+    "notamSerie": "V",
+    "notamNumber": 2002,
+    "notamYear": 2026,
+    "icaroCreationTime": 1794560400000,
+    "itemA": "LECM",
+    "itemB": 1793491200000,
+    "itemBstr": "01/11/2026 00:00:00",
+    "itemBIcaro": "2611010000",
+    "itemC": 1796083140000,
+    "itemCstr": "30/11/2026 23:59:00",
+    "itemCIcaro": "2611302359",
+    "itemD": "03-05 12 17-19 24 2000-2359, 10-11 1900-2359",
+    "itemE": "DANGER AREA LED90A ACTIVATED.",
+    "itemF": "GND",
+    "itemG": "FL100",
+    "LOWER_VAL": 0,
+    "UPPER_VAL": 10000,
+    "LOWER_VAL_AGL": null,
+    "FLYING_LEVELS_DESC": "GND / FL100",
+    "itemQ": "LECM/QRDCA/IV/BO/W/000/040/4030N00345W005\nTIPO)RDCA",
+    "qcode": "RDCA",
+    "fir": "LECM",
+    "traffic": "IV",
+    "purpose": "BO",
+    "scope": "W",
+    "affectedElement": "LED90A",
+    "incidenceType": "AREA ESTATICA",
+    "incidenceQualifier": "ACTIVA",
+    "areaSactaName": null,
+    "sourceInformationNotam": "D5300/26",
+    "GFID": "D5300/26",
+    "icaoFormatText": "(V02002/26 NOTAMN\nQ) LECM/QRDCA/IV/BO/W/000/040/4030N00345W005\nA) LECM B) 2611010000 C) 2611302359\nD) 03-05 12 17-19 24 2000-2359, 10-11 1900-2359\nE) DANGER AREA LED90A ACTIVATED.\nFUENTE INF)D5300/26\nF) GND G) FL100)",
+    "DESCRIPTION": "<b>DESDE:</b> 01/11/2026 00:00:00<br><b>HASTA:</b> 30/11/2026 23:59:00<br /><b>HORARIO:</b> 03-05 12 17-19 24 2000-2359, 10-11 1900-2359<br><b>DESCRIPCIÓN:</b> DANGER AREA LED90A ACTIVATED.",
+    "accion": null,
+    "geom_calc_date": null
+   }
+  },
+  {
+   "type": "Feature",
+   "id": 264704,
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -5.4,
+       36.2
+      ],
+      [
+       -5.3500000000000005,
+       36.2
+      ],
+      [
+       -5.3500000000000005,
+       36.25
+      ],
+      [
+       -5.4,
+       36.25
+      ],
+      [
+       -5.4,
+       36.2
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "OBJECTID": 264704,
+    "notamId": "V03300/26",
+    "notamSerie": "V",
+    "notamNumber": 3300,
+    "notamYear": 2026,
+    "icaroCreationTime": 1794560400000,
+    "itemA": "LECM",
+    "itemB": 1796083200000,
+    "itemBstr": "01/12/2026 00:00:00",
+    "itemBIcaro": "2612010000",
+    "itemC": 1797811140000,
+    "itemCstr": "20/12/2026 23:59:00",
+    "itemCIcaro": "2612202359",
+    "itemD": "SR-SS",
+    "itemE": "MILITARY EXERCISES.",
+    "itemF": "SFC",
+    "itemG": "02000FT AGL",
+    "LOWER_VAL": 0,
+    "UPPER_VAL": 2000,
+    "LOWER_VAL_AGL": null,
+    "FLYING_LEVELS_DESC": "SFC / 02000FT AGL",
+    "itemQ": "LECM/QWELW/IV/BO/W/000/040/4030N00345W005\nTIPO)WELW",
+    "qcode": "WELW",
+    "fir": "LECM",
+    "traffic": "IV",
+    "purpose": "BO",
+    "scope": "W",
+    "affectedElement": "DINV0330026",
+    "incidenceType": "AREA DINAMICA",
+    "incidenceQualifier": "ACTIVA",
+    "areaSactaName": "EJERCICIO ESTRECHO",
+    "sourceInformationNotam": null,
+    "GFID": null,
+    "icaoFormatText": "(V03300/26 NOTAMN\nQ) LECM/QWELW/IV/BO/W/000/040/4030N00345W005\nA) LECM B) 2612010000 C) 2612202359\nD) SR-SS\nE) MILITARY EXERCISES.\nF) SFC G) 02000FT AGL)",
+    "DESCRIPTION": "<b>DESDE:</b> 01/12/2026 00:00:00<br><b>HASTA:</b> 20/12/2026 23:59:00<br /><b>HORARIO:</b> SR-SS<br><b>DESCRIPCIÓN:</b> MILITARY EXERCISES.",
+    "accion": null,
+    "geom_calc_date": null
+   }
+  },
+  {
+   "type": "Feature",
+   "id": 264705,
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -16.3,
+       28.45
+      ],
+      [
+       -16.27,
+       28.45
+      ],
+      [
+       -16.27,
+       28.48
+      ],
+      [
+       -16.3,
+       28.48
+      ],
+      [
+       -16.3,
+       28.45
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "OBJECTID": 264705,
+    "notamId": "V00950/26",
+    "notamSerie": "V",
+    "notamNumber": 950,
+    "notamYear": 2026,
+    "icaroCreationTime": 1794560400000,
+    "itemA": "GCCC",
+    "itemB": 1780272000000,
+    "itemBstr": "01/06/2026 00:00:00",
+    "itemBIcaro": "2606010000",
+    "itemC": 2548195200000,
+    "itemCstr": "01/10/2050 00:00:00",
+    "itemCIcaro": "5010010000",
+    "itemD": null,
+    "itemE": "UAS OPERATIONS IN SUPPORT OF AIP SUP.",
+    "itemF": "SFC",
+    "itemG": "00060M AGL",
+    "LOWER_VAL": 0,
+    "UPPER_VAL": 200,
+    "LOWER_VAL_AGL": null,
+    "FLYING_LEVELS_DESC": "SFC / 00060M AGL",
+    "itemQ": "GCCC/QWULW/IV/BO/W/000/040/4030N00345W005\nTIPO)WULW",
+    "qcode": "WULW",
+    "fir": "GCCC",
+    "traffic": "IV",
+    "purpose": "BO",
+    "scope": "W",
+    "affectedElement": "DINV0095026",
+    "incidenceType": "AREA DINAMICA",
+    "incidenceQualifier": "ACTIVA",
+    "areaSactaName": "UAS TENERIFE",
+    "sourceInformationNotam": "UAS SUP095/26",
+    "GFID": "UAS SUP095/26",
+    "icaoFormatText": "(V00950/26 NOTAMN\nQ) GCCC/QWULW/IV/BO/W/000/040/4030N00345W005\nA) GCCC B) 2606010000 C) 5010010000\nE) UAS OPERATIONS IN SUPPORT OF AIP SUP.\nFUENTE INF)UAS SUP095/26\nF) SFC G) 00060M AGL)",
+    "DESCRIPTION": "<b>DESDE:</b> 01/06/2026 00:00:00<br><b>HASTA:</b> 01/10/2050 00:00:00<br /><b>HORARIO:</b> <br><b>DESCRIPCIÓN:</b> UAS OPERATIONS IN SUPPORT OF AIP SUP.",
+    "accion": null,
+    "geom_calc_date": null
+   }
+  },
+  {
+   "type": "Feature",
+   "id": 264706,
+   "geometry": {
+    "type": "MultiPolygon",
+    "coordinates": [
+     [
+      [
+       [
+        -6.0,
+        37.0
+       ],
+       [
+        -5.9,
+        37.0
+       ],
+       [
+        -5.95,
+        37.08
+       ],
+       [
+        -6.0,
+        37.0
+       ]
+      ]
+     ],
+     [
+      [
+       [
+        -5.8,
+        37.0
+       ],
+       [
+        -5.7,
+        37.0
+       ],
+       [
+        -5.75,
+        37.08
+       ],
+       [
+        -5.8,
+        37.0
+       ]
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "OBJECTID": 264706,
+    "notamId": "V03400/26",
+    "notamSerie": "V",
+    "notamNumber": 3400,
+    "notamYear": 2026,
+    "icaroCreationTime": 1794560400000,
+    "itemA": "LECM",
+    "itemB": 1794682800000,
+    "itemBstr": "14/11/2026 19:00:00",
+    "itemBIcaro": "2611141900",
+    "itemC": 1798956000000,
+    "itemCstr": "03/01/2027 06:00:00",
+    "itemCIcaro": "2701030600",
+    "itemD": "NOV 14 1900-2359, NOV 15-17 0000-0600 1900-2359, DEC 30-31 1900-2359, JAN 01-03 0000-0600",
+    "itemE": "TSA 22 ACTIVATED. UAS FLIGHTS PROHIBITED.",
+    "itemF": "FL050",
+    "itemG": "FL150",
+    "LOWER_VAL": 5000,
+    "UPPER_VAL": 15000,
+    "LOWER_VAL_AGL": null,
+    "FLYING_LEVELS_DESC": "FL050 / FL150",
+    "itemQ": "LECM/QRTCA/IV/BO/W/000/040/4030N00345W005\nTIPO)RTCA",
+    "qcode": "RTCA",
+    "fir": "LECM",
+    "traffic": "IV",
+    "purpose": "BO",
+    "scope": "W",
+    "affectedElement": "DINV0340026",
+    "incidenceType": "AREA DINAMICA",
+    "incidenceQualifier": "ACTIVA",
+    "areaSactaName": "TSA 22",
+    "sourceInformationNotam": "D5400/26",
+    "GFID": "D5400/26",
+    "icaoFormatText": "(V03400/26 NOTAMN\nQ) LECM/QRTCA/IV/BO/W/000/040/4030N00345W005\nA) LECM B) 2611141900 C) 2701030600\nD) NOV 14 1900-2359, NOV 15-17 0000-0600 1900-2359, DEC 30-31 1900-2359, JAN 01-03 0000-0600\nE) TSA 22 ACTIVATED. UAS FLIGHTS PROHIBITED.\nFUENTE INF)D5400/26\nF) FL050 G) FL150)",
+    "DESCRIPTION": "<b>DESDE:</b> 14/11/2026 19:00:00<br><b>HASTA:</b> 03/01/2027 06:00:00<br /><b>HORARIO:</b> NOV 14 1900-2359, NOV 15-17 0000-0600 1900-2359, DEC 30-31 1900-2359, JAN 01-03 0000-0600<br><b>DESCRIPCIÓN:</b> TSA 22 ACTIVATED. UAS FLIGHTS PROHIBITED.",
+    "accion": null,
+    "geom_calc_date": null
+   }
+  },
+  {
+   "type": "Feature",
+   "id": 264707,
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -2.1,
+       41.6
+      ],
+      [
+       -2.0,
+       41.6
+      ],
+      [
+       -2.0,
+       41.7
+      ],
+      [
+       -2.1,
+       41.7
+      ],
+      [
+       -2.1,
+       41.6
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "OBJECTID": 264707,
+    "notamId": "V03500/26",
+    "notamSerie": "V",
+    "notamNumber": 3500,
+    "notamYear": 2026,
+    "icaroCreationTime": 1794560400000,
+    "itemA": "LECM",
+    "itemB": 1794729600000,
+    "itemBstr": "15/11/2026 08:00:00",
+    "itemBIcaro": "2611150800",
+    "itemC": 1794758400000,
+    "itemCstr": "15/11/2026 16:00:00",
+    "itemCIcaro": "2611151600",
+    "itemD": null,
+    "itemE": "LED120 ACTIVATED.",
+    "itemF": "GND",
+    "itemG": "FL095",
+    "LOWER_VAL": 0,
+    "UPPER_VAL": 400,
+    "LOWER_VAL_AGL": null,
+    "FLYING_LEVELS_DESC": "GND / FL095",
+    "itemQ": "LECM/QRTCA/IV/BO/W/000/040/4030N00345W005\nTIPO)RTCA",
+    "qcode": "RTCA",
+    "fir": "LECM",
+    "traffic": "IV",
+    "purpose": "BO",
+    "scope": "W",
+    "affectedElement": "LED120",
+    "incidenceType": "AREA ESTATICA",
+    "incidenceQualifier": "ACTIVA",
+    "areaSactaName": null,
+    "sourceInformationNotam": "D5500/26",
+    "GFID": "D5500/26",
+    "icaoFormatText": "(V03500/26 NOTAMN\nQ) LECM/QRTCA/IV/BO/W/000/040/4030N00345W005\nA) LECM B) 2611150800 C) 2611151600\nE) LED120 ACTIVATED.\nFUENTE INF)D5500/26\nF) GND G) FL095)",
+    "DESCRIPTION": "<b>DESDE:</b> 15/11/2026 08:00:00<br><b>HASTA:</b> 15/11/2026 16:00:00<br /><b>HORARIO:</b> <br><b>DESCRIPCIÓN:</b> LED120 ACTIVATED.",
+    "accion": null,
+    "geom_calc_date": null
+   }
+  },
+  {
+   "type": "Feature",
+   "id": 264708,
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -2.1,
+       41.6
+      ],
+      [
+       -2.0,
+       41.6
+      ],
+      [
+       -2.0,
+       41.7
+      ],
+      [
+       -2.1,
+       41.7
+      ],
+      [
+       -2.1,
+       41.6
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "OBJECTID": 264708,
+    "notamId": "V03501/26",
+    "notamSerie": "V",
+    "notamNumber": 3501,
+    "notamYear": 2026,
+    "icaroCreationTime": 1794560400000,
+    "itemA": "LECM",
+    "itemB": 1794988800000,
+    "itemBstr": "18/11/2026 08:00:00",
+    "itemBIcaro": "2611180800",
+    "itemC": 1795017600000,
+    "itemCstr": "18/11/2026 16:00:00",
+    "itemCIcaro": "2611181600",
+    "itemD": null,
+    "itemE": "LED120 ACTIVATED.",
+    "itemF": "GND",
+    "itemG": "FL095",
+    "LOWER_VAL": 0,
+    "UPPER_VAL": 400,
+    "LOWER_VAL_AGL": null,
+    "FLYING_LEVELS_DESC": "GND / FL095",
+    "itemQ": "LECM/QRTCA/IV/BO/W/000/040/4030N00345W005\nTIPO)RTCA",
+    "qcode": "RTCA",
+    "fir": "LECM",
+    "traffic": "IV",
+    "purpose": "BO",
+    "scope": "W",
+    "affectedElement": "LED120",
+    "incidenceType": "AREA ESTATICA",
+    "incidenceQualifier": "ACTIVA",
+    "areaSactaName": null,
+    "sourceInformationNotam": "D5501/26",
+    "GFID": "D5501/26",
+    "icaoFormatText": "(V03501/26 NOTAMN\nQ) LECM/QRTCA/IV/BO/W/000/040/4030N00345W005\nA) LECM B) 2611180800 C) 2611181600\nE) LED120 ACTIVATED.\nFUENTE INF)D5501/26\nF) GND G) FL095)",
+    "DESCRIPTION": "<b>DESDE:</b> 18/11/2026 08:00:00<br><b>HASTA:</b> 18/11/2026 16:00:00<br /><b>HORARIO:</b> <br><b>DESCRIPCIÓN:</b> LED120 ACTIVATED.",
+    "accion": null,
+    "geom_calc_date": null
+   }
+  },
+  {
+   "type": "Feature",
+   "id": 264709,
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -2.95,
+       35.28
+      ],
+      [
+       -2.93,
+       35.28
+      ],
+      [
+       -2.93,
+       35.300000000000004
+      ],
+      [
+       -2.95,
+       35.300000000000004
+      ],
+      [
+       -2.95,
+       35.28
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "OBJECTID": 264709,
+    "notamId": "V03600/26",
+    "notamSerie": "V",
+    "notamNumber": 3600,
+    "notamYear": 2026,
+    "icaroCreationTime": 1794560400000,
+    "itemA": "GEML",
+    "itemB": 1794726000000,
+    "itemBstr": "15/11/2026 07:00:00",
+    "itemBIcaro": "2611150700",
+    "itemC": 1794754800000,
+    "itemCstr": "15/11/2026 15:00:00",
+    "itemCIcaro": "2611151500",
+    "itemD": "0700-1500",
+    "itemE": "FIRING     EXERCISES\n   AT  MELILLA.",
+    "itemF": "SFC",
+    "itemG": "00100M AMSL",
+    "LOWER_VAL": 0,
+    "UPPER_VAL": 400,
+    "LOWER_VAL_AGL": null,
+    "FLYING_LEVELS_DESC": "SFC / 00100M AMSL",
+    "itemQ": "GMMM/QWMLW/IV/BO/W/000/040/4030N00345W005\nTIPO)WMLW",
+    "qcode": "WMLW",
+    "fir": "GMMM",
+    "traffic": "IV",
+    "purpose": "BO",
+    "scope": "W",
+    "affectedElement": "DINV0360026",
+    "incidenceType": "AREA DINAMICA",
+    "incidenceQualifier": "ACTIVA",
+    "areaSactaName": "MELILLA TIRO",
+    "sourceInformationNotam": null,
+    "GFID": null,
+    "icaoFormatText": "(V03600/26 NOTAMN\nQ) GMMM/QWMLW/IV/BO/W/000/040/4030N00345W005\nA) GEML B) 2611150700 C) 2611151500\nD) 0700-1500\nE) FIRING     EXERCISES\n   AT  MELILLA.\nF) SFC G) 00100M AMSL)",
+    "DESCRIPTION": "<b>DESDE:</b> 15/11/2026 07:00:00<br><b>HASTA:</b> 15/11/2026 15:00:00<br /><b>HORARIO:</b> 0700-1500<br><b>DESCRIPCIÓN:</b> FIRING     EXERCISES\n   AT  MELILLA.",
+    "accion": null,
+    "geom_calc_date": null
+   }
+  },
+  {
+   "type": "Feature",
+   "id": 264710,
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -3.7,
+       40.4
+      ],
+      [
+       -3.68,
+       40.4
+      ],
+      [
+       -3.68,
+       40.42
+      ],
+      [
+       -3.7,
+       40.42
+      ],
+      [
+       -3.7,
+       40.4
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "OBJECTID": 264710,
+    "notamId": "V03700/26",
+    "notamSerie": "V",
+    "notamNumber": 3700,
+    "notamYear": 2026,
+    "icaroCreationTime": 1794560400000,
+    "itemA": "LECM",
+    "itemB": 1794733200000,
+    "itemBstr": "15/11/2026 09:00:00",
+    "itemBIcaro": "2611150900",
+    "itemC": 1795370400000,
+    "itemCstr": "22/11/2026 18:00:00",
+    "itemCIcaro": "2611221800",
+    "itemD": "SR-2100 EXC SAT",
+    "itemE": "UAS OPS.",
+    "itemF": "SFC",
+    "itemG": "00060FT AGL",
+    "LOWER_VAL": 0,
+    "UPPER_VAL": 100,
+    "LOWER_VAL_AGL": null,
+    "FLYING_LEVELS_DESC": "SFC / 00060FT AGL",
+    "itemQ": "LECM/QWULW/IV/BO/W/000/040/4030N00345W005\nTIPO)WULW",
+    "qcode": "WULW",
+    "fir": "LECM",
+    "traffic": "IV",
+    "purpose": "BO",
+    "scope": "W",
+    "affectedElement": "DINV0370026",
+    "incidenceType": "AREA DINAMICA",
+    "incidenceQualifier": "ACTIVA",
+    "areaSactaName": "UAS MADRID RIO",
+    "sourceInformationNotam": null,
+    "GFID": null,
+    "icaoFormatText": "(V03700/26 NOTAMN\nQ) LECM/QWULW/IV/BO/W/000/040/4030N00345W005\nA) LECM B) 2611150900 C) 2611221800\nD) SR-2100 EXC SAT\nE) UAS OPS.\nF) SFC G) 00060FT AGL)",
+    "DESCRIPTION": "<b>DESDE:</b> 15/11/2026 09:00:00<br><b>HASTA:</b> 22/11/2026 18:00:00<br /><b>HORARIO:</b> SR-2100 EXC SAT<br><b>DESCRIPCIÓN:</b> UAS OPS.",
+    "accion": null,
+    "geom_calc_date": null
+   }
+  }
+ ]
+}

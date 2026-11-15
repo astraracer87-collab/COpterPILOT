@@ -38,6 +38,7 @@ import { DecodeUTF8, Unzip, UnzipInflate, UnzipPassThrough, type UnzipFile } fro
 import { parseXml, childElement, childElements, childText, descendants, type XmlElement } from "./kml";
 import { parseHeight, type Height } from "../heights";
 import { Sha256, parseSha256File } from "../sha256";
+import { shouldYield, yieldToUi } from "../yieldingWork";
 
 export type LonLat = [number, number];
 
@@ -751,7 +752,7 @@ export interface AixmDataset {
   validTime?: string;
 }
 
-const defaultYield = () => new Promise<void>((r) => setTimeout(r, 0));
+const defaultYield = (): Promise<void> => yieldToUi("aixm");
 
 /** Sammelt Blöcke, löst am Ende die GeoBorder-Verweise auf. */
 export class AixmCollector {
@@ -890,22 +891,27 @@ export async function parseAixmZip(zip: Uint8Array, opts: AixmZipOptions = {}): 
   unzip.register(UnzipInflate);
   unzip.register(UnzipPassThrough);
 
-  const step = Math.max(4096, opts.zipChunkBytes ?? 16 * 1024);
+  // 4 KB ZIP ≈ 100 KB XML (Kompression ≈ 1:24) – kleine Stücke, damit eine
+  // Scheibe (Entpacken + SHA-256 + Zerlegen) kurz bleibt
+  const step = Math.max(1024, opts.zipChunkBytes ?? 4 * 1024);
   for (let i = 0; i < zip.length; i += step) {
     const end = Math.min(zip.length, i + step);
     unzip.push(zip.subarray(i, end), end >= zip.length);
     if (error) throw error instanceof Error ? error : new Error(String(error));
     const blocks = pending;
     pending = [];
+    let yielded = false;
     for (const m of blocks) {
       col.add(m);
-      if (col.members - lastYieldAt >= every) {
+      // Anzahl- UND zeitbasiert abgeben (Reaktionsfähigkeit: ≤ ~12 ms je Scheibe)
+      if (col.members - lastYieldAt >= every || shouldYield()) {
         lastYieldAt = col.members;
         opts.onProgress?.(col.members);
         await yieldFn();
+        yielded = true;
       }
     }
-    if (blocks.length === 0) await yieldFn();
+    if (!yielded && (blocks.length === 0 || shouldYield())) await yieldFn();
   }
   if (zip.length === 0) throw new Error("AIXM-ZIP leer");
   if (!xmlName) throw new Error("AIXM-ZIP enthält keine XML-Datei");

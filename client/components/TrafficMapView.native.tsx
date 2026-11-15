@@ -13,6 +13,7 @@ import type { GermanEnergyInfrastructureItem } from "../../shared/germanEnergyIn
 import type { EnergyFacility100mPoint } from "../../shared/germanEnergyInfrastructure";
 import { getCategoryLabel, type AircraftCategory, type DataSource } from "@/lib/opensky";
 import { zoneActivityAt } from "@/lib/ed269";
+import { collapseStackedTempZonesForMap } from "../../shared/geozoneTemporary";
 import { buildGeozoneCacheTileUrl, buildGeozoneTileUrls, getGeozoneTileAttribution, buildVectorGeozoneTileUrl, isRasterTiledVectorCountry, queryGeozoneFeatureInfo, queryEd269CachedFeaturesWithStatus, getCountryGeozoneConfig, getViewportCountries, separateTempRestrictions, GEOZONE_TILE_MIN_ZOOM, getVectorMinZoom, loadsFullCountryVectorZones, GEOZONE_VECTOR_MAX_RADIUS_KM, GEOZONE_VECTOR_MAX_FEATURES, type GeozoneFeatureInfo } from "@/lib/geozones";
 import { isVectorZoneDrawSuppressed } from "@/lib/geozoneZoom";
 import { agencyTagColor } from "@/lib/agencyTag";
@@ -689,6 +690,7 @@ export const MAIN_MAP_HTML = `<!DOCTYPE html>
   var vzLayer = L.layerGroup().addTo(map);
   var vzSig = "";
   var vzData = [];
+  var vzGen = 0;
   function setVz(arr){
     var sig = JSON.stringify(arr || []);
     if (sig === vzSig) return;
@@ -696,7 +698,13 @@ export const MAIN_MAP_HTML = `<!DOCTYPE html>
     vzData = arr || [];
     vzLayer.clearLayers();
     if (!arr) return;
-    for (var i = 0; i < arr.length; i++){
+    // in Paketen zeichnen (je 150 Zonen, dazwischen abgeben): die Karte bleibt
+    // bedienbar; ein neuer Stand bricht ein laufendes Zeichnen ab.
+    var gen = ++vzGen, i0 = 0;
+    function vzStep(){
+    if (gen !== vzGen) return;
+    var iEnd = Math.min(arr.length, i0 + 150);
+    for (var i = i0; i < iEnd; i++){
       var z = arr[i];
       if (!z || !z.r) continue;
       // hide=true: dauerhafte Zone eines Raster-Kachel-Landes (z. B. Belgien).
@@ -718,6 +726,10 @@ export const MAIN_MAP_HTML = `<!DOCTYPE html>
         }
       }
     }
+    i0 = iEnd;
+    if (i0 < arr.length) setTimeout(vzStep, 0);
+    }
+    vzStep();
   }
   // Strahl-Methode (Ray-Casting): liegt [lat,lon] im Ring [[lat,lon],...]?
   function pointInRing(lat, lon, ring){
@@ -1002,6 +1014,9 @@ export const MAIN_MAP_HTML = `<!DOCTYPE html>
     else { map.dragging.enable(); map.touchZoom.enable(); map.doubleClickZoom.enable(); map.scrollWheelZoom.enable(); map.boxZoom.enable(); }
   }
 
+  // Vektorzonen getrennt vom übrigen Zustand: die RN-Seite serialisiert sie nur
+  // bei Änderung (nicht bei jedem Flugzeug-Update).
+  window.__setVz = function(arr){ try { setVz(arr || []); } catch (e) { post({ type: "mapError", reason: String(e) }); } return true; };
   // ---- Zustand anwenden ----
   var lastFit = null;
   window.__apply = function(s){
@@ -1014,7 +1029,8 @@ export const MAIN_MAP_HTML = `<!DOCTYPE html>
       setHz(s.hz);
       setNotams(s.nt || []);
       setEnergy(s.energy || [], s.windBuffers || []);
-      setVz(s.vz || []);
+      // Vektorzonen kommen getrennt (window.__setVz), nur wenn sie sich ändern
+      if (s.vz) setVz(s.vz);
       setCtr(s.ctr || []);
       setAir(s.air || []);
       applyTrails(s.trails || []);
@@ -1672,8 +1688,11 @@ export default function TrafficMapView({
       ...additionalGeozones,
     ] : [...supplementalInfrastructureAsGeozones(countryIso, energyInfrastructure), ...additionalGeozones];
     const uniqueEnergyZones = [...new Map(energyZones.map((zone) => [zone.featureId, zone])).values()];
-    return [...filteredVectorZones, ...uniqueEnergyZones.filter((z) =>
-      !lockedSet.has(z.country ?? "DE") && splitCountriesByAccess([z.country ?? "DE"], entitlement).locked.length === 0)]
+    // Gleiche Geometrie mehrerer temporärer Zonen (z. B. ES-NOTAM, mehrere
+    // Zeiträume) nicht übereinander stapeln: nur die aktiven zeichnen.
+    return collapseStackedTempZonesForMap([...filteredVectorZones, ...uniqueEnergyZones.filter((z) =>
+      !lockedSet.has(z.country ?? "DE") && splitCountriesByAccess([z.country ?? "DE"], entitlement).locked.length === 0)],
+      isTempVectorZone, (z) => zoneActivityAt(z, nowDate) !== "inactive")
       // Temporäre Zonen (mit Gültigkeitsfenster), die JETZT nicht aktiv sind,
       // werden auf dem Radar gar nicht gezeichnet. Permanente Zonen (ohne
       // Gültigkeitsfenster) bleiben immer sichtbar (zeitweise inaktive
@@ -1842,21 +1861,30 @@ export default function TrafficMapView({
       },
       fov: fovCoords,
       hz: hzPolys,
-      // vzPolys enthält bereits nur die Zonen sichtbarer Länder (Lade-Effekt
-      // filtert per-Land per isVectorCountryVisible); kein globales Zoom-Gate mehr.
-      vz: vzPolys,
+      // vz (Vektorzonen) wird NICHT hier mitgeschickt, sondern getrennt per
+      // window.__setVz – sonst würde jedes Flugzeug-/Positions-Update alle
+      // Zonen-Polygone (MB) neu serialisieren (Reaktionsfähigkeit, 2026-11).
       ctr: ctrBands,
       air: airportMarkers,
       energy: [],
       windBuffers: [],
     };
     return JSON.stringify(state);
-  }, [fit, latitude, longitude, targetZoom, mapStyle, isDark, lockPan, geozonesVisible, geozoneTileUrls, countryIso, renderableMarkers, renderableTrails, scanRadiusM, taRadiusM, alarmRadiusM, fovCoords, hzPolys, vzPolys, ctrBands, airportMarkers, energyInfrastructure, windRestrictionPoints, energyTilesEnabled, energyTilesShowSupplemental]);
+  }, [fit, latitude, longitude, targetZoom, mapStyle, isDark, lockPan, geozonesVisible, geozoneTileUrls, countryIso, renderableMarkers, renderableTrails, scanRadiusM, taRadiusM, alarmRadiusM, fovCoords, hzPolys, ctrBands, airportMarkers, energyInfrastructure, windRestrictionPoints, energyTilesEnabled, energyTilesShowSupplemental]);
 
   useEffect(() => {
     if (!ready) return;
     runJs(`window.__apply(${stateJson})`);
   }, [stateJson, ready, runJs]);
+
+  // Vektorzonen nur bei Inhaltsänderung serialisieren und senden (vzPolys:
+  // gleiche Referenz bis sich Zonen/Filter ändern). Nach __apply, damit die
+  // Karte steht; vzPolys ist bereits auf die sichtbaren Länder gefiltert.
+  const vzJson = useMemo(() => JSON.stringify(vzPolys), [vzPolys]);
+  useEffect(() => {
+    if (!ready) return;
+    runJs(`window.__setVz(${vzJson})`);
+  }, [vzJson, ready, runJs]);
 
   const handleMapPress = useCallback((tapLat: number, tapLon: number) => {
     setSelectedAircraftId(null);

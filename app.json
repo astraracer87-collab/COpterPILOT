@@ -64,6 +64,7 @@
       "@maplibre/maplibre-react-native",
       "./plugins/withReleaseSigning",
       "./plugins/withRadarForegroundService",
+      "./plugins/withRcKeyEvents",
       "expo-secure-store"
     ],
     "experiments": {

@@ -29,6 +29,9 @@ export interface GeozoneFeatureInfo {
   name: string;
   details: string;
   featureId?: string;
+  /** Kennung der Quelle für Verknüpfungen (ES: IDENT_TXT der Sperrgebiete ↔
+   * NOTAM-affectedElement); nur Anzeige, nie für Einstufungen. */
+  sourceIdent?: string;
   polygonRings?: [number, number][][];
   /** One entry per polygon: outer ring followed by holes. */
   polygonGroups?: [number, number][][][];

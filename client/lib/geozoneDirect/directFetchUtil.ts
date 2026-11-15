@@ -3,6 +3,7 @@
 // damit kein Import-Zyklus entsteht, wenn ed269Sources.ts diese Quellen
 // einbindet. Verhalten entspricht fetchJson/finalize dort.
 import type { GeoFeature } from "./ed269Sources";
+import { defaultYielder, parseJsonYielding, type Yielder } from "../../../shared/yieldingWork";
 
 export const DIRECT_FETCH_TIMEOUT_MS = 60_000;
 
@@ -24,7 +25,8 @@ async function fetchTextWithTimeout(url: string, accept: string, timeoutMs: numb
 }
 
 export async function directFetchJson(url: string, timeoutMs: number = DIRECT_FETCH_TIMEOUT_MS): Promise<any> {
-  return JSON.parse(await fetchTextWithTimeout(url, "application/json", timeoutMs));
+  // große Antworten in Zeitscheiben parsen (Ergebnis identisch zu JSON.parse)
+  return parseJsonYielding(await fetchTextWithTimeout(url, "application/json", timeoutMs));
 }
 
 export async function directFetchText(url: string, timeoutMs: number = DIRECT_FETCH_TIMEOUT_MS): Promise<string> {
@@ -62,6 +64,17 @@ export function finalizeDirectFeatures(features: GeoFeature[], country: string):
     }
     f.properties = { ...(f.properties || {}), _country: country };
     out.push(f);
+  }
+  return out;
+}
+
+/** finalizeDirectFeatures in Zeitscheiben (Ergebnis identisch). */
+export async function finalizeDirectFeaturesYielding(features: GeoFeature[], country: string, y: Yielder = defaultYielder): Promise<GeoFeature[]> {
+  const out: GeoFeature[] = [];
+  for (let i = 0; i < features.length; i++) {
+    const part = finalizeDirectFeatures([features[i]], country);
+    if (part.length) out.push(part[0]);
+    if (y.shouldYield()) await y.yield("finalize");
   }
   return out;
 }

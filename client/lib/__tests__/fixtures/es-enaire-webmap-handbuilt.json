@@ -1,0 +1,39 @@
+{
+  "_comment": "HANDGEBAUT (nicht live abgerufen): Struktur der Web-Map-Definition …/insigniap/sharing/rest/content/items/b0449bba555240e9b93207cd8c190f21/data?f=json nach docs/enaire-es-api-integration.md „Anhang ES (2)“ (operationalLayers[] + geschachtelte layers[] mit title/url). Dienst-Versionen absichtlich hochgezählt (Aero_V4, Infra_V1, NOTAM_UAS_APP_V4, ENP_APP_Local_V5), um die dynamische Auflösung zu prüfen. Urbano fehlt absichtlich (→ fester Rückfall-Pfad).",
+  "operationalLayers": [
+    { "id": "basemap-ign", "title": "Mapa base IGN", "url": "https://www.ign.es/wmts/ign-base", "layerType": "WebTiledLayer" },
+    {
+      "id": "grp-aero",
+      "title": "Zonas geográficas aeronáuticas",
+      "layerType": "GroupLayer",
+      "layers": [
+        { "id": "aero-0", "title": "AERODROMOS", "url": "https://servais.enaire.es/insignias/rest/services/NSF/Drones_ZG_Aero_V4/MapServer/0", "layerType": "ArcGISFeatureLayer" },
+        { "id": "aero-1", "title": "ZG_EAC_FIZ", "url": "https://servais.enaire.es/insignias/rest/services/NSF/Drones_ZG_Aero_V4/MapServer/1", "layerType": "ArcGISFeatureLayer" },
+        { "id": "aero-2", "title": "AVISOS", "url": "https://servais.enaire.es/insignias/rest/services/NSF/Drones_ZG_Aero_V4/MapServer/2", "layerType": "ArcGISFeatureLayer" },
+        { "id": "aero-3", "title": "ZG_RVF", "url": "https://servais.enaire.es/insignias/rest/services/NSF/Drones_ZG_Aero_V4/MapServer/3", "layerType": "ArcGISFeatureLayer" },
+        { "id": "aero-4", "title": "Aeromodelismo", "url": "https://servais.enaire.es/insignias/rest/services/NSF/Drones_ZG_Aero_V4/MapServer/4", "layerType": "ArcGISFeatureLayer" },
+        { "id": "aero-6", "title": "ZG_Aeródromos", "url": "https://servais.enaire.es/insignias/rest/services/NSF/Drones_ZG_Aero_V4/MapServer/7", "layerType": "ArcGISFeatureLayer" },
+        { "id": "aero-10", "title": "ZG Restringidas", "url": "http://servais.enaire.es/insignias/rest/services/NSF/Drones_ZG_Aero_V4/MapServer/10/", "layerType": "ArcGISFeatureLayer" }
+      ]
+    },
+    { "id": "infra", "title": "ZG_Infraestructuras", "url": "https://servais.enaire.es/insignias/rest/services/NSF/Drones_ZG_Infra_V1/MapServer/11", "layerType": "ArcGISFeatureLayer" },
+    {
+      "id": "notam",
+      "title": "NOTAM",
+      "url": "https://servais.enaire.es/insignias/rest/services/NOTAM/NOTAM_UAS_APP_V4/MapServer",
+      "layerType": "ArcGISMapServiceLayer",
+      "layers": [{ "id": 1, "name": "Áreas" }]
+    },
+    {
+      "id": "enp",
+      "title": "Espacios protegidos",
+      "url": "https://servais.enaire.es/insignias/rest/services/ENP/ENP_APP_Local_V5/MapServer",
+      "layerType": "ArcGISMapServiceLayer",
+      "layers": [
+        { "id": 0, "title": "ENP" },
+        { "id": 1, "title": "ZEPA" }
+      ]
+    },
+    { "id": "proxy", "title": "ZG_Urbano", "url": "https://drones.enaire.es/proxy_Insignia?https://servais.enaire.es/insignias/rest/services/NSF/Drones_ZG_Urbano_V1/MapServer/11", "layerType": "ArcGISFeatureLayer" }
+  ]
+}

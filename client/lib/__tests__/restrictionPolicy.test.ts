@@ -65,7 +65,7 @@ import { polandFeaturesFromKml } from "../geozoneDirect/polandSource";
 import { normalizeRomanianGeozones } from "../../../shared/romanianGeozones";
 import { normalizeMalteseImport } from "../../../shared/malteseGeozones";
 import { normalizePansaZonesJson } from "../../../shared/polishGeozones";
-import { normalizeEnaireInsigniasFeature, tagEsInsigniasFeature } from "../../../shared/spanishGeozones";
+import { normalizeEnaireInsigniasFeature, resolveEsLayersFromWebmap, tagEsInsigniasFeature } from "../../../shared/spanishGeozones";
 
 const FIX = path.join(__dirname, "fixtures");
 const json = (f: string) => JSON.parse(fs.readFileSync(path.join(FIX, f), "utf8"));
@@ -353,6 +353,16 @@ const FIXTURE_SOURCES: { fixture: string[]; iso: string; features: () => any[] }
         const poly = { ...f, geometry: { type: "Polygon", coordinates: [[[lon, lat], [lon + 0.01, lat], [lon + 0.01, lat + 0.01], [lon, lat]]] } };
         return ["es_aerodromos", "es_urbano", "es_enp0", "es_notam"].map((key) => normalizeEnaireInsigniasFeature(tagEsInsigniasFeature({ ...poly, id: i + 1 }, key), NOW)).filter(Boolean);
       }),
+  },
+  {
+    // HANDGEBAUT nach docs/enaire-es-notam-integration.md: NOTAM für UAS
+    // (R*** → RESTRICTED/PROHIBITED, W*** → CONDITIONAL); Web Map nur Auflösung.
+    fixture: ["es-enaire-notam-handbuilt.geojson", "es-enaire-webmap-handbuilt.json"],
+    iso: "ES",
+    features: () => {
+      assert.ok(resolveEsLayersFromWebmap(json("es-enaire-webmap-handbuilt.json")).fromWebmap.length > 0);
+      return json("es-enaire-notam-handbuilt.geojson").features.map((f: any) => normalizeEnaireInsigniasFeature(tagEsInsigniasFeature(f, "es_notam"), NOW)).filter(Boolean);
+    },
   },
 ];
 

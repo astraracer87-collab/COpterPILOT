@@ -274,6 +274,12 @@ Mapping über den **Titel** (stabil: „ZG_EAC_FIZ", „ZG_Aeródromos",
 statt über den versionierten Pfad. Bei 404 die Item-Definition neu lesen. Die
 festen Pfade in §Anhang-ES-Tabelle bleiben nur **Fallback/Referenz**.
 
+> ✅ **Umgesetzt (2026-11-15)**: siehe docs/pruefung-umbau-plan.md „Stand ES:
+> NOTAM + dynamische Dienstnamen“ (shared/spanishNotams.ts,
+> client/lib/geozoneTiles/esServices.ts). Der NOTAM-Teil folgt
+> docs/enaire-es-notam-integration.md (alles laden, Status in der App statt
+> serverseitigem `where`).
+
 → **Damit ist ES vollständig** (Geometrie, Höhen `RESTRICCION_*`, NOTAM-Zeitfilter,
 versionsrobuste Auflösung). Skript `docs/tools/spain/enaire_es_geozones.py` ggf.
 um das Item-Lookup erweitern.

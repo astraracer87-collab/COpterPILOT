@@ -9,6 +9,8 @@ import { startGeozoneTileStore } from "@/lib/geozoneTiles/tileStore";
 import { startCountryUsage } from "@/lib/countryUsageData";
 import { CountryUsagePrompt } from "@/components/CountryUsagePrompt";
 import { DownloadActivityBar } from "@/components/DownloadActivityBar";
+import { BlockingWorkOverlay } from "@/components/BlockingWorkOverlay";
+import { rootTouchHandlers } from "@/lib/backgroundWork";
 
 // Übersetzungs-Cache der Behördentexte laden (offline) und neue Texte nachziehen
 startZoneTranslation();
@@ -122,7 +124,8 @@ export default function App() {
         <AuthProvider>
           <NetworkProvider>
             <SafeAreaProvider>
-              <GestureHandlerRootView style={styles.root} onLayout={onLayoutRootView}>
+              {/* Berührungen melden: schwere Hintergrundarbeit pausiert während der Bedienung */}
+              <GestureHandlerRootView style={styles.root} onLayout={onLayoutRootView} {...rootTouchHandlers}>
                 <KeyboardProvider>
                   <AuthGate
                     disclaimerAccepted={!!disclaimerAccepted}
@@ -130,6 +133,8 @@ export default function App() {
                     onDeclineDisclaimer={handleDecline}
                   />
                   <OfflineBanner />
+                  {/* nur für nicht zerlegbare, lange Arbeit (runBlocking) – fängt alle Berührungen ab */}
+                  <BlockingWorkOverlay />
                   <StatusBar style="auto" />
                 </KeyboardProvider>
               </GestureHandlerRootView>

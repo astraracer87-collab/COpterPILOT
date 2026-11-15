@@ -39,6 +39,8 @@ import {
   type CountryUsage,
 } from "./countryUsage";
 import { getGeozoneSourceMeta, resolveGeozoneSourceIso } from "../../shared/geozoneSourceMeta";
+import { waitForIdle } from "../../shared/yieldingWork";
+import { runAfterStartup } from "./backgroundWork";
 
 export interface OfflineSyncProgress {
   key: string;
@@ -347,6 +349,9 @@ export async function syncOfflineCountries(reason: OfflineSyncReason, only?: str
     for (const iso of isos) {
       const usage = getCountryUsage(iso);
       if (usage !== "offline" && usage !== "online") continue;
+      // ein Land nach dem anderen, niedrige Priorität: erst weiter, wenn die
+      // Bedienung ruht (Berührung/Kartenabfrage), Reaktionsfähigkeit vor Tempo
+      if (reason === "start" || reason === "periodic") await waitForIdle();
       patchSync(iso, (s) => ({ ...s, running: true }));
       let r: OfflineSyncCountryResult;
       try {
@@ -384,7 +389,8 @@ export const syncActiveCountries = syncOfflineCountries;
  */
 export function startCountryUsage(startDelayMs = 20_000): void {
   void loadCountryUsage().catch(() => {});
-  setTimeout(() => {
+  // erst nach dem Start-Bildschirm und laufenden Interaktionen/Navigation
+  runAfterStartup(() => {
     void syncOfflineCountries("start").catch(() => []);
   }, startDelayMs);
   if (timer) clearInterval(timer);

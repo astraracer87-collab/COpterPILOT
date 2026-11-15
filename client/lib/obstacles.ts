@@ -16,6 +16,7 @@ import { FT_M } from "../../shared/heights";
 import { obstacleTileInActiveCountry } from "./obstacleCountryFilter";
 import { trackDownload } from "./downloadActivity";
 import { awaitCountryUsage } from "./countryUsage";
+import { responseJsonYielding, shouldYield, stringifyYielding, yieldToUi } from "../../shared/yieldingWork";
 
 export const OBSTACLE_TILE_ZOOM = 10;
 const CACHE_DIR = `${FileSystem.documentDirectory}obstacles/`;
@@ -219,6 +220,17 @@ export function toFeatureCollection(json: any): GeoJSON.FeatureCollection {
   return { type: "FeatureCollection", features };
 }
 
+/** toFeatureCollection in Zeitscheiben (je Element unabhängig – Ergebnis identisch). */
+export async function toFeatureCollectionYielding(json: any): Promise<GeoJSON.FeatureCollection> {
+  const els: any[] = Array.isArray(json?.elements) ? json.elements : [];
+  const features: GeoJSON.Feature[] = [];
+  for (let i = 0; i < els.length; i += 500) {
+    for (const f of toFeatureCollection({ elements: els.slice(i, i + 500) }).features) features.push(f);
+    if (shouldYield()) await yieldToUi("obstacles");
+  }
+  return { type: "FeatureCollection", features };
+}
+
 // ---------------------------------------------------------------------------
 // Laden & Zwischenspeichern
 // ---------------------------------------------------------------------------
@@ -251,11 +263,17 @@ async function readTile(key: string): Promise<TileData | null> {
   }
 }
 
+/** wie JSON.stringify(data), Feature-Liste in Zeitscheiben */
+async function stringifyYieldingTile(data: TileData): Promise<string> {
+  const fc = await stringifyYielding(data.fc);
+  return `{"t":${JSON.stringify(data.t)},"fc":${fc}}`;
+}
+
 async function writeTile(key: string, data: TileData): Promise<void> {
   memory.set(key, data);
   await ensureDir();
   try {
-    await FileSystem.writeAsStringAsync(`${CACHE_DIR}${key}.json`, JSON.stringify(data));
+    await FileSystem.writeAsStringAsync(`${CACHE_DIR}${key}.json`, await stringifyYieldingTile(data));
   } catch {}
 }
 
@@ -295,7 +313,8 @@ async function overpassDirect(query: string, timeoutMs: number): Promise<any> {
       if (res.status === 429 || res.status >= 500) throw new Error(`Overpass ${res.status}`);
       if (!res.ok) throw new Error(`Overpass ${res.status}`);
       endpointIdx = (endpointIdx + attempt) % OVERPASS_ENDPOINTS.length;
-      return await res.json();
+      // Overpass-Antworten (elements[]) in Zeitscheiben parsen
+      return await responseJsonYielding(res);
     } catch (e) {
       clearTimeout(timer);
       lastErr = e;
@@ -334,7 +353,7 @@ export async function loadObstacleTile(
         opts.track === false
           ? await overpass(query)
           : await trackDownload({ id: "obstacles-live", labelDe: "Hindernisse für den Kartenausschnitt", kind: "obstacles" }, () => overpass(query));
-      const data: TileData = { t: Date.now(), fc: toFeatureCollection(json) };
+      const data: TileData = { t: Date.now(), fc: await toFeatureCollectionYielding(json) };
       await writeTile(key, data);
       return data;
     } catch {

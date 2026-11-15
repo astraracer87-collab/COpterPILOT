@@ -1244,3 +1244,90 @@ client/lib/__tests__/fixtures/ (Attribute/Geometrien unverändert, Teilmengen).
   Mitternacht (Horizont-Wechsel), DK-Anflugflächen in der gruppierten Liste,
   ob gis.natt.is/dronesoner.no/gis.lps.sk aus dem EU-Mobilnetz ohne
   Browser-UA antworten.
+
+## Stand ES: NOTAM + dynamische Dienstnamen (2026-11-15)
+
+Grundlage: docs/enaire-es-api-integration.md „Anhang ES (2)“ und
+docs/enaire-es-notam-integration.md (PO-Analyse inkl. §7 „Weitere Fallen“).
+Aus der Sandbox nicht erreichbar (servais.enaire.es) – gebaut nach Doku,
+Fixtures **handgebaut** (`client/lib/__tests__/fixtures/es-enaire-notam-handbuilt.geojson`,
+`es-enaire-webmap-handbuilt.json`, je mit `_comment`).
+
+- **Dienstnamen dynamisch** (shared/spanishGeozones.ts `resolveEsLayersFromWebmap`,
+  client/lib/geozoneTiles/esServices.ts): Web Map
+  `servais.enaire.es/insigniap/sharing/rest/content/items/b0449bba…/data?f=json`
+  → operationalLayers[] inkl. Gruppen und Kartendienst-Unterebenen
+  (`{id, title|name}` → `<Dienst>/MapServer/<id>`); Zuordnung über den Titel
+  (`titles` je Katalog-Layer, ohne Akzente/Schreibweise; „AERODROMOS“ = Punkte
+  bleibt aus). Nur `https://servais.enaire.es/…/rest/services/…` (kein
+  Webseiten-Proxy). Paket-Download liest die Web Map bei jedem Sync neu,
+  Live-/NOTAM-Abfragen nutzen den Stand ≤ 6 h; Web Map nicht lesbar → feste
+  Pfade, nach 10 min erneut. 404 (HTTP bzw. ArcGIS-Fehler 404) → Web Map
+  einmal neu lesen und wiederholen (`withEsLayer`); 404 wird im Kachel-
+  `fetchJson` nicht mehr wiederholt.
+- **ZEPA** (Vogelschutz, `ENP_APP_Local_V4/1`, Web-Map-Titel „ZEPA“) bleibt
+  im Teil „Naturschutz“, Regeln wie ENP; Beschriftung „Vogelschutzgebiet (ZEPA)“.
+- **Teilausfall** (`esSource`): Zählabfrage eines Layers scheitert → übrige
+  Layer gespeichert, Zonen des Layers aus dem bisherigen Bestand übernommen
+  (`carry:<key>`), `source.failedLayers/carriedLayers`; Abdeckung „partial“ mit
+  „ENAIRE: 1 Ebene(n) beim letzten Abruf nicht erreichbar (Flugplätze) – deren
+  Zonen stammen aus dem letzten Stand“ (`esPartialNote` → `withPartialDatasetNote`,
+  gleiche Mechanik wie `withFetchCoverage`/ed269Store); Versionsprüfung
+  `es-partial` nach 1 Tag. Alle Layer aus → Fehler, alter Bestand bleibt.
+  Live-Pfad: fehlender Layer → `failedLayers` → „partial“ (wie bisher).
+- **NOTAM** (shared/spanishNotams.ts, Abruf tileStore `fetchEsNotamFeatures`):
+  ein Request `resultRecordCount=3000`, `where=1=1` (PO: alles laden, Status in
+  der App; der Server entfernt Abgelaufene, künftige bleiben), weiterblättern
+  nur bei `exceededTransferLimit`; Schlüssel `notamId` (Feature-ID
+  `es_notam.<notamId>`), Bestand ersetzt den alten vollständig; `itemC < jetzt`
+  verworfen; Neuladen über die Temporär-Policy (online ≤ 10 min Cache, also
+  öfter als die geforderte Stunde; offline `es/temp.json`).
+  - Zeiten UTC (Unix-ms; Rückfall `itemBIcaro` yyMMddhhmm, `itemBstr`
+    dd/mm/yyyy = UTC); `itemC` ≥ 2049 (01.10.2050) = dauerhaft;
+    `validStartTs/validEndTs` + applicability; Status geplant/aktiv/„laut
+    Zeitplan nicht aktiv“ im Text, Ausgrauen über zoneActivityAt.
+  - `itemD` (`parseEsNotamSchedule`): „0600-1400“ (täglich), „MON-FRI 0600-1400“
+    (Wochentag-Zeitplan), „SR-SS“/„SR-2100“ (ED-269-Ereignisse, SR/SS je Ort
+    über zoneActivityAt), Tage des Monats „03-05 12 17-19 24 2000-2359, 10-11
+    1900-2359“ und Monatsnamen über Monats-/Jahresgrenzen → konkrete Fenster
+    (2359 = Tagesende, geteilte Nachtblöcke = zwei Fenster, „2200-0400“ bis
+    Folgetag). Unlesbar (EXC, Freitext, unmögliche Tage) → im ganzen Zeitraum
+    aktiv + Text „nicht maschinenlesbar“.
+  - Höhen NUR aus `itemF`/`itemG` über shared/heights.ts (M/FT, AGL/AMSL, FL =
+    STD, UNL, SFC/GND); LOWER_VAL/UPPER_VAL (gerundete ft) nie. AMSL-Untergrenze:
+    Hinweis, Höhenfilter blendet ohne Gelände nie aus.
+  - Kategorie `qcode`: R → RESTRICTED (PROHIBITED nur bei klarem Verbotstext in
+    itemE, z. B. „UAS FLIGHTS PROHIBITED“), WULW → CONDITIONAL „NOTAM –
+    UAS-Aktivität“, sonst W → CONDITIONAL „NOTAM – Warnung“; Ebene
+    „ENAIRE – NOTAM – Beschränkung/UAS-Aktivität/Warnung“, Farben rot/gelb/orange
+    (`ES_NOTAM_COLORS`).
+  - AREA DINAMICA: Name `areaSactaName (NOTAM <id>)`; AREA ESTATICA + ACTIVA:
+    „<Gebiet> – Aktivierung per NOTAM <id>“ und an der festen Zone der Ebene
+    ZG_Restringidas (IDENT_TXT ↔ affectedElement, `sourceIdent`) die Zeile
+    „NOTAM V…: Zone LED90A ist jetzt aktiv (Höhe …, gültig …, Zeitplan …)“
+    (`annotateEsStaticActivations`, Paket- und Live-Pfad).
+  - Texte selbst gerendert (itemE ohne Fernschreib-Layout, FLYING_LEVELS_DESC,
+    itemD, Zeiten, itemA/FIR, traffic/purpose/scope, Quell-NOTAM); DESCRIPTION
+    (HTML) nicht übernommen; `icaoFormatText` im Originaltext-Block; Hinweis
+    „NOTAM-Darstellung ohne Gewähr; verbindlich sind die NOTAMs/AIS von ENAIRE“.
+    Kein Filter nach `fir` (GMMM/Melilla, LEXX).
+  - Kreise (37 Punkte): Radius + Mittelpunkt aus itemE/itemQ passend zum Polygon
+    → fein neu erzeugt (2°-Schritte, WGS84), sonst radial um max(0,5 % r, 150 m)
+    gepuffert (`_esCircle`); Dreiecke/Vielecke unverändert; MultiPolygon bleibt
+    (Kreisteile nur gepuffert).
+  - Gleiche Geometrie mehrerer NOTAMs: nie dedupliziert (Prüfungen sehen alle);
+    die Karten (Radar `TrafficMapView`, Planung `MapPicker`) zeichnen über
+    `collapseStackedTempZonesForMap` (shared/geozoneTemporary.ts) nur die
+    aktiven bzw. – wenn keine aktiv ist – eine abgeschwächte.
+- **Pilot sichtbar**: NOTAM-Ebenen nach Kategorie/Farbe; künftige NOTAMs
+  ausgegraut mit „geplant – gilt ab …“; NOTAMs außerhalb ihres Zeitplans
+  inaktiv (die offizielle Webseite zeigt alles); Höhen korrekt aus F/G;
+  „Zone LED90A ist jetzt aktiv“ an Sperrgebieten; ZEPA-Gebiete benannt;
+  „partial“-Hinweis, wenn eine ENAIRE-Ebene beim Download fehlte.
+- **Tests**: client/lib/__tests__/esNotamWebmap.test.ts (Web Map, 404, Rückfall,
+  Teilausfall, NOTAM-Abruf, itemD-Varianten, Höhen, Kreise, MultiPolygon, kein
+  Geometrie-Dedupe, statische Aktivierung), esTileStore (Beschriftung),
+  restrictionPolicy (neue Fixtures).
+- **Nur mit EU-IP/Gerät prüfbar**: echte Web-Map-Struktur (Titel/Unterebenen),
+  echte NOTAM-Antwort (Fixture F+ nachliefern), Text-Formate von „RADIUS …“ und
+  Mittelpunkt in itemE/itemQ (sonst greift der Puffer).

@@ -20,6 +20,7 @@
 // (tileZones.ts).
 import { deflateSync, inflateSync, strFromU8, strToU8, unzipSync } from "fflate";
 import { TILE_STORE_REFRESH_MS, TILE_STORE_SOURCE_ISOS } from "../../../shared/geozoneSourceMeta";
+import { defaultYielder, deflateYielding, inflateYielding, type Yielder } from "../../../shared/yieldingWork";
 
 /** Kantenlänge der Indexkacheln in Grad */
 export const TILE_CELL_DEG = 0.25;
@@ -208,6 +209,34 @@ export function loadIndex(file: TileIndexFile): LoadedTileIndex {
   return { file, grid: buildGrid(file) };
 }
 
+/**
+ * Wie buildGrid, aber in Zeitscheiben (DE: 83 000 Zonen ≈ 45 ms Node,
+ * auf dem Gerät mehrere hundert ms). Ergebnis identisch.
+ */
+export async function buildGridYielding(file: TileIndexFile, y: Yielder = defaultYielder): Promise<Map<string, number[]>> {
+  const grid = new Map<string, number[]>();
+  const e = file.entries;
+  const cell = file.cell || TILE_CELL_DEG;
+  for (let i = 0, k = 0; k + 5 < e.length; i++, k += 6) {
+    const b: LngLatBBox = [e[k + 2], e[k + 3], e[k + 4], e[k + 5]];
+    for (const [x, y2] of cellsForBBox(b, cell)) {
+      const key = cellKey(x, y2);
+      let list = grid.get(key);
+      if (!list) {
+        list = [];
+        grid.set(key, list);
+      }
+      list.push(i);
+    }
+    if ((i & 255) === 0 && y.shouldYield()) await y.yield("tile-grid");
+  }
+  return grid;
+}
+
+export async function loadIndexYielding(file: TileIndexFile, y: Yielder = defaultYielder): Promise<LoadedTileIndex> {
+  return { file, grid: await buildGridYielding(file, y) };
+}
+
 export function entryBBox(file: TileIndexFile, i: number): LngLatBBox {
   const k = i * 6;
   return [file.entries[k + 2], file.entries[k + 3], file.entries[k + 4], file.entries[k + 5]];
@@ -232,12 +261,27 @@ export interface IndexQuery {
  * einmal heraus (dedupliziert). Ergebnis nach Datei-Offset sortiert.
  */
 export function queryIndex(idx: LoadedTileIndex, q: LngLatBBox, opts: IndexQuery = {}): number[] {
+  const out = collectIndexHits(idx, q, opts);
+  return finishIndexHits(idx, q, opts, out);
+}
+
+/** Wie queryIndex, in Zeitscheiben (große Ausschnitte, z. B. ganz DE). Ergebnis identisch. */
+export async function queryIndexYielding(idx: LoadedTileIndex, q: LngLatBBox, opts: IndexQuery = {}, y: Yielder = defaultYielder): Promise<number[]> {
+  const out = await collectIndexHits(idx, q, opts, y);
+  if (y.shouldYield()) await y.yield("tile-query");
+  return finishIndexHits(idx, q, opts, out);
+}
+
+function collectIndexHits(idx: LoadedTileIndex, q: LngLatBBox, opts: IndexQuery): number[];
+function collectIndexHits(idx: LoadedTileIndex, q: LngLatBBox, opts: IndexQuery, y: Yielder): Promise<number[]>;
+function collectIndexHits(idx: LoadedTileIndex, q: LngLatBBox, opts: IndexQuery, y?: Yielder): number[] | Promise<number[]> {
   const seen = new Set<number>();
   const out: number[] = [];
   const f = idx.file;
-  for (const [x, y] of cellsForBBox(q, f.cell || TILE_CELL_DEG)) {
-    const list = idx.grid.get(cellKey(x, y));
-    if (!list) continue;
+  const cells = cellsForBBox(q, f.cell || TILE_CELL_DEG);
+  const scanCell = (x: number, yy: number) => {
+    const list = idx.grid.get(cellKey(x, yy));
+    if (!list) return;
     for (const i of list) {
       if (seen.has(i)) continue;
       seen.add(i);
@@ -246,7 +290,22 @@ export function queryIndex(idx: LoadedTileIndex, q: LngLatBBox, opts: IndexQuery
       if (opts.filter && !opts.filter(f.ids[i] ?? "")) continue;
       out.push(i);
     }
+  };
+  if (!y) {
+    for (const [x, yy] of cells) scanCell(x, yy);
+    return out;
   }
+  return (async () => {
+    for (const [x, yy] of cells) {
+      scanCell(x, yy);
+      if (y.shouldYield()) await y.yield("tile-query");
+    }
+    return out;
+  })();
+}
+
+function finishIndexHits(idx: LoadedTileIndex, q: LngLatBBox, opts: IndexQuery, out: number[]): number[] {
+  const f = idx.file;
   let res = out;
   if (opts.limit && opts.limit > 0 && res.length > opts.limit) {
     const cx = (q[0] + q[2]) / 2;
@@ -276,6 +335,16 @@ export function encodeRecord(feature: unknown): Uint8Array {
 
 export function decodeRecord(bytes: Uint8Array): any {
   return JSON.parse(strFromU8(inflateSync(bytes)));
+}
+
+/** encodeRecord in Zeitscheiben (große Zonen: Streaming-DEFLATE); verlustfrei. */
+export async function encodeRecordYielding(feature: unknown, y: Yielder = defaultYielder): Promise<Uint8Array> {
+  return deflateYielding(strToU8(JSON.stringify(feature)), 6, y);
+}
+
+/** decodeRecord in Zeitscheiben (große Datensätze: Streaming-INFLATE); Ergebnis identisch. */
+export async function decodeRecordYielding(bytes: Uint8Array, y: Yielder = defaultYielder): Promise<any> {
+  return JSON.parse(strFromU8(await inflateYielding(bytes, y)));
 }
 
 export function concatBytes(chunks: Uint8Array[]): Uint8Array {
@@ -350,6 +419,43 @@ export function appendFeatures(
     off += rec.length;
     added++;
   }
+  const bytes = concatBytes(chunks);
+  idx.dataBytes += bytes.length;
+  return { bytes, added };
+}
+
+/**
+ * Wie appendFeatures, aber in Zeitscheiben: Abgabe zwischen den Zonen, große
+ * Zonen werden gestreamt komprimiert (gemessen: eine dipul-FFH-Seite mit 200
+ * Zonen/11 MB blockierte synchron ≈ 1,1 s in Node, mehrere Sekunden auf dem
+ * Gerät). Index und Inhalte identisch; die komprimierten Bytes großer Zonen
+ * können sich von deflateSync unterscheiden (entpackt gleich).
+ */
+export async function appendFeaturesYielding(
+  idx: TileIndexFile,
+  seen: Set<string>,
+  features: any[],
+  dataSize: number,
+  y: Yielder = defaultYielder,
+): Promise<AppendResult> {
+  const chunks: Uint8Array[] = [];
+  let off = dataSize;
+  let added = 0;
+  for (const f of features) {
+    const key = featureStoreKey(idx.iso, f);
+    if (!key || seen.has(key)) continue;
+    const bb = geometryBBox(f?.geometry);
+    if (!bb) continue;
+    if (y.shouldYield()) await y.yield("tile-append");
+    const rec = await encodeRecordYielding(f, y);
+    chunks.push(rec);
+    idx.entries.push(off, rec.length, bb[0], bb[1], bb[2], bb[3]);
+    idx.ids.push(key);
+    seen.add(key);
+    off += rec.length;
+    added++;
+  }
+  if (y.shouldYield()) await y.yield("tile-append");
   const bytes = concatBytes(chunks);
   idx.dataBytes += bytes.length;
   return { bytes, added };

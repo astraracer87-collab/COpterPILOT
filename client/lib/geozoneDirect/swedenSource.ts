@@ -15,6 +15,7 @@ import {
   type SeLayer,
 } from "../../../shared/swedishGeozones";
 import { computeBbox, roundFeatureCoords, type GeoFeature } from "./ed269Sources";
+import { responseJsonYielding } from "../../../shared/yieldingWork";
 
 export { SE_GEOZONE_SOURCE_LABEL };
 
@@ -43,7 +44,7 @@ async function fetchJson(url: string, timeoutMs: number = FETCH_TIMEOUT_MS): Pro
       headers: { Accept: "application/json" },
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return await res.json();
+    return await responseJsonYielding(res);
   } finally {
     clearTimeout(timeout);
   }

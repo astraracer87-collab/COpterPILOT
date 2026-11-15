@@ -42,6 +42,7 @@ import {
   PANSA_ZONE_TYPES_URL,
   type PansaJsonRaw,
 } from "../../../shared/polishGeozones";
+import { parseJsonYielding } from "../../../shared/yieldingWork";
 
 export { PL_GEOZONE_SOURCE_LABEL, PANSA_LOGIN_URL };
 export const PANSA_KML_REQUEST_URL = buildPansaKmlUrl(PL_DRONE_ZONE_TYPES, PANSA_KML_MAX_M);
@@ -135,7 +136,7 @@ export async function pansaFetchJson(url: string, token: string, apiKey: string 
     },
     timeoutMs,
   );
-  return JSON.parse(text);
+  return parseJsonYielding(text);
 }
 
 /** Netzzugriffe (in Tests ersetzbar). */

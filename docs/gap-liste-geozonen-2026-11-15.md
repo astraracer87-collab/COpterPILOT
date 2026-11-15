@@ -8,6 +8,9 @@ Nachtrag 4: P2 SI/SK/DK/NO/IS/SE, AT-Infotext und P3 LU/ES/SK-Attribution
 umgesetzt (✅), live getestet (US-Sandbox, 2026-11-15) mit kleinen echten
 Fixtures – Details in docs/pruefung-umbau-plan.md „Stand P2/P3 SI, SK, DK, NO,
 IS, SE, LU, ES, AT“.
+Nachtrag 5: ES vollständig (NOTAM-Zeitfilter/Zeitplan, dynamische Dienstnamen
+aus der Web Map, ZEPA, Teilausfall „partial“) – Details in
+docs/pruefung-umbau-plan.md „Stand ES: NOTAM + dynamische Dienstnamen“.
 Zurückgestellt (PO-Entscheidung): GR-Vektordatei, SI Pozidano.
 
 Legende: **BUG** = Code widerspricht verifizierter Doku · **FEHLT** =
@@ -51,7 +54,7 @@ Test: F = Fixture im Repo, F+ = neue Fixture von EU-IP nötig, G = nur Gerät/EU
 - LU: ✅ Reihenfolge umgedreht – OGC zuerst, ED-269 (live weiter HTTP 422) höchstens einmal täglich als Prüfung bzw. Rückfall bei OGC-Ausfall (`loadLuxembourg`).
 - IE: CONDITIONAL-Ausnahmezonen (Modellflug) Hinweistext.
 - PT: native ED-318-Variante optional.
-- ES: NOTAM-Filter `itemB`/`itemC`; Dienstnamen dynamisch aus Web-Map. (offen) – Attribution ✅ „© ENAIRE – AIS“.
+- ES: ✅ ERLEDIGT (2026-11-15) – NOTAM-Zeitfilter + Zeitplan und Dienstnamen dynamisch aus der Web Map; Attribution ✅ „© ENAIRE – AIS“. **Umgesetzt:** Layer-URLs bei jedem Sync aus der Web Map `b0449bba…/data?f=json` über den stabilen Titel (ZG_EAC_FIZ, ZG_Aeródromos, ZG_Restringidas, ZG_Infraestructuras, NOTAM, ENP, ZEPA …; akzent-/schreibweisen-tolerant), feste `_V3/_V0/_V4`-Pfade nur Rückfall, 404 → Web Map einmal neu lesen; ZEPA als eigene Naturschutz-Ebene (Regeln wie ENP). Eine Ebene nicht abrufbar → Rest gespeichert, Ebene aus dem letzten Stand, Abdeckung „partial“ mit Hinweis, Wiederholung nach 1 Tag. NOTAM nach docs/enaire-es-notam-integration.md: ein Request (3000), Schlüssel `notamId`, Bestand ersetzt (Stornierung = Verschwinden), abgelaufen verworfen, künftige = geplant (ausgegraut mit Startdatum), `itemD` als Zeitplan (Wochentage, SR/SS, Tage des Monats, Monatsnamen über Jahreswechsel; unlesbar → ganzer Zeitraum + Text), `itemC` 2050 = dauerhaft, Höhen NUR aus `itemF`/`itemG`, Kategorie aus `qcode` (R → RESTRICTED, WULW → UAS-Aktivität, W → Warnung; Farben wie die Webseite), statische Aktivierungen an ZG_Restringidas („Zone LED90A ist jetzt aktiv“), Kreise fein neu erzeugt bzw. gepuffert, kein Geometrie-Dedupe, Hinweis „ohne Gewähr“. **Die App filtert damit nach Zeit UND Zeitplan (`itemD`) – die offizielle Webseite drones.enaire.es tut das nicht** (zeigt auch künftige und laut Zeitplan inaktive Gebiete). Fixtures handgebaut (`es-enaire-notam-handbuilt.geojson`, `es-enaire-webmap-handbuilt.json`) – echte Antworten (F+) von EU-IP nachliefern.
 - RO: Höhenschichten RZ 1001/1002 und RZ-2xxx-Aktivierung per NOTAM prüfen.
 
 ## Lizenzen / Freigaben (Datenquellen-Seite)

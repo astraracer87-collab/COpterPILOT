@@ -23,8 +23,10 @@ import { isOfflineNow } from "@/lib/network";
 import { getOfflineResult, putOfflineResult } from "@/lib/offlineResultCache";
 import { offlineLocationKey } from "../../shared/offlineDataPolicy";
 import { awaitCountryUsage, COUNTRY_DISABLED_NOTE, isGeozoneSourceEnabled } from "@/lib/countryUsage";
-import { disabledSourceCoverage } from "@/lib/geozoneCoverage";
+import { disabledSourceCoverage, withPartialDatasetNote } from "@/lib/geozoneCoverage";
 import {
+  esPartialNote,
+  withEsNotamActivations,
   hasTiledGeozones,
   queryTiledGeozones,
   queryTiledGeozonesAtPoint,
@@ -35,6 +37,7 @@ import { bboxAround, DIPUL_WOHN_LAYER, TILE_STORE_OPTIONAL_PARTS, type LngLatBBo
 import { queryEsLiveZones } from "@/lib/geozoneTiles/esLive";
 import { trackDownload } from "@/lib/downloadActivity";
 import { geozoneTruncationHint } from "../../shared/checks/builders";
+import { enrichDipulTempGeometry } from "@/lib/dipulTempGeometry";
 import {
   queryChRestIdentifyFrom,
   queryDipulWfsFeaturesFrom,
@@ -602,7 +605,11 @@ export async function queryEd269CachedFeaturesWithStatus(
     // Temporäre DE-Zonen nur bewerten, wenn sie abgefragt wurden (Ebenen-Filter).
     const withTemp = !opts?.layers || opts.layers.length === 0 || opts.layers.includes("temporaere_betriebseinschraenkungen");
     const report = { zones: tiled, ...storedDataReport(iso, withTemp), ...trunc };
-    if (String(iso).toUpperCase() === "ES") return esSupplementMissingParts(report, bboxAround(lat, lon, radiusKm));
+    if (String(iso).toUpperCase() === "ES") {
+      // Teilbestand (eine ENAIRE-Ebene fehlte beim letzten Download) → „partial“ mit Hinweis
+      const partial = withPartialDatasetNote({ status: report.status, ...(report.note ? { note: report.note } : {}) }, esPartialNote());
+      return esSupplementMissingParts({ ...report, status: partial.status, ...(partial.note ? { note: partial.note } : {}) }, bboxAround(lat, lon, radiusKm));
+    }
     return report;
   }
   // ES ohne Offline-Paket: online je Ausschnitt beim ENAIRE-MapServer (wie DE-WFS).
@@ -667,7 +674,9 @@ async function queryEsLiveWithStatus(lat: number, lon: number, radiusKm: number,
     return { zones: [], status: "error", note: `ENAIRE nicht erreichbar${e?.message ? ` (${e.message})` : ""}` };
   }
   const temp = await queryEsTempZones(bbox).catch(() => [] as GeozoneFeatureInfo[]);
-  const all = [...live.zones, ...temp];
+  // statische NOTAM-Aktivierungen („Zone LED90A ist jetzt aktiv“) an den Sperrgebieten
+  const liveZones = await withEsNotamActivations(live.zones).catch(() => live.zones);
+  const all = [...liveZones, ...temp];
   putOfflineResult("geozones-live", key, all).catch(() => {});
   const { zones, truncated } = nearestZones(all, lat, lon, limit);
   const trunc = truncated && limit ? { truncated: true, note: geozoneTruncationHint(limit) } : {};
@@ -1127,7 +1136,9 @@ async function fetchDipulGeoapi(lon: number, lat: number, radiusM: number): Prom
 
     if (!resp.ok) throw new Error(`Geoapi returned ${resp.status}`);
     const data = await resp.json();
-    return parseGeoApiResponse(data);
+    // Die geoapi liefert nur Sachdaten ohne Geometrie – exakte Flächen aus dem
+    // dipul-WFS (temporaere_betriebseinschraenkungen, ED-R-Rückfall) ergänzen.
+    return await enrichDipulTempGeometry(parseGeoApiResponse(data));
   } finally {
     clearTimeout(timeout);
   }

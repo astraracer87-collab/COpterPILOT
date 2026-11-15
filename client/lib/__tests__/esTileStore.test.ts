@@ -235,14 +235,14 @@ describe("ES – Kachelspeicher", () => {
     assert.deepEqual(labels, [
       "ENAIRE – Flugplätze",
       "ENAIRE – Infrastruktur",
-      "ENAIRE – NOTAM (temporär)",
+      "ENAIRE – NOTAM – Beschränkung",
       "ENAIRE – Naturschutz (ENP)",
       "ENAIRE – Sperr-/Beschränkungsgebiete",
       "ENAIRE – Urbane Zonen",
     ]);
     assert.equal(zones.find((z) => z.layerLabel === "ENAIRE – Sperr-/Beschränkungsgebiete")!.restriction, "PROHIBITED");
     assert.equal(zones.find((z) => z.layerLabel === "ENAIRE – Naturschutz (ENP)")!.restriction, "NATURE");
-    const notam = zones.find((z) => z.layerLabel === "ENAIRE – NOTAM (temporär)")!;
+    const notam = zones.find((z) => z.layerLabel === "ENAIRE – NOTAM – Beschränkung")!;
     assert.equal(notam.notamEligible, true);
     assert.equal(notam.validEndTs, Date.UTC(2026, 11, 1));
     assert.ok(getEsTempStatus().fetchedAt != null);
@@ -272,7 +272,7 @@ describe("ES – Kachelspeicher", () => {
     const r = await queryEsLiveZones(bboxAround(40.47, -3.58, 3), ["base", "infra", "enp"], NOW.getTime());
     assert.equal(r.failedLayers.length, 0);
     assert.ok(r.zones.some((z) => z.layerLabel === "ENAIRE – Naturschutz (ENP)"));
-    assert.ok(r.zones.every((z) => z.layerLabel !== "ENAIRE – NOTAM (temporär)"));
+    assert.ok(r.zones.every((z) => !/NOTAM/.test(z.layerLabel)));
     const n = calls.length;
     await queryEsLiveZones(bboxAround(40.47, -3.58, 3), ["base", "infra", "enp"], NOW.getTime() + 60_000);
     assert.equal(calls.length, n, "aus dem 10-min-Cache");

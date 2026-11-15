@@ -22,6 +22,7 @@
 //  - `Elevation_meter` ist die Geländehöhe – KEINE Drohnen-Obergrenze; daher
 //    nicht als upperMeters übernehmen. `MaxFlyveHoejde` (falls numerisch) ist
 //    die zulässige Flughöhe und wird – wenn vorhanden – als Obergrenze genutzt.
+import { defaultYielder, type Yielder } from "./yieldingWork";
 
 export interface DanishGeoFeature {
   type?: string;
@@ -362,18 +363,34 @@ export function normalizeDanishFeature(f: DanishGeoFeature): DanishGeoFeature | 
 export function normalizeDanishFeatures(features: DanishGeoFeature[]): DanishGeoFeature[] {
   const out: DanishGeoFeature[] = [];
   const seen = new Set<string>();
+  for (const f of features || []) danishNormalizeStep(f, seen, out);
+  return out;
+}
+
+function danishNormalizeStep(f: DanishGeoFeature, seen: Set<string>, out: DanishGeoFeature[]): void {
+  const n = normalizeDanishFeature(f);
+  if (!n) return;
+  const p = n.properties || {};
+  const stableId = p.OBJECTID ?? p.objectid ?? p.id ?? "";
+  const geometryKey = `${n.geometry?.type}:${JSON.stringify(n.geometry?.coordinates)}`;
+  const key = stableId !== ""
+    ? `${stableId}:${geometryKey}`
+    : `${p.name ?? ""}:${p.Farve ?? ""}:${geometryKey}`;
+  if (seen.has(key)) return;
+  seen.add(key);
+  out.push(n);
+}
+
+/**
+ * Wie normalizeDanishFeatures, aber in Zeitscheiben (≈ 160 ms Node für den
+ * 11-MB-Export am Stück). Ergebnis identisch.
+ */
+export async function normalizeDanishFeaturesYielding(features: DanishGeoFeature[], y: Yielder = defaultYielder): Promise<DanishGeoFeature[]> {
+  const out: DanishGeoFeature[] = [];
+  const seen = new Set<string>();
   for (const f of features || []) {
-    const n = normalizeDanishFeature(f);
-    if (!n) continue;
-    const p = n.properties || {};
-    const stableId = p.OBJECTID ?? p.objectid ?? p.id ?? "";
-    const geometryKey = `${n.geometry?.type}:${JSON.stringify(n.geometry?.coordinates)}`;
-    const key = stableId !== ""
-      ? `${stableId}:${geometryKey}`
-      : `${p.name ?? ""}:${p.Farve ?? ""}:${geometryKey}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(n);
+    danishNormalizeStep(f, seen, out);
+    if (y.shouldYield()) await y.yield("dk-normalise");
   }
   return out;
 }

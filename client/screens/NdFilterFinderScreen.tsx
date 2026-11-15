@@ -121,10 +121,13 @@ export default function NdFilterFinderScreen() {
     return opts;
   }, [drones]);
 
-  const selectedOption = useMemo(
-    () => droneOptions.find((o) => o.key === selectedDroneKey) ?? droneOptions[0] ?? null,
-    [droneOptions, selectedDroneKey],
-  );
+  // Ohne angelegte Drohne nichts stillschweigend vorwählen (früher: erstes
+  // Preset, z. B. „Neo 2“) – erst Drohne anlegen oder bewusst ein Modell wählen.
+  const noDroneProfile = drones.length === 0;
+  const selectedOption = useMemo(() => {
+    if (noDroneProfile && !selectedDroneKey) return null;
+    return droneOptions.find((o) => o.key === selectedDroneKey) ?? droneOptions[0] ?? null;
+  }, [droneOptions, selectedDroneKey, noDroneProfile]);
   const basePreset = selectedOption?.preset ?? null;
 
   const cinematic = useMemo(
@@ -327,13 +330,35 @@ export default function NdFilterFinderScreen() {
           </Card>
         ) : (
           <>
+            {noDroneProfile ? (
+              <Card style={[styles.card, { marginBottom: Spacing.sm }]}>
+                <View style={styles.row}>
+                  <Feather name="alert-circle" size={20} color="#F5A623" />
+                  <View style={{ flex: 1 }}>
+                    <ThemedText style={styles.rowTitle}>Noch keine Drohne angelegt</ThemedText>
+                    <ThemedText style={[styles.rowSub, { color: theme.textSecondary }]}>
+                      Lege zuerst deine Drohne an – dann passen Kamera und vorhandene ND-Filter automatisch.
+                      Ohne Profil kannst du unten auch ein Modell wählen.
+                    </ThemedText>
+                  </View>
+                </View>
+                <View style={{ marginTop: Spacing.md }}>
+                  <Button
+                    title="Drohne anlegen"
+                    onPress={() =>
+                      navigation.navigate("Main" as any, { screen: "SettingsTab", params: { screen: "DroneSetup", params: { droneId: undefined } } } as any)
+                    }
+                  />
+                </View>
+              </Card>
+            ) : null}
             <Pressable onPress={() => setPickerOpen((v) => !v)}>
               <Card style={styles.card}>
                 <View style={styles.row}>
                   <Feather name="aperture" size={20} color={theme.primary} />
                   <View style={{ flex: 1 }}>
                     <ThemedText style={styles.rowTitle}>
-                      {selectedOption?.label ?? "Drohne wählen"}
+                      {selectedOption?.label ?? (noDroneProfile ? "Modell wählen (ohne Profil)" : "Drohne wählen")}
                     </ThemedText>
                     {preset ? (
                       <ThemedText style={[styles.rowSub, { color: theme.textSecondary }]}>
@@ -472,6 +497,7 @@ export default function NdFilterFinderScreen() {
           </Card>
         ) : null}
 
+        {selectedOption ? (<>
         {/* Schritt 2 — Ziel-FPS */}
         <SectionTitle theme={theme} mt>2. ZIEL-FRAMERATE</SectionTitle>
         <Card style={styles.card}>
@@ -777,6 +803,7 @@ export default function NdFilterFinderScreen() {
             180°-Shutter-Regel · Werte gerundet auf Standard-ND-Filter
           </ThemedText>
         </Pressable>
+        </>) : null}
       </ScrollView>
 
       <Modal

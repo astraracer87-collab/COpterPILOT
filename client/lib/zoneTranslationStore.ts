@@ -12,6 +12,7 @@ import * as SecureStore from "expo-secure-store";
 import { onEd269Downloaded } from "@/lib/geozoneDirect/ed269Store";
 import type { GeoFeature } from "@/lib/geozoneDirect/ed269Sources";
 import { addRuntimeTranslations, hasGermanFor, translationKey } from "../../shared/zoneTranslate";
+import { shouldYield, yieldToUi } from "../../shared/yieldingWork";
 
 const KEY_NAME = "deepl_api_key";
 const CACHE_FILE = `${FileSystem.documentDirectory}zone-translations-de.json`;
@@ -91,29 +92,42 @@ function stripHtml(s: string): string {
 export function missingTexts(features: GeoFeature[]): { lines: string[]; names: string[] } {
   const lines = new Set<string>();
   const names = new Set<string>();
+  for (const f of features) collectMissing(f, lines, names);
+  return { lines: [...lines], names: [...names] };
+}
+
+/** Wie missingTexts, in Zeitscheiben (CH ≈ 30 ms Node am Stück). Ergebnis identisch. */
+export async function missingTextsYielding(features: GeoFeature[]): Promise<{ lines: string[]; names: string[] }> {
+  const lines = new Set<string>();
+  const names = new Set<string>();
   for (const f of features) {
-    const p: any = f.properties || {};
-    const name = String(p.name ?? "").trim();
-    if (name && !hasGermanFor(name, "name")) names.add(translationKey(name));
-    const loc = p.extendedProperties?.localizedMessages;
-    if (Array.isArray(loc) && loc.some((m: any) => String(m?.language ?? "").toLowerCase().startsWith("de"))) continue;
-    const msg =
-      (Array.isArray(loc) && (loc.find((m: any) => String(m?.language ?? "").toLowerCase().startsWith("en")) ?? loc[0])?.message) ||
-      p.message ||
-      "";
-    for (const line of stripHtml(String(msg)).split("\n")) {
-      const k = translationKey(line);
-      if (k && /[A-Za-zÀ-ÿ]{3}/.test(k) && !hasGermanFor(k, "line")) lines.add(k);
-    }
+    collectMissing(f, lines, names);
+    if (shouldYield()) await yieldToUi("translate-scan");
   }
   return { lines: [...lines], names: [...names] };
+}
+
+function collectMissing(f: GeoFeature, lines: Set<string>, names: Set<string>): void {
+  const p: any = f.properties || {};
+  const name = String(p.name ?? "").trim();
+  if (name && !hasGermanFor(name, "name")) names.add(translationKey(name));
+  const loc = p.extendedProperties?.localizedMessages;
+  if (Array.isArray(loc) && loc.some((m: any) => String(m?.language ?? "").toLowerCase().startsWith("de"))) return;
+  const msg =
+    (Array.isArray(loc) && (loc.find((m: any) => String(m?.language ?? "").toLowerCase().startsWith("en")) ?? loc[0])?.message) ||
+    p.message ||
+    "";
+  for (const line of stripHtml(String(msg)).split("\n")) {
+    const k = translationKey(line);
+    if (k && /[A-Za-zÀ-ÿ]{3}/.test(k) && !hasGermanFor(k, "line")) lines.add(k);
+  }
 }
 
 async function translateMissing(_iso: string, features: GeoFeature[]): Promise<void> {
   await loadCache();
   const key = await getDeeplKey();
   if (!key) return;
-  const { lines, names } = missingTexts(features);
+  const { lines, names } = await missingTextsYielding(features);
   const run = async (items: string[], kind: "line" | "name") => {
     for (let i = 0; i < items.length; i += 40) {
       const batch = items.slice(i, i + 40);

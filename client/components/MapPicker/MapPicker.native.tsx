@@ -28,6 +28,7 @@ import { getVectorMinZoom, loadsFullCountryVectorZones, isRasterTiledVectorCount
 import { simplifyRingGroup, smoothRingGroup } from "@/lib/ringSimplify";
 import { geozoneTruncationHint } from "../../../shared/checks/builders";
 import { isZoneActiveInContext } from "@/lib/ed269";
+import { collapseStackedTempZonesForMap } from "../../../shared/geozoneTemporary";
 import { findNearbyCtrAirports, CTR_AIRPORTS } from "@/lib/ctrData";
 import { getCtrBandRings, getCtrLegendEntries, getCtrProvisionalNote } from "@/lib/ctrAltitude";
 import CtrInfoCard from "@/components/CtrInfoCard";
@@ -227,13 +228,20 @@ const MAP_HTML = `<!DOCTYPE html>
   // Zone weiterhin den Standort auswählt (kein Popup-Abfangen).
   var vzLayer = L.layerGroup().addTo(map);
   var vzSig = "";
+  var vzGen = 0;
   function setVz(arr){
     var sig = JSON.stringify(arr || []);
     if (sig === vzSig) return;
     vzSig = sig;
     vzLayer.clearLayers();
     if (!arr) return;
-    for (var i = 0; i < arr.length; i++){
+    // in Paketen zeichnen (je 150 Zonen, dazwischen abgeben): die Karte bleibt
+    // bedienbar; ein neuer Stand bricht ein laufendes Zeichnen ab.
+    var gen = ++vzGen, i0 = 0;
+    function vzStep(){
+    if (gen !== vzGen) return;
+    var iEnd = Math.min(arr.length, i0 + 150);
+    for (var i = i0; i < iEnd; i++){
       var z = arr[i];
       if (!z || !z.r) continue;
       for (var p=0; z.p && p<z.p.length; p++) {
@@ -251,6 +259,10 @@ const MAP_HTML = `<!DOCTYPE html>
         }
       }
     }
+    i0 = iEnd;
+    if (i0 < arr.length) setTimeout(vzStep, 0);
+    }
+    vzStep();
   }
 
   // ---- Ausgewählter Standort (Pin) ----
@@ -389,13 +401,15 @@ const MAP_HTML = `<!DOCTYPE html>
     else { userMarker = L.circleMarker([u[0], u[1]], { radius: 7, color: "#FFFFFF", weight: 2, fillColor: "#007AFF", fillOpacity: 1, interactive: false }).addTo(map); }
   }
 
+  window.__setVz = function(arr){ try { setVz(arr || []); } catch (e) {} return true; };
   // ---- Zustand anwenden ----
   var lastFit = null;
   window.__apply = function(s){
     try {
       setBase(s.base, s.dark);
       setGeo(s.geo || []);
-      setVz(s.vz || []);
+      // Vektorzonen kommen getrennt (window.__setVz), nur wenn sie sich ändern
+      if (s.vz) setVz(s.vz);
       setMarker(s.marker);
       setRadius(s.radius);
       setRoute(s.route);
@@ -682,7 +696,13 @@ const MapPicker = forwardRef<MapPickerRef, MapPickerProps>(
         // Raster-Kachel-Land (z. B. Belgien): dauerhafte Zonen zeichnet die
         // serverseitige PNG-Kachel; hier nur temporäre Zonen als Vektor.
         const tiled = isRasterTiledVectorCountry(iso);
-        const zones = vzByIsoRef.current[iso] || [];
+        // Gleiche Geometrie mehrerer temporärer Zonen (ES-NOTAM, mehrere
+        // Zeiträume) nicht stapeln: aktive zeichnen, sonst eine abgeschwächt.
+        const zones = collapseStackedTempZonesForMap(
+          vzByIsoRef.current[iso] || [],
+          (z) => z.validStartTs != null || z.validEndTs != null,
+          (z) => isZoneActiveInContext(z, { kind: "now", now: nowDate }),
+        );
         for (const z of zones) {
           // Kanonische Regel (shared ed269IsTemporary): temporär, sobald EIN
           // Zeitstempel gesetzt ist (Start ODER Ende) — muss zur serverseitigen
@@ -759,7 +779,7 @@ const MapPicker = forwardRef<MapPickerRef, MapPickerProps>(
         base: mapStyle,
         dark: isDark,
         geo: geoTiles,
-        vz: vzPolys,
+        // vz getrennt per window.__setVz (nicht bei jedem Tipp/Positions-Update neu serialisieren)
         marker: showSelectedMarker && selectedLocation ? [selectedLocation.latitude, selectedLocation.longitude] : null,
         radius: selectedLocation && radiusMeters
           ? {
@@ -781,12 +801,19 @@ const MapPicker = forwardRef<MapPickerRef, MapPickerProps>(
         user: deviceLocation,
       };
       return JSON.stringify(state);
-    }, [initialRegion, mapStyle, isDark, geoTiles, vzPolys, showSelectedMarker, selectedLocation, radiusMeters, radiusStrokeColor, radiusFillColor, routeWaypoints, onWaypointDragEnd, ctrBandAirports, windFacilityPoints, energyInfrastructureItems, deviceLocation]);
+    }, [initialRegion, mapStyle, isDark, geoTiles, showSelectedMarker, selectedLocation, radiusMeters, radiusStrokeColor, radiusFillColor, routeWaypoints, onWaypointDragEnd, ctrBandAirports, windFacilityPoints, energyInfrastructureItems, deviceLocation]);
 
     useEffect(() => {
       if (!ready) return;
       runJs(`window.__apply(${stateJson})`);
     }, [stateJson, ready, runJs]);
+
+    // Vektorzonen nur bei Inhaltsänderung serialisieren und senden.
+    const vzJson = useMemo(() => JSON.stringify(vzPolys), [vzPolys]);
+    useEffect(() => {
+      if (!ready) return;
+      runJs(`window.__setVz(${vzJson})`);
+    }, [vzJson, ready, runJs]);
 
     const pendingViewRef = useRef<string | null>(null);
     useImperativeHandle(ref, () => ({

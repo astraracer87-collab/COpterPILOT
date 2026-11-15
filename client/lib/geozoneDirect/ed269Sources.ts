@@ -9,6 +9,7 @@ import {
   DK_LIVE_LAYERS,
   DK_WEBMAP_DATA_URL,
   normalizeDanishFeatures,
+  normalizeDanishFeaturesYielding,
   normalizeDanishLiveLayers,
   normalizeDanishNatureFeatures,
   resolveDanishLiveLayers,
@@ -35,7 +36,8 @@ import { fetchIceland } from "./icelandSource";
 import { fetchUnitedKingdom } from "./ukSource";
 import { fetchRomania } from "./romaniaSource";
 import { fetchMalta } from "./maltaSource";
-import { fetchCoverageOf, withFetchCoverage, type DirectFetchCoverage } from "./directFetchUtil";
+import { fetchCoverageOf, finalizeDirectFeaturesYielding, withFetchCoverage, type DirectFetchCoverage } from "./directFetchUtil";
+import { mapYielding, responseJsonYielding, shouldYield, yieldToUi } from "../../../shared/yieldingWork";
 
 export const LT_GEOZONE_SOURCE_LABEL = "Oro navigacija (ED-269)";
 import { fetchSweden } from "./swedenSource";
@@ -123,7 +125,8 @@ async function fetchJson(url: string, timeoutMs: number = FETCH_TIMEOUT_MS): Pro
       headers: { Accept: "application/json", "User-Agent": BROWSER_UA },
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return await res.json();
+    // große FeatureCollections (DK ≈ 11 MB) in Zeitscheiben parsen – identisch zu res.json()
+    return await responseJsonYielding(res);
   } finally {
     clearTimeout(timeout);
   }
@@ -197,6 +200,15 @@ export function roundFeatureCoords(features: GeoFeature[], decimals: number = VE
     if (Array.isArray(f?.bbox)) {
       f.bbox = f.bbox.map((v) => Math.round(v * factor) / factor) as [number, number, number, number];
     }
+  }
+  return features;
+}
+
+/** roundFeatureCoords in Zeitscheiben (gleiches Ergebnis, in place). */
+export async function roundFeatureCoordsYielding(features: GeoFeature[], decimals: number = VECTOR_COORD_DECIMALS): Promise<GeoFeature[]> {
+  for (let i = 0; i < features.length; i++) {
+    roundFeatureCoords([features[i]], decimals);
+    if (shouldYield()) await yieldToUi("round");
   }
   return features;
 }
@@ -302,7 +314,8 @@ async function fetchDenmark(): Promise<GeoFeature[]> {
   try {
     const body = await fetchJson(DK_GEOZONES_URL);
     const raw = Array.isArray(body?.features) ? body.features : [];
-    features = finalize(normalizeDanishFeatures(raw) as unknown as GeoFeature[], "dk");
+    // ≈ 11 MB / 1700 Zonen: Normalisierung + bbox in Zeitscheiben
+    features = await finalizeDirectFeaturesYielding((await normalizeDanishFeaturesYielding(raw)) as unknown as GeoFeature[], "dk");
   } catch (e) {
     console.warn("[geozoneDirect] DK: aktueller Export nicht erreichbar:", (e as Error)?.message || e);
   }
@@ -497,7 +510,7 @@ async function fetchGodroneBox(b: Box, depth = 0): Promise<GodroneFeature[]> {
     });
     if (res.status === 401 || res.status === 403) throw new Error("GoDrone-Schlüssel abgelehnt");
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    body = await res.json();
+    body = await responseJsonYielding(res);
   } finally {
     clearTimeout(timer);
   }
@@ -553,11 +566,11 @@ async function fetchNetherlands(): Promise<GeoFeature[]> {
     }
   }
   if (ok < boxes.length / 2) throw new Error("GoDrone (NL) nicht ausreichend erreichbar");
-  const normalized = dedupeGodroneFeatures(raw)
-    .map((f) => normalizeGodroneFeature(f))
-    .filter((f): f is GodroneFeature => !!f);
+  const normalized = (await mapYielding(dedupeGodroneFeatures(raw), (f) => normalizeGodroneFeature(f))).filter(
+    (f): f is GodroneFeature => !!f,
+  );
   if (normalized.length === 0) throw new Error("GoDrone lieferte keine Zonen");
-  return finalize(normalized as unknown as GeoFeature[], "nl");
+  return finalizeDirectFeaturesYielding(normalized as unknown as GeoFeature[], "nl");
 }
 
 /**
@@ -620,10 +633,11 @@ export async function fetchEd269CountryFeatures(iso: string): Promise<GeoFeature
   }
   if (meta?.frequentisPlaceholder) {
     // Frequentis-AVM (AT/LT): MATZ/MCTR mit Platzhalter-Enddatum 2100 = dauerhaft
-    features = features.map((feature) => ({
+    features = await mapYielding(features, (feature) => ({
       ...feature,
       properties: normalizeAustrianEd269Placeholder((feature.properties as Record<string, any>) || {}),
     }));
   }
-  return withFetchCoverage(roundFeatureCoords(features), coverage);
+  // Rundung in Zeitscheiben (CH/DK ≈ 30 ms Node am Stück)
+  return withFetchCoverage(await roundFeatureCoordsYielding(features), coverage);
 }

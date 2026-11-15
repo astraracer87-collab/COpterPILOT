@@ -64,3 +64,38 @@ export function isTemporaryGeozone(z: TemporaryZoneLike | null | undefined): boo
   if (z.layerLabel && TEMPORARY_LAYER_LABELS.includes(z.layerLabel)) return true;
   return shortWindow(z.validStartTs, z.validEndTs);
 }
+
+/** Geometrie-Signatur einer Zone (Ringe gerundet) – nur zum Zeichnen. */
+function geometrySignature(z: { polygonGroups?: [number, number][][][]; polygonRings?: [number, number][][] }): string {
+  const g = z.polygonGroups?.length ? z.polygonGroups : (z.polygonRings ?? []).map((r) => [r]);
+  return JSON.stringify(g.map((poly) => poly.map((ring) => ring.map(([a, b]) => `${a.toFixed(6)},${b.toFixed(6)}`).join(";"))));
+}
+
+/**
+ * Für die KARTE (nicht für Prüfungen/Listen): temporäre Zonen mit gleicher
+ * Geometrie (z. B. ES-NOTAM LED120 mit 5 Aktivierungszeiträumen) nicht
+ * übereinander stapeln – sind welche davon aktiv, nur die aktiven zeichnen,
+ * sonst genau eine (abgeschwächt). Dauerhafte Zonen bleiben unverändert.
+ */
+export function collapseStackedTempZonesForMap<T extends { polygonGroups?: [number, number][][][]; polygonRings?: [number, number][][] }>(
+  zones: readonly T[],
+  isTemp: (z: T) => boolean,
+  isActive: (z: T) => boolean,
+): T[] {
+  const groups = new Map<string, T[]>();
+  for (const z of zones) {
+    if (!isTemp(z)) continue;
+    const k = geometrySignature(z);
+    const list = groups.get(k);
+    if (list) list.push(z);
+    else groups.set(k, [z]);
+  }
+  const drop = new Set<T>();
+  for (const list of groups.values()) {
+    if (list.length < 2) continue;
+    const active = list.filter(isActive);
+    const keep = active.length > 0 ? new Set(active) : new Set([list[0]]);
+    for (const z of list) if (!keep.has(z)) drop.add(z);
+  }
+  return drop.size === 0 ? [...zones] : zones.filter((z) => !drop.has(z));
+}

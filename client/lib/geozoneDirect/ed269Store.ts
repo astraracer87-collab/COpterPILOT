@@ -31,6 +31,7 @@ import {
 import { setCountryAccessAvailable } from "../../../shared/countryDetection";
 import { awaitCountryUsage, isGeozoneSourceEnabled } from "../countryUsage";
 import { trackDownload } from "../downloadActivity";
+import { parseJsonYielding, runInBackground, stringifyYielding } from "../../../shared/yieldingWork";
 
 // Upstream-Daten ändern sich selten; der Server hat täglich synchronisiert.
 
@@ -164,7 +165,10 @@ async function readFromDisk(iso: string): Promise<Ed269Dataset | null> {
     const path = filePath(fs, iso);
     const info = await fs.getInfoAsync(path);
     if (!info.exists) return null;
-    const parsed = JSON.parse(await fs.readAsStringAsync(path)) as Ed269Dataset;
+    // Kaltstart/Speicher-Verdrängung: NL ≈ 23 MB, CH/DK ≈ 9 MB – in
+    // Zeitscheiben parsen (gleiches Ergebnis wie JSON.parse; Dateiformat
+    // unverändert, daher keine Migration nötig)
+    const parsed = (await parseJsonYielding(await fs.readAsStringAsync(path))) as Ed269Dataset;
     if (!parsed || !Array.isArray(parsed.features) || typeof parsed.fetchedAt !== "number") return null;
     return { ...parsed, iso };
   } catch (e) {
@@ -184,7 +188,8 @@ async function writeToDisk(ds: Ed269Dataset): Promise<void> {
     // Abbruch mitten im Schreiben keinen kaputten Bestand hinterlässt.
     const target = filePath(fs, ds.iso);
     const tmp = `${target}.tmp`;
-    await fs.writeAsStringAsync(tmp, JSON.stringify(ds));
+    // byte-identisch zu JSON.stringify(ds), aber in Zeitscheiben (≈ 110–135 ms Node am Stück)
+    await fs.writeAsStringAsync(tmp, await stringifyYielding(ds));
     await fs.deleteAsync(target, { idempotent: true });
     await fs.moveAsync({ from: tmp, to: target });
   } catch (e) {
@@ -204,31 +209,35 @@ function download(iso: string): Promise<Ed269Dataset | null> {
         { id: `ed269:${iso}`, iso: iso.toUpperCase(), labelDe: "Geozonen", kind: "geozones" },
         () => fetchEd269CountryFeatures(iso),
       );
-      // Teilbestand: Hinweis speichern und Zonen der ausgefallenen Teilquelle
-      // aus dem vorherigen (heruntergeladenen) Bestand übernehmen.
-      const coverage = fetchCoverageOf(fetched);
-      let features = fetched;
-      if (coverage?.keepPrevious) {
-        const prev = memory.get(iso) ?? (await readFromDisk(iso));
-        if (prev && !prev.imported) features = mergeCarriedOverFeatures(fetched, prev.features, coverage.keepPrevious);
-      }
-      const ds: Ed269Dataset = {
-        iso,
-        fetchedAt: Date.now(),
-        version: STORE_FORMAT_VERSION,
-        features,
-        ...(coverage?.partialNote ? { partialNote: coverage.partialNote } : {}),
-      };
-      remember(iso, ds);
-      lastFailureAt.delete(iso);
-      await writeToDisk(ds);
-      // z. B. fehlende Übersetzungen nachladen (zoneTranslationStore.ts)
-      for (const hook of downloadHooks) {
-        try {
-          void Promise.resolve(hook(iso, features)).catch(() => {});
-        } catch {}
-      }
-      return ds;
+      // Nachbearbeitung + Schreiben als Hintergrund-Job: nacheinander mit
+      // anderen schweren Phasen (andere Länder, Kachelspeicher), in Zeitscheiben
+      return await runInBackground(`ed269:${iso}`, async () => {
+        // Teilbestand: Hinweis speichern und Zonen der ausgefallenen Teilquelle
+        // aus dem vorherigen (heruntergeladenen) Bestand übernehmen.
+        const coverage = fetchCoverageOf(fetched);
+        let features = fetched;
+        if (coverage?.keepPrevious) {
+          const prev = memory.get(iso) ?? (await readFromDisk(iso));
+          if (prev && !prev.imported) features = mergeCarriedOverFeatures(fetched, prev.features, coverage.keepPrevious);
+        }
+        const ds: Ed269Dataset = {
+          iso,
+          fetchedAt: Date.now(),
+          version: STORE_FORMAT_VERSION,
+          features,
+          ...(coverage?.partialNote ? { partialNote: coverage.partialNote } : {}),
+        };
+        remember(iso, ds);
+        lastFailureAt.delete(iso);
+        await writeToDisk(ds);
+        // z. B. fehlende Übersetzungen nachladen (zoneTranslationStore.ts)
+        for (const hook of downloadHooks) {
+          try {
+            void Promise.resolve(hook(iso, features)).catch(() => {});
+          } catch {}
+        }
+        return ds;
+      });
     } catch (e) {
       lastFailureAt.set(iso, Date.now());
       console.warn(`[geozoneDirect] ${iso}: Download fehlgeschlagen:`, (e as Error)?.message || e);
