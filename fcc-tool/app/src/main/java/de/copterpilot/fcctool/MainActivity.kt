@@ -26,7 +26,7 @@ class MainActivity : Activity() {
     private val io = Executors.newSingleThreadExecutor()
     private val usb by lazy { getSystemService(UsbManager::class.java) }
     private var pendingUsb: ((UsbDevice) -> Unit)? = null
-    private var onSdWritten: (() -> Unit)? = null
+    private var sdAction: ((Uri) -> Unit)? = null
     private var sdVariant = SdCard.Variant.HAM
 
     private lateinit var content: LinearLayout       // linke Spalte, wird je Bildschirm neu gefüllt
@@ -164,24 +164,48 @@ class MainActivity : Activity() {
 
     private fun showHome() {
         val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        col.addView(Ui.label(this, "Wofür soll FCC aktiviert werden?", Ui.TEXT, 15f, bold = true))
+        col.addView(Ui.label(this, "Wofür möchtest du etwas einstellen?", Ui.TEXT, 15f, bold = true))
         col.addView(Ui.modeButton(this,
             "Fluggerät an dieser Fernsteuerung",
             "z. B. Air 3S an der RC Pro 2 – direkt über die Fernsteuerung",
-            Ui.GREEN) { showDroneWizard() }, Ui.lp(topDp = Ui.dpi(this, 12f)))
+            Ui.GREEN) { showDroneMenu() }, Ui.lp(topDp = Ui.dpi(this, 12f)))
         col.addView(Ui.modeButton(this,
             "Fluggerät an Goggle",
             "z. B. Avata 2 – über eine Datei auf der SD-Karte der Goggle",
-            Ui.BLUE) { showGoggleWizard() }, Ui.lp(topDp = Ui.dpi(this, 12f)))
+            Ui.BLUE) { showGoggleMenu() }, Ui.lp(topDp = Ui.dpi(this, 12f)))
 
-        val footer = Ui.row(this).apply { gravity = Gravity.CENTER_VERTICAL }
-        footer.addView(Ui.smallButton(this, "CE wiederherstellen") { showCeWizard() })
-        footer.addView(Ui.smallButton(this, "Erweitert") { showAdvanced() },
-            Ui.lp(topDp = 0).apply { leftMargin = Ui.dpi(this@MainActivity, 8f) })
-        col.addView(footer, Ui.lp(topDp = Ui.dpi(this, 16f)))
+        col.addView(Ui.smallButton(this, "Erweitert") { showAdvanced() }, Ui.lp(topDp = Ui.dpi(this, 16f)))
         showLeft(col)
         refreshStatus()
     }
+
+    /** Nach der Zielwahl: FCC aktivieren oder zurück auf CE – je Ziel. */
+    private fun showActionMenu(heading: String, sub: String, onFcc: () -> Unit, ceLabel: String, onCe: () -> Unit) {
+        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        col.addView(Ui.row(this).apply {
+            addView(Ui.smallButton(this@MainActivity, "‹ Zurück") { showHome() })
+            addView(Ui.label(this@MainActivity, "   $heading", Ui.TEXT, 16f, bold = true))
+        })
+        col.addView(Ui.label(this, sub, Ui.TEXT2, 13f), Ui.lp(topDp = Ui.dpi(this, 8f)))
+        col.addView(Ui.modeButton(this, "FCC aktivieren", "Reichweite erhöhen (FCC)", Ui.GREEN, onFcc),
+            Ui.lp(topDp = Ui.dpi(this, 12f)))
+        col.addView(Ui.modeButton(this, ceLabel, "Zurück in den Auslieferungszustand (CE)", Ui.AMBER, onCe),
+            Ui.lp(topDp = Ui.dpi(this, 12f)))
+        showLeft(col)
+        refreshStatus()
+    }
+
+    private fun showDroneMenu() = showActionMenu(
+        "Fluggerät an dieser Fernsteuerung",
+        "z. B. Air 3S – direkt über die Fernsteuerung.",
+        onFcc = { showDroneWizard() },
+        ceLabel = "CE wiederherstellen", onCe = { showDroneCeWizard() })
+
+    private fun showGoggleMenu() = showActionMenu(
+        "Fluggerät an Goggle",
+        "z. B. Avata 2 – über eine Datei auf der SD-Karte der Goggle.",
+        onFcc = { showGoggleWizard() },
+        ceLabel = "FCC rückgängig (Datei entfernen)", onCe = { showGoggleCeWizard() })
 
     // ------------------------------------------------------------- Schritt-Assistent
 
@@ -291,7 +315,15 @@ class MainActivity : Activity() {
             "SD-Karte ist eingelegt – weiter", { adv -> adv() })
         steps += WizStep("FCC-Datei schreiben",
             "Die App schreibt die Datei „${sdVariant.fileName}“ auf die Karte. Gleich die SD-Karte als Speicherort auswählen.",
-            "Datei schreiben", { adv -> onSdWritten = adv; pickSdCard() })
+            "Datei schreiben", { adv ->
+                sdAction = { uri ->
+                    bg {
+                        val r = SdCard.writeInto(this, uri, sdVariant)
+                        runOnUiThread { sdResultDialog(r, "Jetzt die Karte zurück in die Goggle stecken.", r.ok, adv) }
+                    }
+                }
+                pickSdCard()
+            })
         steps += WizStep("SD-Karte zurück in die Goggle",
             "Nimm die Karte aus der Fernsteuerung und stecke sie wieder in die Goggle.",
             "Erledigt – weiter", { adv -> adv() })
@@ -303,7 +335,32 @@ class MainActivity : Activity() {
 
     // ------------------------------------------------------------- Ablauf: CE zurück
 
-    private fun showCeWizard() {
+    private fun showGoggleCeWizard() {
+        val steps = ArrayList<WizStep>()
+        steps += WizStep("SD-Karte in die Fernsteuerung",
+            "Schalte die Goggle aus, nimm ihre microSD-Karte heraus und stecke sie in die Fernsteuerung.",
+            "SD-Karte ist eingelegt – weiter", { adv -> adv() })
+        steps += WizStep("FCC-Datei entfernen",
+            "Die App löscht die FCC-Datei wieder von der Karte. Gleich die SD-Karte als Speicherort auswählen.",
+            "Datei entfernen", { adv ->
+                sdAction = { uri ->
+                    bg {
+                        val r = SdCard.removeFrom(this, uri)
+                        runOnUiThread { sdResultDialog(r, "Jetzt die Karte zurück in die Goggle stecken.", r.ok, adv) }
+                    }
+                }
+                pickSdCard()
+            })
+        steps += WizStep("SD-Karte zurück in die Goggle",
+            "Nimm die Karte aus der Fernsteuerung und stecke sie wieder in die Goggle.",
+            "Erledigt – weiter", { adv -> adv() })
+        steps += WizStep("Einschalten und prüfen",
+            "Goggle einschalten (Karte steckt drin), danach das Fluggerät. In DJI Fly prüfen, dass die Reichweite wieder dem CE-Wert entspricht.",
+            "Fertig", { adv -> adv() })
+        showWizard("FCC rückgängig (Goggle)", steps)
+    }
+
+    private fun showDroneCeWizard() {
         val steps = ArrayList<WizStep>()
         steps += WizStep("FCC halten ausschalten",
             "Zuerst wird das dauerhafte Halten beendet, damit FCC nicht sofort wieder gesetzt wird.",
@@ -374,18 +431,17 @@ class MainActivity : Activity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode != REQ_SD) return
+        val act = sdAction; sdAction = null
         if (resultCode != RESULT_OK) { Log.info("SD-Auswahl abgebrochen"); return }
         val uri: Uri = data?.data ?: return
-        val advance = onSdWritten; onSdWritten = null
-        bg {
-            val r = SdCard.writeInto(this, uri, sdVariant)
-            runOnUiThread {
-                AlertDialog.Builder(this)
-                    .setTitle(if (r.ok) "Datei geschrieben" else "Nicht geschrieben")
-                    .setMessage(r.message)
-                    .setPositiveButton("OK") { _, _ -> if (r.ok) advance?.invoke() }.show()
-            }
-        }
+        act?.invoke(uri)
+    }
+
+    private fun sdResultDialog(r: SdCard.Result, onOk: String, advance: Boolean, adv: () -> Unit) {
+        AlertDialog.Builder(this)
+            .setTitle(if (r.ok) "Erledigt" else "Fehlgeschlagen")
+            .setMessage(r.message + if (r.ok) "\n\n$onOk" else "")
+            .setPositiveButton("OK") { _, _ -> if (advance) adv() }.show()
     }
 
     // ------------------------------------------------------------- USB

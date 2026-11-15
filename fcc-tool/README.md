@@ -14,17 +14,17 @@ Die App führt Schritt für Schritt durch den Ablauf. Oben rechts zeigt ein Feld
 Status (bereit / FCC aktiv / CE), rechts läuft ein farbiges Protokoll mit, das jeden
 Schritt und sein Ergebnis beschreibt (ohne Zeitstempel).
 
-Startbildschirm, zwei große Modus-Knöpfe:
+Startbildschirm: zuerst das **Ziel** wählen, dann die **Aktion**.
 
-- **Fluggerät an dieser Fernsteuerung** (z. B. Air 3S an der RC Pro 2) – geführter Ablauf:
-  1. Fluggerät einschalten und verbinden
-  2. FCC aktivieren (die App sucht die Verbindung selbst und sendet die Befehle)
-  3. FCC dauerhaft halten (optional) oder überspringen
-  4. In DJI Fly prüfen
-- **Fluggerät an Goggle** (z. B. Avata 2) – geführter SD-Karten-Ablauf (siehe unten).
+1. **Fluggerät an dieser Fernsteuerung** (z. B. Air 3S an der RC Pro 2) →
+   - **FCC aktivieren** – geführt: verbinden → FCC senden → optional dauerhaft halten → in DJI Fly prüfen.
+   - **CE wiederherstellen** – geführt: Halten aus → CE senden → Fluggerät neu starten.
+2. **Fluggerät an Goggle** (z. B. Avata 2) →
+   - **FCC aktivieren** – geführter SD-Karten-Ablauf (siehe unten).
+   - **FCC rückgängig (Datei entfernen)** – geführt: Karte in die Fernsteuerung → FCC-Datei
+     von der Karte löschen → Karte zurück in die Goggle → einschalten und prüfen.
 
-Darunter **CE wiederherstellen** (eigener geführter Ablauf) und **Erweitert**
-(ausführliches Protokoll, Verbindung/Teilnehmer suchen, USB-Tests).
+Unten **Erweitert** (ausführliches Protokoll, Verbindung/Teilnehmer suchen, USB-Tests).
 
 ### Was die Verbindung und die „Befehle gesendet“ bedeuten
 

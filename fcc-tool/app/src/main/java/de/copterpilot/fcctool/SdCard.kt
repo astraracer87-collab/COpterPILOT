@@ -58,6 +58,44 @@ object SdCard {
         }
     }
 
+    /** Entfernt die FCC-Dateien wieder von der Karte (Rückgängig = zurück auf CE). */
+    fun removeFrom(ctx: Context, treeUri: Uri): Result {
+        return try {
+            val parent = DocumentsContract.buildDocumentUriUsingTree(
+                treeUri, DocumentsContract.getTreeDocumentId(treeUri)
+            )
+            val bases = Variant.entries.map { it.fileName }  // ham_cfg_support, naco_pwr.txt
+            val removed = ArrayList<String>()
+            val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(
+                treeUri, DocumentsContract.getDocumentId(parent)
+            )
+            ctx.contentResolver.query(
+                childrenUri,
+                arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME),
+                null, null, null
+            )?.use { c ->
+                while (c.moveToNext()) {
+                    val nm = c.getString(1)
+                    // auch angehängte Endungen wie .bin mit abdecken
+                    if (bases.any { nm == it || nm.startsWith("ham_cfg_support") || nm.startsWith("naco_pwr") }) {
+                        val doc = DocumentsContract.buildDocumentUriUsingTree(treeUri, c.getString(0))
+                        try { DocumentsContract.deleteDocument(ctx.contentResolver, doc); removed += nm } catch (_: Exception) {}
+                    }
+                }
+            }
+            if (removed.isEmpty()) {
+                Log.warn("SD-Karte: keine FCC-Datei gefunden")
+                Result(true, null, "Es war keine FCC-Datei auf der Karte. Nichts zu entfernen.")
+            } else {
+                Log.ok("SD-Karte: entfernt ${removed.joinToString()}")
+                Result(true, removed.first(), "Entfernt: ${removed.joinToString()}.")
+            }
+        } catch (e: Exception) {
+            Log.err("SD-Karte: Fehler ${e.message}")
+            Result(false, null, "Fehler: ${e.message}")
+        }
+    }
+
     private fun deleteExisting(ctx: Context, treeUri: Uri, parent: Uri, name: String) {
         val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(
             treeUri, DocumentsContract.getDocumentId(parent)
