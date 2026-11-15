@@ -137,6 +137,41 @@ object Ui {
         return box
     }
 
+    /**
+     * Großer, hoher Modus-Knopf: Produktbild oben (füllt die Höhe), Titel + Erklärung darunter.
+     * Die Höhe bestimmt der Aufrufer über das LayoutParam-Gewicht.
+     */
+    fun tallModeButton(ctx: Context, title: String, subtitle: String, accent: Int, imageRes: Int, onClick: () -> Unit): View {
+        val box = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = android.view.Gravity.CENTER
+            val bg = GradientDrawable().apply {
+                setColor(SURFACE); cornerRadius = dp(ctx, 16f).toFloat(); setStroke(dp(ctx, 1f), BORDER)
+            }
+            background = RippleDrawable(ColorStateList.valueOf(Color.argb(40, 255, 255, 255)), bg, null)
+            val p = dp(ctx, 16f); setPadding(p, p, p, p)
+            isClickable = true; isFocusable = true
+            setOnClickListener { onClick() }
+        }
+        if (imageRes != 0) {
+            box.addView(android.widget.ImageView(ctx).apply {
+                setImageResource(imageRes); scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
+                contentDescription = title
+            }, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
+        }
+        box.addView(TextView(ctx).apply {
+            text = title; setTextColor(accent); textSize = 20f; typeface = Typeface.DEFAULT_BOLD
+            gravity = android.view.Gravity.CENTER
+            setPadding(0, dp(ctx, 12f), 0, 0)
+        })
+        box.addView(TextView(ctx).apply {
+            text = subtitle; setTextColor(TEXT2); textSize = 13f
+            gravity = android.view.Gravity.CENTER
+            setPadding(0, dp(ctx, 4f), 0, 0)
+        })
+        return box
+    }
+
     fun logColor(level: Log.Level): Int = when (level) {
         Log.Level.STEP -> Color.rgb(88, 166, 255)
         Log.Level.OK -> GREEN

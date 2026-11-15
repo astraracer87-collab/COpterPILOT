@@ -89,8 +89,10 @@ class MainActivity : Activity() {
         // Zwei Spalten, beide auf gleicher Höhe unter der Kopfzeile
         val cols = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        cols.addView(ScrollView(this).apply { isFillViewport = true; addView(content) },
-            LinearLayout.LayoutParams(0, MATCH_PARENT, 1f))
+        cols.addView(ScrollView(this).apply {
+            isFillViewport = true
+            addView(content, android.widget.FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+        }, LinearLayout.LayoutParams(0, MATCH_PARENT, 1f))
         cols.addView(logCard(), LinearLayout.LayoutParams(0, MATCH_PARENT, 1f).apply { leftMargin = d(12f) })
         root.addView(cols, Ui.lp(MATCH_PARENT, 0, 1f, topDp = d(12f)))
         return root
@@ -158,23 +160,25 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun showLeft(view: View) { content.removeAllViews(); content.addView(view, Ui.lp()) }
+    private fun showLeft(view: View) { content.removeAllViews(); content.addView(view, Ui.lp(MATCH_PARENT, MATCH_PARENT)) }
 
     // ------------------------------------------------------------- Startbildschirm
 
     private fun showHome() {
         val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         col.addView(Ui.label(this, "Wofür möchtest du etwas einstellen?", Ui.TEXT, 15f, bold = true))
-        col.addView(Ui.modeButton(this,
+        col.addView(Ui.tallModeButton(this,
             "Fluggerät an dieser Fernsteuerung",
             "z. B. Air 3S an der RC Pro 2 – direkt über die Fernsteuerung",
-            Ui.GREEN, R.drawable.rc_controller) { showDroneMenu() }, Ui.lp(topDp = Ui.dpi(this, 12f)))
-        col.addView(Ui.modeButton(this,
+            Ui.GREEN, R.drawable.rc_controller) { showDroneMenu() },
+            Ui.lp(MATCH_PARENT, 0, 1f, topDp = Ui.dpi(this, 12f)))
+        col.addView(Ui.tallModeButton(this,
             "Fluggerät an Goggle",
             "z. B. Avata 2 – über eine Datei auf der SD-Karte der Goggle",
-            Ui.BLUE, R.drawable.fpv_goggle) { showGoggleMenu() }, Ui.lp(topDp = Ui.dpi(this, 12f)))
+            Ui.BLUE, R.drawable.fpv_goggle) { showGoggleMenu() },
+            Ui.lp(MATCH_PARENT, 0, 1f, topDp = Ui.dpi(this, 12f)))
 
-        col.addView(Ui.smallButton(this, "Erweitert") { showAdvanced() }, Ui.lp(topDp = Ui.dpi(this, 16f)))
+        col.addView(Ui.smallButton(this, "Erweitert") { showAdvanced() }, Ui.lp(topDp = Ui.dpi(this, 12f)))
         showLeft(col)
         refreshStatus()
     }
