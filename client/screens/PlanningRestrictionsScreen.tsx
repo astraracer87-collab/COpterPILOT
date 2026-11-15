@@ -19,7 +19,7 @@ import { attributionLabel } from "@/lib/sourceAttribution";
 import { Spacing, Typography, BorderRadius, Colors } from "@/constants/theme";
 import type { FlightPlanningParamList } from "@/navigation/FlightPlanningNavigator";
 import { geozoneIsActiveAt, ed269InactiveInfoText } from "@/lib/ed269";
-import { queryGeozonesInArea, GeozoneFeatureInfo, DipulGeozoneSourceStatus, separateTempRestrictions, getCountryGeozoneConfig, getCountriesInRadius, DipulTempRestriction, DipulTempRestrictionsResult, fetchNearbyTempRestrictionsRaw, loadRadarSettings, saveRadarSettings } from "@/lib/geozones";
+import { queryGeozonesInArea, GeozoneFeatureInfo, DipulGeozoneSourceStatus, separateTempRestrictions, getCountryGeozoneConfig, getCountriesInRadius, DipulTempRestriction, DipulTempRestrictionsResult, fetchNearbyTempRestrictionsRaw, loadRadarSettings, saveRadarSettings, HU_GEOZONE_RASTER_HINT } from "@/lib/geozones";
 import { fetchElevation } from "@/lib/elevation";
 import { partitionByReachability, DEFAULT_REACHABLE_ALTITUDE_M, assessGeozoneAltitudeConflict } from "../../shared/geozoneAltitudeFilter";
 import { findMilLowFlightAreasContaining, findMilLowFlightAreasIntersectingRadius, MIL_LOW_FLIGHT_LABEL, MIL_LOW_FLIGHT_SOURCE_URL, MIL_LOW_FLIGHT_ACTIVATION_TEXT, MIL_LOW_FLIGHT_DATA_STAND, classifyMilLowFlightHits, getStatusLabel as getMilStatusLabel, getStatusColor as getMilStatusColor } from "@/lib/milLowFlight";
@@ -854,6 +854,17 @@ export default function PlanningRestrictionsScreen() {
             <ThemedText style={[styles.statusText, { color: theme.statusCaution || "#FF9500" }]}>
               {attributionLabel(isAdmin, "Geozonen konnten nicht geladen werden. Bitte prüfe manuell auf dipul.de", "Geozonen konnten nicht geladen werden. Bitte später erneut versuchen.")}
             </ThemedText>
+          </Card>
+        ) : null}
+
+        {!loading && countryIso?.toUpperCase() === "HU" ? (
+          <Card style={[styles.statusCard, { borderLeftColor: theme.statusCaution || "#FF9500" }]}>
+            <Feather name="info" size={20} color={theme.statusCaution || "#FF9500"} />
+            <View style={styles.statusTextContainer}>
+              <ThemedText style={[styles.statusDesc, { color: theme.textSecondary }]}>
+                {HU_GEOZONE_RASTER_HINT}
+              </ThemedText>
+            </View>
           </Card>
         ) : null}
 

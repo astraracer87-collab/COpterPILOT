@@ -123,6 +123,8 @@ export const COMBINED_COUNTRY_TOGGLES: CombinedCountryToggleDef[] = [
   { id: "nl_combined", label: "Niederlande – Drohnenzonen (LVNL, gesamt)", iso: "NL", infoId: "nl_no_fly_zones" },
   { id: "lu_combined", label: "Luxemburg – Drohnenzonen (gesamt)", iso: "LU" },
   { id: "fr_combined", label: "Frankreich – Drohnenzonen (DGAC, gesamt)", iso: "FR", infoId: "fr_restrictions" },
+  // Ungarn: reines Bild-Overlay (MyDroneSpace-WMTS), keine Zonenabfrage.
+  { id: "hu_combined", label: "Ungarn – Lufträume & Drohnenzonen (MyDroneSpace, nur Karte)", iso: "HU" },
   { id: "at_geozones", label: "Österreich – Drohnenzonen (Austro Control)", iso: "AT", vector: true },
   { id: "be_geozones", label: "Belgien – Drohnenzonen (skeyes)", iso: "BE", vector: true },
   { id: "dk_geozones", label: "Dänemark – Drohnenzonen (Trafikstyrelsen)", iso: "DK", vector: true },

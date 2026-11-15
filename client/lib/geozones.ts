@@ -48,6 +48,9 @@ import {
   LU_GEOZONE_LAYERS,
   NL_GEOZONE_LAYERS,
   FR_GEOZONE_LAYERS,
+  HU_GEOZONE_LAYERS,
+  HU_GEOZONE_ATTRIBUTION,
+  HU_GEOZONE_RASTER_HINT,
   getNativeLegacyLayerRefs,
   type GeozoneLayer,
 } from "../../shared/geozoneLayerCatalog";
@@ -62,6 +65,9 @@ export {
   LU_GEOZONE_LAYERS,
   NL_GEOZONE_LAYERS,
   FR_GEOZONE_LAYERS,
+  HU_GEOZONE_LAYERS,
+  HU_GEOZONE_ATTRIBUTION,
+  HU_GEOZONE_RASTER_HINT,
   type GeozoneLayer,
 };
 
@@ -112,7 +118,7 @@ export {
   COUNTRY_WMS_MAX_NATIVE_ZOOM,
 } from "@/lib/geozoneZoom";
 
-export type CountryIsoWithGeozones = "DE" | "CH" | "LU" | "NL" | "FR" | "AT" | "BE" | "DK" | "EE" | "FI" | "NO" | "SE" | "IE" | "PT" | "ES" | "PL" | "LT" | "IT" | "GB" | "IS" | "CY" | "HR" | "SI";
+export type CountryIsoWithGeozones = "DE" | "CH" | "LU" | "NL" | "FR" | "AT" | "BE" | "DK" | "EE" | "FI" | "NO" | "SE" | "IE" | "PT" | "ES" | "PL" | "LT" | "IT" | "GB" | "IS" | "CY" | "HR" | "SI" | "HU";
 
 export interface CountryGeozoneConfig {
   iso: CountryIsoWithGeozones;
@@ -195,6 +201,21 @@ export const COUNTRY_GEOZONE_CONFIGS: Record<string, CountryGeozoneConfig> = {
     // 14er-Grenze skalierte schon bei z15 die groben z14-Kacheln hoch -> Block-
     // Raster über FR. Wert aus dem geteilten Modul, damit Web nicht driftet.
     wmsMaxNativeZoom: COUNTRY_WMS_MAX_NATIVE_ZOOM.FR,
+  },
+  HU: {
+    // Ungarn (HungaroControl / MyDroneSpace): NUR Bild-Overlay aus dem
+    // öffentlichen WMTS (XYZ-Vorlage am Layer, kein WMS). Keine Zonenabfrage
+    // (featureInfoType "none"); die Vektor-API braucht einen Login. HU steht
+    // deshalb NICHT in OWN_MAP_DATA_COUNTRIES – der Hinweis zur manuellen
+    // Prüfung bleibt.
+    iso: "HU",
+    wmsBaseUrl: "",
+    wmsVersion: "1.3.0",
+    layers: HU_GEOZONE_LAYERS,
+    featureInfoType: "none",
+    alwaysVisibleLayerIds: ["hu_aixm"],
+    forceEnabledLayerIds: [],
+    wmsMaxNativeZoom: COUNTRY_WMS_MAX_NATIVE_ZOOM.HU,
   },
   AT: {
     // Österreich (Austro Control / Dronespace) liefert KEIN WMS. Die ED-269-
@@ -455,6 +476,8 @@ export function buildWmsTileUrl(layerName: string, countryIso?: string): string 
   // Per-Layer-Override beachten, falls der Layer ein eigenes WMS verwendet
   // (z. B. NL Natura 2000 auf eigenem PDOK-Endpoint).
   const def = config.layers.find((l) => l.wmsLayer === layerName);
+  // Reine XYZ-Kacheln (z. B. HU MyDroneSpace): Vorlage unverändert.
+  if (def?.tileUrlTemplate) return def.tileUrlTemplate;
   const baseUrl = def?.wmsBaseUrl ?? config.wmsBaseUrl;
   const version = def?.wmsVersion ?? config.wmsVersion;
   return buildWmsGetMapUrl(baseUrl, version, [layerName], {
@@ -479,8 +502,15 @@ export function buildCombinedWmsTileUrl(layers: string[], countryIso?: string): 
     string,
     { baseUrl: string; version: string; layers: string[]; styles?: string; sldBody?: string }
   >();
+  // XYZ-Layer (tileUrlTemplate) bekommen ihre eigene Vorlage und werden nie
+  // mit WMS-Layern in einem GetMap gebündelt.
+  const xyz: string[] = [];
   for (const name of layers) {
     const def = layerByName.get(name);
+    if (def?.tileUrlTemplate) {
+      if (!xyz.includes(def.tileUrlTemplate)) xyz.push(def.tileUrlTemplate);
+      continue;
+    }
     const baseUrl = def?.wmsBaseUrl ?? config.wmsBaseUrl;
     const version = def?.wmsVersion ?? config.wmsVersion;
     // Layer mit eigenem Style/SLD bekommen einen eigenen Request, weil
@@ -495,9 +525,33 @@ export function buildCombinedWmsTileUrl(layers: string[], countryIso?: string): 
     }
     g.layers.push(name);
   }
-  return Array.from(groups.values())
+  const wms = Array.from(groups.values())
     .map((g) => buildWmsGetMapUrl(g.baseUrl, g.version, g.layers, { styles: g.styles, sldBody: g.sldBody }))
     .filter((u) => u.length > 0);
+  return [...wms, ...xyz];
+}
+
+/**
+ * Pflicht-Attribution der Kachel-Ebene(n) eines Landes (z. B. HU
+ * "© HungaroControl / MyDroneSpace"), "" wenn keine gesetzt ist. Wird als
+ * Leaflet-`attribution` an die Geozonen-Kachel-Ebene gehängt.
+ */
+export function getGeozoneTileAttribution(countryIso?: string): string {
+  const iso = countryIso?.toUpperCase();
+  if (!iso || !COUNTRY_GEOZONE_CONFIGS[iso]) return "";
+  const parts = COUNTRY_GEOZONE_CONFIGS[iso].layers
+    .map((l) => l.tileAttribution)
+    .filter((a): a is string => !!a);
+  return Array.from(new Set(parts)).join(" · ");
+}
+
+/** True, wenn das Land Geozonen als Kachel-Overlay hat (WMS oder XYZ). */
+export function hasGeozoneTileOverlay(countryIso?: string): boolean {
+  const iso = countryIso?.toUpperCase();
+  const cfg = iso ? COUNTRY_GEOZONE_CONFIGS[iso] : undefined;
+  if (!cfg) return false;
+  if (cfg.layers.some((l) => !!l.tileUrlTemplate)) return true;
+  return cfg.featureInfoType !== "none" && !!cfg.wmsBaseUrl;
 }
 
 /**
@@ -1557,6 +1611,9 @@ async function queryGeozonesForCountry(
   if (config.featureInfoType === "wms-fr" && config.iso === "FR") {
     return queryFrWmsFeatures(lat, lon, radiusKm);
   }
+
+  // Reine Bild-Overlays (z. B. HU): keine abfragbaren Zonen.
+  if (config.featureInfoType === "none") return [];
 
   if (config.featureInfoType === "ed269-cached") {
     // Planungs-/PDF-Pfad: der volle (Planungs-)Radius bleibt erhalten, aber die

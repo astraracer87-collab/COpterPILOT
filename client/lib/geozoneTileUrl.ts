@@ -13,6 +13,8 @@
 // frühere serverseitige PNG-Compositing).
 //
 // Platzhalter: `{bbox}` = "minX,minY,maxX,maxY" der Kachel in EPSG:3857 (Meter).
+// Ausnahme: Layer mit `tileUrlTemplate` (reine XYZ-Kacheln, z. B. Ungarn)
+// liefern ihre Vorlage mit {z}/{x}/{y} unverändert.
 // Leaflet löst `{bbox}` über eine Funktions-Option auf (siehe
 // LEAFLET_WMS_BBOX_FN_JS); andere Verbraucher nutzen fillGeozoneTileTemplate().
 import {
@@ -107,22 +109,36 @@ function buildGetMapTemplate(g: WmsGroup): string {
  * ein Land. Layer werden dedupliziert, sortiert, auf die im Katalog bekannten
  * Layer des Landes beschränkt (wie früher die Server-Allowlist), nach
  * Endpoint/Style/SLD gruppiert und in Pakete à MAX_LAYERS_PER_GETMAP geteilt.
- * Reihenfolge = Zeichenreihenfolge (spätere Vorlagen oben). Liefert [] für
- * Länder ohne WMS oder ohne gültige Layer.
+ * Reihenfolge = Zeichenreihenfolge (spätere Vorlagen oben). XYZ-Layer
+ * (`tileUrlTemplate`) kommen unverändert und einzeln ans Ende. Liefert [] für
+ * Länder ohne WMS/XYZ-Layer oder ohne gültige Layer.
  */
 export function buildGeozoneWmsTileTemplates(layers: string[], countryIso?: string): string[] {
   if (!layers || layers.length === 0) return [];
   const iso = (countryIso || "DE").toUpperCase();
-  const def = GEOZONE_COUNTRY_WMS[iso];
-  if (!def) return [];
   const catalog = catalogLayersFor(iso);
   const byName = new Map(catalog.map((l) => [l.wmsLayer, l] as const));
   const sorted = Array.from(new Set(layers.filter((l) => !!l && byName.has(l)))).sort();
   if (sorted.length === 0) return [];
 
+  // Layer mit fertiger XYZ-Vorlage (z. B. HU MyDroneSpace) liefern genau diese
+  // Vorlage – nie mit WMS-Layern in einem GetMap kombiniert.
+  const xyz: string[] = [];
+  const wmsNames: string[] = [];
+  for (const name of sorted) {
+    const t = byName.get(name)?.tileUrlTemplate;
+    if (t) {
+      if (!xyz.includes(t)) xyz.push(t);
+    } else {
+      wmsNames.push(name);
+    }
+  }
+  const def = GEOZONE_COUNTRY_WMS[iso];
+  if (!def) return xyz;
+
   const order: string[] = [];
   const groups = new Map<string, WmsGroup>();
-  for (const name of sorted) {
+  for (const name of wmsNames) {
     const l = byName.get(name);
     const baseUrl = l?.wmsBaseUrl ?? def.baseUrl;
     const version = l?.wmsVersion ?? def.version;
@@ -143,7 +159,7 @@ export function buildGeozoneWmsTileTemplates(layers: string[], countryIso?: stri
       out.push(buildGetMapTemplate({ ...g, layers: g.layers.slice(i, i + MAX_LAYERS_PER_GETMAP) }));
     }
   }
-  return out;
+  return [...out, ...xyz];
 }
 
 /**

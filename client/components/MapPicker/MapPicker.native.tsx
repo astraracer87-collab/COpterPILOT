@@ -14,6 +14,8 @@ import {
   getCountryGeozoneConfig,
   buildGeozoneCacheTileUrl,
   buildGeozoneTileUrls,
+  getGeozoneTileAttribution,
+  hasGeozoneTileOverlay,
   buildVectorGeozoneTileUrl,
   queryEd269CachedFeatures,
   GEOZONE_TILE_MIN_ZOOM,
@@ -207,7 +209,8 @@ const MAP_HTML = `<!DOCTYPE html>
         tileSize: 256,
         zIndex: 4,
         updateWhenIdle: true,
-        keepBuffer: 1
+        keepBuffer: 1,
+        attribution: g.a || ""
       });
       tl.addTo(map);
       geoLayers[u] = { layer: tl, sig: JSON.stringify(g) };
@@ -568,11 +571,11 @@ const MapPicker = forwardRef<MapPickerRef, MapPickerProps>(
       if (useViewportCountries) {
         const wmsT = visibleViewportCountries
           .map((iso) => getCountryGeozoneConfig(iso))
-          .filter((cfg) => cfg.featureInfoType !== "none" && !!cfg.wmsBaseUrl)
+          .filter((cfg) => hasGeozoneTileOverlay(cfg.iso))
           .map((cfg) => {
             const enabled = cfg.layers.filter((l) => l.defaultEnabled).map((l) => l.wmsLayer);
             const layerSet = enabled.length > 0 ? enabled : ([cfg.layers[0]?.wmsLayer].filter(Boolean) as string[]);
-            return buildGeozoneTileUrls(layerSet, cfg.iso).map((u) => ({ u, p: geoOpacity, mnz: cfg.wmsMaxNativeZoom }));
+            return buildGeozoneTileUrls(layerSet, cfg.iso).map((u) => ({ u, p: geoOpacity, mnz: cfg.wmsMaxNativeZoom, a: getGeozoneTileAttribution(cfg.iso) }));
           })
           .flat()
           .filter((t) => !!t.u);
@@ -591,10 +594,10 @@ const MapPicker = forwardRef<MapPickerRef, MapPickerProps>(
         return [{ u: buildVectorGeozoneTileUrl(countryIso), p: geoOpacity, mnz: wmsMnz(countryIso) }];
       }
       if (geozoneLayers && geozoneLayers.length > 0) {
-        return buildGeozoneTileUrls(geozoneLayers, countryIso).map((u) => ({ u, p: geoOpacity, mnz: wmsMnz(countryIso) }));
+        return buildGeozoneTileUrls(geozoneLayers, countryIso).map((u) => ({ u, p: geoOpacity, mnz: wmsMnz(countryIso), a: getGeozoneTileAttribution(countryIso) }));
       }
       // Fallback: alle Layer des (Standard-)Landes in EINER Kachel (z. B. Wetter-Picker).
-      return buildGeozoneTileUrls(getAllLayerNames(), countryIso).map((u) => ({ u, p: geoOpacity, mnz: wmsMnz(countryIso) }));
+      return buildGeozoneTileUrls(getAllLayerNames(), countryIso).map((u) => ({ u, p: geoOpacity, mnz: wmsMnz(countryIso), a: getGeozoneTileAttribution(countryIso) }));
     }, [useViewportCountries, visibleViewportCountries, geozoneLayers, countryIso, geoOpacity, lockedSet]);
 
     // Vektor-Länder (ED-269: AT/BE/DK), die im Overlay-Set liegen.

@@ -34,6 +34,15 @@ export interface GeozoneLayer {
   // sauber zugeordnet bleibt.
   wmsStyle?: string;
   wmsSldBody?: string;
+  // Optional: fertige XYZ-Kachel-Vorlage ({z}/{x}/{y}, Web-Mercator,
+  // GoogleMapsCompatible) statt eines WMS-GetMap. Ist sie gesetzt, liefern ALLE
+  // Kachel-Builder genau diese Vorlage (nie mit WMS-Layern kombiniert); die
+  // WMS-Felder werden ignoriert. Genutzt für reine Anzeige-Overlays ohne WMS,
+  // z. B. Ungarn (MyDroneSpace-WMTS).
+  tileUrlTemplate?: string;
+  // Pflicht-Attribution der Kachel-Quelle (wird an der Kachel-Ebene der Karte
+  // angezeigt). Derzeit nur für XYZ-Overlays gesetzt.
+  tileAttribution?: string;
 }
 
 // Godrone-Gelb (NATURE CONSERVATION AREA / GROUND HAZARD Nature Reserve).
@@ -157,6 +166,34 @@ export const FR_GEOZONE_LAYERS: GeozoneLayer[] = [
   },
 ];
 
+// Ungarn — HungaroControl / MyDroneSpace. Öffentlicher WMTS (RESTful, ohne
+// Login), Layer "AIXM", TileMatrixSet GoogleMapsCompatible (XYZ, y NICHT
+// TMS-gespiegelt), Zoom 0–18 laut WMTSCapabilities.xml. NUR Anzeige: Die
+// Kacheln sind ein Bild ohne Zonengrenzen/Höhen – eine automatische Prüfung
+// ist damit nicht möglich (die Vektor-API /api/zones braucht einen Login).
+// Deshalb steht HU bewusst NICHT in OWN_MAP_DATA_COUNTRIES.
+export const HU_GEOZONE_ATTRIBUTION = "© HungaroControl / MyDroneSpace";
+export const HU_GEOZONE_TILE_URL = "https://mds.mydronespace.hu/wmts/1.0.0/aixm/{z}/{x}/{y}.png";
+export const HU_GEOZONE_RASTER_HINT =
+  "Für Ungarn zeigt die Karte die Lufträume und Drohnenzonen nur als Bild (MyDroneSpace). " +
+  "Eine automatische Prüfung ist nicht möglich – Zonen bitte in der App MyDroneSpace prüfen und den Flug dort anmelden.";
+
+export const HU_GEOZONE_LAYERS: GeozoneLayer[] = [
+  {
+    id: "hu_aixm",
+    wmsLayer: "AIXM",
+    label: "Lufträume & Drohnenzonen (MyDroneSpace)",
+    defaultEnabled: true,
+    tileUrlTemplate: HU_GEOZONE_TILE_URL,
+    tileAttribution: HU_GEOZONE_ATTRIBUTION,
+  },
+];
+
+// Länder, die erst NACH der einmaligen Migration auf die Kategorie-Auswahl
+// dazukamen. Für sie gibt es keine alten Speicher-Schlüssel; als Alt-Layer
+// gezählt würde die Migration ihren Gesamt-Schalter fälschlich auf "aus" falten.
+const POST_MIGRATION_ISOS = new Set(["HU"]);
+
 // Pro-Land-Liste der nativen Layer (id/iso/wmsLayer-Quelle). Vektor-Länder
 // AT/BE/DK liefern KEIN WMS und haben daher keine Layer; sie werden als
 // kombinierte Gesamt-Schalter (COMBINED_COUNTRY_TOGGLES) gesteuert. Diese
@@ -173,6 +210,7 @@ export const NATIVE_GEOZONE_LAYER_CATALOG: NativeGeozoneCountryLayers[] = [
   { iso: "LU", layers: LU_GEOZONE_LAYERS },
   { iso: "NL", layers: NL_GEOZONE_LAYERS },
   { iso: "FR", layers: FR_GEOZONE_LAYERS },
+  { iso: "HU", layers: HU_GEOZONE_LAYERS },
   { iso: "AT", layers: [] },
   { iso: "BE", layers: [] },
   { iso: "DK", layers: [] },
@@ -184,7 +222,7 @@ export const NATIVE_GEOZONE_LAYER_CATALOG: NativeGeozoneCountryLayers[] = [
 // sowohl client/lib/geozones.ts (Laufzeit-Migration) als auch der
 // Migrationstest nutzen.
 export function getNativeLegacyLayerRefs(): OldLayerRef[] {
-  return NATIVE_GEOZONE_LAYER_CATALOG.flatMap(({ iso, layers }) =>
+  return NATIVE_GEOZONE_LAYER_CATALOG.filter(({ iso }) => !POST_MIGRATION_ISOS.has(iso)).flatMap(({ iso, layers }) =>
     layers.map((l) => ({ id: l.id, iso, wmsLayer: l.wmsLayer })),
   );
 }

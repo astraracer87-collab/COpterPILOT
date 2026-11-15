@@ -13,7 +13,7 @@ import type { GermanEnergyInfrastructureItem } from "../../shared/germanEnergyIn
 import type { EnergyFacility100mPoint } from "../../shared/germanEnergyInfrastructure";
 import { getCategoryLabel, type AircraftCategory, type DataSource } from "@/lib/opensky";
 import { geozoneIsActiveAt } from "@/lib/ed269";
-import { buildGeozoneCacheTileUrl, buildGeozoneTileUrls, buildVectorGeozoneTileUrl, isRasterTiledVectorCountry, queryGeozoneFeatureInfo, queryEd269CachedFeatures, getCountryGeozoneConfig, getViewportCountries, separateTempRestrictions, GEOZONE_TILE_MIN_ZOOM, getVectorMinZoom, loadsFullCountryVectorZones, GEOZONE_VECTOR_MAX_RADIUS_KM, GEOZONE_VECTOR_MAX_FEATURES, type GeozoneFeatureInfo } from "@/lib/geozones";
+import { buildGeozoneCacheTileUrl, buildGeozoneTileUrls, getGeozoneTileAttribution, buildVectorGeozoneTileUrl, isRasterTiledVectorCountry, queryGeozoneFeatureInfo, queryEd269CachedFeatures, getCountryGeozoneConfig, getViewportCountries, separateTempRestrictions, GEOZONE_TILE_MIN_ZOOM, getVectorMinZoom, loadsFullCountryVectorZones, GEOZONE_VECTOR_MAX_RADIUS_KM, GEOZONE_VECTOR_MAX_FEATURES, type GeozoneFeatureInfo } from "@/lib/geozones";
 import { agencyTagColor } from "@/lib/agencyTag";
 import { simplifyRingGroup, smoothRingGroup } from "@/lib/ringSimplify";
 import { findNearbyCtrAirports, CTR_AIRPORTS } from "@/lib/ctrData";
@@ -536,7 +536,8 @@ export const MAIN_MAP_HTML = `<!DOCTYPE html>
         tileSize: 256,
         zIndex: g.primary ? 5 : 4,
         updateWhenIdle: true,
-        keepBuffer: 1
+        keepBuffer: 1,
+        attribution: g.a || ""
       });
       // Transiente Kachel-Fehler (Server liefert 504, wenn der Upstream-WMS
       // gedrosselt hat) selbst heilen: Leaflet laedt eine fehlgeschlagene
@@ -1770,6 +1771,7 @@ export default function TrafficMapView({
           ? (mapStyle === "osm" || mapStyle === "grayscale" ? (isDark ? 0.55 : 0.85) : 0.65)
           : (mapStyle === "osm" || mapStyle === "grayscale" ? (isDark ? 0.4 : 0.55) : 0.45),
       mnz: getCountryGeozoneConfig(iso).wmsMaxNativeZoom,
+      a: getGeozoneTileAttribution(iso),
       primary: iso === countryIso,
     })) : [];
     const state = {

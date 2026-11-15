@@ -125,4 +125,6 @@ export const GEOZONE_VECTOR_MAX_FEATURES = 1200;
 // Stufe flächig TRANSPARENTE Kacheln). Sie rendern bis in die Tiefe; eine
 // einfarbige 100%-Kachel bei tiefem Zoom bedeutet hier "mitten in einer großen
 // Zone" (korrekt), nicht "verschwunden". Daher bewusst OHNE Eintrag.
-export const COUNTRY_WMS_MAX_NATIVE_ZOOM: Record<string, number> = { FR: 15 };
+// HU (MyDroneSpace-WMTS "AIXM", GoogleMapsCompatible): TileMatrix 0–18 laut
+// WMTSCapabilities.xml; darüber skaliert die Karte die z18-Kachel hoch.
+export const COUNTRY_WMS_MAX_NATIVE_ZOOM: Record<string, number> = { FR: 15, HU: 18 };
