@@ -1175,7 +1175,7 @@ export default function TrafficMapView({
   // Tier-2-Flughafen-Wetter-Stationen (live per AWC-Bbox geladen, ab Zoom 9).
   const [areaStations, setAreaStations] = useState<AirportStation[]>([]);
   const [deviceHeading, setDeviceHeading] = useState<number | null>(null);
-  const [ctrLegendOpen, setCtrLegendOpen] = useState(true);
+  const [ctrLegendOpen, setCtrLegendOpen] = useState(false);
   // Vektor-Geozonen aus dem zentralen Cache (ED-269, z. B. Österreich). Diese
   // Länder liefern kein WMS -- die Zonen werden im WebView als Leaflet-Polygone
   // mit Tap-Popup gerendert.
@@ -1795,6 +1795,15 @@ export default function TrafficMapView({
       });
   }, [geozoneLayers, settledZoom, latitude, longitude]);
 
+  // CTR-Legende nur, wenn die Position wirklich innerhalb eines CTR-Bands liegt.
+  const ctrLegendRelevant = useMemo(() => ctrBands.some((a) => {
+    const outer = a.rings.reduce((m, r) => Math.max(m, r.radiusM), 0);
+    const dLat = ((a.lat - latitude) * Math.PI) / 180;
+    const dLon = ((a.lon - longitude) * Math.PI) / 180;
+    const h = Math.sin(dLat / 2) ** 2 + Math.cos((latitude * Math.PI) / 180) * Math.cos((a.lat * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
+    return 2 * 6_371_000 * Math.asin(Math.min(1, Math.sqrt(h))) <= outer;
+  }), [ctrBands, latitude, longitude]);
+
   // Flughafen-Wetter-Marker (METAR/TAF), zwei Stufen:
   //  - Tier 1 (immer): große europäische Flughäfen (MAJOR_EU_AIRPORTS) im
   //    sichtbaren Ausschnitt – auch bei niedrigem Zoom.
@@ -2166,7 +2175,7 @@ export default function TrafficMapView({
           ) : null}
         </WindCompass>
       ) : null}
-      {ctrBands.length > 0 ? (
+      {ctrLegendRelevant ? (
         <View style={[ctrLegendStyles.container, { top: topInset + 16 }]} pointerEvents="box-none">
           <Pressable
             style={ctrLegendStyles.header}

@@ -488,7 +488,7 @@ const MapPicker = forwardRef<MapPickerRef, MapPickerProps>(
     const [ready, setReady] = useState(false);
     const [mapStyle, setMapStyle] = useState<MapStyle>("grayscale");
     const mapStyleChangedRef = useRef(false);
-    const [legendOpen, setLegendOpen] = useState(true);
+    const [legendOpen, setLegendOpen] = useState(false);
     const [styleMenuOpen, setStyleMenuOpen] = useState(false);
     const [selectedCtrIcao, setSelectedCtrIcao] = useState<string | null>(null);
     const [settledRegion, setSettledRegion] = useState<Region | null>(null);
@@ -776,6 +776,24 @@ const MapPicker = forwardRef<MapPickerRef, MapPickerProps>(
         });
     }, [showCtrBands, selectedLocation, viewport?.latitude, viewport?.longitude]);
 
+    // Legende nur, wenn der gewählte Punkt (bzw. die Kartenmitte) wirklich in einem CTR-Band liegt.
+    const ctrLegendRelevant = useMemo(() => {
+      const center = selectedLocation
+        ? { lat: selectedLocation.latitude, lon: selectedLocation.longitude }
+        : viewport
+          ? { lat: viewport.latitude, lon: viewport.longitude }
+          : null;
+      if (!center) return false;
+      return ctrBandAirports.some((a) => {
+        const outer = a.rings.reduce((m, r) => Math.max(m, r.radiusM), 0);
+        const dLat = ((a.lat - center.lat) * Math.PI) / 180;
+        const dLon = ((a.lon - center.lon) * Math.PI) / 180;
+        const h = Math.sin(dLat / 2) ** 2 + Math.cos((center.lat * Math.PI) / 180) * Math.cos((a.lat * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
+        const distM = 2 * 6_371_000 * Math.asin(Math.min(1, Math.sqrt(h)));
+        return distM <= outer;
+      });
+    }, [ctrBandAirports, selectedLocation, viewport?.latitude, viewport?.longitude]);
+
     const showSelectedMarker = !hideMarker && !!selectedLocation && (!routeWaypoints || routeWaypoints.length === 0);
 
     const stateJson = useMemo(() => {
@@ -1014,7 +1032,7 @@ const MapPicker = forwardRef<MapPickerRef, MapPickerProps>(
             ))}
           </View>
         ) : null}
-        {showCtrBands && ctrBandAirports.length > 0 ? (
+        {showCtrBands && ctrLegendRelevant ? (
           <View style={legendStyles.container} pointerEvents="box-none">
             <Pressable
               style={legendStyles.header}
