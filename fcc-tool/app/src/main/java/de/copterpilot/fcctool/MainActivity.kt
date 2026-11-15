@@ -253,16 +253,8 @@ class MainActivity : Activity() {
 
     private fun showWizard(heading: String, steps: List<WizStep>) {
         var current = 0
-        var logged = -1
 
         fun draw() {
-            // Jeden Schritt einmal ins Protokoll schreiben, sobald er erreicht wird.
-            if (current != logged) {
-                logged = current
-                if (current == 0) Log.step("Ablauf gestartet: $heading")
-                if (current < steps.size) Log.step("Schritt ${current + 1}: ${steps[current].title}")
-                else Log.ok("Ablauf abgeschlossen: $heading")
-            }
             val host = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
             // Feste Kopfzeile des Ablaufs
             val top = Ui.row(this)
@@ -273,14 +265,22 @@ class MainActivity : Activity() {
             host.addView(progressLine(steps, current), Ui.lp(topDp = Ui.dpi(this, 10f)))
             // Aktueller Schritt füllt die Höhe → unten bündig mit dem Protokoll
             if (current < steps.size)
-                host.addView(activeCard(current + 1, steps[current]) { current++; draw(); refreshStatus() },
-                    LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f).apply { topMargin = Ui.dpi(this@MainActivity, 10f) })
+                host.addView(activeCard(current + 1, steps[current]) {
+                    // Logging passiert im Weiter-Klick, NICHT in der Render-Funktion
+                    current++
+                    if (current < steps.size) Log.step("Schritt ${current + 1}: ${steps[current].title}")
+                    else Log.ok("Ablauf abgeschlossen: $heading")
+                    draw(); refreshStatus()
+                }, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f).apply { topMargin = Ui.dpi(this@MainActivity, 10f) })
             else {
                 host.addView(Ui.bigButton(this, "Fertig", Ui.GREEN) { showHome() }, Ui.lp(topDp = Ui.dpi(this, 10f)))
                 host.addView(View(this), LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
             }
             showLeft(host)
         }
+        // Start des Ablaufs ins Protokoll (außerhalb der Render-Funktion)
+        Log.step("Ablauf gestartet: $heading")
+        if (steps.isNotEmpty()) Log.step("Schritt 1: ${steps[0].title}")
         draw()
     }
 
