@@ -1,7 +1,7 @@
 # Datenquellen-Dokumentation – Index
 
 Zentraler Einstieg zu allen analysierten Datenquellen für COpterPILOT:
-Drohnen-Geozonen (30 Länder) und Live-Luftverkehr. Stand: 2026-11-15.
+Drohnen-Geozonen (31 Länder) und Live-Luftverkehr. Stand: 2026-11-15.
 
 Methode: Analyse der offiziellen Portale/Apps (Netzwerk-Capture, öffentliche
 Bundles/Specs), Abrufe über die **öffentlichen** Endpunkte. Kein Bot-/WAF-Schutz
@@ -59,6 +59,7 @@ umgangen, keine privaten Logins missbraucht. Teile der Abrufe liefen aus einer
 | 🇨🇭 CH Schweiz | ✅ (ED-269 STAC, 1.288) | [switzerland-bazl-api-integration.md](switzerland-bazl-api-integration.md) |
 | 🇱🇮 LI Liechtenstein | ✅ (über CH-Datensatz) | [switzerland-bazl-api-integration.md](switzerland-bazl-api-integration.md) |
 | 🇳🇴 NO Norwegen | ✅ (statische GeoJSON) | [norway-dronesoner-api-integration.md](norway-dronesoner-api-integration.md) |
+| 🇸🇪 SE Schweden | ✅ (ED-318 + WFS, Skript) | [sweden-lfv-api-integration.md](sweden-lfv-api-integration.md) |
 | 🇬🇷 GR Griechenland | ⚠️ nur WMS-Raster → ED-269 erfragen | [greece-romania-geozones-notes.md](greece-romania-geozones-notes.md) |
 
 ---

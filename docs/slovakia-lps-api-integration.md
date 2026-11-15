@@ -109,3 +109,27 @@ B="https://gis.lps.sk/server/rest/services/VFRM/VFRM_popup/MapServer/5"
 curl -s "$B/query?where=1%3D1&outFields=*&outSR=4326&f=geojson" \
   | jq '{n:(.features|length), types:([.features[].properties.TYPE_CODE]|group_by(.)|map({(.[0]):length})|add)}'
 ```
+
+---
+
+## Anhang SK: Live-Aktivierungen + Skript (DE-Session, 2026-11-15)
+
+**Werkzeug im Repo:** [`docs/tools/slovakia/lps_sk_geozones.py`](tools/slovakia/lps_sk_geozones.py)
+(nur Stdlib) → `sk_zones.geojson` (statisch, Höhen in m) + `sk_activations.geojson`
+(live) + Health-Check.
+
+- **Statische Zonen:** `VFRM/VFRM_popup/MapServer/5/query?...&f=geojson` (178,
+  davon drohnenrelevant: Untergrenze `SFC`). Filtern über `TYPE_CODE`/`LOCALTYPE`.
+- **Live-Aktivierungen** (R/TRA/TSA): `Hosted/Reservation_(Public)2/FeatureServer/0`
+  — Join über `airspace` ↔ `IDENT_TXT`, `status`/`startdate`/`enddate`. Webseiten-
+  Filter übernehmen: `(lower_fl<>'FL' OR lower_val<=195) AND (localtype_txt IS NULL
+  OR localtype_txt<>'NPZ') AND status IN ('ACTIVE','APPROVED','ALLOCATED',
+  'REFERENCE_ALLOCATED','PENDING')`. Höhen der Reservierung haben **Vorrang** vor
+  den statischen.
+- **Health-Check** `Hosted/Status_(Public)/FeatureServer/0`: liefert Treffer, wenn
+  der AUP/UUP-Import >3 min alt/fehlgeschlagen → App-Warnung „Aktivierungsdaten
+  evtl. nicht aktuell".
+- **Ausfiltern** (zu hoch/irrelevant): `MRVA` (35), `NPZ`, `FBZ`, reine FL-Zonen.
+  `CTR`/`P`/`D`/`PROTECT`/`ATZ` als permanent behandeln.
+- Z-Komponente (`[lon,lat,0]`) beim Import entfernen. Attribution: „VFR Manual,
+  LPS SR, š. p.".

@@ -107,3 +107,28 @@ curl -s "$B/12/query?where=1%3D1&outFields=*&outSR=4326&f=geojson&resultRecordCo
   | jq '{n:(.features|length),
          folders:([.features[].properties.FolderPath]|group_by(.)|map({(.[0]):length})|add)}'
 ```
+
+---
+
+## Anhang CY: ED-269-Datei als bessere Primärquelle + Skript (DE-Session, 2026-11-15)
+
+**Werkzeug im Repo:** [`docs/tools/cyprus/cy_geozones_to_geojson.py`](tools/cyprus/cy_geozones_to_geojson.py)
+(nur Stdlib) → ED-269 **oder** ArcGIS → sauberes GeoJSON (Kreise→Polygone, Popup-
+Parsing, Z-Werte entfernt).
+
+- **Quelle A (empfohlen): ED-269-JSON** (rechtlich verbindlich, mit **Höhen**):
+  Link auf `https://drones.gov.cy/geo-zones-file/` dynamisch holen (Dateiname
+  ändert sich), aktuell `…/uploads/2025/05/CYP_GeoZones_06_05_25.json`. **141 Zonen**
+  (62 Polygone + **79 Kreise** `{type:"Circle",center,radius}`), alle **0–120 m AGL**,
+  `permanent:YES`. `restriction` `PROHIBITED` (29)/`REQ_AUTHORISATION` (112),
+  `reason` SENSITIVE/PRIVACY/AIR_TRAFFIC. ⚠️ ED-269 ist **kein** GeoJSON
+  (`geometry` ist Array, `Circle` existiert nicht) → konvertieren.
+- **Quelle B:** ArcGIS `services9.arcgis.com/1oNBJ7Sv4IbovWiG/.../UAV_areas_WFL1/
+  FeatureServer/12` (mein Hauptdoc) – Kategorie aus `FolderPath`, Regeln im
+  **griechischen** `PopupInfo`-HTML (Zonenverwalter/Telefon/Mail/Antragsformular).
+- ⚠️ **Versions-Diskrepanz:** Karte `ver09` (07/2026) vs. ED-269-Datei (05/2025) –
+  beide 141 Zonen, aber 52 Namen weichen ab, Verbotszonen 29 vs. 28 → bei der DCA
+  klären, welche maßgeblich ist; bis dahin beide abgleichen. KMZ:
+  `…/uploads/2026/07/CYPRUS_GEO_ZONES_MAP_ver09.kmz`.
+- NOTAM-Layer 204 ist **veraltet** (Snapshot 05/2026) → für temporäre Zonen den
+  offiziellen AIS Cyprus/NOTAM nutzen. Nordzypern/SBA nicht abgedeckt (DCA nicht zuständig).

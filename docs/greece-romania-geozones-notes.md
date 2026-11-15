@@ -137,3 +137,27 @@ Login, nur über die öffentlichen WMS-Endpunkte:
 
 **Status GR: Daten extrahierbar** (Skript vorhanden) – alternativ weiterhin
 ED-269/AIXM bei HASP/HCAA.
+
+---
+
+## Anhang RO: Zonen-Gruppierung & Skript (DE-Session, 2026-11-15)
+
+**Werkzeug im Repo:** [`docs/tools/romania/romatsa_ro_geozones.py`](tools/romania/romatsa_ro_geozones.py)
+(requests) → feste Zonen + NOTAM-Zonen, Höhen-Parser, normalisiertes GeoJSON.
+
+### Zonen-Gruppen nach ID-Präfix (aus Kontakt/Höhe abgeleitet, konsistent)
+| Präfix | Anz. | Typ | Genehmigung |
+|---|---|---|---|
+| `RZ 1xxx` | 64 | Flughäfen/CTR (ROMATSA) | Tower (Kontakt im Feld `contact`) |
+| `RZ 2xxx` | 656 | Militär – **nur bei NOTAM-Aktivierung** | `fdex@roaf.ro` |
+| `RZ 3xxx`/`4xxx` | 378/173 | Verteidigungsobjekte (MApN) | `aerofoto@mapn.ro` |
+| `RZ 570` | 1 | Sonderzone Bukarest (GND–FL105) | MApN |
+
+- **Gestapelte Volumina:** Paare wie `RZ 1001` (GND–120 m) + `RZ 1002`
+  (120 m–2500 ft AMSL) = eine CTR in Höhenschichten → Zonen **mit Unter-/
+  Obergrenze** auswerten, nicht nur 2D.
+- NOTAM-Layer `tip`: `R` (Restricted, 61), `D` (Danger, 163), `O` (Other, 70) –
+  bei ROMATSA bestätigen lassen. `mesaj` Feld **D)** = Tagesplan, **F)/G)** =
+  Höhen. Die RZ-2xxx-Militärzonen werden über diese NOTAMs aktiviert.
+- Höhen sind Freitext (`GND`, `120M AGL`, `FL105`, `3000 FT AMSL`, `BY NOTAM`
+  15×) → Parser im Skript. `zone_id` mal mit/ohne Leerzeichen → normalisieren.
