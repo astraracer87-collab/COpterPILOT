@@ -92,7 +92,7 @@ const MEMORY_MAX_COUNTRIES = 5;
 
 function remember(iso: string, ds: Ed269Dataset): void {
   memory.delete(iso);
-  remember(iso, ds);
+  memory.set(iso, ds);
   while (memory.size > MEMORY_MAX_COUNTRIES) {
     const oldest = memory.keys().next().value;
     if (oldest === undefined) break;
