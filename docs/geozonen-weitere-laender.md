@@ -2,7 +2,7 @@
 
 Übergabe-Dokument zu den offiziellen Vektorquellen für UAS-Geozonen in
 Schweden, Norwegen, der Schweiz (inkl. Liechtenstein), Finnland, Estland und
-Dänemark. Stand: 2026-11-15 (Messungen zwischen 00:10 und 00:40 UTC). Alle
+Dänemark. Stand: 2026-11-15 (Messungen zwischen 00:10 und 00:35 UTC). Alle
 Angaben wurden live mit `curl` geprüft, sofern nicht als „ungetestet“ oder
 „nicht belegt“ markiert.
 
@@ -504,11 +504,13 @@ sind schon in Metern.
 ### 6.3 Aktualisierung
 
 - Feste Zonen (`metaData.updateDateTime` zuletzt 2026-08-07): selten.
-- NOTAM-Zonen: `metaData.updateDateTime` aller NOTAM-Features war bei zwei
-  Abrufen um 00:15 und 00:22 UTC einheitlich `2026-11-15T00:00:22Z`, beim
-  Abruf um 00:4x UTC siehe §6.7. Das passt zu einem periodischen Abgleich
-  mit dem NOTAM-PIB. Den Takt „alle 30 Minuten“ nennt **keine offizielle
-  Seite**. Er ist nur durch die Messung gestützt.
+- NOTAM-Zonen: `metaData.updateDateTime` aller NOTAM-Features war bei drei
+  Abrufen um 00:15, 00:22 und 00:32 UTC einheitlich
+  `2026-11-15T00:00:22Z`. Der Abgleich mit dem NOTAM-PIB läuft also im
+  Stapel, um 00:30 kam aber kein neuer Zeitstempel. Entweder ist der Takt
+  länger als 30 Minuten, oder der Zeitstempel ändert sich nur bei
+  inhaltlichen Änderungen. Den Takt „alle 30 Minuten“ nennt **keine
+  offizielle Seite**, und die Messung bestätigt ihn **nicht**.
 - Der Socket.io-Push `uas` existiert vermutlich wie in AT (ungetestet).
 - Empfehlung: Abruf bei App-Start und vor der Flugprüfung, sonst täglich.
   Wegen NOTAM besser alle paar Stunden im Vordergrund.
@@ -665,7 +667,7 @@ curl -s --compressed "$B/ff657943724944faaf19807380f5e24a/data" | jq '{n:(.featu
 | Zeitsteuerung | `limitedApplicability`, SUP `FROM`/`TO`, NOTAM | `applicability` (NOTAM) | `applicability` + `dailyPeriod` | `applicability` (Periodenende) | `applicability` + `schedule` | Natur `Aktiv` |
 | NOTAM enthalten | ja (WFS `dynais:NOTAM`) | ja (Stand Build) | nein (DABS separat) | nein | **ja (34)** | nein |
 | Sprache | sv + en | nb | en | fi | en + et | da |
-| Update | AIRAC / NOTAM live | täglich ~01 UTC | täglich ~22 UTC | bei Abruf | NOTAM periodisch (gemessen), fest selten | täglich 03:00 CET |
+| Update | AIRAC / NOTAM live | täglich ~01 UTC | täglich ~22 UTC | bei Abruf | NOTAM im Stapel (Takt unbestätigt), fest selten | täglich 03:00 CET |
 | Lizenz | CC BY 4.0 | NLOD 2.0 | Opendata BY | (CC BY 4.0, nicht explizit) | nicht angegeben | frei mit Quellenangabe (Widerspruch) |
 | Restriction-Feld brauchbar? | ja (`type`) | ja | **nein** → `restrictionConditions` | ja | **nein** → Kennung/Text | Farve/Type |
 
