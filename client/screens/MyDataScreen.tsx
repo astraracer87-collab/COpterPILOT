@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from "react";
-import { StyleSheet, ScrollView, View, Pressable, Alert, Platform, ActivityIndicator } from "react-native";
+import { StyleSheet, ScrollView, View, Pressable, Alert, Platform, ActivityIndicator, useWindowDimensions } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useHeaderHeight } from "@react-navigation/elements";
@@ -22,6 +22,7 @@ import {
   getPilotProfile,
 } from "@/lib/storage";
 import { countLocalCollection } from "@/lib/localCollections";
+import { formatBytes, measureDocumentDirectory, measureKeyValueStore } from "@/lib/storageUsage";
 import type { SettingsStackParamList } from "@/navigation/SettingsStackNavigator";
 
 type NavigationProp = NativeStackNavigationProp<SettingsStackParamList>;
@@ -29,7 +30,8 @@ type NavigationProp = NativeStackNavigationProp<SettingsStackParamList>;
 interface SummaryGroup {
   key: string;
   title: string;
-  count: number;
+  /** Anzahl oder (beim Speicher) formatierte Größe */
+  count: number | string;
   details: string[];
 }
 
@@ -49,12 +51,6 @@ const GROUP_ICONS: Record<string, keyof typeof Feather.glyphMap> = {
 const LOCAL_DOCS_DIR = `${FileSystem.documentDirectory ?? ""}documents/`;
 const LOCAL_OFFLINE_DIR = `${FileSystem.documentDirectory ?? ""}offline/`;
 
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-}
-
 async function listLocalDocumentFiles(): Promise<string[]> {
   if (Platform.OS === "web" || !FileSystem.documentDirectory) return [];
   try {
@@ -68,7 +64,7 @@ async function listLocalDocumentFiles(): Promise<string[]> {
 
 /** Zählt die lokal gespeicherten Daten (ersetzt /api/account/summary). */
 async function loadLocalSummary(): Promise<SummaryGroup[]> {
-  const [profile, drones, logbook, sessions, briefings, glossary, links, docFiles, keys] =
+  const [profile, drones, logbook, sessions, briefings, glossary, links, docFiles, kv, files] =
     await Promise.all([
       getPilotProfile().catch(() => null),
       getDrones({ includeArchived: true }).catch(() => []),
@@ -78,16 +74,11 @@ async function loadLocalSummary(): Promise<SummaryGroup[]> {
       countLocalCollection("/api/user-glossary"),
       countLocalCollection("/api/user-resources"),
       listLocalDocumentFiles(),
-      AsyncStorage.getAllKeys().catch(() => [] as readonly string[]),
+      measureKeyValueStore(AsyncStorage),
+      Platform.OS === "web"
+        ? Promise.resolve({ bytes: 0, parts: [] })
+        : measureDocumentDirectory(FileSystem, FileSystem.documentDirectory),
     ]);
-
-  let storageBytes = 0;
-  try {
-    const pairs = await AsyncStorage.multiGet(keys as string[]);
-    for (const [, v] of pairs) storageBytes += v ? v.length : 0;
-  } catch {
-    storageBytes = 0;
-  }
 
   const profileFilled =
     !!profile &&
@@ -128,9 +119,13 @@ async function loadLocalSummary(): Promise<SummaryGroup[]> {
     },
     {
       key: "speicher",
-      title: "App-Speicher (Einträge)",
-      count: keys.length,
-      details: [`ca. ${formatBytes(storageBytes)}`],
+      title: "App-Speicher gesamt",
+      count: formatBytes(kv.bytes + files.bytes),
+      details: [
+        `Einstellungen & Datensätze: ${kv.keys} Einträge, ${formatBytes(kv.bytes)}` +
+          (kv.unreadable > 0 ? ` (+ ${kv.unreadable} zu große Einträge nicht mitgezählt)` : ""),
+        ...files.parts.filter((p) => p.bytes > 0).map((p) => `${p.label}: ${formatBytes(p.bytes)}`),
+      ],
     },
   ];
 }
@@ -138,9 +133,15 @@ async function loadLocalSummary(): Promise<SummaryGroup[]> {
 /** Exportiert alle lokalen Daten als JSON (ersetzt /api/account/export). */
 async function buildLocalExport(): Promise<string> {
   const keys = (await AsyncStorage.getAllKeys()) as string[];
-  const pairs = await AsyncStorage.multiGet(keys);
   const data: Record<string, unknown> = {};
-  for (const [k, v] of pairs) {
+  // einzeln lesen: ein zu großer Wert (Android-CursorWindow) bricht sonst den ganzen Export ab
+  for (const k of keys) {
+    let v: string | null = null;
+    try {
+      v = await AsyncStorage.getItem(k);
+    } catch {
+      continue;
+    }
     if (v == null) continue;
     try {
       data[k] = JSON.parse(v);
@@ -176,6 +177,8 @@ export default function MyDataScreen() {
   const { theme } = useTheme();
   const headerHeight = useHeaderHeight();
   const insets = useSafeAreaInsets();
+  const { width, height } = useWindowDimensions();
+  const landscape = width > height;
   const queryClient = useQueryClient();
 
   const [exporting, setExporting] = useState(false);
@@ -281,7 +284,7 @@ export default function MyDataScreen() {
         contentContainerStyle={[
           styles.content,
           {
-            paddingTop: headerHeight + Spacing.xl,
+            paddingTop: headerHeight + (landscape ? Spacing.md : Spacing.xl),
             paddingBottom: insets.bottom + Spacing["2xl"],
           },
         ]}
@@ -301,6 +304,8 @@ export default function MyDataScreen() {
           </ThemedText>
         </Card>
 
+        <View style={landscape ? styles.columns : undefined} testID={landscape ? "my-data-two-columns" : undefined}>
+        <View style={landscape ? styles.column : undefined}>
         <ThemedText style={[styles.sectionTitle, { color: theme.textSecondary }]}>
           GESPEICHERTE DATEN
         </ThemedText>
@@ -350,7 +355,9 @@ export default function MyDataScreen() {
           ))
         )}
 
-        <ThemedText style={[styles.sectionTitle, { color: theme.textSecondary, marginTop: Spacing["2xl"] }]}>
+        </View>
+        <View style={landscape ? styles.column : undefined}>
+        <ThemedText style={[styles.sectionTitle, { color: theme.textSecondary, marginTop: landscape ? 0 : Spacing["2xl"] }]}>
           MEINE RECHTE
         </ThemedText>
         <Pressable
@@ -417,6 +424,8 @@ export default function MyDataScreen() {
             </View>
           </Card>
         </Pressable>
+        </View>
+        </View>
       </ScrollView>
     </ThemedView>
   );
@@ -425,6 +434,8 @@ export default function MyDataScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   content: { paddingHorizontal: Spacing.lg },
+  columns: { flexDirection: "row", gap: Spacing.lg, alignItems: "flex-start" },
+  column: { flex: 1, minWidth: 0 },
   intro: { ...Typography.body, lineHeight: 22, marginBottom: Spacing.lg },
   notice: {
     flexDirection: "row",

@@ -6,7 +6,11 @@ import { useRoute, type RouteProp } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import * as Clipboard from "expo-clipboard";
 import * as Location from "@/lib/location";
+import { loadLastKnownPosition, mapCenterHint, peekLastKnownPosition, resolveMapCenter, type StoredPosition } from "@/lib/mapFallbackCenter";
+import { countriesWithUsage, onCountryUsageChange, USAGE_COUNTRIES } from "@/lib/countryUsage";
+import { prefetchObstaclesAround } from "@/lib/obstacles";
 import { captureRef } from "react-native-view-shot";
 import TrafficMapView, { TrafficMarker, AircraftTrail, WindData } from "@/components/TrafficMapView";
 import type { ViewportBbox } from "@/lib/opensky";
@@ -14,7 +18,6 @@ import { fetchDipulWind, fetchWeather, ForecastData } from "@/lib/weather";
 import { fetchNotams, NotamData, getNotamSeverity, getNotamCountryLabel, getCountryLabel, notamCountOrUnknown, NOTAM_STATUS_UNKNOWN_TEXT } from "@/lib/notams";
 import { fetchKpIndex, KpIndexData, fetchKpTimeline, getKpForHour, KpTimeEntry, getKpAssessment } from "@/lib/kpindex";
 import { fetchElevation } from "@/lib/elevation";
-import { calculateSolarTimes } from "@/lib/solar";
 import SunArcChart from "@/components/SunArcChart";
 
 import ProximityAlarmBanner, { ProximityAlarmGlow, AlarmPulseProvider, bearingTo } from "@/components/ProximityAlarmBanner";
@@ -255,6 +258,19 @@ export default function StandaloneLiveTrafficScreen() {
   const [weatherStatus, setWeatherStatus] = useState<"unknown" | "ok" | "caution" | "critical">("unknown");
   const [nearbyCtr, setNearbyCtr] = useState<CtrAirport[]>([]);
   const [showCtrEmergency, setShowCtrEmergency] = useState(false);
+  // Tower-Nummern: Die RC Pro 2 hat keine Telefon-App – tel:-Links schlagen
+  // still fehl. Deshalb immer die Nummer groß zeigen (Kopieren), „Anrufen“ nur
+  // wenn das Gerät tel: öffnen kann.
+  const [canCallPhone, setCanCallPhone] = useState(false);
+  const [copiedIcao, setCopiedIcao] = useState<string | null>(null);
+  useEffect(() => {
+    if (!showCtrEmergency) { setCopiedIcao(null); return; }
+    let alive = true;
+    const probe = nearbyCtr[0]?.towerPhone?.replace(/\s/g, "");
+    if (!probe) { setCanCallPhone(false); return; }
+    Linking.canOpenURL(`tel:${probe}`).then((ok) => { if (alive) setCanCallPhone(!!ok); }).catch(() => { if (alive) setCanCallPhone(false); });
+    return () => { alive = false; };
+  }, [showCtrEmergency, nearbyCtr]);
   // Pilotenprofil für die AV-/§21h-Abdeckungsprüfung des Geozonen-Reiters.
   const [pilotProfile, setPilotProfile] = useState<PilotProfile | null>(null);
   useEffect(() => {
@@ -481,38 +497,103 @@ export default function StandaloneLiveTrafficScreen() {
     return () => { cancelled = true; clearInterval(iv); };
   }, [latitude, longitude]);
 
+  // Ersatz-Mittelpunkt ohne Standort (letzte Position → erstes aktives Land → DE).
+  const [lastKnownPos, setLastKnownPos] = useState<StoredPosition | null>(() => peekLastKnownPosition());
+  const [usageTick, setUsageTick] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    loadLastKnownPosition().then((p) => { if (alive && p) setLastKnownPos(p); }).catch(() => {});
+    const off = onCountryUsageChange(() => setUsageTick((t) => t + 1));
+    return () => { alive = false; off(); };
+  }, []);
+  const mapCenter = useMemo(() => {
+    const enabled = new Set([...countriesWithUsage("offline"), ...countriesWithUsage("online")]);
+    const activeCountries = USAGE_COUNTRIES.map((c) => c.iso).filter((iso) => enabled.has(iso));
+    return resolveMapCenter({
+      gps: gpsLatitude != null && gpsLongitude != null ? { latitude: gpsLatitude, longitude: gpsLongitude } : null,
+      lastKnown: lastKnownPos,
+      activeCountries,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gpsLatitude, gpsLongitude, lastKnownPos, usageTick]);
+
+  const applyGpsFix = useCallback(async (loc: Location.LocationObject) => {
+    setGpsLatitude(loc.coords.latitude);
+    setGpsLongitude(loc.coords.longitude);
+    setLocationError(null);
+    setLocationLoading(false);
+    try {
+      const [geo] = await Location.reverseGeocodeAsync({
+        latitude: loc.coords.latitude,
+        longitude: loc.coords.longitude,
+      });
+      if (geo) {
+        const parts = [geo.city || geo.district, geo.region].filter(Boolean);
+        setLocationName(parts.join(", ") || `${loc.coords.latitude.toFixed(4)}, ${loc.coords.longitude.toFixed(4)}`);
+      }
+    } catch {
+      setLocationName(`${loc.coords.latitude.toFixed(4)}, ${loc.coords.longitude.toFixed(4)}`);
+    }
+  }, []);
+
   useEffect(() => {
     // Skip GPS entirely when a planned location was passed via route params.
     if (hasOverrideLocation) return;
     if (!permission) return;
-    if (!permission.granted) return;
+    if (!permission.granted) { setLocationLoading(false); return; }
 
+    // Die Karte erscheint sofort (Ersatz-Mittelpunkt); der Standort kommt dazu:
+    // 1. frische Position, die Android schon kennt (< 2 min) → sofort
+    // 2. Einzelabfrage (GPS, dann Netzwerk; begrenzte Wartezeit)
+    // 3. parallel ein Watch: liefert den ersten Fix, sobald GPS ihn hat
+    //    (Kaltstart ohne Play Services kann Minuten dauern) → Karte zentriert
+    //    sich dann neu; danach wird der Watch beendet.
+    let cancelled = false;
+    let gotFix = false;
+    let watch: Location.LocationSubscription | null = null;
+    const onFix = (loc: Location.LocationObject) => {
+      if (cancelled || gotFix) return;
+      gotFix = true;
+      watch?.remove();
+      watch = null;
+      applyGpsFix(loc);
+    };
     (async () => {
       try {
+        const recent = await Location.getLastKnownPositionAsync({ maxAge: 120000 });
+        if (recent && !cancelled) onFix(recent);
+      } catch {}
+      if (gotFix || cancelled) return;
+      Location.watchPositionAsync({ accuracy: Location.Accuracy.High, timeInterval: 2000, distanceInterval: 0 }, onFix)
+        .then((sub) => {
+          if (cancelled || gotFix) sub.remove();
+          else watch = sub;
+        })
+        .catch(() => {});
+      try {
         const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-        setGpsLatitude(loc.coords.latitude);
-        setGpsLongitude(loc.coords.longitude);
-
-        try {
-          const [geo] = await Location.reverseGeocodeAsync({
-            latitude: loc.coords.latitude,
-            longitude: loc.coords.longitude,
-          });
-          if (geo) {
-            const parts = [geo.city || geo.district, geo.region].filter(Boolean);
-            setLocationName(parts.join(", ") || `${loc.coords.latitude.toFixed(4)}, ${loc.coords.longitude.toFixed(4)}`);
-          }
-        } catch {
-          setLocationName(`${loc.coords.latitude.toFixed(4)}, ${loc.coords.longitude.toFixed(4)}`);
-        }
-
-        setLocationLoading(false);
+        onFix(loc);
       } catch (err: any) {
-        setLocationError("GPS-Standort konnte nicht ermittelt werden");
+        if (cancelled || gotFix) return;
+        setLocationError(err?.message || "GPS-Standort konnte nicht ermittelt werden");
         setLocationLoading(false);
       }
     })();
-  }, [permission, hasOverrideLocation]);
+    return () => {
+      cancelled = true;
+      watch?.remove();
+    };
+  }, [permission, hasOverrideLocation, applyGpsFix]);
+
+  // Hindernisse um den Standort (bzw. Ersatz-Mittelpunkt) vorab laden, damit
+  // die Karte beim Verschieben sofort aus dem Speicher zeichnet.
+  useEffect(() => {
+    const lat = latitude ?? (mapCenter.source !== "default" && mapCenter.source !== "country" ? mapCenter.latitude : null);
+    const lon = longitude ?? (mapCenter.source !== "default" && mapCenter.source !== "country" ? mapCenter.longitude : null);
+    if (lat == null || lon == null) return;
+    const t = setTimeout(() => { prefetchObstaclesAround(lat, lon).catch(() => {}); }, 1500);
+    return () => clearTimeout(t);
+  }, [latitude != null ? latitude.toFixed(2) : null, longitude != null ? longitude.toFixed(2) : null, mapCenter.source]);
 
   const viewportBboxRef = useRef<ViewportBbox | null>(null);
   useEffect(() => {
@@ -640,7 +721,10 @@ export default function StandaloneLiveTrafficScreen() {
         (panel === "notam" && (sidePanelNotams.length > 0 || sidePanelTempRestrictions.length > 0 || sidePanelDipulRestrictions.length > 0))) {
       return;
     }
-    setSidePanelLoading(true);
+    // Wetter liegt schon vor (Gebietsprüfung/Vorab-Laden): sofort zeigen und nur
+    // still im Hintergrund aktualisieren (fetchWeather liefert < 10 min alte Daten ohne Netz).
+    const weatherShownFromCache = panel === "wetter" && sidePanelForecasts.length > 0;
+    if (!weatherShownFromCache) setSidePanelLoading(true);
     try {
       if (panel === "geozone") {
         let geozonesLoaded = true;
@@ -685,7 +769,7 @@ export default function StandaloneLiveTrafficScreen() {
       }
     } catch {}
     setSidePanelLoading(false);
-  }, [sidePanel, latitude, longitude, raRadiusKm, detectedCountryIso, sidePanelGeozones.length, sidePanelNotams.length, sidePanelTempRestrictions.length, sidePanelDipulRestrictions.length]);
+  }, [sidePanel, latitude, longitude, raRadiusKm, detectedCountryIso, sidePanelGeozones.length, sidePanelNotams.length, sidePanelTempRestrictions.length, sidePanelDipulRestrictions.length, sidePanelForecasts.length]);
 
   const handleMapLongPress = useCallback(async (lat: number, lon: number) => {
     try {
@@ -754,6 +838,7 @@ export default function StandaloneLiveTrafficScreen() {
       const lon = loc.coords.longitude;
       setGpsLatitude(lat);
       setGpsLongitude(lon);
+      setLocationError(null);
       if (isCustomLocation) {
         setIsCustomLocation(false);
         setAircraft([]);
@@ -770,7 +855,9 @@ export default function StandaloneLiveTrafficScreen() {
       } catch {
         setLocationName(`${lat.toFixed(4)}, ${lon.toFixed(4)}`);
       }
-    } catch {}
+    } catch (err: any) {
+      setLocationError(err?.message || "GPS-Standort konnte nicht ermittelt werden");
+    }
   }, [isCustomLocation]);
 
   const sortedAircraft = useMemo(() => {
@@ -892,10 +979,23 @@ export default function StandaloneLiveTrafficScreen() {
   };
 
   // Bei Override-Location aus dem Briefing wird die Geräte-Permission nicht benötigt — alle Permission-Gates überspringen.
-  const showLoading = !hasOverrideLocation && !permission;
-  const showPermRequest = !hasOverrideLocation && !!permission && !permission.granted;
-  const showLocLoading = !hasOverrideLocation && !!permission && permission.granted && locationLoading;
-  const showLocError = !hasOverrideLocation && !!permission && permission.granted && !locationLoading && (!!locationError || latitude == null || longitude == null);
+  // Karte immer zeigen (Product Owner): ohne Standort mit Ersatz-Mittelpunkt
+  // und kleinem Hinweis statt Vollbild „Standort wird ermittelt…/nicht verfügbar“.
+  const showLoading = false;
+  const showPermRequest = false;
+  const showLocLoading = false;
+  const showLocError = false;
+  const hasRealPosition = latitude != null && longitude != null;
+  const mapLatitude = hasRealPosition ? latitude! : mapCenter.latitude;
+  const mapLongitude = hasRealPosition ? longitude! : mapCenter.longitude;
+  const needsLocationPermission = !hasOverrideLocation && !!permission && !permission.granted;
+  const noPositionHint = hasRealPosition
+    ? null
+    : needsLocationPermission
+      ? "Kein Standort – Standort-Berechtigung fehlt"
+      : locationLoading && !locationError
+        ? `Standort wird ermittelt … ${mapCenter.source === "last" ? "Karte zeigt letzte bekannte Position" : ""}`.trim()
+        : mapCenterHint(mapCenter.source);
 
   const renderAircraft = ({ item }: { item: AircraftState }) => {
     const alt = getEffectiveAlt(item);
@@ -980,6 +1080,9 @@ export default function StandaloneLiveTrafficScreen() {
   const degPerKm = 1 / 111.32;
   const latDelta = radiusKm * degPerKm * 2.2;
   const lonDelta = (radiusKm * degPerKm / Math.cos(((latitude ?? 0) * Math.PI) / 180)) * 2.2;
+  // Ohne Standort: Ausdehnung der Ersatz-Ansicht (Landesübersicht bzw. ~20 km).
+  const mapLatDelta = hasRealPosition ? latDelta : Math.max(latDelta, mapCenter.latitudeDelta);
+  const mapLonDelta = hasRealPosition ? lonDelta : mapLatDelta / Math.max(0.2, Math.cos((mapCenter.latitude * Math.PI) / 180));
 
   const sourceStatusDot = (status: "ok" | "error" | "timeout") => {
     if (status === "ok") return "#34C759";
@@ -1247,10 +1350,11 @@ export default function StandaloneLiveTrafficScreen() {
         <View style={{ flex: 1, marginBottom: tabBarHeight }}>
           <View ref={mapContainerRef} collapsable={false} style={{ flex: 1 }}>
             <TrafficMapView
-              latitude={latitude!}
-              longitude={longitude!}
-              latDelta={latDelta}
-              lonDelta={lonDelta}
+              latitude={mapLatitude}
+              longitude={mapLongitude}
+              latDelta={mapLatDelta}
+              lonDelta={mapLonDelta}
+              hideUserPosition={!hasRealPosition}
               locationName={locationName}
               markers={showTraffic ? mapMarkers : []}
               trails={showTraffic ? coloredTrails : []}
@@ -1294,6 +1398,22 @@ export default function StandaloneLiveTrafficScreen() {
           }}>
             <SourceHealthIndicator isDark={isDark} testID="radar-source-health" />
           </View>
+          {noPositionHint ? (
+            <View pointerEvents="box-none" style={{ position: "absolute", top: safeTop + 40, left: 0, right: 0, alignItems: "center", zIndex: 109 }}>
+              <Pressable
+                testID="radar-no-position-hint"
+                onPress={needsLocationPermission ? requestPermission : handleCenterOnGps}
+                accessibilityRole="button"
+                accessibilityLabel={`${noPositionHint}. ${needsLocationPermission ? "Antippen gibt den Standort frei." : "Antippen versucht es erneut."}`}
+                style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, backgroundColor: isDark ? "rgba(20,24,31,0.78)" : "rgba(255,255,255,0.88)" }}
+              >
+                <Feather name={needsLocationPermission ? "lock" : "map-pin"} size={11} color={theme.textSecondary} />
+                <Text style={{ fontSize: 11, color: theme.textSecondary }} numberOfLines={1}>
+                  {noPositionHint}{needsLocationPermission ? " · Freigeben" : ""}
+                </Text>
+              </Pressable>
+            </View>
+          ) : null}
           {nearbyCtr.length > 0 ? (
             <View style={{ position: "absolute", bottom: tabBarHeight + 16, right: 12, zIndex: 105, alignItems: "flex-end" }}>
               <View style={{
@@ -1309,11 +1429,8 @@ export default function StandaloneLiveTrafficScreen() {
               <Pressable
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                  if (nearbyCtr.length === 1) {
-                    openLink(`tel:${nearbyCtr[0].towerPhone.replace(/\s/g, "")}`).catch(() => {});
-                  } else {
-                    setShowCtrEmergency(true);
-                  }
+                  // Immer die Nummer sichtbar zeigen (kein stilles Scheitern ohne Telefon-App)
+                  setShowCtrEmergency(true);
                 }}
                 onLongPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
@@ -1381,11 +1498,34 @@ export default function StandaloneLiveTrafficScreen() {
                           {ctr.note ? (
                             <Text style={{ fontSize: 11, color: isDark ? "rgba(255,180,100,0.7)" : "#FF9500", marginTop: 2 }}>{ctr.note}</Text>
                           ) : null}
+                          <Text selectable testID={`radar-ctr-phone-${ctr.icao}`} style={{ fontSize: 22, fontWeight: "800", letterSpacing: 0.5, color: isDark ? "#fff" : "#000", marginTop: 6 }}>
+                            {ctr.towerPhone}
+                          </Text>
+                          <Pressable
+                            testID={`radar-ctr-copy-${ctr.icao}`}
+                            accessibilityRole="button"
+                            onPress={() => {
+                              Clipboard.setStringAsync(ctr.towerPhone.replace(/\s/g, ""))
+                                .then(() => setCopiedIcao(ctr.icao))
+                                .catch(() => Alert.alert("Tower " + ctr.icao, ctr.towerPhone));
+                            }}
+                            style={{ alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 6, marginTop: 6, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: isDark ? "rgba(255,255,255,0.3)" : "rgba(0,0,0,0.2)" }}
+                          >
+                            <Feather name={copiedIcao === ctr.icao ? "check" : "copy"} size={14} color={isDark ? "#fff" : "#000"} />
+                            <Text style={{ fontSize: 13, fontWeight: "600", color: isDark ? "#fff" : "#000" }}>
+                              {copiedIcao === ctr.icao ? "Kopiert" : "Nummer kopieren"}
+                            </Text>
+                          </Pressable>
                         </View>
+                        {canCallPhone ? (
                         <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel={`Anrufen ${ctr.towerPhone}`}
                           onPress={() => {
                             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-                            openLink(`tel:${ctr.towerPhone.replace(/\s/g, "")}`).catch(() => {});
+                            openLink(`tel:${ctr.towerPhone.replace(/\s/g, "")}`).catch(() => {
+                              Alert.alert(`Tower ${ctr.icao}`, `Anruf nicht möglich. Nummer: ${ctr.towerPhone}`);
+                            });
                           }}
                           style={{
                             width: 52, height: 52, borderRadius: 26,
@@ -1397,6 +1537,7 @@ export default function StandaloneLiveTrafficScreen() {
                         >
                           <Feather name="phone" size={22} color="#fff" />
                         </Pressable>
+                        ) : null}
                       </View>
                     ))}
                   </ScrollView>
@@ -2057,7 +2198,13 @@ function SidePanelView({ panel, loading, geozones, windFacilityWarnings = [], ge
   const isAdmin = useShowDataSources();
   const [showInfo, setShowInfo] = useState(false);
   const [expandedRegInfo, setExpandedRegInfo] = useState<number | null>(null);
-  const [wetterScrollX, setWetterScrollX] = useState(0);
+  // Scroll-Offset der Wetter-Tabelle: nativ getrieben (kein setState pro
+  // Scroll-Ereignis); das Sonnenstand-Diagramm folgt per Interpolation.
+  const wetterScrollX = useRef(new Animated.Value(0)).current;
+  const onWetterScroll = useMemo(
+    () => Animated.event([{ nativeEvent: { contentOffset: { x: wetterScrollX } } }], { useNativeDriver: true }),
+    [wetterScrollX],
+  );
   const panelBg = isDark ? "rgba(12, 18, 38, 0.94)" : "rgba(255, 255, 255, 0.96)";
   const textColor = isDark ? "#D0DDF0" : "#1A1A2E";
   const mutedColor = isDark ? "rgba(160,180,210,0.7)" : "rgba(80,80,100,0.6)";
@@ -2745,20 +2892,7 @@ function SidePanelView({ panel, loading, geozones, windFacilityWarnings = [], ge
                   return caution ? "caution" : "ok";
                 }
 
-                const wViewedTime: Date = (() => {
-                  if (pSlots.length === 0) return new Date();
-                  const maxIdx = pSlots.length - 1;
-                  const colF = Math.max(0, Math.min(maxIdx, wetterScrollX / P_COL_W));
-                  const i0 = Math.floor(colF);
-                  const i1 = Math.min(maxIdx, i0 + 1);
-                  const f = colF - i0;
-                  const tNow = Date.now();
-                  const t0 = i0 === 0 ? tNow : new Date(pSlots[i0].timestamp).getTime();
-                  const t1 = i1 === 0 ? tNow : new Date(pSlots[i1].timestamp).getTime();
-                  return new Date(t0 + (t1 - t0) * f);
-                })();
-                const wDaySolar = (propLat != null && propLon != null)
-                  ? calculateSolarTimes(propLat, propLon, wViewedTime) : null;
+                const wSlotTimes = pSlots.map((fc) => new Date(fc.timestamp).getTime());
 
                 return (
                   <View style={{ flex: 1 }}>
@@ -2781,12 +2915,8 @@ function SidePanelView({ panel, loading, geozones, windFacilityWarnings = [], ge
                         <SunArcChart
                           lat={propLat}
                           lon={propLon}
-                          date={wViewedTime}
-                          highlightTime={wViewedTime}
                           height={115}
-                          sunrise={wDaySolar?.sunrise ?? null}
-                          sunset={wDaySolar?.sunset ?? null}
-                          dayLengthMinutes={wDaySolar?.dayLengthMinutes ?? null}
+                          scrollSync={{ scrollX: wetterScrollX, colWidth: P_COL_W, slotTimes: wSlotTimes }}
                         />
                       </View>
                     ) : null}
@@ -2804,17 +2934,14 @@ function SidePanelView({ panel, loading, geozones, windFacilityWarnings = [], ge
                         ))}
                       </ScrollView>
                     </View>
-                    <ScrollView
+                    <Animated.ScrollView
                       horizontal
                       showsHorizontalScrollIndicator={false}
                       contentContainerStyle={{ paddingRight: 8 }}
                       style={{ flex: 1 }}
                       bounces={true}
-                      scrollEventThrottle={32}
-                      onScroll={(e) => {
-                        const x = Math.round(e.nativeEvent.contentOffset.x / 8) * 8;
-                        setWetterScrollX((prev) => (prev !== x ? x : prev));
-                      }}
+                      scrollEventThrottle={16}
+                      onScroll={onWetterScroll}
                     >
                       <View>
                         <View style={{ flexDirection: "row", height: P_HEADER_H, borderBottomWidth: 1, borderBottomColor: wBorderColor }}>
@@ -2853,7 +2980,7 @@ function SidePanelView({ panel, loading, geozones, windFacilityWarnings = [], ge
                           ))}
                         </View>
                       </View>
-                    </ScrollView>
+                    </Animated.ScrollView>
                     </View>
                   </View>
                 );

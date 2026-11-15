@@ -38,6 +38,11 @@ jest.mock("expo-notifications", () => ({
   getPermissionsAsync: jest.fn(async () => ({ granted: true, canAskAgain: true })),
   requestPermissionsAsync: jest.fn(async () => ({ granted: true })),
 }));
+// Alarmtöne (client/lib/alarmSound.ts): natives expo-audio gibt es in Jest nicht
+jest.mock("expo-audio", () => ({
+  setAudioModeAsync: jest.fn(async () => {}),
+  createAudioPlayer: () => ({ volume: 1, play: jest.fn(), pause: jest.fn(), seekTo: jest.fn(async () => {}) }),
+}));
 jest.mock("@/lib/location", () => ({
   Accuracy: { High: 4, Balanced: 3 },
   getForegroundPermissionsAsync: jest.fn(async () => ({ granted: true })),

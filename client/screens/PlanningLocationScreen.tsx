@@ -826,7 +826,7 @@ export default function PlanningLocationScreen() {
           <View>
             <View style={[styles.searchBar, { backgroundColor: theme.backgroundSecondary }]}>
               <Feather name="search" size={20} color={theme.textTertiary} />
-              <TextInput
+              <TextInput disableFullscreenUI
                 style={[styles.searchInput, { color: theme.text }]}
                 value={searchQuery}
                 onChangeText={(t) => { setSearchQuery(t); setShowResults(true); }}
@@ -874,7 +874,7 @@ export default function PlanningLocationScreen() {
             <View style={styles.inputRow}>
               <View style={styles.inputGroup}>
                 <ThemedText style={[styles.inputHint, { color: theme.textTertiary }]}>Breitengrad</ThemedText>
-                <TextInput
+                <TextInput disableFullscreenUI
                   style={[styles.input, { backgroundColor: theme.backgroundSecondary, color: theme.text }]}
                   value={manualLat}
                   onChangeText={setManualLat}
@@ -885,7 +885,7 @@ export default function PlanningLocationScreen() {
               </View>
               <View style={styles.inputGroup}>
                 <ThemedText style={[styles.inputHint, { color: theme.textTertiary }]}>Längengrad</ThemedText>
-                <TextInput
+                <TextInput disableFullscreenUI
                   style={[styles.input, { backgroundColor: theme.backgroundSecondary, color: theme.text }]}
                   value={manualLng}
                   onChangeText={setManualLng}
@@ -1048,7 +1048,7 @@ export default function PlanningLocationScreen() {
         <View style={[styles.searchContainer, { top: Spacing.lg }]}>
           <View style={[styles.searchBar, { backgroundColor: theme.backgroundDefault }]}>
             <Feather name="search" size={20} color={theme.textTertiary} />
-            <TextInput
+            <TextInput disableFullscreenUI
               style={[styles.searchInput, { color: theme.text }]}
               value={searchQuery}
               onChangeText={(t) => { setSearchQuery(t); setShowResults(true); }}
@@ -1216,7 +1216,7 @@ export default function PlanningLocationScreen() {
               </View>
               <View style={styles.altitudeCustomRow}>
                 <ThemedText style={[styles.altitudeCustomLabel, { color: theme.textSecondary }]}>Eigene Höhe:</ThemedText>
-                <TextInput
+                <TextInput disableFullscreenUI
                   style={[styles.altitudeInput, { color: theme.text, borderColor: theme.border, backgroundColor: theme.backgroundSecondary }]}
                   value={String(maxAltitude)}
                   onChangeText={(t) => {
@@ -1511,7 +1511,7 @@ export default function PlanningLocationScreen() {
               geplanten Standort?
             </ThemedText>
 
-            <TextInput
+            <TextInput disableFullscreenUI
               style={[
                 styles.modalInput,
                 { color: theme.text, borderColor: theme.border, backgroundColor: theme.backgroundSecondary },

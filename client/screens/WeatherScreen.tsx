@@ -14,7 +14,17 @@ import { Button } from "@/components/Button";
 import { useTheme } from "@/hooks/useTheme";
 import { useShowDataSources } from "@/lib/dataSource";
 import { Spacing, Typography, Colors } from "@/constants/theme";
-import { fetchWeather, WeatherData, WeatherFetchError, ForecastData, fetchHourlyForecasts, HourlyForecastSlot } from "@/lib/weather";
+import {
+  fetchWeather,
+  WeatherData,
+  WeatherFetchError,
+  ForecastData,
+  fetchHourlyForecasts,
+  HourlyForecastSlot,
+  peekCachedWeather,
+  peekCachedHourly,
+  todayHourlyWindow,
+} from "@/lib/weather";
 import { DataStandLines } from "@/components/DataStandLines";
 import { isOfflineNow } from "@/lib/network";
 import { bringOnlineHint } from "../../shared/offlineDataPolicy";
@@ -71,20 +81,24 @@ export default function WeatherScreen() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      const { start, end } = todayHourlyWindow();
+      // Gespeicherten Stand (Vorab-Laden beim App-Start) sofort zeigen …
+      const cached = await peekCachedHourly(latitude, longitude, start, end).catch(() => null);
+      if (cancelled) return;
+      if (cached && cached.slots.length > 0) {
+        setHourlySlots(cached.slots);
+        setHourlySource(cached.source);
+      }
+      // … und im Hintergrund aktualisieren (frisch < 10 min: ohne Netzabruf)
       try {
-        const now = new Date();
-        const start = new Date(now);
-        start.setMinutes(0, 0, 0);
-        start.setHours(start.getHours() - 1);
-        const end = new Date(now);
-        end.setHours(23, 0, 0, 0);
-        if (end <= start) end.setTime(start.getTime() + 6 * 3600000);
-        const result = await fetchHourlyForecasts(latitude, longitude, start.toISOString(), end.toISOString());
+        const result = await fetchHourlyForecasts(latitude, longitude, start, end);
         if (cancelled) return;
-        setHourlySlots(result.slots);
-        setHourlySource(result.source);
+        if (result.slots.length > 0 || !cached) {
+          setHourlySlots(result.slots);
+          setHourlySource(result.source);
+        }
       } catch {
-        if (cancelled) return;
+        if (cancelled || cached) return;
         setHourlySlots([]);
         setHourlySource(null);
       }
@@ -118,54 +132,63 @@ export default function WeatherScreen() {
     return all.filter((h) => h <= ceiling).sort((a, b) => b - a);
   }, [weather, maxAltitude]);
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
+  const weatherRef = React.useRef<WeatherData | null>(null);
+  weatherRef.current = weather;
+
+  const loadData = useCallback(async (force: boolean = false) => {
     setError(null);
     setKpForecastForFlight(null);
+    if (!weatherRef.current) setLoading(true);
+    let shown = !!weatherRef.current;
     try {
-      const session = sessionId ? await getFlightSession(sessionId) : null;
+      // Lokale Daten parallel (schnell, kein Netz)
+      const [session, settingsData, drone] = await Promise.all([
+        sessionId ? getFlightSession(sessionId) : Promise.resolve(null),
+        getSettings(),
+        droneId ? getDrone(droneId) : Promise.resolve(null),
+      ]);
       const flightDuration = session?.planning?.estimatedDuration;
 
-      const [weatherData, settingsData, kpResult, kpTimeline] = await Promise.all([
-        fetchWeather(latitude, longitude, flightDuration),
-        getSettings(),
-        fetchKpIndex().catch(() => null),
-        fetchKpTimeline().catch(() => []),
-      ]);
-
-      const plannedDateTime = session?.planning?.plannedDate && session?.planning?.plannedTime
-        ? new Date(`${session.planning.plannedDate}T${session.planning.plannedTime}`)
-        : new Date();
-      setKpForecastForFlight(
-        getKpForHour(kpTimeline, plannedDateTime, 3 * 60 * 60 * 1000),
-      );
-      
-      const drone = droneId ? await getDrone(droneId) : null;
-      
-      setWeather(weatherData);
       setSettings(settingsData);
       setSelectedDrone(drone);
-      if (kpResult) setKpData(kpResult);
       setSolarTimes(calculateSolarTimes(latitude, longitude));
-      
       if (session?.planning?.maxAltitude != null && session.planning.maxAltitude > 0) {
         setMaxAltitude(session.planning.maxAltitude);
       }
-
       if (session?.planning?.isFpvFlight) {
         setIsFpvFlight(true);
       } else if (drone?.droneType === "fpv_only") {
         setIsFpvFlight(true);
       }
-      
-      if (drone) {
-        setLimits(drone.limits);
-      } else {
-        setLimits(settingsData.limits);
+      setLimits(drone ? drone.limits : settingsData.limits);
+
+      // Kp unabhängig vom Wetter nachladen (blockiert die Anzeige nicht)
+      const plannedDateTime = session?.planning?.plannedDate && session?.planning?.plannedTime
+        ? new Date(`${session.planning.plannedDate}T${session.planning.plannedTime}`)
+        : new Date();
+      void Promise.all([fetchKpIndex().catch(() => null), fetchKpTimeline().catch(() => [])]).then(([kpResult, kpTimeline]) => {
+        setKpForecastForFlight(getKpForHour(kpTimeline, plannedDateTime, 3 * 60 * 60 * 1000));
+        if (kpResult) setKpData(kpResult);
+      });
+
+      // Gespeicherten Stand (≤ 24 h, z. B. vom Vorab-Laden) sofort zeigen
+      if (!shown && !force) {
+        const cached = await peekCachedWeather(latitude, longitude, flightDuration).catch(() => null);
+        if (cached) {
+          setWeather(cached);
+          setLoading(false);
+          shown = true;
+        }
       }
+
+      // Aktualisieren (frischer Stand < 10 min wird ohne Netzabruf geliefert)
+      const weatherData = await fetchWeather(latitude, longitude, flightDuration, force ? { maxAgeMs: 0 } : undefined);
+      setWeather(weatherData);
     } catch (err) {
       console.error("Weather fetch error:", err);
-      if (isOfflineNow()) {
+      if (shown) {
+        // gespeicherter Stand bleibt sichtbar (Stand-Zeile zeigt das Alter)
+      } else if (isOfflineNow()) {
         // Teil A: kein gespeicherter Stand < 24 h
         setError(`${bringOnlineHint("weather")} – keine gespeicherte Vorhersage jünger als 24 h.`);
       } else if (err instanceof WeatherFetchError) {
@@ -182,6 +205,9 @@ export default function WeatherScreen() {
 
   useEffect(() => {
     loadData();
+    // Solange die Ansicht offen ist, regelmäßig im Hintergrund aktualisieren
+    const id = setInterval(() => { loadData(); }, 15 * 60_000);
+    return () => clearInterval(id);
   }, [loadData]);
 
   const handleOpenNdFilter = () => {
@@ -285,7 +311,7 @@ export default function WeatherScreen() {
           <ThemedText style={[styles.errorText, { color: theme.textSecondary }]}>
             {error || "Wetterdaten nicht verfügbar."}
           </ThemedText>
-          <Button title="Erneut versuchen" onPress={loadData} style={{ marginTop: Spacing.xl }} />
+          <Button title="Erneut versuchen" onPress={() => { loadData(true); }} style={{ marginTop: Spacing.xl }} />
         </View>
       </ThemedView>
     );
@@ -320,7 +346,7 @@ export default function WeatherScreen() {
             { kind: "weather", origin: weather.offline ?? null },
             { kind: "kp", origin: kpData?.offline ?? null },
           ]}
-          onRefresh={weather.offline || kpData?.offline ? () => { loadData(); } : undefined}
+          onRefresh={weather.offline || kpData?.offline ? () => { loadData(true); } : undefined}
         />
         <ThemedText style={[styles.sectionTitle, { color: theme.textSecondary }]}>
           AKTUELL (BODEN)

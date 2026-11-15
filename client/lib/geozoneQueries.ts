@@ -13,6 +13,7 @@ import type { GeozoneFeatureInfo, GeozoneLayer } from "./geozones";
 import { FR_ZONE_TYPES, classifyFrRestrictionType, frRestrictionFromText } from "./frZoneTypes";
 import { deRestrictionForLayer, normalizeRestriction, restrictionFromText, type Restriction } from "../../shared/restrictionPolicy";
 import { luRestrictionFromResponsibility } from "../../shared/irishLuxGeozones";
+import { dipulZoneColors } from "../../shared/dipulLayerStyles";
 import { formatHeightRangeDe, parseHeight, type Height } from "../../shared/heights";
 
 // Label für aktivierbare (temporäre) LU-UAS-Zonen. Hier definiert (statt in
@@ -165,6 +166,10 @@ export function dipulZoneFromFeature(
   const heightFields = zoneHeightFields(lower, upper);
 
   const polygonRings = polygonGroups.flat();
+  const restriction = deRestrictionForLayer(layer.wmsLayer || layer.id || layer.label, `${name}\n${details.join("\n")}`);
+  // Kartenfarbe nach Zonenart wie in der dipul-Karte (nicht pauschal nach
+  // Einstufung – sonst wären fast alle DE-Zonen orange).
+  const colors = dipulZoneColors(layer.wmsLayer || layer.id, { typeCodeDetail: typeDetail, restriction });
   return {
     ...heightFields,
     layerLabel: layer.label,
@@ -175,7 +180,8 @@ export function dipulZoneFromFeature(
     polygonGroups,
     country: "DE",
     // dipul liefert keine ED-269-Einstufung → aus Layer/type_code ableiten.
-    restriction: deRestrictionForLayer(layer.wmsLayer || layer.id || layer.label, `${name}\n${details.join("\n")}`),
+    restriction,
+    ...(colors ? { fillColor: colors.fill, strokeColor: colors.stroke } : {}),
     ...(typeCode ? { restrictionRaw: typeCode } : {}),
     ...(validStartTs != null || validEndTs != null ? { validStartTs, validEndTs } : {}),
   };

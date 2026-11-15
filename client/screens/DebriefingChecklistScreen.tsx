@@ -534,7 +534,7 @@ export default function DebriefingChecklistScreen() {
                           </View>
                         </View>
                         <View style={styles.textInputRow}>
-                          <TextInput
+                          <TextInput disableFullscreenUI
                             style={[
                               styles.textInput,
                               { 

@@ -18,7 +18,7 @@
  *    Hintergrund alle 2 s (wie im Vordergrund) Verkehr abfragen und mit der
  *    gemeinsamen Logik (radarAlertLogic.ts) bewerten, alle 120 s Gebiet
  *    (Geozonen/NOTAM). Alarme → Benachrichtigung mit Ton + Vibration und –
- *    wie im Vordergrund – Sprachalarm laut TA/RA-Einstellung.
+ *    wie im Vordergrund – Alarmton (+ Ansage) laut TA/RA-Einstellung.
  *  - GPS: folgt der Screen dem GPS (kein manuell gesetzter Standort), hält
  *    der Dienst eine Positionsüberwachung (LocationManager) offen.
  *  - Ende: `stop()` (Radar verlassen, Tippen auf die Daueranzeige →
@@ -91,8 +91,14 @@ export interface RadarMonitorDeps {
   fetchAircraft(lat: number, lon: number, radiusKm: number): Promise<AircraftState[]>;
   fetchArea(lat: number, lon: number, raRadiusKm: number, countryIso: string | undefined): Promise<RadarAreaSnapshot | null>;
   notify(n: RadarNotification): Promise<void>;
-  /** Sprachalarm wie im Vordergrund (proximityAlarm.ts) */
-  triggerSound(level: "warning" | "critical", settings: ProximityAlarmSettings, altitudeM: number | null): void;
+  /**
+   * Alarmton (+ Sprachansage, falls TTS vorhanden) wie im Vordergrund
+   * (proximityAlarm.ts). `approaching` false = TA „entfernt sich“ (leiser
+   * Einzelton, siehe decideAlarmTone).
+   */
+  triggerSound(level: "warning" | "critical", settings: ProximityAlarmSettings, altitudeM: number | null, approaching: boolean): void;
+  /** Laufender Alarm: Höhe/Richtung aktualisieren (TA „entfernt sich“ → „nähert sich“ wird laut) */
+  updateSound?(altitudeM: number | null, approaching: boolean): void;
   stopSound(): void;
   watchPosition(cb: (lat: number, lon: number) => void): Promise<() => void>;
   service: {
@@ -187,11 +193,13 @@ export function createRadarMonitor(deps: RadarMonitorDeps): RadarMonitor {
       if (d.action === "trigger") {
         applyTrigger(decision, d, now);
         const text = proximityNotificationText(d);
-        deps.triggerSound(d.level, s, d.altitudeM);
+        deps.triggerSound(d.level, s, d.altitudeM, d.approaching);
         await deps.notify({ kind: d.level === "critical" ? "traffic-critical" : "traffic-warning", ...text });
       } else if (d.action === "update" && d.downgrade) {
         // RA → TA: keine neue Meldung, nur Stufe senken (Vordergrund: nach 5 s)
         decision.currentLevel = "warning";
+      } else if (d.action === "update") {
+        deps.updateSound?.(d.altitudeM, d.approaching);
       } else if (d.action === "clear" && decision.currentLevel !== "none") {
         deps.stopSound();
         decision.currentLevel = "none";

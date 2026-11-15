@@ -141,7 +141,7 @@ export default function BatterySelectionBlock({ batteries, mode, initial, onChan
                     maximumTrackTintColor={theme.border}
                   />
                   <View style={[styles.percentBox, { borderColor: theme.border, backgroundColor: theme.backgroundSecondary }]}>
-                    <TextInput
+                    <TextInput disableFullscreenUI
                       testID={`battery-input-${b.id}`}
                       style={[styles.percentInput, { color: theme.text }]}
                       keyboardType="numeric"

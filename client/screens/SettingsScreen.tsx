@@ -1,6 +1,7 @@
 import Constants from "expo-constants";
 import React, { useCallback, useMemo, useState } from "react";
-import { View, StyleSheet, ScrollView, Pressable, TextInput, Modal, SectionList, Platform } from "react-native";
+import { View, StyleSheet, ScrollView, Pressable, Modal, SectionList, Platform, useWindowDimensions } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation, useFocusEffect, useRoute, type RouteProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
@@ -18,9 +19,6 @@ import { COUNTRY_MAPS, getCountryMapConfig, getCountryFlag } from "@/lib/country
 import type { SettingsStackParamList } from "@/navigation/SettingsStackNavigator";
 import { useAuth } from "@/lib/auth";
 import { setupGuideController } from "@/lib/setupGuide";
-import { DroneCard } from "@/components/DroneCard";
-import { DocumentPreviewModal } from "@/components/DocumentPreviewModal";
-import type { DocumentRef } from "@/lib/documents";
 import { WildlifeRescueInfoModal } from "@/components/WildlifeRescueInfo";
 import {
   MAP_STYLES,
@@ -40,6 +38,62 @@ import {
 const SORTED_COUNTRY_MAPS = [...COUNTRY_MAPS].sort((a, b) => a.nameDE.localeCompare(b.nameDE, "de"));
 
 type NavigationProp = NativeStackNavigationProp<SettingsStackParamList>;
+
+interface SettingsRowProps {
+  icon: React.ReactNode;
+  title: string;
+  subtitle?: string;
+  /** kurzer Wert rechts neben dem Titel (z. B. gewähltes Land) */
+  value?: string;
+  /** eigenes Bedienelement rechts (Umschalter); ersetzt den Pfeil */
+  accessory?: React.ReactNode;
+  onPress?: () => void;
+  testID?: string;
+}
+
+/**
+ * Eine Zeile der Einstellungen. Mit onPress ist die ganze Zeile tippbar und
+ * zeigt rechts einen Pfeil „›“. Bewusst ein einfaches Pressable (keine
+ * Reanimated-Animation), damit Taps auf der Fernsteuerung sicher ankommen.
+ */
+export function SettingsRow({ icon, title, subtitle, value, accessory, onPress, testID }: SettingsRowProps) {
+  const { theme } = useTheme();
+  const content = (
+    <>
+      <View style={styles.rowIcon}>{icon}</View>
+      <View style={styles.rowText}>
+        <ThemedText style={styles.menuText} numberOfLines={2}>{title}</ThemedText>
+        {subtitle ? (
+          <ThemedText style={[styles.switchDescription, { color: theme.textSecondary }]}>{subtitle}</ThemedText>
+        ) : null}
+      </View>
+      {value ? (
+        <ThemedText style={[styles.rowValue, { color: theme.primary }]} numberOfLines={1}>{value}</ThemedText>
+      ) : null}
+      {accessory ?? null}
+      {onPress ? <Feather name="chevron-right" size={20} color={theme.textTertiary} testID={testID ? `${testID}-chevron` : undefined} /> : null}
+    </>
+  );
+  if (!onPress) {
+    return (
+      <View style={[styles.row, { backgroundColor: theme.backgroundDefault }]} testID={testID}>
+        {content}
+      </View>
+    );
+  }
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={title}
+      testID={testID}
+      android_ripple={{ color: theme.backgroundTertiary }}
+      style={({ pressed }) => [styles.row, { backgroundColor: theme.backgroundDefault }, pressed && styles.pressed]}
+    >
+      {content}
+    </Pressable>
+  );
+}
 type SettingsRoute = RouteProp<SettingsStackParamList, "Settings">;
 
 export default function SettingsScreen() {
@@ -48,6 +102,8 @@ export default function SettingsScreen() {
   const { theme } = useTheme();
   const headerHeight = useHeaderHeight();
   const tabBarHeight = useBottomTabBarHeight();
+  const insets = useSafeAreaInsets();
+  const { width, height } = useWindowDimensions();
   const { user, isAuthenticated, status: authStatus } = useAuth();
   const [settings, setSettings] = useState<Settings | null>(null);
   const [countryPickerOpen, setCountryPickerOpen] = useState(false);
@@ -56,7 +112,6 @@ export default function SettingsScreen() {
   const [pilot, setPilot] = useState<PilotProfile | null>(null);
   const [flightCounts, setFlightCounts] = useState<Record<string, number>>({});
   const [activeDroneIds, setActiveDroneIds] = useState<Set<string>>(new Set());
-  const [previewDoc, setPreviewDoc] = useState<{ doc: DocumentRef; label: string } | null>(null);
   const [wildlifeDialogStage, setWildlifeDialogStage] = useState<"closed" | "confirm" | "thanks">("closed");
   const [wildlifeInfoOpen, setWildlifeInfoOpen] = useState(false);
   const [mapStyle, setMapStyle] = useState<MapStyleOption>("grayscale");
@@ -206,410 +261,269 @@ export default function SettingsScreen() {
     await saveMapStyle(next);
   }, []);
 
+  const landscape = width > height;
+  const chevron = <Feather name="chevron-right" size={20} color={theme.textTertiary} />;
+  const valuePill = (text: string, onPress: () => void, testID?: string, role: "button" | "switch" = "button", checked?: boolean) => (
+    <Pressable
+      testID={testID}
+      accessibilityRole={role}
+      accessibilityState={role === "switch" ? { checked: !!checked } : undefined}
+      onPress={onPress}
+      hitSlop={8}
+      style={({ pressed }) => [styles.unitToggle, { backgroundColor: theme.backgroundSecondary }, pressed && styles.pressed]}
+    >
+      <ThemedText style={[styles.unitText, { color: theme.primary }]}>{text}</ThemedText>
+    </Pressable>
+  );
+  const sectionTitle = (title: string, first = false) => (
+    <ThemedText style={[styles.sectionTitle, { color: theme.textSecondary }, first ? null : styles.sectionTitleSpacing]}>
+      {title}
+    </ThemedText>
+  );
+
+  const leftColumn = (
+    <>
+      {sectionTitle("DATEN", true)}
+      <SettingsRow
+        testID="settings-row-my-data"
+        icon={<Feather name="database" size={20} color={theme.primary} />}
+        title="Meine Daten"
+        subtitle="Alles bleibt auf diesem Gerät (RC-Version ohne Konto)"
+        onPress={() => navigation.navigate("MyData")}
+      />
+
+      {sectionTitle("FLUGREGION")}
+      <SettingsRow
+        testID="settings-row-country"
+        icon={<Feather name="globe" size={20} color={theme.primary} />}
+        title="Land"
+        value={getCountryMapConfig(settings?.preferredCountryIso || "DE")?.nameDE || "Deutschland"}
+        subtitle="Bestimmt Karten-Zentrierung, NOTAMs & Geozonen-Filter"
+        onPress={() => setCountryPickerOpen(true)}
+      />
+
+      {sectionTitle("PILOT")}
+      <SettingsRow
+        testID="settings-row-pilot-profile"
+        icon={<Feather name="user" size={20} color={theme.primary} />}
+        title="Pilotenprofil"
+        subtitle={pilot?.name?.trim() || undefined}
+        onPress={() => navigation.navigate("PilotProfile")}
+      />
+      <SettingsRow
+        testID="settings-row-license"
+        icon={<Feather name="credit-card" size={20} color={theme.primary} />}
+        title="Führerschein anzeigen"
+        onPress={() => navigation.navigate("PilotLicenseCard")}
+      />
+      <SettingsRow
+        testID="settings-row-expiry"
+        icon={<Feather name="clock" size={20} color={theme.primary} />}
+        title="Ablaufende Dokumente"
+        onPress={() => navigation.navigate("ExpiryOverview")}
+      />
+      <SettingsRow
+        testID="settings-row-setup-guide"
+        icon={<Feather name="compass" size={20} color={theme.primary} />}
+        title="Einrichtungs-Assistent"
+        subtitle="Drohnen, Pilotendaten und Lizenzen Schritt für Schritt einrichten"
+        onPress={() => setupGuideController.launch()}
+      />
+
+      <View style={[styles.dronesSectionHeader, styles.sectionTitleSpacing]}>
+        <ThemedText style={[styles.sectionTitle, { color: theme.textSecondary, marginBottom: 0 }]}>
+          DROHNEN
+        </ThemedText>
+        <Pressable
+          onPress={() => navigation.navigate("DroneSetup", {})}
+          style={({ pressed }) => pressed && styles.pressed}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel="Drohne hinzufügen"
+          testID="button-add-drone"
+        >
+          <View style={[styles.droneAddButton, { backgroundColor: theme.primary }]}>
+            <Feather name="plus" size={18} color="#FFFFFF" />
+          </View>
+        </Pressable>
+      </View>
+      <SettingsRow
+        testID="settings-row-drones"
+        icon={<MaterialCommunityIcons name="quadcopter" size={22} color={theme.primary} />}
+        title="Drohnen"
+        value={drones.length > 0 ? String(drones.length) : undefined}
+        subtitle="Alle Drohnen verwalten, Dokumente, Historie, Archiv"
+        onPress={() => navigation.navigate("Drones")}
+      />
+      {drones.length === 0 ? (
+        <SettingsRow
+          testID="settings-row-first-drone"
+          icon={<Feather name="plus-circle" size={20} color={theme.primary} />}
+          title="Erste Drohne hinzufügen"
+          onPress={() => navigation.navigate("DroneSetup", {})}
+        />
+      ) : (
+        drones.map((drone) => {
+          const isSelected = drone.id === selectedDroneId;
+          const count = flightCounts[drone.id] || 0;
+          return (
+            <SettingsRow
+              key={drone.id}
+              testID={`settings-row-drone-${drone.id}`}
+              icon={
+                <Pressable
+                  onPress={() => handleSelectDrone(drone.id)}
+                  hitSlop={10}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: isSelected }}
+                  accessibilityLabel={`${drone.name} als aktive Drohne wählen`}
+                  testID={`settings-drone-select-${drone.id}`}
+                >
+                  <Feather name={isSelected ? "check-circle" : "circle"} size={22} color={isSelected ? theme.primary : theme.textTertiary} />
+                </Pressable>
+              }
+              title={drone.name}
+              value={activeDroneIds.has(drone.id) ? "Aktiv" : undefined}
+              subtitle={`${drone.classMark} · ${drone.mtomGrams} g · ${count} ${count === 1 ? "Flug" : "Flüge"}${isSelected ? " · ausgewählt" : ""}`}
+              onPress={() => navigation.navigate("DroneSetup", { droneId: drone.id })}
+            />
+          );
+        })
+      )}
+
+      {sectionTitle("TCAS - PROXIMITY-ALARM")}
+      <SettingsRow
+        testID="settings-row-tcas"
+        icon={<Feather name="alert-triangle" size={20} color={theme.primary} />}
+        title="TCAS - Proximity-Alarm"
+        subtitle={`${(settings?.proximityAlarm?.enabled ?? DEFAULT_PROXIMITY_ALARM.enabled) ? "Aktiviert" : "Deaktiviert"} · TA/RA, Radius, Töne`}
+        onPress={() => navigation.navigate("TcasSettings")}
+      />
+    </>
+  );
+
+  const rightColumn = (
+    <>
+      {sectionTitle("KARTEN", landscape)}
+      <Card style={styles.mapStyleCard}>
+        <View style={{ flexDirection: "row", alignItems: "center", marginBottom: Spacing.sm }}>
+          <Feather name="layers" size={20} color={theme.primary} />
+          <ThemedText style={[styles.menuText, { marginLeft: Spacing.md }]}>Basiskarte</ThemedText>
+        </View>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: Spacing.xs }}>
+          {MAP_STYLES.map((option) => {
+            const selected = mapStyle === option.id;
+            return (
+              <Pressable
+                key={option.id}
+                testID={`map-style-${option.id}`}
+                accessibilityRole="button"
+                accessibilityState={{ selected }}
+                onPress={() => handleSelectMapStyle(option.id)}
+                style={{
+                  paddingHorizontal: Spacing.md,
+                  paddingVertical: Spacing.sm,
+                  borderRadius: BorderRadius.md,
+                  backgroundColor: selected ? theme.primary : theme.backgroundSecondary,
+                }}
+              >
+                <ThemedText style={{ color: selected ? "#FFFFFF" : theme.text, fontWeight: "600" }}>
+                  {option.label}
+                </ThemedText>
+              </Pressable>
+            );
+          })}
+        </View>
+      </Card>
+      <SettingsRow
+        icon={<Feather name="wind" size={20} color={theme.primary} />}
+        title="Ergänzende Anlagen"
+        accessory={valuePill(showEnergyInfrastructure ? "An" : "Aus", handleToggleEnergyInfrastructure, "toggle-energy-infrastructure", "switch", showEnergyInfrastructure)}
+      />
+
+      {sectionTitle("EINHEITEN")}
+      <SettingsRow
+        icon={<Feather name="wind" size={20} color={theme.primary} />}
+        title="Windgeschwindigkeit"
+        accessory={valuePill(settings?.windUnit || "m/s", () => toggleUnit("windUnit"), "toggle-wind-unit")}
+      />
+      <SettingsRow
+        icon={<Feather name="thermometer" size={20} color={theme.primary} />}
+        title="Temperatur"
+        accessory={valuePill(settings?.tempUnit === "F" ? "°F" : "°C", () => toggleUnit("tempUnit"), "toggle-temp-unit")}
+      />
+
+      {sectionTitle("DOKUMENTE")}
+      <SettingsRow
+        icon={<Feather name="paperclip" size={20} color={theme.primary} />}
+        title="Dokumente an Exporte anhängen"
+        subtitle="Hängt beim PDF-Export die zum Flugzeitpunkt gültige Allgemeinverfügung, das A2-Zeugnis und den Versicherungsnachweis an. Pro Export überschreibbar."
+        accessory={valuePill((settings?.attachPilotDocsToExports ?? true) ? "An" : "Aus", handleToggleAttachDocs, "toggle-attach-docs")}
+      />
+
+      {sectionTitle("WILDTIERRETTUNG")}
+      <SettingsRow
+        icon={<MaterialCommunityIcons name="paw" size={20} color={theme.primary} />}
+        title={WILDLIFE_RESCUE_MODE_TITLE}
+        subtitle={WILDLIFE_RESCUE_MODE_SUBTITLE}
+        accessory={valuePill((settings?.wildlifeRescueMode ?? false) ? "An" : "Aus", handleToggleWildlifeRescue, "toggle-wildlife-rescue")}
+      />
+      {(settings?.wildlifeRescueMode ?? false) ? (
+        <SettingsRow
+          testID="menu-wildlife-info"
+          icon={<Feather name="info" size={20} color={theme.primary} />}
+          title="Mehr Infos zu den Allgemeinverfügungen"
+          onPress={() => setWildlifeInfoOpen(true)}
+        />
+      ) : null}
+
+      {sectionTitle("RESSOURCEN")}
+      <SettingsRow testID="settings-row-links" icon={<Feather name="bookmark" size={20} color={theme.primary} />} title="Nützliche Links" onPress={() => navigation.navigate("ResourceLinks")} />
+      <SettingsRow testID="settings-row-glossary" icon={<Feather name="book" size={20} color={theme.primary} />} title="Glossar" onPress={() => navigation.navigate("Glossary")} />
+      <SettingsRow testID="menu-vlos-info" icon={<Feather name="eye" size={20} color={theme.primary} />} title="VLOS — Sichtweite erklärt" onPress={() => navigation.navigate("VlosInfo")} />
+      <SettingsRow testID="settings-row-easa-reference" icon={<Feather name="book-open" size={20} color={theme.primary} />} title="EASA — EU-Drohnenregeln" onPress={() => navigation.navigate("EasaReference")} />
+      <SettingsRow testID="settings-row-easa-rules" icon={<Feather name="file-text" size={20} color={theme.primary} />} title="Easy Access Rules (UAS)" onPress={() => navigation.navigate("EasaRules")} />
+      <SettingsRow testID="settings-row-countries" icon={<Feather name="globe" size={20} color={theme.primary} />} title="Länder — Rules & Regulations" onPress={() => navigation.navigate("CountryInfo")} />
+      <SettingsRow testID="menu-offline-maps" icon={<Feather name="download-cloud" size={20} color={theme.primary} />} title="Karten, Hindernisse & Offline" onPress={() => navigation.navigate("RcOfflineMaps")} />
+      <SettingsRow testID="menu-rc-key-test" icon={<Feather name="radio" size={20} color={theme.primary} />} title="Tasten der Fernsteuerung" onPress={() => navigation.navigate("RcKeyTest")} />
+      <SettingsRow testID="settings-row-weather" icon={<Feather name="cloud" size={20} color={theme.primary} />} title="Aktuelles Wetter" onPress={() => navigation.navigate("DipulWeather")} />
+
+      {sectionTitle("ÜBER")}
+      <SettingsRow
+        icon={<Feather name="info" size={20} color={theme.primary} />}
+        title="Version"
+        accessory={<ThemedText style={{ color: theme.textTertiary }}>RC-Version {Constants.expoConfig?.version ?? ""}</ThemedText>}
+      />
+      <SettingsRow testID="settings-row-privacy" icon={<Feather name="shield" size={20} color={theme.primary} />} title="Datenschutzerklärung" onPress={() => navigation.navigate("PrivacyPolicy")} />
+      <SettingsRow testID="settings-row-terms" icon={<Feather name="file-text" size={20} color={theme.primary} />} title="AGB / Nutzungsbedingungen" onPress={() => navigation.navigate("LegalDocument", { doc: "terms" })} />
+      <SettingsRow testID="menu-data-sources" icon={<Feather name="database" size={20} color={theme.primary} />} title="Datenquellen & Lizenzen" onPress={() => navigation.navigate("DataSources")} />
+      <SettingsRow testID="settings-row-imprint" icon={<Feather name="briefcase" size={20} color={theme.primary} />} title="Impressum" onPress={() => navigation.navigate("LegalDocument", { doc: "imprint" })} />
+    </>
+  );
+
   return (
     <ThemedView style={styles.container}>
       <ScrollView
+        testID="settings-scroll"
         contentContainerStyle={[
           styles.content,
           {
-            paddingTop: headerHeight + Spacing.xl,
-            paddingBottom: tabBarHeight + Spacing.xl,
+            paddingTop: headerHeight + (landscape ? Spacing.md : Spacing.xl),
+            paddingBottom: tabBarHeight + insets.bottom + Spacing.xl,
           },
         ]}
       >
-        <ThemedText style={[styles.sectionTitle, { color: theme.textSecondary }]}>
-          DATEN
-        </ThemedText>
-        <Card style={styles.menuItem} onPress={() => navigation.navigate("MyData")}>
-          <View style={styles.menuRow}>
-            <Feather name="database" size={20} color={theme.primary} />
-            <View style={{ flex: 1 }}>
-              <ThemedText style={styles.menuText}>Meine Daten</ThemedText>
-              <ThemedText style={[styles.switchDescription, { color: theme.textSecondary }]}>
-                Alles bleibt auf diesem Gerät (RC-Version ohne Konto)
-              </ThemedText>
-            </View>
+        {landscape ? (
+          <View style={styles.columns} testID="settings-two-columns">
+            <View style={styles.column}>{leftColumn}</View>
+            <View style={styles.column}>{rightColumn}</View>
           </View>
-          <Feather name="chevron-right" size={20} color={theme.textTertiary} />
-        </Card>
-
-        <ThemedText style={[styles.sectionTitle, { color: theme.textSecondary, marginTop: Spacing["2xl"] }]}>
-          FLUGREGION
-        </ThemedText>
-        <Card
-          style={styles.menuItem}
-          onPress={() => setCountryPickerOpen(true)}
-        >
-          <View style={[styles.menuRow, { flex: 1 }]}>
-            <Feather name="globe" size={20} color={theme.primary} />
-            <View style={{ flex: 1 }}>
-              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                <ThemedText style={styles.menuText}>Land</ThemedText>
-                <ThemedText style={{ color: theme.primary, fontWeight: "600" }} numberOfLines={1}>
-                  {getCountryMapConfig(settings?.preferredCountryIso || "DE")?.nameDE || "Deutschland"}
-                </ThemedText>
-              </View>
-              <ThemedText style={[styles.switchDescription, { color: theme.textSecondary }]}>
-                Bestimmt Karten-Zentrierung, NOTAMs & Geozonen-Filter
-              </ThemedText>
-            </View>
-          </View>
-          <Feather name="chevron-right" size={20} color={theme.textTertiary} />
-        </Card>
-        <ThemedText style={[styles.sectionTitle, { color: theme.textSecondary, marginTop: Spacing["2xl"] }]}>
-          KARTEN
-        </ThemedText>
-        <Card style={{ padding: Spacing.md, marginBottom: Spacing.sm }}>
-          <View style={{ flexDirection: "row", alignItems: "center", marginBottom: Spacing.sm }}>
-            <Feather name="layers" size={20} color={theme.primary} />
-            <ThemedText style={[styles.menuText, { marginLeft: Spacing.md }]}>Basiskarte</ThemedText>
-          </View>
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: Spacing.xs }}>
-            {MAP_STYLES.map((option) => {
-              const selected = mapStyle === option.id;
-              return (
-                <Pressable
-                  key={option.id}
-                  testID={`map-style-${option.id}`}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected }}
-                  onPress={() => handleSelectMapStyle(option.id)}
-                  style={{
-                    paddingHorizontal: Spacing.md,
-                    paddingVertical: Spacing.sm,
-                    borderRadius: BorderRadius.md,
-                    backgroundColor: selected ? theme.primary : theme.backgroundSecondary,
-                  }}
-                >
-                  <ThemedText style={{ color: selected ? "#FFFFFF" : theme.text, fontWeight: "600" }}>
-                    {option.label}
-                  </ThemedText>
-                </Pressable>
-              );
-            })}
-          </View>
-        </Card>
-        <Card style={[styles.menuItem, styles.menuItemSpacing]}>
-          <View style={[styles.menuRow, { flex: 1, paddingRight: Spacing.md }]}>
-            <Feather name="wind" size={20} color={theme.primary} />
-            <View style={{ flex: 1 }}>
-              <ThemedText style={styles.menuText}>Ergänzende Anlagen</ThemedText>
-            </View>
-          </View>
-          <Pressable
-            testID="toggle-energy-infrastructure"
-            accessibilityRole="switch"
-            accessibilityState={{ checked: showEnergyInfrastructure }}
-            onPress={handleToggleEnergyInfrastructure}
-            style={[styles.unitToggle, { backgroundColor: theme.backgroundSecondary }]}
-          >
-            <ThemedText style={[styles.unitText, { color: theme.primary }]}>
-              {showEnergyInfrastructure ? "An" : "Aus"}
-            </ThemedText>
-          </Pressable>
-        </Card>
-        <ThemedText style={[styles.sectionTitle, { color: theme.textSecondary, marginTop: Spacing["2xl"] }]}>
-          PILOT
-        </ThemedText>
-        <Card style={styles.menuItem} onPress={() => navigation.navigate("PilotProfile")}>
-          <View style={styles.menuRow}>
-            <Feather name="user" size={20} color={theme.primary} />
-            <ThemedText style={styles.menuText}>Pilotenprofil</ThemedText>
-          </View>
-          <Feather name="chevron-right" size={20} color={theme.textTertiary} />
-        </Card>
-        <Card style={styles.menuItem} onPress={() => navigation.navigate("PilotLicenseCard")}>
-          <View style={styles.menuRow}>
-            <Feather name="credit-card" size={20} color={theme.primary} />
-            <ThemedText style={styles.menuText}>Führerschein anzeigen</ThemedText>
-          </View>
-          <Feather name="chevron-right" size={20} color={theme.textTertiary} />
-        </Card>
-        <Card style={styles.menuItem} onPress={() => navigation.navigate("ExpiryOverview")}>
-          <View style={styles.menuRow}>
-            <Feather name="clock" size={20} color={theme.primary} />
-            <ThemedText style={styles.menuText}>Ablaufende Dokumente</ThemedText>
-          </View>
-          <Feather name="chevron-right" size={20} color={theme.textTertiary} />
-        </Card>
-        <Card
-          style={[styles.menuItem, styles.menuItemSpacing]}
-          onPress={() => setupGuideController.launch()}
-        >
-          <View style={[styles.menuRow, { flex: 1 }]}>
-            <Feather name="compass" size={20} color={theme.primary} />
-            <View style={{ flex: 1 }}>
-              <ThemedText style={styles.menuText}>Einrichtungs-Assistent</ThemedText>
-              <ThemedText style={[styles.switchDescription, { color: theme.textSecondary }]}>
-                Drohnen, Pilotendaten und Lizenzen Schritt für Schritt einrichten
-              </ThemedText>
-            </View>
-          </View>
-          <Feather name="chevron-right" size={20} color={theme.textTertiary} />
-        </Card>
-
-        <View style={styles.dronesSectionHeader}>
-          <ThemedText style={[styles.sectionTitle, { color: theme.textSecondary, marginBottom: 0 }]}>
-            DROHNEN
-          </ThemedText>
-          <Pressable
-            onPress={() => navigation.navigate("DroneSetup", {})}
-            style={({ pressed }) => pressed && styles.pressed}
-            testID="button-add-drone"
-          >
-            <View style={[styles.droneAddButton, { backgroundColor: theme.primary }]}>
-              <Feather name="plus" size={18} color="#FFFFFF" />
-            </View>
-          </Pressable>
-        </View>
-        {drones.length === 0 ? (
-          <Card style={styles.menuItem} onPress={() => navigation.navigate("DroneSetup", {})}>
-            <View style={styles.menuRow}>
-              <MaterialCommunityIcons name="quadcopter" size={22} color={theme.primary} />
-              <ThemedText style={styles.menuText}>Erste Drohne hinzufügen</ThemedText>
-            </View>
-            <Feather name="plus" size={20} color={theme.textTertiary} />
-          </Card>
         ) : (
-          drones.map((drone) => (
-            <DroneCard
-              key={drone.id}
-              drone={drone}
-              pilot={pilot}
-              isSelected={drone.id === selectedDroneId}
-              hasActiveBriefing={activeDroneIds.has(drone.id)}
-              flightCount={flightCounts[drone.id] || 0}
-              navigation={navigation}
-              onSelect={() => handleSelectDrone(drone.id)}
-              onChanged={loadSettings}
-              onPreviewDoc={(doc, label) => setPreviewDoc({ doc, label })}
-            />
-          ))
+          <>
+            {leftColumn}
+            {rightColumn}
+          </>
         )}
-        <Card style={[styles.menuItem, styles.menuItemSpacing]} onPress={() => navigation.navigate("Drones")}>
-          <View style={styles.menuRow}>
-            <Feather name="settings" size={20} color={theme.primary} />
-            <ThemedText style={styles.menuText}>Alle Drohnen verwalten</ThemedText>
-          </View>
-          <Feather name="chevron-right" size={20} color={theme.textTertiary} />
-        </Card>
-
-        <ThemedText style={[styles.sectionTitle, { color: theme.textSecondary, marginTop: Spacing["2xl"] }]}>
-          TCAS - PROXIMITY-ALARM
-        </ThemedText>
-        <Card style={styles.menuItem} onPress={() => navigation.navigate("TcasSettings")}>
-          <View style={styles.switchRow}>
-            <Feather name="alert-triangle" size={20} color={theme.primary} />
-            <View style={styles.switchContent}>
-              <ThemedText style={styles.menuText}>TCAS - Proximity-Alarm</ThemedText>
-              <ThemedText style={[styles.switchDescription, { color: theme.textSecondary }]}>
-                {(settings?.proximityAlarm?.enabled ?? DEFAULT_PROXIMITY_ALARM.enabled) ? "Aktiviert" : "Deaktiviert"} · TA/RA, Radius, Töne
-              </ThemedText>
-            </View>
-          </View>
-          <Feather name="chevron-right" size={20} color={theme.textTertiary} />
-        </Card>
-
-        <ThemedText style={[styles.sectionTitle, { color: theme.textSecondary, marginTop: Spacing["2xl"] }]}>
-          EINHEITEN
-        </ThemedText>
-        <Card style={styles.menuItem}>
-          <View style={styles.menuRow}>
-            <Feather name="wind" size={20} color={theme.primary} />
-            <ThemedText style={styles.menuText}>Windgeschwindigkeit</ThemedText>
-          </View>
-          <Pressable
-            onPress={() => toggleUnit("windUnit")}
-            style={[styles.unitToggle, { backgroundColor: theme.backgroundSecondary }]}
-          >
-            <ThemedText style={[styles.unitText, { color: theme.primary }]}>
-              {settings?.windUnit || "m/s"}
-            </ThemedText>
-          </Pressable>
-        </Card>
-        <Card style={[styles.menuItem, styles.menuItemSpacing]}>
-          <View style={styles.menuRow}>
-            <Feather name="thermometer" size={20} color={theme.primary} />
-            <ThemedText style={styles.menuText}>Temperatur</ThemedText>
-          </View>
-          <Pressable
-            onPress={() => toggleUnit("tempUnit")}
-            style={[styles.unitToggle, { backgroundColor: theme.backgroundSecondary }]}
-          >
-            <ThemedText style={[styles.unitText, { color: theme.primary }]}>
-              {settings?.tempUnit === "F" ? "°F" : "°C"}
-            </ThemedText>
-          </Pressable>
-        </Card>
-
-        <ThemedText style={[styles.sectionTitle, { color: theme.textSecondary, marginTop: Spacing["2xl"] }]}>
-          DOKUMENTE
-        </ThemedText>
-        <Card style={styles.menuItem}>
-          <View style={[styles.menuRow, { flex: 1, paddingRight: Spacing.md }]}>
-            <Feather name="paperclip" size={20} color={theme.primary} />
-            <View style={{ flex: 1 }}>
-              <ThemedText style={styles.menuText}>Dokumente an Exporte anhängen</ThemedText>
-              <ThemedText style={[styles.menuSubText, { color: theme.textTertiary }]}>
-                Hängt beim PDF-Export die zum Flugzeitpunkt gültige Allgemeinverfügung,
-                das A2-Zeugnis und den Versicherungsnachweis an. Pro Export überschreibbar.
-              </ThemedText>
-            </View>
-          </View>
-          <Pressable
-            testID="toggle-attach-docs"
-            onPress={handleToggleAttachDocs}
-            style={[styles.unitToggle, { backgroundColor: theme.backgroundSecondary }]}
-          >
-            <ThemedText style={[styles.unitText, { color: theme.primary }]}>
-              {(settings?.attachPilotDocsToExports ?? true) ? "An" : "Aus"}
-            </ThemedText>
-          </Pressable>
-        </Card>
-
-        <ThemedText style={[styles.sectionTitle, { color: theme.textSecondary, marginTop: Spacing["2xl"] }]}>
-          WILDTIERRETTUNG
-        </ThemedText>
-        <Card style={styles.menuItem}>
-          <View style={[styles.menuRow, { flex: 1, paddingRight: Spacing.md }]}>
-            <MaterialCommunityIcons name="paw" size={20} color={theme.primary} />
-            <View style={{ flex: 1 }}>
-              <ThemedText style={styles.menuText}>{WILDLIFE_RESCUE_MODE_TITLE}</ThemedText>
-              <ThemedText style={[styles.menuSubText, { color: theme.textTertiary }]}>
-                {WILDLIFE_RESCUE_MODE_SUBTITLE}
-              </ThemedText>
-            </View>
-          </View>
-          <Pressable
-            testID="toggle-wildlife-rescue"
-            onPress={handleToggleWildlifeRescue}
-            style={[styles.unitToggle, { backgroundColor: theme.backgroundSecondary }]}
-          >
-            <ThemedText style={[styles.unitText, { color: theme.primary }]}>
-              {(settings?.wildlifeRescueMode ?? false) ? "An" : "Aus"}
-            </ThemedText>
-          </Pressable>
-        </Card>
-        {(settings?.wildlifeRescueMode ?? false) ? (
-          <Card style={[styles.menuItem, styles.menuItemSpacing]} onPress={() => setWildlifeInfoOpen(true)} testID="menu-wildlife-info">
-            <View style={styles.menuRow}>
-              <Feather name="info" size={20} color={theme.primary} />
-              <ThemedText style={styles.menuText}>Mehr Infos zu den Allgemeinverfügungen</ThemedText>
-            </View>
-            <Feather name="chevron-right" size={20} color={theme.textTertiary} />
-          </Card>
-        ) : null}
-
-        <ThemedText style={[styles.sectionTitle, { color: theme.textSecondary, marginTop: Spacing["2xl"] }]}>
-          RESSOURCEN
-        </ThemedText>
-        <Card style={styles.menuItem} onPress={() => navigation.navigate("ResourceLinks")}>
-          <View style={styles.menuRow}>
-            <Feather name="bookmark" size={20} color={theme.primary} />
-            <ThemedText style={styles.menuText}>Nützliche Links</ThemedText>
-          </View>
-          <Feather name="chevron-right" size={20} color={theme.textTertiary} />
-        </Card>
-        <Card style={styles.menuItem} onPress={() => navigation.navigate("Glossary")}>
-          <View style={styles.menuRow}>
-            <Feather name="book" size={20} color={theme.primary} />
-            <ThemedText style={styles.menuText}>Glossar</ThemedText>
-          </View>
-          <Feather name="chevron-right" size={20} color={theme.textTertiary} />
-        </Card>
-        <Card style={styles.menuItem} onPress={() => navigation.navigate("VlosInfo")} testID="menu-vlos-info">
-          <View style={styles.menuRow}>
-            <Feather name="eye" size={20} color={theme.primary} />
-            <ThemedText style={styles.menuText}>VLOS — Sichtweite erklärt</ThemedText>
-          </View>
-          <Feather name="chevron-right" size={20} color={theme.textTertiary} />
-        </Card>
-        <Card style={styles.menuItem} onPress={() => navigation.navigate("EasaReference")}>
-          <View style={styles.menuRow}>
-            <Feather name="book-open" size={20} color={theme.primary} />
-            <ThemedText style={styles.menuText}>EASA — EU-Drohnenregeln</ThemedText>
-          </View>
-          <Feather name="chevron-right" size={20} color={theme.textTertiary} />
-        </Card>
-        <Card style={styles.menuItem} onPress={() => navigation.navigate("EasaRules")}>
-          <View style={styles.menuRow}>
-            <Feather name="file-text" size={20} color={theme.primary} />
-            <ThemedText style={styles.menuText}>Easy Access Rules (UAS)</ThemedText>
-          </View>
-          <Feather name="chevron-right" size={20} color={theme.textTertiary} />
-        </Card>
-        <Card style={[styles.menuItem, styles.menuItemSpacing]} onPress={() => navigation.navigate("CountryInfo")}>
-          <View style={styles.menuRow}>
-            <Feather name="globe" size={20} color={theme.primary} />
-            <ThemedText style={styles.menuText}>Länder — Rules &amp; Regulations</ThemedText>
-          </View>
-          <Feather name="chevron-right" size={20} color={theme.textTertiary} />
-        </Card>
-        <Card style={styles.menuItem} onPress={() => navigation.navigate("RcOfflineMaps")} testID="menu-offline-maps">
-          <View style={styles.menuRow}>
-            <Feather name="download-cloud" size={20} color={theme.primary} />
-            <ThemedText style={styles.menuText}>Karten, Hindernisse & Offline</ThemedText>
-          </View>
-          <Feather name="chevron-right" size={20} color={theme.textTertiary} />
-        </Card>
-        <Card style={styles.menuItem} onPress={() => navigation.navigate("RcKeyTest")} testID="menu-rc-key-test">
-          <View style={styles.menuRow}>
-            <Feather name="radio" size={20} color={theme.primary} />
-            <ThemedText style={styles.menuText}>Tasten der Fernsteuerung</ThemedText>
-          </View>
-          <Feather name="chevron-right" size={20} color={theme.textTertiary} />
-        </Card>
-
-        <ThemedText style={[styles.sectionTitle, { color: theme.textSecondary, marginTop: Spacing["2xl"] }]}>
-          ÜBER
-        </ThemedText>
-        <Card style={styles.menuItem}>
-          <View style={styles.menuRow}>
-            <Feather name="info" size={20} color={theme.primary} />
-            <ThemedText style={styles.menuText}>Version</ThemedText>
-          </View>
-          <ThemedText style={{ color: theme.textTertiary }}>RC-Version {Constants.expoConfig?.version ?? ""}</ThemedText>
-        </Card>
-        <Card style={styles.menuItem} onPress={() => navigation.navigate("PrivacyPolicy")}>
-          <View style={styles.menuRow}>
-            <Feather name="shield" size={20} color={theme.primary} />
-            <ThemedText style={styles.menuText}>Datenschutzerklärung</ThemedText>
-          </View>
-          <Feather name="chevron-right" size={20} color={theme.textTertiary} />
-        </Card>
-        <Card style={styles.menuItem} onPress={() => navigation.navigate("LegalDocument", { doc: "terms" })}>
-          <View style={styles.menuRow}>
-            <Feather name="file-text" size={20} color={theme.primary} />
-            <ThemedText style={styles.menuText}>AGB / Nutzungsbedingungen</ThemedText>
-          </View>
-          <Feather name="chevron-right" size={20} color={theme.textTertiary} />
-        </Card>
-        <Card style={styles.menuItem} onPress={() => navigation.navigate("DataSources")} testID="menu-data-sources">
-          <View style={styles.menuRow}>
-            <Feather name="database" size={20} color={theme.primary} />
-            <ThemedText style={styles.menuText}>Datenquellen & Lizenzen</ThemedText>
-          </View>
-          <Feather name="chevron-right" size={20} color={theme.textTertiary} />
-        </Card>
-        <Card style={styles.menuItem} onPress={() => navigation.navigate("LegalDocument", { doc: "imprint" })}>
-          <View style={styles.menuRow}>
-            <Feather name="briefcase" size={20} color={theme.primary} />
-            <ThemedText style={styles.menuText}>Impressum</ThemedText>
-          </View>
-          <Feather name="chevron-right" size={20} color={theme.textTertiary} />
-        </Card>
-        <Pressable
-          onPress={() => navigation.navigate("DipulWeather")}
-          style={({ pressed }) => pressed && styles.pressed}
-        >
-          <Card style={[styles.menuItem, styles.menuItemSpacing]}>
-            <View style={styles.menuRow}>
-              <Feather name="cloud" size={20} color={theme.primary} />
-              <ThemedText style={styles.menuText}>Aktuelles Wetter</ThemedText>
-            </View>
-            <Feather name="chevron-right" size={20} color={theme.textTertiary} />
-          </Card>
-        </Pressable>
       </ScrollView>
 
       <Modal
@@ -701,11 +615,6 @@ export default function SettingsScreen() {
           />
         </ThemedView>
       </Modal>
-      <DocumentPreviewModal
-        visible={previewDoc !== null}
-        onClose={() => setPreviewDoc(null)}
-        document={previewDoc?.doc ?? null}
-      />
       <Modal
         visible={wildlifeDialogStage !== "closed"}
         transparent
@@ -789,6 +698,44 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.sm,
     marginLeft: Spacing.xs,
   },
+  sectionTitleSpacing: {
+    marginTop: Spacing.xl,
+  },
+  columns: {
+    flexDirection: "row",
+    gap: Spacing.lg,
+    alignItems: "flex-start",
+  },
+  column: {
+    flex: 1,
+    minWidth: 0,
+  },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.md,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+    minHeight: 52,
+    borderRadius: BorderRadius.md,
+    marginBottom: Spacing.xs,
+  },
+  rowIcon: {
+    width: 24,
+    alignItems: "center",
+  },
+  rowText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  rowValue: {
+    fontWeight: "600",
+    maxWidth: 160,
+  },
+  mapStyleCard: {
+    padding: Spacing.md,
+    marginBottom: Spacing.xs,
+  },
   menuItem: {
     flexDirection: "row",
     alignItems: "center",
@@ -817,7 +764,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginTop: Spacing["2xl"],
     marginBottom: Spacing.sm,
   },
   droneAddButton: {

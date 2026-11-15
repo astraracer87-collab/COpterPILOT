@@ -368,7 +368,7 @@ export default function DroneHistoryScreen() {
         ListEmptyComponent={renderEmpty}
       />
 
-      <View style={[styles.fabContainer, { bottom: insets.bottom + 80 }]}>
+      <View style={[styles.fabContainer, { bottom: insets.bottom + Spacing.lg }]}>
         <Pressable
           onPress={() => setModalVisible(true)}
           style={({ pressed }) => [
@@ -435,7 +435,7 @@ export default function DroneHistoryScreen() {
           <ThemedText style={[styles.label, { color: theme.textSecondary, marginTop: Spacing.xl }]}>
             Beschreibung
           </ThemedText>
-          <TextInput
+          <TextInput disableFullscreenUI
             value={description}
             onChangeText={setDescription}
             placeholder="Was wurde gemacht?"

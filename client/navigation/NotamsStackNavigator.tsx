@@ -19,6 +19,9 @@ export default function NotamsStackNavigator() {
         component={NotamsScreen}
         options={{
           headerTitle: "NOTAMs",
+          // Kompakte eigene Kopfzeile im Bildschirm (Querformat): kein Stack-Header,
+          // damit die Karte den Platz bekommt.
+          headerShown: false,
         }}
       />
     </Stack.Navigator>

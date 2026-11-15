@@ -1,4 +1,5 @@
 import { openLink } from "@/lib/webBrowser";
+import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { InfrastructureFlightGuidance } from "@/components/InfrastructureFlightGuidance";
 import { View, StyleSheet, TextInput, Pressable, ActivityIndicator, ScrollView, Linking, Alert, Platform } from "react-native";
@@ -936,7 +937,7 @@ export default function PlanningRestrictionsScreen() {
           </View>
         </Pressable>
         {checked ? (
-          <TextInput
+          <TextInput disableFullscreenUI
             testID={`input-prohibited-reason-${testSuffix}`}
             style={[styles.notesInput, { backgroundColor: theme.backgroundSecondary, color: theme.text, marginTop: Spacing.xs }]}
             value={reason}
@@ -958,7 +959,7 @@ export default function PlanningRestrictionsScreen() {
 
   return (
     <ThemedView style={styles.container}>
-      <ScrollView
+      <KeyboardAwareScrollViewCompat bottomOffset={24}
         contentContainerStyle={[
           styles.content,
           {
@@ -2382,7 +2383,7 @@ export default function PlanningRestrictionsScreen() {
                 <ThemedText style={[styles.detailsLabel, { color: theme.textSecondary }]}>
                   Notizen (optional)
                 </ThemedText>
-                <TextInput
+                <TextInput disableFullscreenUI
                   style={[styles.notesInput, { backgroundColor: theme.backgroundSecondary, color: theme.text }]}
                   value={notes}
                   onChangeText={setNotes}
@@ -2532,7 +2533,7 @@ export default function PlanningRestrictionsScreen() {
               })}
           </View>
         ) : null}
-      </ScrollView>
+      </KeyboardAwareScrollViewCompat>
 
       <View style={[styles.footer, { paddingBottom: insets.bottom + Spacing.lg, backgroundColor: theme.backgroundDefault }]}>
         <Button

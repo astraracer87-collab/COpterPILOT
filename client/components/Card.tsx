@@ -1,12 +1,5 @@
 import React from "react";
 import { StyleSheet, Pressable, View, ViewStyle, StyleProp } from "react-native";
-import Animated, {
-  useAnimatedStyle,
-  useSharedValue,
-  withSpring,
-  WithSpringConfig,
-} from "react-native-reanimated";
-
 import { ThemedText } from "@/components/ThemedText";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
@@ -20,14 +13,6 @@ interface CardProps {
   style?: StyleProp<ViewStyle>;
   testID?: string;
 }
-
-const springConfig: WithSpringConfig = {
-  damping: 15,
-  mass: 0.3,
-  stiffness: 150,
-  overshootClamping: true,
-  energyThreshold: 0.001,
-};
 
 const getBackgroundColorForElevation = (
   elevation: number,
@@ -45,7 +30,10 @@ const getBackgroundColorForElevation = (
   }
 };
 
-const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+// Bewusst ein einfaches Pressable ohne Reanimated: Die frühere
+// Reanimated-Variante (createAnimatedComponent(Pressable) + Skalierung beim
+// Drücken) löste auf der Fernsteuerung (Android, neue Architektur) onPress
+// nicht zuverlässig aus – Menüpunkte in den Einstellungen reagierten nicht.
 
 export function Card({
   elevation = 1,
@@ -57,21 +45,8 @@ export function Card({
   testID,
 }: CardProps) {
   const { theme } = useTheme();
-  const scale = useSharedValue(1);
 
   const cardBackgroundColor = getBackgroundColorForElevation(elevation, theme);
-
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-  }));
-
-  const handlePressIn = () => {
-    scale.value = withSpring(0.98, springConfig);
-  };
-
-  const handlePressOut = () => {
-    scale.value = withSpring(1, springConfig);
-  };
 
   const cardContent = (
     <>
@@ -91,27 +66,27 @@ export function Card({
 
   if (onPress) {
     return (
-      <AnimatedPressable
+      <Pressable
         testID={testID}
         onPress={onPress}
-        onPressIn={handlePressIn}
-        onPressOut={handlePressOut}
-        style={[
+        accessibilityRole="button"
+        style={({ pressed }) => [
           styles.card,
           {
             backgroundColor: cardBackgroundColor,
           },
-          animatedStyle,
           style,
+          pressed ? styles.pressed : null,
         ]}
       >
         {cardContent}
-      </AnimatedPressable>
+      </Pressable>
     );
   }
 
   return (
-    <Animated.View
+    <View
+      testID={testID}
       style={[
         styles.card,
         {
@@ -121,13 +96,16 @@ export function Card({
       ]}
     >
       {cardContent}
-    </Animated.View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   card: {
     borderRadius: BorderRadius.md,
+  },
+  pressed: {
+    opacity: 0.7,
   },
   cardTitle: {
     marginBottom: Spacing.sm,

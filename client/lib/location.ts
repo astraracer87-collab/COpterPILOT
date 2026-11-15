@@ -16,6 +16,7 @@ import { PermissionsAndroid, Platform } from "react-native";
 import { useCallback, useEffect, useState } from "react";
 import * as ExpoLocation from "expo-location";
 import Geolocation from "@react-native-community/geolocation";
+import { loadLastKnownPosition, saveLastKnownPosition } from "./mapFallbackCenter";
 
 export {
   Accuracy,
@@ -55,10 +56,19 @@ function toResponse(granted: boolean, canAskAgain = true): PermissionResponse {
   };
 }
 
+// Hat der Nutzer nur den „ungefähren“ Standort erlaubt (Android 12+: nur
+// COARSE), darf der LocationManager kein GPS benutzen – dann nur Netzwerk-Ortung.
+let fineGranted: boolean | null = null;
+
 export async function getForegroundPermissionsAsync(): Promise<PermissionResponse> {
   if (!isAndroid) return ExpoLocation.getForegroundPermissionsAsync() as Promise<PermissionResponse>;
   const fine = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION);
-  return toResponse(fine);
+  fineGranted = fine;
+  if (fine) return toResponse(true);
+  // „Ungefährer Standort“ zählt ebenfalls als erteilt (früher: Radar blieb dann
+  // dauerhaft bei „Standort freigeben“ stehen).
+  const coarse = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION);
+  return toResponse(coarse);
 }
 
 export async function requestForegroundPermissionsAsync(): Promise<PermissionResponse> {
@@ -69,6 +79,7 @@ export async function requestForegroundPermissionsAsync(): Promise<PermissionRes
   ]);
   const fine = result[PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION];
   const coarse = result[PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION];
+  fineGranted = fine === PermissionsAndroid.RESULTS.GRANTED;
   const granted = fine === PermissionsAndroid.RESULTS.GRANTED || coarse === PermissionsAndroid.RESULTS.GRANTED;
   const neverAsk = fine === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN;
   return toResponse(granted, !neverAsk);
@@ -127,59 +138,153 @@ function toLocationObject(p: GeoPosition): ExpoLocation.LocationObject {
 
 let lastKnown: ExpoLocation.LocationObject | null = null;
 
-function androidPosition(highAccuracy: boolean, timeoutMs: number): Promise<ExpoLocation.LocationObject> {
+function remember(loc: ExpoLocation.LocationObject): ExpoLocation.LocationObject {
+  lastKnown = loc;
+  saveLastKnownPosition(loc.coords.latitude, loc.coords.longitude, loc.timestamp).catch(() => {});
+  return loc;
+}
+
+/** Deutsche Fehlermeldung zu den Codes des LocationManagers (1 = keine Berechtigung, 2 = kein Anbieter, 3 = Zeitüberschreitung). */
+export function locationErrorMessageDe(err: unknown): string {
+  const e = err as { code?: number; message?: string } | null;
+  const msg = String(e?.message ?? "");
+  if (e?.code === 1 || /permission/i.test(msg)) return "Keine Standort-Berechtigung";
+  if (/no location provider/i.test(msg) || e?.code === 2) {
+    return "Ortung am Gerät ausgeschaltet oder kein GPS-Empfang (Einstellungen → Standort prüfen)";
+  }
+  if (e?.code === 3 || /timed? ?out|zeitüberschreitung/i.test(msg)) return "Kein GPS-Fix (Zeitüberschreitung) – freie Sicht zum Himmel nötig";
+  return msg || "Standort nicht verfügbar";
+}
+
+class LocationError extends Error {
+  code?: number;
+  constructor(message: string, code?: number) {
+    super(message);
+    this.code = code;
+  }
+}
+
+/**
+ * Einzelabfrage über den Android-LocationManager. Zusätzlich zum nativen
+ * Timeout ein JS-Wächter: kommt (z. B. nach einem Fehler im nativen Modul)
+ * gar kein Rückruf, hängt die Abfrage nicht für immer.
+ */
+function androidPosition(highAccuracy: boolean, timeoutMs: number, maximumAge = 15000): Promise<ExpoLocation.LocationObject> {
   return new Promise((resolve, reject) => {
-    Geolocation.getCurrentPosition(
-      (pos) => {
-        const loc = toLocationObject(pos as GeoPosition);
-        lastKnown = loc;
-        resolve(loc);
-      },
-      (err) => reject(new Error(err?.message || "Standort nicht verfügbar")),
-      { enableHighAccuracy: highAccuracy, timeout: timeoutMs, maximumAge: 15000 },
-    );
+    let done = false;
+    const guard = setTimeout(() => {
+      if (done) return;
+      done = true;
+      reject(new LocationError("Location request timed out", 3));
+    }, timeoutMs + 2000);
+    try {
+      Geolocation.getCurrentPosition(
+        (pos) => {
+          if (done) return;
+          done = true;
+          clearTimeout(guard);
+          resolve(remember(toLocationObject(pos as GeoPosition)));
+        },
+        (err) => {
+          if (done) return;
+          done = true;
+          clearTimeout(guard);
+          reject(new LocationError(err?.message || "Standort nicht verfügbar", err?.code));
+        },
+        { enableHighAccuracy: highAccuracy, timeout: timeoutMs, maximumAge },
+      );
+    } catch (e: any) {
+      if (done) return;
+      done = true;
+      clearTimeout(guard);
+      reject(new LocationError(e?.message || "Standort nicht verfügbar", 2));
+    }
   });
+}
+
+/** Letzte Position, die Android selbst kennt (getLastKnownLocation), ohne auf einen neuen Fix zu warten. */
+function androidCachedPosition(maxAgeMs: number): Promise<ExpoLocation.LocationObject | null> {
+  // maximumAge groß → das native Modul liefert sofort getLastKnownLocation();
+  // gibt es keine, startet es eine Einzelabfrage, die nach 1,5 s abbricht.
+  return androidPosition(fineGranted !== false, 1500, Math.max(1000, Math.min(maxAgeMs, 365 * 24 * 3600 * 1000))).catch(() => null);
+}
+
+async function storedPosition(maxAgeMs?: number): Promise<ExpoLocation.LocationObject | null> {
+  const p = await loadLastKnownPosition().catch(() => null);
+  if (!p) return null;
+  if (maxAgeMs != null && Date.now() - p.timestamp > maxAgeMs) return null;
+  return {
+    coords: { latitude: p.latitude, longitude: p.longitude, altitude: null, accuracy: null, altitudeAccuracy: null, heading: null, speed: null },
+    timestamp: p.timestamp,
+  };
 }
 
 export async function getCurrentPositionAsync(
   options: ExpoLocation.LocationOptions = {},
 ): Promise<ExpoLocation.LocationObject> {
-  if (!isAndroid) return ExpoLocation.getCurrentPositionAsync(options);
+  if (!isAndroid) return remember(await ExpoLocation.getCurrentPositionAsync(options));
   const wantsHigh = (options.accuracy ?? ExpoLocation.Accuracy.Balanced) >= ExpoLocation.Accuracy.High;
-  try {
-    // GPS kann ohne Netzwerk-Ortung (keine Play Services) beim Kaltstart dauern.
-    return await androidPosition(true, wantsHigh ? 30000 : 20000);
-  } catch (e) {
+  // Ganz frische Position (< 10 s) direkt verwenden
+  if (lastKnown && Date.now() - lastKnown.timestamp < 10000) return lastKnown;
+  if (fineGranted == null) await getForegroundPermissionsAsync().catch(() => null);
+  let firstErr: unknown = null;
+  if (fineGranted !== false) {
     try {
-      return await androidPosition(false, 10000);
-    } catch {
-      if (lastKnown) return lastKnown;
-      throw e;
+      // GPS ohne Netzwerk-Ortung (keine Play Services) braucht beim Kaltstart
+      // u. U. lange; danach liefern Watch bzw. erneute Abfrage den Fix.
+      return await androidPosition(true, wantsHigh ? 25000 : 15000);
+    } catch (e) {
+      firstErr = e;
     }
   }
+  try {
+    // Netzwerk-Ortung – fehlt ohne Play Services oft; dann fällt das native
+    // Modul selbst auf GPS zurück.
+    return await androidPosition(false, 8000);
+  } catch (e) {
+    firstErr = firstErr ?? e;
+  }
+  if (lastKnown) return lastKnown;
+  const cached = await androidCachedPosition(30 * 60 * 1000);
+  if (cached) return cached;
+  throw new LocationError(locationErrorMessageDe(firstErr), (firstErr as any)?.code);
 }
 
+/**
+ * Letzte bekannte Position: Speicher der Sitzung → Android (getLastKnownLocation)
+ * → auf dem Gerät gespeicherte Position (auch aus früheren Sitzungen).
+ * `maxAge` (ms) wie bei expo-location.
+ */
 export async function getLastKnownPositionAsync(
   options?: ExpoLocation.LocationLastKnownOptions,
 ): Promise<ExpoLocation.LocationObject | null> {
-  if (!isAndroid) return ExpoLocation.getLastKnownPositionAsync(options);
-  return lastKnown;
+  const maxAge = options?.maxAge;
+  const fresh = (l: ExpoLocation.LocationObject | null) => !!l && (maxAge == null || Date.now() - l.timestamp <= maxAge);
+  if (!isAndroid) {
+    const l = await ExpoLocation.getLastKnownPositionAsync(options).catch(() => null);
+    if (l) return remember(l);
+    return storedPosition(maxAge);
+  }
+  if (fresh(lastKnown)) return lastKnown;
+  const cached = await androidCachedPosition(maxAge ?? 365 * 24 * 3600 * 1000);
+  if (fresh(cached)) return cached;
+  return storedPosition(maxAge);
 }
 
 export async function watchPositionAsync(
   options: ExpoLocation.LocationOptions,
   callback: (location: ExpoLocation.LocationObject) => void,
 ): Promise<ExpoLocation.LocationSubscription> {
-  if (!isAndroid) return ExpoLocation.watchPositionAsync(options, callback);
+  if (!isAndroid) return ExpoLocation.watchPositionAsync(options, (loc) => callback(remember(loc)));
+  if (fineGranted == null) await getForegroundPermissionsAsync().catch(() => null);
   const id = Geolocation.watchPosition(
     (pos) => {
-      const loc = toLocationObject(pos as GeoPosition);
-      lastKnown = loc;
-      callback(loc);
+      callback(remember(toLocationObject(pos as GeoPosition)));
     },
     () => {},
     {
-      enableHighAccuracy: true,
+      // Nur „ungefährer Standort“ erlaubt → Netzwerk-Anbieter (GPS verweigert Android dann)
+      enableHighAccuracy: fineGranted !== false,
       distanceFilter: options.distanceInterval ?? 0,
       interval: options.timeInterval ?? 2000,
       fastestInterval: 1000,

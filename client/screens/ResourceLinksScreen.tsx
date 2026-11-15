@@ -354,7 +354,7 @@ export default function ResourceLinksScreen() {
               </View>
 
               <ThemedText style={[styles.label, { color: theme.textSecondary }]}>Titel</ThemedText>
-              <TextInput
+              <TextInput disableFullscreenUI
                 value={formTitle}
                 onChangeText={setFormTitle}
                 placeholder="z. B. Mein Vereins-Wiki"
@@ -367,7 +367,7 @@ export default function ResourceLinksScreen() {
               />
 
               <ThemedText style={[styles.label, { color: theme.textSecondary }]}>URL</ThemedText>
-              <TextInput
+              <TextInput disableFullscreenUI
                 value={formUrl}
                 onChangeText={setFormUrl}
                 placeholder="https://..."
@@ -385,7 +385,7 @@ export default function ResourceLinksScreen() {
               <ThemedText style={[styles.label, { color: theme.textSecondary }]}>
                 Beschreibung (optional)
               </ThemedText>
-              <TextInput
+              <TextInput disableFullscreenUI
                 value={formDescription}
                 onChangeText={setFormDescription}
                 placeholder="Kurze Notiz..."
@@ -427,7 +427,7 @@ export default function ResourceLinksScreen() {
                   );
                 })}
               </View>
-              <TextInput
+              <TextInput disableFullscreenUI
                 value={formCategory}
                 onChangeText={setFormCategory}
                 placeholder="Eigene Kategorie eingeben"

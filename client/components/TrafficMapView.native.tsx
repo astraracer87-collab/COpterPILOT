@@ -2,7 +2,8 @@ import { LEAFLET_CSS, LEAFLET_JS } from "@/lib/leafletBundle";
 import { RC_LEAFLET_JS, RC_WEBVIEW_FILE_PROPS, useRcLeaflet } from "@/lib/leafletRc";
 import { openLink } from "@/lib/webBrowser";
 import React, { useRef, useEffect, useState, useMemo, useCallback } from "react";
-import { View, StyleSheet, Text, Platform, Pressable, ActivityIndicator, LayoutChangeEvent, Modal, SafeAreaView, useColorScheme, Linking } from "react-native";
+import { View, StyleSheet, Text, Platform, Pressable, ActivityIndicator, LayoutChangeEvent, Modal, useColorScheme, Linking, StatusBar } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { WebView } from "react-native-webview";
 import * as WebBrowser from "@/lib/webBrowser";
 import { Feather } from "@expo/vector-icons";
@@ -18,6 +19,7 @@ import { buildGeozoneCacheTileUrl, buildGeozoneTileUrls, getGeozoneTileAttributi
 import { isVectorZoneDrawSuppressed } from "@/lib/geozoneZoom";
 import { agencyTagColor } from "@/lib/agencyTag";
 import { simplifyRingGroup, smoothRingGroup } from "@/lib/ringSimplify";
+import { clipRingGroupToCircle } from "@/lib/circleClip";
 import { findNearbyCtrAirports, CTR_AIRPORTS } from "@/lib/ctrData";
 import { MAJOR_EU_AIRPORTS } from "@/lib/euAirports";
 import { fetchAirportStationsInArea, type AirportStation } from "@/lib/aviationWeather";
@@ -28,14 +30,14 @@ import { splitCountriesByAccess, countryName } from "../../shared/countryEntitle
 import { useAuth } from "@/lib/auth";
 import { windFacilitiesAsGeozones, supplementalLinesAsGeozones, supplementalInfrastructureAsGeozones, infrastructureMapGeometry } from "@/lib/energyInfrastructureZones";
 import { getGermanWindFacility100mPoints } from "../../shared/germanEnergyInfrastructure";
-import { zonePolicy } from "../../shared/restrictionPolicy";
+import { zoneMapColors } from "../../shared/dipulLayerStyles";
 import { useTiledGeozoneIsos } from "@/lib/geozoneTiles/useTiledGeozones";
 import CtrInfoCard from "@/components/CtrInfoCard";
 import AirportWeatherSheet from "@/components/AirportWeatherSheet";
 import { geozoneTruncationHint } from "../../shared/checks/builders";
-import { countryDisabledWarning, isGeozoneSourceEnabled, usageCountryLabel, usageIsoOf } from "@/lib/countryUsage";
+import { isGeozoneSourceEnabled, usageIsoOf } from "@/lib/countryUsage";
 import { useCountryUsageMap } from "@/lib/useCountryUsage";
-import { EnableCountryButtons } from "@/components/EnableCountryButtons";
+import { DisabledCountryPopup, disabledCountryAt, tapToScreen, type DisabledCountryTap } from "@/components/maps/DisabledCountriesHint";
 
 function hexToRgba(hex: string, alpha: number): string {
   const h = hex.replace("#", "");
@@ -138,6 +140,12 @@ interface TrafficMapViewProps {
   weatherAlerts?: { label: string; value: string; color: string }[];
   onHeadingChange?: (heading: number | null) => void;
   disableGeozoneQuery?: boolean;
+  /** Kein echter Standort (Karte zeigt nur einen Ersatz-Mittelpunkt): kein
+   *  Piloten-Punkt, keine Radar-Ringe, kein Blickrichtungs-Fächer. */
+  hideUserPosition?: boolean;
+  /** Hervorhebung betroffener Zonen endet an diesem Kreis um den Standort
+   *  (Standard: TA-Kreis, sonst Alarmkreis). 0 = nicht zuschneiden. */
+  highlightClipRadiusM?: number;
   lockPan?: boolean;
   // C: aktuelle Viewport-Bbox melden (für Server-Side bbox-Filter).
   onViewportChange?: (bbox: { latMin: number; latMax: number; lonMin: number; lonMax: number }) => void;
@@ -454,7 +462,7 @@ export const MAIN_MAP_HTML = `<!DOCTYPE html>
   .basemap-grayscale .leaflet-tile { filter: grayscale(1) contrast(1.04) brightness(1.03); }
   .ctrh { font-size: 12px; font-weight: 700; color: #fff; margin-bottom: 3px; }
   .ctrs { font-size: 10px; color: #8E9AB0; }
-  .apm { display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; background: rgba(20,30,48,0.92); border: 1.5px solid rgba(74,144,217,0.9); border-radius: 12px; color: #4A90D9; font-size: 14px; font-weight: 800; font-family: Georgia, serif; font-style: italic; box-shadow: 0 1px 3px rgba(0,0,0,0.4); }
+  .apm { display: flex; align-items: center; justify-content: center; width: 20px; height: 20px; background: rgba(20,30,48,0.82); border: 1.5px solid rgba(74,144,217,0.9); border-radius: 10px; color: #4A90D9; font-size: 12px; font-weight: 800; font-family: Georgia, serif; font-style: italic; box-shadow: 0 1px 3px rgba(0,0,0,0.4); }
 </style>
 </head>
 <body>
@@ -854,7 +862,7 @@ export const MAIN_MAP_HTML = `<!DOCTYPE html>
       var ap = arr[i];
       if (!ap || ap.lat == null || ap.lon == null) continue;
       var onAirTap = (function(icao){ return function(ev){ L.DomEvent.stopPropagation(ev); post({ type: "airportPress", icao: icao }); }; })(ap.icao);
-      L.marker([ap.lat, ap.lon], { icon: L.divIcon({ className: "", html: "<div class='apm'>i</div>", iconSize: [24, 24], iconAnchor: [12, 12] }), zIndexOffset: 500 })
+      L.marker([ap.lat, ap.lon], { icon: L.divIcon({ className: "", html: "<div class='apm'>i</div>", iconSize: [20, 20], iconAnchor: [10, 10] }), zIndexOffset: 500 })
         .bindTooltip(esc(ap.icao) + " \u2014 Flugwetter", { sticky: true })
         .on("click", onAirTap)
         .addTo(airLayer);
@@ -1145,6 +1153,7 @@ export default function TrafficMapView({
   onCenterGps, onSettingsPress, settingsActive, bottomPadding = 0, infoBubbleBottomInset = 0, topInset = 0, weatherAlerts,
   onHeadingChange, disableGeozoneQuery = false, lockPan = false, onViewportChange,
   maxReachableAltitudeM = DEFAULT_REACHABLE_ALTITUDE_M, showAllGeozones = false,
+  hideUserPosition = false, highlightClipRadiusM,
 }: TrafficMapViewProps) {
   // Im Flug-Modus: Panning gesperrt → Geozone-Tap-Abfrage komplett aus.
   const geozoneQueryDisabled = disableGeozoneQuery || lockPan;
@@ -1153,6 +1162,11 @@ export default function TrafficMapView({
 
   const webRef = useRef<WebView>(null);
   const [ready, setReady] = useState(false);
+  const [disabledTap, setDisabledTap] = useState<DisabledCountryTap | null>(null);
+  // Vollbild-Overlays (Modal) liegen unter der Android-Statusleiste: Kopfzeile
+  // und Schließen-Knopf unter den Safe-Area-Rand (Uhr/Akku/Download-Anzeige).
+  const safeInsets = useSafeAreaInsets();
+  const overlayTopInset = Math.max(safeInsets.top, Platform.OS === "android" ? StatusBar.currentHeight ?? 0 : 0);
   const [flightUrl, setFlightUrl] = useState<string | null>(null);
   const [flightCallsign, setFlightCallsign] = useState("");
   const [selectedAircraftId, setSelectedAircraftId] = useState<string | null>(null);
@@ -1297,7 +1311,7 @@ export default function TrafficMapView({
   const { entitlement } = useAuth();
   // Länder-Nutzung „Aus“: keine Overlays/Abfragen, Hinweis mit „Land aktivieren (online)“
   const countryUsageMap = useCountryUsageMap();
-  const { lockedSet, lockedNames, disabledIsos } = useMemo(() => {
+  const { lockedSet, lockedNames } = useMemo(() => {
     const isos = countryListKey ? countryListKey.split(",").filter(Boolean) : [];
     const { locked } = splitCountriesByAccess(isos, entitlement);
     // LI folgt CH: ein Hinweis „Schweiz / Liechtenstein“
@@ -1610,8 +1624,13 @@ export default function TrafficMapView({
   }, [deviceHeading, taRadiusM, latDelta, latitude, longitude]);
 
   // Markierte Zonen → gruppierte, vereinfachte Polygone ([Außenring, …Löcher]).
+  // Starke Markierung nur INNERHALB des Prüfkreises (große Zonen wie ein
+  // Autobahn-Korridor sollen nicht über die ganze Karte rot sein); außerhalb
+  // bleibt die normale Zonendarstellung (Vektor-/Kachel-Ebene darunter).
+  const hzClipRadiusM = highlightClipRadiusM ?? ((taRadiusM ?? 0) > 0 ? taRadiusM! : (alarmRadiusM ?? 0));
   const hzPolys = useMemo<[number, number][][][]>(() => {
     const out: [number, number][][][] = [];
+    const clipCenter: [number, number] = [latitude, longitude];
     for (const z of (highlightedZones ?? [])) {
       const groups = ringGroupsForZone(z);
       if (groups.length === 0) continue;
@@ -1621,12 +1640,15 @@ export default function TrafficMapView({
       );
       if (totalPts > 4000) continue;
       for (const group of groups) {
-        const poly = smoothRingGroup(simplifyRingGroup(group));
+        let poly = smoothRingGroup(simplifyRingGroup(group));
+        if (hzClipRadiusM > 0 && Number.isFinite(latitude) && Number.isFinite(longitude)) {
+          poly = clipRingGroupToCircle(poly, clipCenter, hzClipRadiusM);
+        }
         if (poly.length > 0) out.push(poly);
       }
     }
     return out;
-  }, [highlightedZones]);
+  }, [highlightedZones, hzClipRadiusM, latitude, longitude]);
 
   // Geländeschätzung um das (gesetzte) Kartenzentrum laden, sobald MSL-
   // Vektorzonen sichtbar sind. Nur dann nötig — sonst keine Netzlast. Radius =
@@ -1729,8 +1751,8 @@ export default function TrafficMapView({
           // Farbe immer nach Einstufung (Policy-Tabelle) – auch temporäre Zonen.
           // Temporär wird über das Strichmuster (tp) markiert, nicht mehr über
           // ein pauschales Orange.
-          f: z.fillColor ?? zonePolicy(z).fill,
-          s: z.strokeColor ?? zonePolicy(z).stroke,
+          f: zoneMapColors(z).fill,
+          s: zoneMapColors(z).stroke,
           tp: isTemp,
           hide,
           t: z.name,
@@ -1779,6 +1801,7 @@ export default function TrafficMapView({
   //  - Tier 2 (ab Zoom 9): alle aktuell meldenden METAR-Stationen im Ausschnitt,
   //    live per AWC-Bbox geladen ("kleine Flughäfen beim Reinzoomen").
   const AREA_ZOOM_MIN = 9;
+  const AIRPORT_MARKER_MIN_ZOOM = AREA_ZOOM_MIN;
 
   // Sichtbarer Ausschnitt (settled) als Bbox; etwas gepolstert für Stabilität.
   const viewBbox = useMemo(() => {
@@ -1812,6 +1835,9 @@ export default function TrafficMapView({
   }, [settledZoom, viewBbox.minLat, viewBbox.minLon, viewBbox.maxLat, viewBbox.maxLon]);
 
   const airportMarkers = useMemo(() => {
+    // Unterhalb der Zonen-Zoomschwelle keine Flugwetter-„i“-Symbole: in der
+    // Übersicht bedeckten Dutzende Marker die Karte (Gerät, 11/2026).
+    if (settledZoom < AIRPORT_MARKER_MIN_ZOOM) return [];
     const inView = (lat: number, lon: number) =>
       lat >= viewBbox.minLat && lat <= viewBbox.maxLat && lon >= viewBbox.minLon && lon <= viewBbox.maxLon;
     const byIcao = new Map<string, { icao: string; lat: number; lon: number }>();
@@ -1851,15 +1877,15 @@ export default function TrafficMapView({
       dark: isDark,
       lockPan,
       geo,
-      user: [latitude, longitude] as [number, number],
+      user: hideUserPosition ? null : ([latitude, longitude] as [number, number]),
       markers: renderableMarkers,
       trails: renderableTrails,
-      circles: {
+      circles: hideUserPosition ? {} : {
         scan: (scanRadiusM ?? 0) > 0 ? scanRadiusM : 0,
         ta: (taRadiusM ?? 0) > 0 ? taRadiusM : 0,
         ra: (alarmRadiusM ?? 0) > 0 ? alarmRadiusM : 0,
       },
-      fov: fovCoords,
+      fov: hideUserPosition ? null : fovCoords,
       hz: hzPolys,
       // vz (Vektorzonen) wird NICHT hier mitgeschickt, sondern getrennt per
       // window.__setVz – sonst würde jedes Flugzeug-/Positions-Update alle
@@ -1870,7 +1896,7 @@ export default function TrafficMapView({
       windBuffers: [],
     };
     return JSON.stringify(state);
-  }, [fit, latitude, longitude, targetZoom, mapStyle, isDark, lockPan, geozonesVisible, geozoneTileUrls, countryIso, renderableMarkers, renderableTrails, scanRadiusM, taRadiusM, alarmRadiusM, fovCoords, hzPolys, ctrBands, airportMarkers, energyInfrastructure, windRestrictionPoints, energyTilesEnabled, energyTilesShowSupplemental]);
+  }, [fit, hideUserPosition, latitude, longitude, targetZoom, mapStyle, isDark, lockPan, geozonesVisible, geozoneTileUrls, countryIso, renderableMarkers, renderableTrails, scanRadiusM, taRadiusM, alarmRadiusM, fovCoords, hzPolys, ctrBands, airportMarkers, energyInfrastructure, windRestrictionPoints, energyTilesEnabled, energyTilesShowSupplemental]);
 
   useEffect(() => {
     if (!ready) return;
@@ -1890,6 +1916,9 @@ export default function TrafficMapView({
     setSelectedAircraftId(null);
     setSelectedCtrIcao(null);
     setSelectedAirportIcao(null);
+    // Tipp in ein Land mit deaktivierten Geozonen → kleines Popup an der Stelle
+    const offIso = disabledCountryAt(tapLat, tapLon);
+    setDisabledTap(offIso ? { iso: offIso, ...tapToScreen(tapLat, tapLon, currentRegion, mapSize) } : null);
     if (geozoneQueryDisabled) { runJs("window.__popupClose()"); return; }
     if (!geozoneLayers || geozoneLayers.length === 0) { runJs("window.__popupClose()"); return; }
     const approxZoom = Math.log2(360 / Math.max(currentRegion.latitudeDelta, 0.0001));
@@ -1932,6 +1961,7 @@ export default function TrafficMapView({
       if (!isFinite(r.latitude) || !isFinite(r.longitude) || !(r.latitudeDelta > 0) || !(r.longitudeDelta > 0)) return;
       setCurrentRegion(r);
       setSettledRegion(r);
+      setDisabledTap(null); // Popup schließt beim Verschieben/Zoomen
       if (onViewportChange) {
         const hl = r.latitudeDelta / 2;
         const ho = r.longitudeDelta / 2;
@@ -2210,17 +2240,8 @@ export default function TrafficMapView({
           </Text>
         </View>
       ) : null}
-      {disabledIsos.length > 0 ? (
-        <View
-          style={[disabledHintStyles.container, { top: topInset + 16 + (vectorZonesHiddenHint || vectorZonesTruncated ? 40 : 0) + (lockedNames.length > 0 ? 40 : 0) }]}
-          testID="hint-disabled-countries"
-        >
-          {disabledIsos.map((iso) => (
-            <Text key={iso} style={disabledHintStyles.text}>{countryDisabledWarning(usageCountryLabel(iso))}</Text>
-          ))}
-          <EnableCountryButtons isos={disabledIsos} color="#FFFFFF" style={{ marginTop: 4 }} />
-        </View>
-      ) : null}
+      {/* Deaktivierte Länder: kein Dauer-Banner mehr, nur Popup nach Tipp ins Land */}
+      <DisabledCountryPopup tap={disabledTap} mapSize={mapSize} onClose={() => setDisabledTap(null)} />
       {onMapStyleChange ? (
         <View style={mapSwitchStyles.container}>
           {([
@@ -2253,9 +2274,16 @@ export default function TrafficMapView({
         presentationStyle="pageSheet"
         onRequestClose={() => setFlightUrl(null)}
       >
-        <SafeAreaView style={faStyles.container}>
-          <View style={faStyles.header}>
-            <Pressable onPress={() => setFlightUrl(null)} hitSlop={12} style={faStyles.closeBtn}>
+        <View style={[faStyles.container, { paddingBottom: safeInsets.bottom }]}>
+          <View style={[faStyles.header, { paddingTop: 8 + overlayTopInset }]}>
+            <Pressable
+              onPress={() => setFlightUrl(null)}
+              hitSlop={12}
+              style={[faStyles.closeBtn, { top: 8 + overlayTopInset }]}
+              accessibilityRole="button"
+              accessibilityLabel="Schließen"
+              testID="flightaware-close"
+            >
               <Feather name="x" size={22} color="#FFFFFF" />
             </Pressable>
             <View style={faStyles.titleRow}>
@@ -2278,7 +2306,7 @@ export default function TrafficMapView({
               )}
             />
           ) : null}
-        </SafeAreaView>
+        </View>
       </Modal>
     </View>
   );
@@ -2414,6 +2442,7 @@ const faStyles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
     marginBottom: 2,
+    paddingRight: 48,
   },
   title: {
     color: "#FFFFFF",
@@ -2522,26 +2551,6 @@ const vectorHintStyles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "600",
     flexShrink: 1,
-  },
-});
-
-const disabledHintStyles = StyleSheet.create({
-  container: {
-    position: "absolute",
-    alignSelf: "center",
-    maxWidth: "86%",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: "rgba(146, 64, 14, 0.94)",
-    borderRadius: 14,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(251, 191, 36, 0.6)",
-    zIndex: 17,
-  },
-  text: {
-    color: "rgba(255, 255, 255, 0.97)",
-    fontSize: 12,
-    fontWeight: "600",
   },
 });
 

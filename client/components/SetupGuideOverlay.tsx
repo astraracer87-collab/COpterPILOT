@@ -394,7 +394,7 @@ function DronesStep({ theme, onNext }: { theme: ThemeT; onNext: () => void }) {
 
         <View style={[styles.searchRow, { borderColor: theme.border }]}>
           <Feather name="search" size={18} color={theme.textTertiary} />
-          <TextInput
+          <TextInput disableFullscreenUI
             value={query}
             onChangeText={setQuery}
             placeholder="Drohne suchen (z. B. Mavic)"
@@ -649,7 +649,7 @@ function ManualField({
   return (
     <View style={styles.field}>
       <ThemedText style={[styles.fieldLabel, { color: theme.textSecondary }]}>{label}</ThemedText>
-      <TextInput
+      <TextInput disableFullscreenUI
         value={value}
         onChangeText={onChange}
         placeholder={placeholder}

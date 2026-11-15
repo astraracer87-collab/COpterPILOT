@@ -12,6 +12,7 @@ import { useTheme } from "@/hooks/useTheme";
 import { Spacing, Typography, BorderRadius } from "@/constants/theme";
 import { getSettings, saveSettings, Settings, DEFAULT_PROXIMITY_ALARM } from "@/lib/storage";
 import { getRadarBackgroundEnabled, setRadarBackgroundEnabled } from "@/lib/radarMonitorNative";
+import { testAlarmSound } from "@/lib/proximityAlarm";
 
 function formatRadius(meters: number): string {
   if (meters >= 1000) {
@@ -32,6 +33,7 @@ export default function TcasSettingsScreen() {
   const [settings, setSettings] = useState<Settings | null>(null);
 
   const [backgroundOn, setBackgroundOn] = useState(true);
+  const [soundTestHint, setSoundTestHint] = useState<string | null>(null);
 
   const loadSettings = useCallback(async () => {
     const data = await getSettings();
@@ -118,6 +120,32 @@ export default function TcasSettingsScreen() {
             </View>
           </Card>
         ) : null}
+        <Card style={[styles.menuItem, styles.menuItemSpacing]}>
+          <View style={styles.switchRow}>
+            <Feather name="volume-2" size={20} color={theme.primary} />
+            <View style={styles.switchContent}>
+              <ThemedText style={styles.menuText}>Alarmton</ThemedText>
+              <ThemedText style={[styles.switchDescription, { color: theme.textSecondary }]}>
+                {soundTestHint ?? "Spielt den TA- und den RA-Ton ab. Lautstärke über die Medien-Lautstärke des Geräts."}
+              </ThemedText>
+            </View>
+            <Pressable
+              onPress={() => {
+                const ok = testAlarmSound();
+                setSoundTestHint(
+                  ok
+                    ? "Nichts gehört? Medien-Lautstärke erhöhen und erneut testen."
+                    : "Audio nicht verfügbar – nur Vibration. App bitte neu installieren.",
+                );
+              }}
+              style={[styles.testButton, { backgroundColor: theme.primary }]}
+              testID="button-test-alarm-sound"
+              accessibilityRole="button"
+            >
+              <ThemedText style={styles.testButtonText}>Alarmton testen</ThemedText>
+            </Pressable>
+          </View>
+        </Card>
         <Card style={[styles.menuItem, styles.menuItemSpacing, { flexDirection: "column", alignItems: "stretch" }]}>
           <View style={styles.sliderHeader}>
             <Feather name="arrow-down" size={16} color={theme.primary} />
@@ -485,6 +513,17 @@ const styles = StyleSheet.create({
     fontSize: 10,
     minWidth: 28,
     textAlign: "center",
+  },
+  testButton: {
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.sm,
+    marginLeft: Spacing.md,
+  },
+  testButtonText: {
+    ...Typography.small,
+    fontWeight: "700",
+    color: "#FFFFFF",
   },
   tcasToggleRow: {
     flexDirection: "row",

@@ -255,7 +255,7 @@ export default function GlossaryScreen() {
     >
       <View style={[styles.searchBox, { backgroundColor: theme.card, borderColor: theme.border }]}>
         <Feather name="search" size={16} color={theme.textTertiary} />
-        <TextInput
+        <TextInput disableFullscreenUI
           style={[styles.searchInput, { color: theme.text }]}
           placeholder="Begriff suchen..."
           placeholderTextColor={theme.textTertiary}
@@ -327,7 +327,7 @@ export default function GlossaryScreen() {
               </View>
 
               <Text style={[styles.label, { color: theme.textSecondary }]}>Begriff</Text>
-              <TextInput
+              <TextInput disableFullscreenUI
                 value={formTerm}
                 onChangeText={setFormTerm}
                 placeholder="z. B. RID"
@@ -340,7 +340,7 @@ export default function GlossaryScreen() {
               />
 
               <Text style={[styles.label, { color: theme.textSecondary }]}>Definition</Text>
-              <TextInput
+              <TextInput disableFullscreenUI
                 value={formDefinition}
                 onChangeText={setFormDefinition}
                 placeholder="Erklärung..."

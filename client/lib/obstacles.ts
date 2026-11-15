@@ -16,9 +16,18 @@ import { FT_M } from "../../shared/heights";
 import { obstacleTileInActiveCountry } from "./obstacleCountryFilter";
 import { trackDownload } from "./downloadActivity";
 import { awaitCountryUsage } from "./countryUsage";
-import { responseJsonYielding, shouldYield, stringifyYielding, yieldToUi } from "../../shared/yieldingWork";
+import { loadLastKnownPosition } from "./mapFallbackCenter";
+import { parseJsonYielding, responseJsonYielding, shouldYield, stringifyYielding, yieldToUi } from "../../shared/yieldingWork";
+import {
+  createObstacleTileCache,
+  OBSTACLE_TILE_ZOOM,
+  tileBounds,
+  tileKeyOf,
+  type ObstacleBoundsOptions,
+  type ObstacleTileData,
+} from "./obstacleTileCache";
 
-export const OBSTACLE_TILE_ZOOM = 10;
+export { OBSTACLE_TILE_ZOOM } from "./obstacleTileCache";
 const CACHE_DIR = `${FileSystem.documentDirectory}obstacles/`;
 /** Online-Daten gelten 30 Tage, danach wird bei Internet neu geladen. */
 const MAX_AGE_MS = 30 * 24 * 3600 * 1000;
@@ -32,7 +41,7 @@ const OVERPASS_ENDPOINTS = [
 
 export type ObstacleKind = "wind" | "pmast" | "chimney" | "tower" | "tower_fernmelde" | "mast";
 
-type TileData = { t: number; fc: GeoJSON.FeatureCollection };
+type TileData = ObstacleTileData;
 
 // ---------------------------------------------------------------------------
 // Einstellungen
@@ -69,39 +78,9 @@ export function onObstaclesEnabledChange(l: (v: boolean) => void): () => void {
 // Kachel-Mathematik
 // ---------------------------------------------------------------------------
 
-export function lonToTileX(lon: number, z: number): number {
-  return Math.floor(((lon + 180) / 360) * 2 ** z);
-}
+export { lonToTileX, latToTileY, tileBounds, tilesForBounds, tilesAround } from "./obstacleTileCache";
 
-export function latToTileY(lat: number, z: number): number {
-  const r = (Math.max(-85, Math.min(85, lat)) * Math.PI) / 180;
-  return Math.floor(((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2) * 2 ** z);
-}
-
-export function tileBounds(x: number, y: number, z: number): { s: number; w: number; n: number; e: number } {
-  const n2 = 2 ** z;
-  const lon = (xx: number) => (xx / n2) * 360 - 180;
-  const lat = (yy: number) => (Math.atan(Math.sinh(Math.PI * (1 - (2 * yy) / n2))) * 180) / Math.PI;
-  return { w: lon(x), e: lon(x + 1), n: lat(y), s: lat(y + 1) };
-}
-
-export function tilesForBounds(
-  w: number,
-  s: number,
-  e: number,
-  n: number,
-  z = OBSTACLE_TILE_ZOOM,
-): { x: number; y: number }[] {
-  const x0 = lonToTileX(w, z);
-  const x1 = lonToTileX(e, z);
-  const y0 = latToTileY(n, z);
-  const y1 = latToTileY(s, z);
-  const out: { x: number; y: number }[] = [];
-  for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) out.push({ x, y });
-  return out;
-}
-
-const tileKey = (x: number, y: number) => `${OBSTACLE_TILE_ZOOM}_${x}_${y}`;
+const tileKey = (x: number, y: number) => tileKeyOf(x, y);
 
 // ---------------------------------------------------------------------------
 // OSM → GeoJSON
@@ -235,9 +214,6 @@ export async function toFeatureCollectionYielding(json: any): Promise<GeoJSON.Fe
 // Laden & Zwischenspeichern
 // ---------------------------------------------------------------------------
 
-const memory = new Map<string, TileData>();
-const inflight = new Map<string, Promise<TileData | null>>();
-const failed = new Map<string, number>();
 let dirReady: Promise<void> | null = null;
 let endpointIdx = 0;
 
@@ -248,20 +224,25 @@ function ensureDir(): Promise<void> {
   return dirReady;
 }
 
-async function readTile(key: string): Promise<TileData | null> {
-  const mem = memory.get(key);
-  if (mem) return mem;
-  try {
-    const path = `${CACHE_DIR}${key}.json`;
-    const info = await FileSystem.getInfoAsync(path);
-    if (!info.exists) return null;
-    const data = JSON.parse(await FileSystem.readAsStringAsync(path)) as TileData;
-    memory.set(key, data);
-    return data;
-  } catch {
-    return null;
-  }
-}
+/** Gerätespeicher (documentDirectory/obstacles); Lesen/Schreiben in Zeitscheiben. */
+const fileStorage = {
+  async read(key: string): Promise<TileData | null> {
+    try {
+      const path = `${CACHE_DIR}${key}.json`;
+      const info = await FileSystem.getInfoAsync(path);
+      if (!info.exists) return null;
+      return (await parseJsonYielding(await FileSystem.readAsStringAsync(path))) as TileData;
+    } catch {
+      return null;
+    }
+  },
+  async write(key: string, data: TileData): Promise<void> {
+    await ensureDir();
+    try {
+      await FileSystem.writeAsStringAsync(`${CACHE_DIR}${key}.json`, await stringifyYieldingTile(data));
+    } catch {}
+  },
+};
 
 /** wie JSON.stringify(data), Feature-Liste in Zeitscheiben */
 async function stringifyYieldingTile(data: TileData): Promise<string> {
@@ -269,13 +250,23 @@ async function stringifyYieldingTile(data: TileData): Promise<string> {
   return `{"t":${JSON.stringify(data.t)},"fc":${fc}}`;
 }
 
-async function writeTile(key: string, data: TileData): Promise<void> {
-  memory.set(key, data);
-  await ensureDir();
-  try {
-    await FileSystem.writeAsStringAsync(`${CACHE_DIR}${key}.json`, await stringifyYieldingTile(data));
-  } catch {}
-}
+const cache = createObstacleTileCache({
+  storage: fileStorage,
+  maxAgeMs: MAX_AGE_MS,
+  isAllowed: async (x, y) => {
+    await awaitCountryUsage();
+    return obstacleTileInActiveCountry(tileBounds(x, y, OBSTACLE_TILE_ZOOM));
+  },
+  fetchTile: async (x, y, ctx) => {
+    const query = overpassQuery(tileBounds(x, y, OBSTACLE_TILE_ZOOM));
+    // Keine app-weite Download-Anzeige für Kartenausschnitte (sonst dauernd
+    // „Lädt: Hindernisse …“); die Karte zeigt einen kleinen Hinweis.
+    const json = ctx.track
+      ? await trackDownload({ id: "obstacles-live", labelDe: "Hindernisse", kind: "obstacles" }, () => overpass(query))
+      : await overpass(query);
+    return toFeatureCollectionYielding(json);
+  },
+});
 
 // Overpass erlaubt pro Gerät nur wenige gleichzeitige Abfragen
 const MAX_PARALLEL = 2;
@@ -324,78 +315,56 @@ async function overpassDirect(query: string, timeoutMs: number): Promise<any> {
 }
 
 /**
- * Lädt eine Kachel (Gerät → sonst Internet). force = immer neu laden.
+ * Lädt eine Kachel (Speicher → Gerät → sonst Internet). force = immer neu laden.
  * Kacheln in deaktivierten Ländern (Nutzung „Aus“) werden weder geladen noch
- * geliefert (obstacleTileInActiveCountry). `track: false` = keine eigene
- * Download-Anzeige (der Aufrufer zeigt den Gesamtfortschritt).
+ * geliefert (obstacleTileInActiveCountry). Gespeicherte, aber veraltete Daten
+ * werden sofort geliefert und still im Hintergrund erneuert. `track: true` =
+ * eigene Download-Anzeige (Standard: aus).
  */
 export async function loadObstacleTile(
   x: number,
   y: number,
   opts: { force?: boolean; allowNetwork?: boolean; track?: boolean } = {},
 ): Promise<TileData | null> {
-  await awaitCountryUsage();
-  if (!obstacleTileInActiveCountry(tileBounds(x, y, OBSTACLE_TILE_ZOOM))) return null;
-  const key = tileKey(x, y);
-  const cached = await readTile(key);
-  const fresh = cached && Date.now() - cached.t < MAX_AGE_MS;
-  if (cached && (fresh || opts.allowNetwork === false) && !opts.force) return cached;
-  if (opts.allowNetwork === false) return cached;
-  const running = inflight.get(key);
-  if (running) return running;
-  // nach einem Fehlschlag nicht sofort erneut fragen (Server schonen)
-  const failedAt = failed.get(key);
-  if (!opts.force && failedAt && Date.now() - failedAt < 120000) return cached;
-  const p = (async () => {
-    try {
-      const query = overpassQuery(tileBounds(x, y, OBSTACLE_TILE_ZOOM));
-      const json =
-        opts.track === false
-          ? await overpass(query)
-          : await trackDownload({ id: "obstacles-live", labelDe: "Hindernisse für den Kartenausschnitt", kind: "obstacles" }, () => overpass(query));
-      const data: TileData = { t: Date.now(), fc: await toFeatureCollectionYielding(json) };
-      await writeTile(key, data);
-      return data;
-    } catch {
-      failed.set(key, Date.now());
-      return cached; // offline oder Server überlastet: alte Daten weiter nutzen
-    } finally {
-      inflight.delete(key);
-    }
-  })();
-  inflight.set(key, p);
-  return p;
+  return cache.get(x, y, opts);
 }
 
 export async function hasObstacleTile(x: number, y: number): Promise<boolean> {
+  if (cache.peek(x, y)) return true;
   const info = await FileSystem.getInfoAsync(`${CACHE_DIR}${tileKey(x, y)}.json`).catch(() => ({ exists: false }));
   return info.exists;
 }
 
-/** Alle Hindernisse für einen Kartenausschnitt (zusammengeführt). */
+/**
+ * Alle Hindernisse für einen Kartenausschnitt (zusammengeführt): zuerst sofort
+ * alles Gespeicherte, danach nur die fehlenden Kacheln aus dem Internet.
+ */
 export async function loadObstaclesForBounds(
   w: number,
   s: number,
   e: number,
   n: number,
   onPartial?: (fc: GeoJSON.FeatureCollection) => void,
+  opts: Omit<ObstacleBoundsOptions, "onPartial"> = {},
 ): Promise<GeoJSON.FeatureCollection> {
-  const tiles = tilesForBounds(w, s, e, n);
-  if (tiles.length > 30) return { type: "FeatureCollection", features: [] };
-  const parts: (TileData | null)[] = tiles.map(() => null);
-  const merge = (): GeoJSON.FeatureCollection => ({
-    type: "FeatureCollection",
-    features: parts.flatMap((p) => (p ? p.fc.features : [])),
-  });
-  await Promise.all(
-    tiles.map((t, i) =>
-      loadObstacleTile(t.x, t.y).then((r) => {
-        parts[i] = r;
-        if (r && onPartial) onPartial(merge());
-      }),
-    ),
-  );
-  return merge();
+  return cache.loadForBounds(w, s, e, n, { ...opts, onPartial });
+}
+
+/** Umgebung einer Position (3×3 Kacheln, ca. 75–120 km) vorab laden – leise, nacheinander. */
+export async function prefetchObstaclesAround(lat: number, lon: number, radiusTiles = 1): Promise<number> {
+  if (!(await getObstaclesEnabled())) return 0;
+  return cache.prefetchAround(lat, lon, radiusTiles);
+}
+
+/** Beim Start: Umgebung der zuletzt bekannten Position vorab laden. */
+export async function prefetchObstaclesAroundLastKnown(): Promise<number> {
+  const p = await loadLastKnownPosition().catch(() => null);
+  return p ? prefetchObstaclesAround(p.latitude, p.longitude) : 0;
+}
+
+/** Laufende Internet-Abfragen (für einen kleinen Lade-Hinweis auf der Karte). */
+export function subscribeObstacleLoading(l: (active: number) => void): () => void {
+  return cache.subscribeLoading(l);
 }
 
 export async function obstacleCacheSize(): Promise<{ files: number; bytes: number }> {
@@ -415,7 +384,7 @@ export async function obstacleCacheSize(): Promise<{ files: number; bytes: numbe
 export async function deleteObstacleTiles(tiles: { x: number; y: number }[]): Promise<void> {
   for (const t of tiles) {
     const key = tileKey(t.x, t.y);
-    memory.delete(key);
+    cache.forget(t.x, t.y);
     await FileSystem.deleteAsync(`${CACHE_DIR}${key}.json`, { idempotent: true }).catch(() => {});
   }
 }

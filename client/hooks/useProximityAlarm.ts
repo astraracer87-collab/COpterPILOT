@@ -10,6 +10,7 @@ import {
   speakClearOfConflict,
   shouldShowVisual,
   updateAlarmAltitude,
+  preloadAlarmSounds,
   type ProximityAlert,
   type ApproachingAircraft,
 } from "@/lib/proximityAlarm";
@@ -78,6 +79,11 @@ export function useProximityAlarm(
       }
     });
     return () => subscription.remove();
+  }, []);
+
+  // Alarmtöne vorladen und Audio-Modus (auch im Hintergrund) setzen
+  useEffect(() => {
+    preloadAlarmSounds();
   }, []);
 
   const settingsJson = useRef("");
@@ -183,11 +189,12 @@ export function useProximityAlarm(
       if (decision.level === "critical") {
         triggerCriticalAlarm(alarmSettings, decision.altitudeM);
       } else {
-        triggerWarningAlarm(alarmSettings, decision.altitudeM);
+        triggerWarningAlarm(alarmSettings, decision.altitudeM, decision.approaching);
       }
     } else if (decision.action === "update") {
       const closestAlt = decision.altitudeM;
-      updateAlarmAltitude(closestAlt);
+      const closestApproaching = decision.approaching;
+      updateAlarmAltitude(closestAlt, closestApproaching);
       if (decision.downgrade) {
         if (!pendingDowngrade.current) {
           pendingDowngrade.current = true;
@@ -196,7 +203,7 @@ export function useProximityAlarm(
             if (pendingDowngrade.current) {
               pendingDowngrade.current = false;
               stopAlarmSound();
-              triggerWarningAlarm(alarmSettings, closestAlt);
+              triggerWarningAlarm(alarmSettings, closestAlt, closestApproaching);
               setAlarmLevel("warning");
               currentLevel.current = "warning";
             }

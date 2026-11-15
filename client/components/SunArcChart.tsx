@@ -1,10 +1,26 @@
-import React, { useMemo, useState, useRef, useCallback } from "react";
-import { View, StyleSheet, LayoutChangeEvent, PanResponder, GestureResponderEvent } from "react-native";
+import React, { useMemo, useState, useRef, useCallback, useEffect } from "react";
+import { View, StyleSheet, LayoutChangeEvent, PanResponder, GestureResponderEvent, Animated } from "react-native";
 import Svg, { Path, Line, Circle, Text as SvgText, Rect, Defs, LinearGradient, Stop, ClipPath, G } from "react-native-svg";
 import * as Haptics from "expo-haptics";
 import { ThemedText } from "@/components/ThemedText";
 import { useTheme } from "@/hooks/useTheme";
-import { hourlySunArc, SunArcSample, formatSolarTime, computeSunElevation } from "@/lib/solar";
+import { hourlySunArc, SunArcSample, formatSolarTime, computeSunElevation, calculateSolarTimes } from "@/lib/solar";
+import { buildSunMarkerTrack, localDayStart, normalizeSlotTimes, timeAtScrollOffset } from "@/lib/sunArcScrollSync";
+
+/**
+ * Kopplung an eine horizontal scrollende Stundentabelle: die Markierung folgt
+ * dem Scroll-Offset über Animated.interpolate (nativer Treiber) – kein
+ * setState/Re-Render pro Scroll-Ereignis. Der Tag (Bogen) wechselt nur, wenn
+ * die betrachtete Zeit über Mitternacht läuft.
+ */
+export interface SunArcScrollSync {
+  /** Horizontaler Scroll-Offset der Tabelle (Animated.event mit useNativeDriver: true). */
+  scrollX: Animated.Value;
+  /** Spaltenbreite (px): Offset i*colWidth ↔ slotTimes[i]. */
+  colWidth: number;
+  /** Zeit (ms) je Spalte; Spalte 0 („Jetzt“) wird auf die aktuelle Zeit gesetzt. */
+  slotTimes: number[];
+}
 
 export interface TempSample {
   time: Date;
@@ -34,16 +50,55 @@ interface Props {
   snapMinutes?: number;
   /** Startlinie fixieren (Pre-Flight: "sofortiger Start ab jetzt") — nur Ende verschiebbar. */
   lockStart?: boolean;
+  /** Markierung scroll-synchron zu einer Stundentabelle (ersetzt highlightTime/date/sunrise/sunset). */
+  scrollSync?: SunArcScrollSync;
 }
 
 const PADDING = { left: 32, right: 36, top: 22, bottom: 30 };
 const HANDLE_TOUCH_W = 36;
 
-export default function SunArcChart({
-  lat, lon, date, highlightTime, width: widthProp, height = 200,
-  tempSeries, sunrise, sunset, dayLengthMinutes,
+function SunArcChart({
+  lat, lon, date: dateProp, highlightTime, width: widthProp, height = 200,
+  tempSeries, sunrise: sunriseProp, sunset: sunsetProp, dayLengthMinutes: dayLengthProp,
   rangeStart, rangeEnd, onRangeChange, minStart, snapMinutes = 15, lockStart = false,
+  scrollSync,
 }: Props) {
+  const sync = scrollSync && scrollSync.slotTimes.length > 0 ? scrollSync : null;
+  const syncScrollX = sync?.scrollX ?? null;
+  const syncColW = sync?.colWidth ?? 0;
+  const slotKey = sync ? sync.slotTimes.join(",") : "";
+  // „Jetzt“-Spalte minütlich nachführen (nur im Scroll-Modus)
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => {
+    if (!sync) return;
+    const id = setInterval(() => setNowTick(Date.now()), 60_000);
+    return () => clearInterval(id);
+  }, [!!sync]);
+  const syncTimes = useMemo(
+    () => (sync ? normalizeSlotTimes(sync.slotTimes, nowTick) : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [slotKey, nowTick],
+  );
+  // Tag des Bogens: wechselt nur beim Scrollen über Mitternacht (seltenes setState)
+  const [syncDay, setSyncDay] = useState<number>(() => localDayStart(Date.now()));
+  useEffect(() => {
+    if (!syncScrollX || syncTimes.length === 0) return;
+    const dayAt = (v: number) => localDayStart(timeAtScrollOffset(v, syncTimes, syncColW));
+    const cur = (syncScrollX as unknown as { __getValue?: () => number }).__getValue?.() ?? 0;
+    setSyncDay(dayAt(cur));
+    const id = syncScrollX.addListener(({ value }) => {
+      const d = dayAt(value);
+      setSyncDay((prev) => (prev === d ? prev : d));
+    });
+    return () => syncScrollX.removeListener(id);
+  }, [syncScrollX, syncTimes, syncColW]);
+  const syncDate = useMemo(() => new Date(syncDay + 12 * 3600_000), [syncDay]);
+  const syncSolar = useMemo(() => (sync ? calculateSolarTimes(lat, lon, syncDate) : null), [!!sync, lat, lon, syncDate]);
+  const date = sync ? syncDate : dateProp;
+  const sunrise = sync ? syncSolar?.sunrise ?? null : sunriseProp;
+  const sunset = sync ? syncSolar?.sunset ?? null : sunsetProp;
+  const dayLengthMinutes = sync ? syncSolar?.dayLengthMinutes ?? null : dayLengthProp;
+
   const [measured, setMeasured] = useState<number>(0);
   const width = widthProp ?? (measured > 0 ? measured : 320);
   const onLayout = (e: LayoutChangeEvent) => {
@@ -123,6 +178,27 @@ export default function SunArcChart({
   const hx = xFor(highlight.getTime());
   const hElev = computeSunElevation(lat, lon, highlight);
   const hy = yFor(hElev);
+
+  // Scroll-Modus: Markierung über native Interpolation des Scroll-Offsets
+  const marker = useMemo(() => {
+    if (!syncScrollX || syncTimes.length === 0) return null;
+    const plotL = PADDING.left;
+    const plotR = width - PADDING.right;
+    const track = buildSunMarkerTrack(syncTimes, syncColW, (t) => {
+      const elev = computeSunElevation(lat, lon, new Date(t));
+      const x = Math.max(plotL, Math.min(plotR, xFor(t)));
+      return { x, y: yFor(elev), elevationDeg: elev };
+    });
+    const ip = (out: number[]) => syncScrollX.interpolate({ inputRange: track.inputRange, outputRange: out, extrapolate: "clamp" });
+    return {
+      tx: ip(track.x),
+      ty: ip(track.y),
+      day: ip(track.dayOpacity),
+      twilight: ip(track.twilightOpacity),
+      night: ip(track.nightOpacity),
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [syncScrollX, syncTimes, syncColW, lat, lon, viewStart, viewRange, minElev, elevRange, width, height]);
 
   const sunColor = "#FFB820";
   const twilightColor = "#FF8C00";
@@ -404,7 +480,7 @@ export default function SunArcChart({
             <Circle cx={xRangeEnd} cy={height - PADDING.bottom - 4} r={6} fill={theme.primary}
               stroke={theme.backgroundDefault} strokeWidth={2} />
           </>
-        ) : (
+        ) : marker ? null : (
           <>
             <Line x1={hx} y1={PADDING.top} x2={hx} y2={height - PADDING.bottom}
               stroke={theme.primary} strokeWidth={1} opacity={0.4} />
@@ -419,6 +495,45 @@ export default function SunArcChart({
         )}
       </Svg>
 
+      {marker ? (
+        <View style={StyleSheet.absoluteFill} pointerEvents="none">
+          <Animated.View
+            style={{
+              position: "absolute",
+              left: -0.5,
+              top: PADDING.top,
+              width: 1,
+              height: innerH,
+              backgroundColor: theme.primary,
+              opacity: 0.4,
+              transform: [{ translateX: marker.tx }],
+            }}
+          />
+          {([
+            [marker.day, sunColor],
+            [marker.twilight, twilightColor],
+            [marker.night, nightColor],
+          ] as const).map(([op, color]) => (
+            <Animated.View
+              key={color}
+              style={{
+                position: "absolute",
+                left: -6,
+                top: -6,
+                width: 12,
+                height: 12,
+                borderRadius: 6,
+                borderWidth: 2,
+                borderColor: theme.backgroundDefault,
+                backgroundColor: color,
+                opacity: op,
+                transform: [{ translateX: marker.tx }, { translateY: marker.ty }],
+              }}
+            />
+          ))}
+        </View>
+      ) : null}
+
       {/* Drag-Overlay (nur Range-Modus) */}
       {isRangeMode ? (
         <View
@@ -427,6 +542,17 @@ export default function SunArcChart({
         />
       ) : null}
 
+      {sync && syncScrollX ? (
+        <ScrollSyncCaption
+          lat={lat}
+          lon={lon}
+          scrollX={syncScrollX}
+          times={syncTimes}
+          colWidth={syncColW}
+          dayLengthMinutes={dayLengthMinutes ?? null}
+          color={theme.textTertiary}
+        />
+      ) : (
       <ThemedText style={[styles.caption, { color: theme.textTertiary }]}>
         {isRangeMode
           ? `Flugzeit ${fmtHM(rangeStart!)}–${fmtHM(rangeEnd!)}${
@@ -437,9 +563,79 @@ export default function SunArcChart({
             }${dayLengthMinutes != null ? ` · ${Math.floor(dayLengthMinutes / 60)}h ${dayLengthMinutes % 60}min Tageslicht` : ""}`
         }
       </ThemedText>
+      )}
     </View>
   );
 }
+
+/**
+ * Beschriftung im Scroll-Modus: eigener kleiner Baustein mit eigenem Zustand,
+ * aktualisiert nur bei Wechsel der 5-Minuten-Stufe – das SVG rendert dabei nicht neu.
+ */
+function ScrollSyncCaption({ lat, lon, scrollX, times, colWidth, dayLengthMinutes, color }: {
+  lat: number;
+  lon: number;
+  scrollX: Animated.Value;
+  times: number[];
+  colWidth: number;
+  dayLengthMinutes: number | null;
+  color: string;
+}) {
+  const STEP = 5 * 60_000;
+  const quant = useCallback((v: number) => Math.round(timeAtScrollOffset(v, times, colWidth) / STEP) * STEP, [times, colWidth]);
+  const [t, setT] = useState<number>(() => quant((scrollX as unknown as { __getValue?: () => number }).__getValue?.() ?? 0));
+  useEffect(() => {
+    setT(quant((scrollX as unknown as { __getValue?: () => number }).__getValue?.() ?? 0));
+    const id = scrollX.addListener(({ value }) => {
+      const q = quant(value);
+      setT((prev) => (prev === q ? prev : q));
+    });
+    return () => scrollX.removeListener(id);
+  }, [scrollX, quant]);
+  const d = new Date(t);
+  const elev = computeSunElevation(lat, lon, d);
+  return (
+    <ThemedText style={[styles.caption, { color }]}>
+      {`${formatSolarTime(d)} · Sonne ${elev >= 0 ? `${elev.toFixed(1)}° über` : `${Math.abs(elev).toFixed(1)}° unter`} Horizont${
+        dayLengthMinutes != null ? ` · ${Math.floor(dayLengthMinutes / 60)}h ${dayLengthMinutes % 60}min Tageslicht` : ""
+      }`}
+    </ThemedText>
+  );
+}
+
+function sameScrollSync(a?: SunArcScrollSync, b?: SunArcScrollSync): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  if (a.scrollX !== b.scrollX || a.colWidth !== b.colWidth || a.slotTimes.length !== b.slotTimes.length) return false;
+  for (let i = 0; i < a.slotTimes.length; i++) if (a.slotTimes[i] !== b.slotTimes[i]) return false;
+  return true;
+}
+
+function sameDate(a?: Date | null, b?: Date | null): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return a.getTime() === b.getTime();
+}
+
+/**
+ * Memo: Eltern (z. B. die Radar-Seitenleiste) rendern oft neu; das SVG nur
+ * neu zeichnen, wenn sich die Darstellung wirklich ändert.
+ */
+export default React.memo(SunArcChart, (prev, next) => {
+  const keys = new Set([...Object.keys(prev), ...Object.keys(next)]) as Set<keyof Props>;
+  for (const k of keys) {
+    const a = prev[k];
+    const b = next[k];
+    if (k === "scrollSync") {
+      if (!sameScrollSync(a as SunArcScrollSync | undefined, b as SunArcScrollSync | undefined)) return false;
+    } else if (a instanceof Date || b instanceof Date) {
+      if (!sameDate(a as Date | undefined, b as Date | undefined)) return false;
+    } else if (a !== b) {
+      return false;
+    }
+  }
+  return true;
+});
 
 const styles = StyleSheet.create({
   wrap: {

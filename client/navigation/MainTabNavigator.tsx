@@ -1,8 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
-import { View, StyleSheet, Pressable, Alert, Platform, Modal, TouchableOpacity, Animated } from "react-native";
+import { View, StyleSheet, Pressable, Alert, Modal, TouchableOpacity, Animated, useWindowDimensions } from "react-native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { Feather } from "@expo/vector-icons";
-import { BlurView } from "expo-blur";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -22,6 +21,15 @@ import { subscribeAlarmLevel } from "@/lib/proximityAlarm";
 import { subscribeActiveNotamCount } from "@/lib/notamAlertStore";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { setFlightPlanningMode } from "@/lib/flightPlanningMode";
+import { MainTabBar, getMainTabBarHeight, withContentAboveTabBar } from "@/navigation/MainTabBar";
+
+// Inhalt der Tabs endet oberhalb der (nicht mehr schwebenden) Tab-Leiste.
+const BriefingsTabScreen = withContentAboveTabBar(BriefingsStackNavigator);
+const RadarTabScreen = withContentAboveTabBar(RadarStackNavigator);
+const NotamsTabScreen = withContentAboveTabBar(NotamsStackNavigator);
+const HistoryTabScreen = withContentAboveTabBar(HistoryStackNavigator);
+const NdFilterTabScreen = withContentAboveTabBar(NdFilterStackNavigator);
+const SettingsTabScreen = withContentAboveTabBar(SettingsStackNavigator);
 
 export type MainTabParamList = {
   BriefingsTab: undefined;
@@ -210,11 +218,13 @@ function NotamsTabIcon({ focused }: { focused: boolean }) {
       {isAlert ? (
         <Animated.View style={{
           position: "absolute",
-          width: 36,
-          height: 36,
-          borderRadius: 18,
-          backgroundColor: alertColor,
-          opacity: pulseAnim.interpolate({ inputRange: [0.3, 1], outputRange: [0.4, 0.12] }),
+          width: 34,
+          height: 34,
+          borderRadius: 17,
+          borderWidth: 2,
+          borderColor: alertColor,
+          backgroundColor: "transparent",
+          opacity: pulseAnim.interpolate({ inputRange: [0.3, 1], outputRange: [0.35, 1] }),
         }} />
       ) : null}
       <Animated.View style={isAlert ? { opacity: pulseAnim } : undefined}>
@@ -282,14 +292,21 @@ function RadarTabIcon({ focused }: { focused: boolean }) {
   return (
     <View style={{ alignItems: "center", justifyContent: "center" }}>
       {isAlarm ? (
-        <Animated.View style={{
-          position: "absolute",
-          width: 36,
-          height: 36,
-          borderRadius: 18,
-          backgroundColor: alarmColor,
-          opacity: pulseAnim.interpolate({ inputRange: [0.2, 1], outputRange: [0.4, 0.15] }),
-        }} />
+        // Alarm als pulsierender RING (keine gefüllte Fläche), damit er nicht
+        // wie die Pille des aktiven Tabs aussieht.
+        <Animated.View
+          testID="radar-tab-alarm-ring"
+          style={{
+            position: "absolute",
+            width: 34,
+            height: 34,
+            borderRadius: 17,
+            borderWidth: 2,
+            borderColor: alarmColor,
+            backgroundColor: "transparent",
+            opacity: pulseAnim.interpolate({ inputRange: [0.2, 1], outputRange: [0.35, 1] }),
+          }}
+        />
       ) : null}
       <Animated.View style={isAlarm ? { opacity: pulseAnim } : undefined}>
         <Feather name="radio" size={24} color={iconColor} />
@@ -312,7 +329,7 @@ function RadarTabLabel({ focused }: { focused: boolean }) {
   const color = isAlarm ? alarmColor : (focused ? theme.primary : theme.textTertiary);
 
   return (
-    <ThemedText style={{ fontSize: 11, fontWeight: "500", color }}>
+    <ThemedText style={{ fontSize: 12, fontWeight: focused ? "700" : "500", color }} numberOfLines={1}>
       Radar
     </ThemedText>
   );
@@ -321,6 +338,7 @@ function RadarTabLabel({ focused }: { focused: boolean }) {
 function FloatingFab() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const insets = useSafeAreaInsets();
+  const { width, height } = useWindowDimensions();
   const [showChooser, setShowChooser] = useState(false);
 
   const handlePress = async () => {
@@ -363,7 +381,7 @@ function FloatingFab() {
         onPress={handlePress}
         style={({ pressed }) => [
           styles.floatingFab,
-          { bottom: 76 + insets.bottom },
+          { bottom: getMainTabBarHeight(width > height, insets.bottom) + 16 },
           pressed && styles.fabButtonPressed,
         ]}
         testID="fab-new-check"
@@ -383,35 +401,20 @@ function FloatingFab() {
 export default function MainTabNavigator() {
   const { theme } = useTheme();
   const insets = useSafeAreaInsets();
+  const { width, height } = useWindowDimensions();
+  const landscape = width > height;
   const [activeTab, setActiveTab] = useState<keyof MainTabParamList>("BriefingsTab");
 
   return (
     <View style={{ flex: 1 }}>
       <Tab.Navigator
+        tabBar={(props) => <MainTabBar {...props} />}
         screenOptions={{
           headerShown: false,
-          tabBarStyle: {
-            position: "absolute",
-            backgroundColor: Platform.OS === "ios" ? "transparent" : theme.backgroundDefault,
-            borderTopWidth: 0,
-            elevation: 0,
-            height: 60 + insets.bottom,
-            paddingBottom: insets.bottom,
-          },
-          tabBarBackground: () =>
-            Platform.OS === "ios" ? (
-              <BlurView
-                intensity={80}
-                style={StyleSheet.absoluteFill}
-                tint={theme.backgroundDefault === Colors.light.backgroundDefault ? "light" : "dark"}
-              />
-            ) : null,
+          // Schätzwert für die erste Messung; die eigene Leiste meldet ihre echte Höhe.
+          tabBarStyle: { height: getMainTabBarHeight(landscape, insets.bottom) },
           tabBarActiveTintColor: theme.primary,
           tabBarInactiveTintColor: theme.textTertiary,
-          tabBarLabelStyle: {
-            fontSize: 11,
-            fontWeight: "500",
-          },
         }}
         screenListeners={{
           state: (e) => {
@@ -425,7 +428,7 @@ export default function MainTabNavigator() {
       >
         <Tab.Screen
           name="BriefingsTab"
-          component={BriefingsStackNavigator}
+          component={BriefingsTabScreen}
           options={{
             tabBarLabel: "Briefings",
             tabBarIcon: ({ focused }) => <TabBarIcon name="clipboard" focused={focused} />,
@@ -433,7 +436,7 @@ export default function MainTabNavigator() {
         />
         <Tab.Screen
           name="RadarTab"
-          component={RadarStackNavigator}
+          component={RadarTabScreen}
           options={{
             tabBarLabel: ({ focused }) => <RadarTabLabel focused={focused} />,
             tabBarIcon: ({ focused }) => <RadarTabIcon focused={focused} />,
@@ -441,7 +444,7 @@ export default function MainTabNavigator() {
         />
         <Tab.Screen
           name="NotamsTab"
-          component={NotamsStackNavigator}
+          component={NotamsTabScreen}
           options={{
             tabBarLabel: "NOTAMs",
             tabBarIcon: ({ focused }) => <NotamsTabIcon focused={focused} />,
@@ -449,7 +452,7 @@ export default function MainTabNavigator() {
         />
         <Tab.Screen
           name="HistoryTab"
-          component={HistoryStackNavigator}
+          component={HistoryTabScreen}
           options={{
             tabBarLabel: "Logbuch",
             tabBarIcon: ({ focused }) => <TabBarIcon name="book" focused={focused} />,
@@ -457,7 +460,7 @@ export default function MainTabNavigator() {
         />
         <Tab.Screen
           name="NdFilterTab"
-          component={NdFilterStackNavigator}
+          component={NdFilterTabScreen}
           options={{
             tabBarLabel: "ND-Filter",
             tabBarIcon: ({ focused }) => <TabBarIcon name="aperture" focused={focused} />,
@@ -465,7 +468,7 @@ export default function MainTabNavigator() {
         />
         <Tab.Screen
           name="SettingsTab"
-          component={SettingsStackNavigator}
+          component={SettingsTabScreen}
           options={{
             tabBarLabel: "Einstellungen",
             tabBarIcon: ({ focused }) => <TabBarIcon name="settings" focused={focused} />,

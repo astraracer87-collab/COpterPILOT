@@ -9,6 +9,7 @@
  * Hindernisse. Gespeicherte Größe je Land und gesamt; „Alle deaktivierten
  * Länder bereinigen“. Datei-Importe bleiben auch bei „Aus“ erhalten.
  */
+import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Switch, TextInput, View } from "react-native";
 import { useHeaderHeight } from "@react-navigation/elements";
@@ -423,7 +424,7 @@ export default function OfflineMapsScreen() {
 
   return (
     <ThemedView style={styles.container}>
-      <ScrollView contentContainerStyle={[styles.content, { paddingTop: headerHeight + Spacing.xl, paddingBottom: tabBarHeight + Spacing.xl }]}>
+      <KeyboardAwareScrollViewCompat bottomOffset={24} contentContainerStyle={[styles.content, { paddingTop: headerHeight + Spacing.xl, paddingBottom: tabBarHeight + Spacing.xl }]}>
         <ThemedText style={[styles.sectionTitle, { color: theme.textSecondary }]}>ÜBERSETZUNG DER BEHÖRDENTEXTE</ThemedText>
         <Card style={styles.card}>
           <ThemedText style={[styles.small, { color: theme.textSecondary }]}>
@@ -453,7 +454,7 @@ export default function OfflineMapsScreen() {
             </View>
           ) : (
             <View style={{ marginTop: Spacing.md, gap: Spacing.sm }}>
-              <TextInput
+              <TextInput disableFullscreenUI
                 value={dfUserInput}
                 onChangeText={setDfUserInput}
                 placeholder="d-flight-Benutzername (E-Mail)"
@@ -464,7 +465,7 @@ export default function OfflineMapsScreen() {
                 textContentType="username"
                 style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.backgroundSecondary }]}
               />
-              <TextInput
+              <TextInput disableFullscreenUI
                 value={dfPassInput}
                 onChangeText={setDfPassInput}
                 placeholder="d-flight-Passwort"
@@ -877,7 +878,7 @@ export default function OfflineMapsScreen() {
           Hinweis: Hindernisse werden schonend nacheinander geladen und brauchen für ein großes Land eine Weile. Die App
           sollte dabei geöffnet bleiben. Außerhalb gespeicherter Länder lädt die Karte Hindernisse bei Bedarf aus dem Internet.
         </ThemedText>
-      </ScrollView>
+      </KeyboardAwareScrollViewCompat>
     </ThemedView>
   );
 }

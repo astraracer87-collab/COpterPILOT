@@ -10,7 +10,7 @@ import {
   Dimensions,
   useColorScheme,
 } from "react-native";
-import { useHeaderHeight } from "@react-navigation/elements";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { useRoute, useFocusEffect } from "@react-navigation/native";
 import type { RouteProp } from "@react-navigation/native";
@@ -31,6 +31,7 @@ import { Spacing, Typography, BorderRadius } from "@/constants/theme";
 import type { NotamsStackParamList } from "@/navigation/NotamsStackNavigator";
 import {
   fetchAllTempRestrictions,
+  reenrichDipulTempRestrictions,
   DipulTempRestriction,
   DipulTempRestrictionsResult,
   buildDipulLink,
@@ -630,17 +631,20 @@ function NotamMapView({ restrictions, milStatusMap, centerLat, centerLon, focusL
             {unmappedRestrictions.length} Eintrag{unmappedRestrictions.length === 1 ? "" : "e"} ohne darstellbare Geometrie
           </ThemedText>
           <ThemedText style={{ color: theme.textSec, fontSize: 12, marginBottom: 6 }}>
-            Die App konnte aus den übermittelten Positionsdaten keine gültige Kartenfläche oder Punktposition erzeugen.
+            Für diese Einträge liegt keine Kartenfläche vor. Sie gelten trotzdem – Lage bitte in der Liste bzw. im NOTAM-Text prüfen.
           </ThemedText>
           <ScrollView nestedScrollEnabled showsVerticalScrollIndicator>
             {unmappedRestrictions.map((restriction) => (
-              <ThemedText
-                key={restriction.id}
-                style={{ color: theme.text, fontSize: 12, paddingVertical: 2 }}
-                numberOfLines={2}
-              >
-                {restriction.name} · {restriction.extRef || restriction.id}
-              </ThemedText>
+              <View key={restriction.id} style={{ paddingVertical: 2 }}>
+                <ThemedText style={{ color: theme.text, fontSize: 12 }} numberOfLines={2}>
+                  {restriction.name}
+                </ThemedText>
+                {restriction.geometryNote ? (
+                  <ThemedText style={{ color: theme.textSec, fontSize: 11 }} numberOfLines={3}>
+                    {restriction.geometryNote}
+                  </ThemedText>
+                ) : null}
+              </View>
             ))}
           </ScrollView>
         </View>
@@ -1187,7 +1191,8 @@ const mapStyles = StyleSheet.create({
 export default function NotamsScreen() {
   const { theme } = useTheme();
   const isAdmin = useShowDataSources();
-  const headerHeight = useHeaderHeight();
+  // eigene kompakte Kopfzeile statt Stack-Header (siehe NotamsStackNavigator)
+  const insets = useSafeAreaInsets();
   const tabBarHeight = useBottomTabBarHeight();
   const route = useRoute<RouteParams>();
 
@@ -1340,7 +1345,17 @@ export default function NotamsScreen() {
         getCached<DipulTempRestrictionsResult>("dipul_restrictions"),
         getCached<any[]>("lu_tsa_zones"),
       ]);
-      if (cachedDipul) setResult(cachedDipul.data);
+      if (cachedDipul) {
+        const cachedData = cachedDipul.data;
+        setResult(cachedData);
+        // Gespeicherte Liste (ggf. aus älterer App-Version ohne Flächen) nachrüsten –
+        // nur übernehmen, solange noch keine frische Liste angekommen ist.
+        reenrichDipulTempRestrictions(cachedData)
+          .then((enriched) => {
+            if (enriched !== cachedData) setResult((prev) => (prev === cachedData ? enriched : prev));
+          })
+          .catch(() => {});
+      }
       if (cachedLu) setLuTsaZones(parseLuRaw(cachedLu.data));
       if (cachedDipul || cachedLu) setLoading(false);
       loadRestrictions();
@@ -1471,9 +1486,21 @@ export default function NotamsScreen() {
 
   return (
     <ThemedView style={styles.container}>
-      <View style={[styles.tabBar, { paddingTop: headerHeight + Spacing.sm, backgroundColor: theme.background }]}>
+      {/* Kompakte Kopfzeile (Querformat der Fernsteuerung): kein großer
+          Stack-Titel mehr – Titel, Karte/Liste und Land in EINER flachen Zeile,
+          die Karte bekommt den restlichen Platz. */}
+      <View
+        testID="notam-header-row"
+        style={[styles.tabBar, { paddingTop: insets.top + Spacing.xs, backgroundColor: theme.backgroundRoot }]}
+      >
+        <ThemedText style={[styles.headerTitle, { color: theme.text }]} numberOfLines={1}>
+          NOTAMs
+        </ThemedText>
         <View style={[styles.tabRow, { backgroundColor: tabBg }]}>
           <Pressable
+            testID="button-notam-view-karte"
+            accessibilityRole="tab"
+            accessibilityState={{ selected: viewMode === "karte" }}
             onPress={() => { setViewMode("karte"); setMapFocusLat(undefined); setMapFocusLon(undefined); setMapFocusId(undefined); }}
             style={[styles.tab, viewMode === "karte" ? { backgroundColor: activeTabBg } : undefined]}
           >
@@ -1483,6 +1510,9 @@ export default function NotamsScreen() {
             </ThemedText>
           </Pressable>
           <Pressable
+            testID="button-notam-view-liste"
+            accessibilityRole="tab"
+            accessibilityState={{ selected: viewMode === "liste" }}
             onPress={() => setViewMode("liste")}
             style={[styles.tab, viewMode === "liste" ? { backgroundColor: activeTabBg } : undefined]}
           >
@@ -1492,6 +1522,7 @@ export default function NotamsScreen() {
             </ThemedText>
           </Pressable>
         </View>
+        <View style={{ flex: 1 }} />
         {detectedCountry ? (
           <Pressable
             onPress={() => setCountryPickerOpen(true)}
@@ -1500,18 +1531,17 @@ export default function NotamsScreen() {
             style={({ pressed }) => ({
               flexDirection: "row",
               alignItems: "center",
-              alignSelf: "center",
-              marginTop: Spacing.xs,
               paddingHorizontal: Spacing.md,
-              paddingVertical: 4,
+              paddingVertical: 6,
               borderRadius: 999,
               backgroundColor: theme.backgroundSecondary,
               gap: 6,
+              flexShrink: 1,
               opacity: pressed ? 0.6 : 1,
             })}
           >
             <ThemedText style={{ fontSize: 14 }}>{getCountryFlag(detectedCountry)}</ThemedText>
-            <ThemedText style={{ ...Typography.small, color: theme.textSecondary, fontWeight: "600" }}>
+            <ThemedText style={{ ...Typography.small, color: theme.textSecondary, fontWeight: "600" }} numberOfLines={1}>
               {getCountryMapConfig(detectedCountry)?.nameDE || detectedCountry}
             </ThemedText>
             <Feather name="chevron-down" size={12} color={theme.textSecondary} />
@@ -1777,13 +1807,21 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   scrollView: { flex: 1 },
   tabBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.md,
     paddingHorizontal: Spacing.lg,
-    paddingBottom: Spacing.sm,
+    paddingBottom: Spacing.xs,
+  },
+  headerTitle: {
+    fontSize: 16,
+    fontWeight: "700",
   },
   tabRow: {
     flexDirection: "row",
     borderRadius: BorderRadius.md,
     padding: 3,
+    width: 220,
   },
   tab: {
     flex: 1,
@@ -1791,7 +1829,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
-    paddingVertical: 8,
+    paddingVertical: 6,
     borderRadius: BorderRadius.sm,
   },
   tabText: {

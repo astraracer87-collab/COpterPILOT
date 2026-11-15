@@ -1,10 +1,18 @@
 import { Platform } from "react-native";
-import * as Haptics from "expo-haptics";
 import * as Speech from "expo-speech";
 import type { ProximityAlarmSettings } from "@/lib/storage";
+import { decideAlarmTone, type AlarmTonePlan } from "@/lib/radarAlertLogic";
+import {
+  cancelAlarmVibration,
+  playAlarmTone,
+  preloadAlarmSounds,
+  stopAlarmTones,
+  vibrateAlarm,
+} from "@/lib/alarmSound";
 
-// Reine Erkennung (Schwellen TA/RA, TTC, Anflug) liegt RN-frei in
-// radarAlertLogic.ts – gemeinsam für Radar-Screen und Hintergrund-Überwachung.
+// Reine Erkennung (Schwellen TA/RA, TTC, Anflug) und die Ton-Entscheidung
+// (decideAlarmTone) liegen RN-frei in radarAlertLogic.ts – gemeinsam für
+// Radar-Screen und Hintergrund-Überwachung.
 export {
   checkApproachingAircraft,
   checkProximityAlerts,
@@ -13,11 +21,27 @@ export {
   type ProximityAlert,
 } from "@/lib/radarAlertLogic";
 
-let speechActive = false;
-let speechRepeatTimer: ReturnType<typeof setTimeout> | null = null;
-let speechDeferTimer: ReturnType<typeof setTimeout> | null = null;
+export { preloadAlarmSounds };
+
+/**
+ * Akustischer Alarm: zuerst ein mitgelieferter Ton (alarmSound.ts, expo-audio –
+ * funktioniert ohne Google-Dienste, auch im Hintergrund), danach optional eine
+ * Sprachansage (expo-speech). Auf Geräten ohne TTS-Engine (DJI RC Pro 2) bleibt
+ * die Ansage stumm, der Ton aber nicht. Wiederholung laut Ton-Plan
+ * (RA alle 3 s, TA „nähert sich“ alle 6 s, „entfernt sich“ nur einmal leise).
+ */
+
+/** Pause zwischen Tonbeginn und Sprachansage (Ton ist ≤ 1 s lang) */
+const SPEECH_AFTER_TONE_MS = 1100;
+
+let cycleTimer: ReturnType<typeof setTimeout> | null = null;
+let speechTimer: ReturnType<typeof setTimeout> | null = null;
+let alarmRunning = false;
 let currentAlarmPhrase = "";
 let currentAlarmLevel: "warning" | "critical" | "none" = "none";
+let currentApproaching = true;
+let currentSettings: ProximityAlarmSettings | undefined;
+let currentPlan: AlarmTonePlan | null = null;
 
 type AlarmLevelListener = (level: "warning" | "critical" | "none") => void;
 const alarmLevelListeners = new Set<AlarmLevelListener>();
@@ -34,142 +58,70 @@ function notifyAlarmLevel(level: "warning" | "critical" | "none"): void {
   }
 }
 
-function safeHaptic(style: Haptics.ImpactFeedbackStyle): void {
-  if (Platform.OS === "web") return;
-  try { Haptics.impactAsync(style).catch(() => {}); } catch {}
+function safeSpeechStop(): void {
+  try { Speech.stop(); } catch {}
 }
 
-function playWarningChime(onDone: () => void): void {
-  if (Platform.OS === "web") { onDone(); return; }
+function speak(phrase: string, rate = 1.1): void {
+  if (!phrase) return;
   try {
-    safeHaptic(Haptics.ImpactFeedbackStyle.Heavy);
-    setTimeout(() => {
-      safeHaptic(Haptics.ImpactFeedbackStyle.Heavy);
-      setTimeout(() => {
-        safeHaptic(Haptics.ImpactFeedbackStyle.Heavy);
-        setTimeout(() => {
-          safeHaptic(Haptics.ImpactFeedbackStyle.Heavy);
-          setTimeout(() => { onDone(); }, 300);
-        }, 100);
-      }, 100);
-    }, 100);
-  } catch {
-    onDone();
-  }
-}
-
-function hapticForLevel(): void {
-  if (Platform.OS === "web") return;
-  try {
-    if (currentAlarmLevel === "critical") {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
-    } else if (currentAlarmLevel === "warning") {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
-    }
-  } catch {}
-}
-
-let speakFallbackTimer: ReturnType<typeof setTimeout> | null = null;
-
-function doSpeak(phrase: string, repeat: boolean): void {
-  let callbackFired = false;
-  const scheduleRepeat = (delayMs: number) => {
-    if (callbackFired) return;
-    callbackFired = true;
-    if (speakFallbackTimer) { clearTimeout(speakFallbackTimer); speakFallbackTimer = null; }
-    if (repeat && speechActive) {
-      speechRepeatTimer = setTimeout(() => {
-        if (speechActive) {
-          speakTCAS(currentAlarmPhrase || phrase, true, false);
-        }
-      }, delayMs);
-    }
-  };
-
-  Speech.speak(phrase, {
-    language: "en-US",
-    pitch: 0.9,
-    rate: 1.1,
-    onDone: () => scheduleRepeat(4000),
-    onError: (err) => {
-      console.warn("Speech.speak onError:", err);
-      scheduleRepeat(5000);
-    },
-  });
-
-  if (repeat) {
-    speakFallbackTimer = setTimeout(() => {
-      speakFallbackTimer = null;
-      if (!callbackFired && speechActive) {
-        scheduleRepeat(3000);
-      }
-    }, 8000);
-  }
-}
-
-function speakPhrase(phrase: string, repeat: boolean): void {
-  try {
-    hapticForLevel();
-
-    if (speakFallbackTimer) { clearTimeout(speakFallbackTimer); speakFallbackTimer = null; }
-
-    Speech.isSpeakingAsync().then((speaking) => {
-      if (!speechActive) return;
-      if (speaking) {
-        try { Speech.stop(); } catch {}
-        setTimeout(() => {
-          if (speechActive) doSpeak(phrase, repeat);
-        }, 150);
-      } else {
-        doSpeak(phrase, repeat);
-      }
-    }).catch(() => {
-      if (speechActive) doSpeak(phrase, repeat);
+    safeSpeechStop();
+    Speech.speak(phrase, {
+      language: "en-US",
+      pitch: 0.9,
+      rate,
+      onError: () => { /* keine TTS-Engine: Ton genügt */ },
     });
-  } catch (e) {
-    console.warn("Speech.speak failed:", e);
-    if (repeat && speechActive) {
-      speechRepeatTimer = setTimeout(() => {
-        if (speechActive) speakTCAS(currentAlarmPhrase || phrase, true, false);
-      }, 5000);
-    }
+  } catch {
+    /* expo-speech nicht verfügbar */
   }
 }
 
-function speakTCAS(phrase: string, repeat: boolean = false, withChime: boolean = false): void {
-  try {
-    speechActive = true;
-    if (speechRepeatTimer) {
-      clearTimeout(speechRepeatTimer);
-      speechRepeatTimer = null;
-    }
-    if (speechDeferTimer) {
-      clearTimeout(speechDeferTimer);
-      speechDeferTimer = null;
-    }
+function clearTimers(): void {
+  if (cycleTimer) { clearTimeout(cycleTimer); cycleTimer = null; }
+  if (speechTimer) { clearTimeout(speechTimer); speechTimer = null; }
+}
 
-    try { Speech.stop(); } catch {}
-
-    const startSpeak = () => {
-      if (!speechActive) return;
-      speechDeferTimer = setTimeout(() => {
-        speechDeferTimer = null;
-        if (!speechActive) return;
-        speakPhrase(phrase, repeat);
-      }, 200);
-    };
-
-    if (withChime) {
-      playWarningChime(startSpeak);
-    } else {
-      startSpeak();
-    }
-  } catch (e) {
-    console.warn("speakTCAS failed:", e);
-    if (speechActive) {
-      speakPhrase(phrase, repeat);
-    }
+/** Ein Durchlauf: Ton, danach Ansage, ggf. Wiederholung planen. */
+function runCycle(): void {
+  const plan = currentPlan;
+  if (!alarmRunning || !plan) return;
+  if (plan.tone) playAlarmTone(plan.tone);
+  if (plan.speak) {
+    speechTimer = setTimeout(() => {
+      speechTimer = null;
+      if (alarmRunning) speak(currentAlarmPhrase);
+    }, SPEECH_AFTER_TONE_MS);
   }
+  if (plan.repeatMs != null) {
+    cycleTimer = setTimeout(() => {
+      cycleTimer = null;
+      if (!alarmRunning) return;
+      // RA: Vibration bei jeder Wiederholung (Pilot schaut evtl. nicht aufs Gerät)
+      if (currentAlarmLevel === "critical") vibrateAlarm(plan.vibrate);
+      runCycle();
+    }, plan.repeatMs);
+  }
+}
+
+function startAlarm(
+  level: "warning" | "critical",
+  approaching: boolean,
+  settings: ProximityAlarmSettings | undefined,
+  altitudeM: number | null | undefined,
+): void {
+  clearTimers();
+  stopAlarmTones();
+  safeSpeechStop();
+  currentSettings = settings;
+  currentApproaching = approaching;
+  currentAlarmLevel = level;
+  currentAlarmPhrase = level === "critical" ? buildCriticalPhrase(altitudeM) : buildWarningPhrase(altitudeM);
+  currentPlan = decideAlarmTone(level, approaching, settings);
+  alarmRunning = true;
+  notifyAlarmLevel(level);
+  vibrateAlarm(currentPlan.vibrate);
+  runCycle();
 }
 
 function formatAltitudePhrase(altitudeM: number | null | undefined): string {
@@ -186,46 +138,38 @@ function buildCriticalPhrase(altitudeM?: number | null): string {
   return `Descend, descend!${formatAltitudePhrase(altitudeM)}`;
 }
 
-export function triggerWarningAlarm(settings?: ProximityAlarmSettings, altitudeM?: number | null): void {
-  const ta = settings?.ta ?? { visual: true, audio: true, haptic: true, radiusKm: 3 };
-  if (ta.haptic && Platform.OS !== "web") {
-    try { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {}); } catch {}
-  }
-  if (ta.audio) {
-    const phrase = buildWarningPhrase(altitudeM);
-    currentAlarmPhrase = phrase;
-    currentAlarmLevel = "warning";
-    notifyAlarmLevel("warning");
-    speakTCAS(phrase, true, true);
-  } else {
-    currentAlarmLevel = "warning";
-    notifyAlarmLevel("warning");
-  }
+/**
+ * TA-Alarm. `approaching` = false (Flugobjekt entfernt sich): nur ein leiser
+ * Einzelton. Standard true (laut, wiederholt) – im Zweifel lieber warnen.
+ */
+export function triggerWarningAlarm(settings?: ProximityAlarmSettings, altitudeM?: number | null, approaching: boolean = true): void {
+  startAlarm("warning", approaching, settings, altitudeM);
 }
 
 export function triggerCriticalAlarm(settings?: ProximityAlarmSettings, altitudeM?: number | null): void {
-  const ra = settings?.ra ?? { visual: true, audio: true, haptic: true, radiusKm: 1 };
-  if (ra.haptic && Platform.OS !== "web") {
-    try { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {}); } catch {}
-  }
-  if (ra.audio) {
-    const phrase = buildCriticalPhrase(altitudeM);
-    currentAlarmPhrase = phrase;
-    currentAlarmLevel = "critical";
-    notifyAlarmLevel("critical");
-    speakTCAS(phrase, true, true);
-  } else {
-    currentAlarmLevel = "critical";
-    notifyAlarmLevel("critical");
-  }
+  startAlarm("critical", true, settings, altitudeM);
 }
 
-export function updateAlarmAltitude(altitudeM: number | null | undefined): void {
-  if (!speechActive) return;
+/**
+ * Laufender Alarm: Höhe für die Ansage aktualisieren. Wechselt ein TA von
+ * „entfernt sich“ auf „nähert sich“, wird auf den lauten, wiederholten Ton
+ * hochgestuft; umgekehrt endet die Wiederholung (kein neuer Ton).
+ */
+export function updateAlarmAltitude(altitudeM: number | null | undefined, approaching?: boolean): void {
+  if (!alarmRunning) return;
   if (currentAlarmLevel === "critical") {
     currentAlarmPhrase = buildCriticalPhrase(altitudeM);
-  } else if (currentAlarmLevel === "warning") {
-    currentAlarmPhrase = buildWarningPhrase(altitudeM);
+    return;
+  }
+  if (currentAlarmLevel !== "warning") return;
+  currentAlarmPhrase = buildWarningPhrase(altitudeM);
+  if (approaching == null || approaching === currentApproaching) return;
+  if (approaching) {
+    startAlarm("warning", true, currentSettings, altitudeM);
+  } else {
+    currentApproaching = false;
+    currentPlan = decideAlarmTone("warning", false, currentSettings);
+    clearTimers();
   }
 }
 
@@ -236,50 +180,36 @@ export function shouldShowVisual(level: "warning" | "critical", settings?: Proxi
 }
 
 export function stopAlarmSound(): void {
-  speechActive = false;
+  const wasRunning = alarmRunning;
+  alarmRunning = false;
   currentAlarmLevel = "none";
+  currentPlan = null;
   notifyAlarmLevel("none");
   currentAlarmPhrase = "";
-  if (speechRepeatTimer) {
-    clearTimeout(speechRepeatTimer);
-    speechRepeatTimer = null;
-  }
-  if (speechDeferTimer) {
-    clearTimeout(speechDeferTimer);
-    speechDeferTimer = null;
-  }
-  if (speakFallbackTimer) {
-    clearTimeout(speakFallbackTimer);
-    speakFallbackTimer = null;
-  }
-  try { Speech.stop(); } catch {}
+  clearTimers();
+  stopAlarmTones();
+  if (wasRunning) cancelAlarmVibration();
+  safeSpeechStop();
 }
 
 export function speakClearOfConflict(): void {
-  try {
-    try { Speech.stop(); } catch {}
-    setTimeout(() => {
-      Speech.isSpeakingAsync().then((speaking) => {
-        if (speaking) {
-          try { Speech.stop(); } catch {}
-          setTimeout(() => {
-            try {
-              Speech.speak("Clear of conflict", { language: "en-US", pitch: 0.9, rate: 1.0 });
-            } catch {}
-          }, 300);
-        } else {
-          try {
-            Speech.speak("Clear of conflict", { language: "en-US", pitch: 0.9, rate: 1.0 });
-          } catch {}
-        }
-      }).catch(() => {
-        try {
-          Speech.speak("Clear of conflict", { language: "en-US", pitch: 0.9, rate: 1.0 });
-        } catch {}
-      });
-    }, 350);
-    if (Platform.OS !== "web") {
-      try { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {}); } catch {}
-    }
-  } catch {}
+  setTimeout(() => speak("Clear of conflict", 1.0), 350);
+}
+
+/**
+ * „Alarmton testen“ (TCAS-Einstellungen): TA-Ton, dann RA-Ton, mit Vibration.
+ * Ignoriert „Akustisch“/„Vibration“ bewusst, damit der Pilot Lautstärke und
+ * Lautsprecher prüfen kann. Gibt false zurück, wenn kein Audio-Player erstellt
+ * werden konnte (natives Modul fehlt).
+ */
+export function testAlarmSound(): boolean {
+  preloadAlarmSounds();
+  const ok = playAlarmTone("warning");
+  vibrateAlarm(decideAlarmTone("warning", true).vibrate);
+  setTimeout(() => {
+    playAlarmTone("critical");
+    vibrateAlarm(decideAlarmTone("critical", true).vibrate);
+  }, 1400);
+  if (Platform.OS !== "web") setTimeout(() => speak("Traffic, traffic!"), 2600);
+  return ok;
 }

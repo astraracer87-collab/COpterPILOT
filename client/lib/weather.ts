@@ -1,7 +1,7 @@
 import { isWithinDwdCoverage } from "../../shared/countryDetection";
 import { fetchWithTimeout } from "./fetchWithTimeout";
-import { fetchWithOfflineCache } from "./offlineResultCache";
-import { offlineLocationKey, type OfflineOrigin } from "../../shared/offlineDataPolicy";
+import { fetchWithOfflineCache, getOfflineResult, type CachedFetchResult } from "./offlineResultCache";
+import { offlineLocationKey, OFFLINE_DATA_MAX_AGE_MS, type OfflineOrigin } from "../../shared/offlineDataPolicy";
 
 // Mögliche Wetterquellen. "openmeteo" deckt das Ausland ab (Open-Meteo wählt
 // dort automatisch lokale Modelle wie AROME in Frankreich); "dipul" (DFS,
@@ -63,7 +63,11 @@ export interface WeatherData {
   longitude: number;
   calculationTime: string;
   forecasts: ForecastData[];
-  /** Teil A: gesetzt, wenn die Daten aus dem Offline-Speicher stammen. */
+  /**
+   * Teil A: gesetzt, wenn die Daten aus dem Speicher stammen – `cached: true`
+   * = Offline-Stand (Gerät offline/Abruf fehlgeschlagen bzw. älter als
+   * WEATHER_FRESH_MS), `cached: false` = noch aktueller Abruf von `fetchedAt`.
+   */
   offline?: OfflineOrigin;
 }
 
@@ -219,24 +223,223 @@ async function fetchOpenMeteoForecast(
   };
 }
 
+// ─── Wetter-Cache / Vorab-Laden ───────────────────────────────────────────
+//
+// Live-Abrufe decken immer 48 h ab: alle Aufrufer (Fluglänge, 24 h Radar,
+// 48 h Karte, 30 min Wind) teilen sich so einen Eintrag je Standort im
+// Offline-Speicher (offlineResultCache, 0,05°-Raster). Ein Eintrag jünger als
+// WEATHER_FRESH_MS gilt als aktuell und wird ohne Netzabruf geliefert –
+// dadurch zeigt die Wetteransicht nach dem Vorab-Laden beim App-Start
+// (weatherPrefetch.ts) sofort Daten. Gleichzeitige Abrufe desselben Standorts
+// werden zusammengelegt.
+
+/** Horizont jedes Live-Abrufs (Minuten). */
+export const WEATHER_FETCH_MINUTES = 2880;
+/** So lange gilt ein gespeicherter Abruf als aktuell (kein neuer Netzabruf). */
+export const WEATHER_FRESH_MS = 10 * 60_000;
+/** Gespeicherte Daten werden nur für Punkte innerhalb dieses Abstands (Grad) als „aktuell“ wiederverwendet. */
+const WEATHER_REUSE_MAX_DEG = 0.02;
+
+export interface FetchWeatherOptions {
+  /**
+   * Gespeicherte Daten bis zu diesem Alter ohne Netzabruf liefern
+   * (Standard WEATHER_FRESH_MS; 0 = immer live abrufen, z. B. „Aktualisieren“).
+   */
+  maxAgeMs?: number;
+}
+
+type PositionListener = (lat: number, lon: number) => void;
+let positionListener: PositionListener | null = null;
+
+/** Vorab-Lader: über jeden Wetterabruf die zuletzt genutzte Position erfahren. */
+export function setWeatherPositionListener(fn: PositionListener | null): void {
+  positionListener = fn;
+}
+
+function notifyPosition(lat: number, lon: number): void {
+  try {
+    positionListener?.(lat, lon);
+  } catch {}
+}
+
+/** Anzahl Vorhersage-Einträge, die ein Aufrufer mit `durationMinutes` bisher bekam. */
+export function weatherForecastCount(durationMinutes?: number): number {
+  if (durationMinutes != null && durationMinutes > 0) {
+    return Math.min(Math.max(Math.ceil(durationMinutes / 60) + 1, 2), 48);
+  }
+  return 24;
+}
+
+/**
+ * Gespeicherte/abgerufene 48-h-Daten auf die Anfrage zuschneiden: vergangene
+ * Stunden (älter als 1 h) weg, dann höchstens so viele Einträge wie früher
+ * für `durationMinutes` geliefert wurden. null = nichts mehr übrig.
+ */
+export function sliceWeatherForRequest(data: WeatherData, durationMinutes: number | undefined, nowMs: number = Date.now()): WeatherData | null {
+  const forecasts = (data.forecasts ?? [])
+    .filter((f) => new Date(f.timestamp).getTime() >= nowMs - 3_600_000)
+    .slice(0, weatherForecastCount(durationMinutes));
+  if (forecasts.length === 0) return null;
+  return { ...data, forecasts };
+}
+
+function nearEnough(data: { latitude?: number; longitude?: number } | null | undefined, lat: number, lon: number): boolean {
+  if (!data || typeof data.latitude !== "number" || typeof data.longitude !== "number") return false;
+  return Math.abs(data.latitude - lat) <= WEATHER_REUSE_MAX_DEG && Math.abs(data.longitude - lon) <= WEATHER_REUSE_MAX_DEG;
+}
+
+interface InflightWeather {
+  lat: number;
+  lon: number;
+  promise: Promise<CachedFetchResult<WeatherData>>;
+}
+const inflightWeather = new Map<string, InflightWeather>();
+
+/**
+ * Gespeicherte Wetterdaten (≤ 24 h, OFFLINE_DATA_MAX_AGE_MS) ohne Netzabruf –
+ * für die sofortige Anzeige beim Öffnen der Wetteransicht, während im
+ * Hintergrund aktualisiert wird. `offline.cached` ist true, sobald der Stand
+ * älter als WEATHER_FRESH_MS ist (Stand-Zeile zeigt dann „Offline-Vorhersage von …“).
+ */
+export async function peekCachedWeather(latitude: number, longitude: number, durationMinutes?: number): Promise<WeatherData | null> {
+  const stored = await getOfflineResult<WeatherData>("weather", offlineLocationKey(latitude, longitude)).catch(() => null);
+  if (!stored) return null;
+  const nowMs = Date.now();
+  const age = nowMs - stored.fetchedAt;
+  if (!(age >= 0 && age < OFFLINE_DATA_MAX_AGE_MS)) return null;
+  const sliced = sliceWeatherForRequest(stored.data, durationMinutes, nowMs);
+  if (!sliced) return null;
+  return { ...sliced, offline: { fetchedAt: stored.fetchedAt, cached: age >= WEATHER_FRESH_MS } };
+}
+
 /**
  * Teil A: Wetter mit Offline-Speicher. Online wird live abgerufen und das
  * Ergebnis je Standort (0,05°) gespeichert; offline bzw. bei Fehler liefert der
  * Speicher den letzten Stand (< 24 h, nur noch nicht vergangene Stunden) mit
- * `offline: { fetchedAt, cached: true }`.
+ * `offline: { fetchedAt, cached: true }`. Ein gespeicherter Abruf jünger als
+ * `maxAgeMs` (Standard 10 min) wird ohne Netzabruf geliefert
+ * (`offline: { fetchedAt, cached: false }`).
  */
-export async function fetchWeather(latitude: number, longitude: number, durationMinutes?: number): Promise<WeatherData> {
-  const r = await fetchWithOfflineCache(
-    "weather",
-    offlineLocationKey(latitude, longitude),
-    () => fetchWeatherLive(latitude, longitude, durationMinutes),
-    { accept: (d) => Array.isArray(d?.forecasts) && d.forecasts.length > 0 },
-  );
-  if (!r.cached) return r.data;
-  const nowMs = Date.now();
-  const forecasts = (r.data.forecasts ?? []).filter((f) => new Date(f.timestamp).getTime() >= nowMs - 3_600_000);
-  if (forecasts.length === 0) throw new WeatherFetchError("Offline – keine passende gespeicherte Vorhersage");
-  return { ...r.data, forecasts, offline: { fetchedAt: r.fetchedAt, cached: true } };
+export async function fetchWeather(
+  latitude: number,
+  longitude: number,
+  durationMinutes?: number,
+  opts: FetchWeatherOptions = {},
+): Promise<WeatherData> {
+  notifyPosition(latitude, longitude);
+  const key = offlineLocationKey(latitude, longitude);
+  const maxAge = opts.maxAgeMs ?? WEATHER_FRESH_MS;
+  if (maxAge > 0) {
+    const stored = await getOfflineResult<WeatherData>("weather", key).catch(() => null);
+    const nowMs = Date.now();
+    if (stored && nowMs - stored.fetchedAt >= 0 && nowMs - stored.fetchedAt < maxAge && nearEnough(stored.data, latitude, longitude)) {
+      const sliced = sliceWeatherForRequest(stored.data, durationMinutes, nowMs);
+      const need = Math.max(1, weatherForecastCount(durationMinutes) - 1);
+      if (sliced && sliced.forecasts.length >= need) {
+        return { ...sliced, offline: { fetchedAt: stored.fetchedAt, cached: false } };
+      }
+    }
+  }
+
+  let flight = inflightWeather.get(key);
+  if (!flight || !nearEnough({ latitude: flight.lat, longitude: flight.lon }, latitude, longitude)) {
+    const promise = fetchWithOfflineCache(
+      "weather",
+      key,
+      () => fetchWeatherLive(latitude, longitude, WEATHER_FETCH_MINUTES),
+      { accept: (d) => Array.isArray(d?.forecasts) && d.forecasts.length > 0 },
+    );
+    const entry: InflightWeather = { lat: latitude, lon: longitude, promise };
+    flight = entry;
+    inflightWeather.set(key, entry);
+    promise.then(
+      () => { if (inflightWeather.get(key) === entry) inflightWeather.delete(key); },
+      () => { if (inflightWeather.get(key) === entry) inflightWeather.delete(key); },
+    );
+  }
+  const r = await flight.promise;
+  // Live: nur auf die Länge zuschneiden (Daten beginnen „jetzt“); gespeicherter
+  // Stand: zusätzlich vergangene Stunden verwerfen.
+  const sliced = r.cached
+    ? sliceWeatherForRequest(r.data, durationMinutes, Date.now())
+    : r.data.forecasts.length > 0
+      ? { ...r.data, forecasts: r.data.forecasts.slice(0, weatherForecastCount(durationMinutes)) }
+      : null;
+  if (!sliced) {
+    throw new WeatherFetchError(r.cached ? "Offline – keine passende gespeicherte Vorhersage" : "Keine Vorhersagedaten verfügbar");
+  }
+  if (!r.cached) return sliced;
+  return { ...sliced, offline: { fetchedAt: r.fetchedAt, cached: true } };
+}
+
+/** Nur für Tests: laufende Abrufe vergessen. */
+export function __resetWeatherInflightForTests(): void {
+  inflightWeather.clear();
+  inflightHourly.clear();
+  positionListener = null;
+}
+
+/**
+ * Nach HEDGE_MS ohne DFS-Antwort parallel Open-Meteo starten; das erste
+ * erfolgreiche Ergebnis gewinnt. Ein hängender DFS-Dienst kostet so nicht
+ * mehr den vollen Timeout (10 s), bevor der Rückfall überhaupt beginnt.
+ */
+export const WEATHER_HEDGE_MS = 6000;
+
+export function raceWithHedge<T>(
+  primary: () => Promise<T>,
+  secondary: () => Promise<T>,
+  hedgeMs: number,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let done = false;
+    let secondaryStarted = false;
+    let primaryFailed = false;
+    let secondaryFailed = false;
+    let lastError: unknown = null;
+    const finishOk = (v: T) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      resolve(v);
+    };
+    const maybeFail = () => {
+      if (done) return;
+      if (primaryFailed && secondaryStarted && secondaryFailed) {
+        done = true;
+        clearTimeout(timer);
+        reject(lastError);
+      }
+    };
+    const startSecondary = () => {
+      if (secondaryStarted || done) return;
+      secondaryStarted = true;
+      let p: Promise<T>;
+      try {
+        p = secondary();
+      } catch (e) {
+        p = Promise.reject(e);
+      }
+      p.then(finishOk, (e) => {
+        secondaryFailed = true;
+        lastError = e;
+        maybeFail();
+      });
+    };
+    const timer = setTimeout(startSecondary, hedgeMs);
+    let p: Promise<T>;
+    try {
+      p = primary();
+    } catch (e) {
+      p = Promise.reject(e);
+    }
+    p.then(finishOk, (e) => {
+      primaryFailed = true;
+      if (lastError == null) lastError = e;
+      if (!secondaryStarted) startSecondary();
+      else maybeFail();
+    });
+  });
 }
 
 async function fetchWeatherLive(latitude: number, longitude: number, durationMinutes?: number): Promise<WeatherData> {
@@ -297,7 +500,6 @@ async function fetchWeatherLive(latitude: number, longitude: number, durationMin
     ],
   };
 
-  let response: Response | null = null;
   let proxyUrl = "";
   try {
     proxyUrl = getWeatherProxyUrl();
@@ -305,6 +507,18 @@ async function fetchWeatherLive(latitude: number, longitude: number, durationMin
     console.warn("[fetchWeather] getWeatherProxyUrl threw:", e);
     return fetchOpenMeteoForecast(latitude, longitude, forecasts.length);
   }
+
+  // DFS zuerst; antwortet es nicht binnen WEATHER_HEDGE_MS, läuft Open-Meteo
+  // parallel an (Fehler von DFS starten Open-Meteo sofort).
+  return raceWithHedge(
+    () => fetchDfsWeather(proxyUrl, requestBody, latitude, longitude),
+    () => fetchOpenMeteoForecast(latitude, longitude, forecasts.length),
+    WEATHER_HEDGE_MS,
+  );
+}
+
+async function fetchDfsWeather(proxyUrl: string, requestBody: unknown, latitude: number, longitude: number): Promise<WeatherData> {
+  let response: Response;
   try {
     // Timeout: ein hängender DFS-/dipul-Dienst darf den Open-Meteo-Rückfall nicht blockieren.
     response = await fetchWithTimeout(proxyUrl, {
@@ -314,19 +528,19 @@ async function fetchWeatherLive(latitude: number, longitude: number, durationMin
     });
   } catch (e) {
     console.warn("[fetchWeather] proxy fetch failed →", proxyUrl, e);
-    return fetchOpenMeteoForecast(latitude, longitude, forecasts.length);
+    throw e;
   }
 
   if (!response.ok) {
     console.warn("[fetchWeather] proxy returned", response.status, "→ OpenMeteo");
-    return fetchOpenMeteoForecast(latitude, longitude, forecasts.length);
+    throw new WeatherFetchError(`DFS-Wetter: HTTP ${response.status}`, response.status);
   }
 
   const data = await response.json();
 
   if (!data.positions || data.positions.length === 0) {
     console.warn("[fetchWeather] proxy returned empty positions → OpenMeteo");
-    return fetchOpenMeteoForecast(latitude, longitude, forecasts.length);
+    throw new WeatherFetchError("DFS-Wetter: keine Positionen");
   }
 
   const position = data.positions[0];
@@ -390,7 +604,7 @@ async function fetchWeatherLive(latitude: number, longitude: number, durationMin
   });
 
   if (forecastData.length === 0) {
-    return fetchOpenMeteoForecast(latitude, longitude, forecasts.length);
+    throw new WeatherFetchError("DFS-Wetter: keine Vorhersagen");
   }
 
   return {
@@ -639,33 +853,87 @@ async function buildOpenMeteoHourlySlots(
   return omSlots;
 }
 
+type HourlyResult = { slots: HourlyForecastSlot[]; source: WeatherSource; offline?: OfflineOrigin };
+
+function hourlyCacheKey(latitude: number, longitude: number, startTime: string, endTime: string): string {
+  return `${offlineLocationKey(latitude, longitude)}_${hourKey(startTime)}_${hourKey(endTime)}`;
+}
+
+/**
+ * Stundenfenster der Wetteransicht: ab der vorigen vollen Stunde bis 23:00
+ * des Tages (mindestens 6 h). Gemeinsam für Ansicht und Vorab-Laden, damit
+ * beide denselben Speicher-Schlüssel nutzen.
+ */
+export function todayHourlyWindow(now: Date = new Date()): { start: string; end: string } {
+  const start = new Date(now);
+  start.setMinutes(0, 0, 0);
+  start.setHours(start.getHours() - 1);
+  const end = new Date(now);
+  end.setHours(23, 0, 0, 0);
+  if (end <= start) end.setTime(start.getTime() + 6 * 3600000);
+  return { start: start.toISOString(), end: end.toISOString() };
+}
+
+const inflightHourly = new Map<string, Promise<HourlyResult>>();
+
+/**
+ * Gespeicherte Stundenwerte (≤ 24 h) ohne Netzabruf für die Sofortanzeige;
+ * `offline.cached` wie bei peekCachedWeather.
+ */
+export async function peekCachedHourly(latitude: number, longitude: number, startTime: string, endTime: string): Promise<HourlyResult | null> {
+  const stored = await getOfflineResult<HourlyResult>("hourly", hourlyCacheKey(latitude, longitude, startTime, endTime)).catch(() => null);
+  if (!stored || !Array.isArray(stored.data?.slots) || stored.data.slots.length === 0) return null;
+  const age = Date.now() - stored.fetchedAt;
+  if (!(age >= 0 && age < OFFLINE_DATA_MAX_AGE_MS)) return null;
+  return { ...stored.data, offline: { fetchedAt: stored.fetchedAt, cached: age >= WEATHER_FRESH_MS } };
+}
+
 /**
  * Teil A: Stundenwerte mit Offline-Speicher (Schlüssel: Standort + Fenster).
  * Offline bzw. ohne Live-Daten: letzter Stand (< 24 h) mit `offline`.
+ * Ein gespeicherter Abruf jünger als `maxAgeMs` (Standard WEATHER_FRESH_MS)
+ * wird ohne Netzabruf geliefert; gleichzeitige Abrufe werden zusammengelegt.
  */
 export async function fetchHourlyForecasts(
   latitude: number,
   longitude: number,
   startTime: string,
-  endTime: string
-): Promise<{ slots: HourlyForecastSlot[]; source: WeatherSource; offline?: OfflineOrigin }> {
+  endTime: string,
+  opts: FetchWeatherOptions = {},
+): Promise<HourlyResult> {
   if (new Date(endTime) <= new Date(startTime)) return { slots: [], source: "dipul" };
-  const key = `${offlineLocationKey(latitude, longitude)}_${hourKey(startTime)}_${hourKey(endTime)}`;
-  try {
-    const r = await fetchWithOfflineCache(
-      "hourly",
-      key,
-      async () => {
-        const live = await fetchHourlyForecastsLive(latitude, longitude, startTime, endTime);
-        if (live.slots.length === 0) throw new WeatherFetchError("Keine Stundenwerte");
-        return live;
-      },
-    );
-    return r.cached ? { ...r.data, offline: { fetchedAt: r.fetchedAt, cached: true } } : r.data;
-  } catch {
-    // wie bisher: keine Daten -> leere Liste (Quelle wie im Live-Pfad)
-    return { slots: [], source: isWithinDwdCoverage(latitude, longitude) ? "brightsky" : "openmeteo" };
+  const key = hourlyCacheKey(latitude, longitude, startTime, endTime);
+  const maxAge = opts.maxAgeMs ?? WEATHER_FRESH_MS;
+  if (maxAge > 0) {
+    const stored = await getOfflineResult<HourlyResult>("hourly", key).catch(() => null);
+    const age = stored ? Date.now() - stored.fetchedAt : -1;
+    if (stored && age >= 0 && age < maxAge && Array.isArray(stored.data?.slots) && stored.data.slots.length > 0) {
+      const { offline: _ignored, ...rest } = stored.data;
+      return rest;
+    }
   }
+  const running = inflightHourly.get(key);
+  if (running) return running;
+  const p = (async (): Promise<HourlyResult> => {
+    try {
+      const r = await fetchWithOfflineCache(
+        "hourly",
+        key,
+        async () => {
+          const live = await fetchHourlyForecastsLive(latitude, longitude, startTime, endTime);
+          if (live.slots.length === 0) throw new WeatherFetchError("Keine Stundenwerte");
+          return live;
+        },
+      );
+      return r.cached ? { ...r.data, offline: { fetchedAt: r.fetchedAt, cached: true } } : r.data;
+    } catch {
+      // wie bisher: keine Daten -> leere Liste (Quelle wie im Live-Pfad)
+      return { slots: [], source: isWithinDwdCoverage(latitude, longitude) ? "brightsky" : "openmeteo" };
+    }
+  })();
+  inflightHourly.set(key, p);
+  p.finally(() => { if (inflightHourly.get(key) === p) inflightHourly.delete(key); }).catch(() => {});
+  return p;
 }
 
 async function fetchHourlyForecastsLive(

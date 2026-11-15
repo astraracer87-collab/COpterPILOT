@@ -49,7 +49,26 @@ const native = {
         controllerNumber: 0,
         axes: [],
       },
+      {
+        id: 6,
+        name: "DJI embedded joystick",
+        descriptor: "joy",
+        sources: 0x01000511,
+        sourceNames: ["KEYBOARD", "GAMEPAD", "JOYSTICK"],
+        vendorId: 0x2ca3,
+        productId: 0x1501,
+        keyboardType: "non_alphabetic",
+        isVirtual: false,
+        controllerNumber: 1,
+        axes: ["AXIS_X", "AXIS_HAT_X"],
+        ranges: [
+          { axis: "X", source: 0x01000010, min: -1, max: 1, flat: 0.01, fuzz: 0, resolution: 0 },
+          { axis: "HAT_X", source: 0x01000010, min: -1, max: 1, flat: 0, fuzz: 0, resolution: 0 },
+        ],
+      },
     ],
+    devInput: null,
+    procInputDevices: null,
   })),
 };
 
@@ -153,6 +172,42 @@ describe("lib/rcKeys", () => {
     );
     expect(rc.formatAxes({})).toBe("Mitte (alle Achsen 0)");
     expect(rc.formatAxes({ HAT_Y: 1, VSCROLL: -0.5 })).toBe("HAT_Y 1, VSCROLL -0.50");
+    expect(rc.formatAxes({ X: 0, HAT_Y: 1 })).toBe("HAT_Y 1");
+    expect(rc.formatAllAxes({ X: 0, HAT_Y: 1 })).toBe("X=0 HAT_Y=1");
+    expect(
+      rc.formatRcLogLine({
+        type: "device",
+        change: "added",
+        deviceId: 9,
+        deviceName: "dji-wheel",
+        sources: 0x400000,
+        sourceNames: ["ROTARY_ENCODER"],
+        timestamp: new Date(2026, 10, 15, 12, 0, 0, 0).getTime(),
+      }),
+    ).toBe('12:00:00.000 DEVICE added dev=9 "dji-wheel" src=4194304[ROTARY_ENCODER]');
+  });
+
+  test("Achsen-Stand und Balken", () => {
+    const motion = (axes: Record<string, number>, timestamp: number) =>
+      ({ type: "motion", action: "ACTION_MOVE", axes, deviceId: 6, timestamp }) as unknown as rc.RcMotionEvent;
+    let st: rc.RcAxisState = {};
+    st = rc.updateRcAxisState(st, motion({ X: 0, Z: 0.4 }, 1));
+    st = rc.updateRcAxisState(st, motion({ X: -0.8, Z: 0 }, 2));
+    expect(st[6].X).toEqual({ value: -0.8, seenMin: -0.8, seenMax: 0, changedAt: 2 });
+    expect(st[6].Z).toEqual({ value: 0, seenMin: 0, seenMax: 0.4, changedAt: 2 });
+    expect(rc.rcAxisBar(0.5, { min: -1, max: 1 })).toEqual({ start: 0.5, end: 0.75, zero: 0.5 });
+    expect(rc.rcAxisBar(-1)).toEqual({ start: 0, end: 0.5, zero: 0.5 });
+    expect(rc.rcAxisBar(0.25, { min: 0, max: 1 })).toEqual({ start: 0, end: 0.25, zero: 0 });
+    expect(rc.rcAxisBar(5, { min: 0, max: 0 })).toEqual({ start: 0.5, end: 1, zero: 0.5 });
+  });
+
+  test("Geräteangaben: Joystick-Geräte, Achsenbereiche, Direktzugriff", async () => {
+    const info = await rc.getRcDeviceInfo();
+    expect(rc.rcAxisDevices(info).map((d) => d.id)).toEqual([6]);
+    const txt = rc.formatRcDeviceInfo(info);
+    expect(txt).toContain("X [-1..1] flat=0.01 fuzz=0");
+    expect(txt).toContain("/dev/input: nicht lesbar");
+    expect(txt).toContain("/proc/bus/input/devices: nicht lesbar");
   });
 
   test("ohne natives Modul (iOS/Web/Tests): No-op", async () => {
@@ -214,8 +269,46 @@ describe("RcKeyTestScreen", () => {
     });
     text = allText(tree);
     expect(tree.root.findByProps({ testID: "rc-key-last" }).props.children).toBe("Taste: KEYCODE_DPAD_UP (19) · gedrückt");
-    expect(text).toContain("Protokoll (4/100)");
+    expect(text).toContain("Protokoll (4 Ereignisse, max. 300 Zeilen)");
     expect(text).toContain("VSCROLL 1");
+    // Achsen-Panel: Joystick aus den Geräteangaben + gemeldetes Rad-Gerät
+    expect(tree.root.findAllByProps({ testID: "rc-axis-panel" }).length).toBeGreaterThan(0);
+    expect(tree.root.findAllByProps({ testID: "rc-axis-6-HAT_X" }).length).toBeGreaterThan(0);
+    expect(tree.root.findAllByProps({ testID: "rc-axis-5-VSCROLL" }).length).toBeGreaterThan(0);
+
+    // Markierung, dann Joystick-Bewegung mit allen Achsen (auch 0)
+    press(tree, "rc-key-marker");
+    act(() => {
+      DeviceEventEmitter.emit("rcMotion", {
+        action: "ACTION_MOVE",
+        axes: { X: 0, HAT_X: -1 },
+        sourceNames: ["JOYSTICK"],
+        source: 0x01000010,
+        deviceId: 6,
+        deviceName: "DJI embedded joystick",
+        buttonState: 0,
+        centered: false,
+        consumed: true,
+        via: "window",
+        eventTime: 4,
+        timestamp: 4,
+      });
+      DeviceEventEmitter.emit("rcDevice", {
+        change: "changed",
+        deviceId: 6,
+        deviceName: "DJI embedded joystick",
+        sources: 0x01000511,
+        sourceNames: ["KEYBOARD", "GAMEPAD", "JOYSTICK"],
+        timestamp: 5,
+      });
+    });
+    await act(async () => {});
+    text = allText(tree);
+    expect(text).toContain("----- Markierung 1 -----");
+    expect(text).toContain("Markierung setzen (2)");
+    expect(text).toContain("Bewegung HAT_X -1 · MOVE · JOYSTICK · DJI embedded joystick");
+    expect(text).toContain("Gerät geändert: DJI embedded joystick (#6)");
+    expect(text).toContain("-1.00 (-1.00…0.00)");
 
     await act(async () => {
       tree.root.findAll((n) => n.props.testID === "rc-key-copy" && typeof n.props.onPress === "function")[0].props.onPress();
@@ -224,10 +317,16 @@ describe("RcKeyTestScreen", () => {
     const copied = mockSetStringAsync.mock.calls[0][0];
     expect(copied).toContain("Gerät: DJI RC Pro 2");
     expect(copied).toContain("KEY down KEYCODE_DPAD_UP(19)");
-    expect(copied).toContain("MOTION ACTION_SCROLL VSCROLL 1");
+    expect(copied).toContain("MOTION ACTION_SCROLL VSCROLL=1");
+    expect(copied).toContain('MOTION ACTION_MOVE X=0 HAT_X=-1 btn=0 src=16777232[JOYSTICK] dev=6 "DJI embedded joystick" abgefangen via=window');
+    // älteste zuerst, Markierung zwischen den Ereignissen
+    expect(copied.indexOf("ACTION_SCROLL")).toBeLessThan(copied.indexOf("----- Markierung 1 -----"));
+    expect(copied.indexOf("----- Markierung 1 -----")).toBeLessThan(copied.indexOf("ACTION_MOVE"));
 
     press(tree, "rc-key-clear");
-    expect(allText(tree)).toContain("Protokoll (0/100)");
+    text = allText(tree);
+    expect(text).toContain("Protokoll (0 Ereignisse, max. 300 Zeilen)");
+    expect(text).toContain("Markierung setzen (1)");
 
     press(tree, "rc-key-toggle");
     expect(native.setCaptureMode).toHaveBeenLastCalledWith(false);

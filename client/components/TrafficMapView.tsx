@@ -92,6 +92,7 @@ interface TrafficMapViewProps {
   disableGeozoneQuery?: boolean;
   lockPan?: boolean;
   onViewportChange?: (bbox: { latMin: number; latMax: number; lonMin: number; lonMax: number }) => void;
+  hideUserPosition?: boolean;
 }
 
 export default function TrafficMapView(_props: TrafficMapViewProps) {

@@ -1,4 +1,5 @@
 import { openLink } from "@/lib/webBrowser";
+import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { View, StyleSheet, ScrollView, TextInput, Pressable, Alert, Switch, Platform, Modal, Linking, ActivityIndicator } from "react-native";
 import { useHeaderHeight } from "@react-navigation/elements";
@@ -306,10 +307,10 @@ export default function PilotProfileScreen() {
 
   return (
     <ThemedView style={styles.container}>
-      <ScrollView
+      <KeyboardAwareScrollViewCompat bottomOffset={24}
         contentContainerStyle={[
           styles.content,
-          { paddingTop: headerHeight + Spacing.xl, paddingBottom: tabBarHeight + 80 },
+          { paddingTop: headerHeight + Spacing.xl, paddingBottom: tabBarHeight + 110 },
         ]}
       >
         <Card style={styles.section}>
@@ -318,7 +319,7 @@ export default function PilotProfileScreen() {
           <ThemedText style={[styles.fieldLabel, { color: theme.textSecondary }]}>
             Name des Piloten
           </ThemedText>
-          <TextInput
+          <TextInput disableFullscreenUI
             style={[styles.input, { color: theme.text, backgroundColor: theme.backgroundSecondary, borderColor: theme.border }]}
             value={profile.name}
             onChangeText={updateName}
@@ -329,7 +330,7 @@ export default function PilotProfileScreen() {
           <ThemedText style={[styles.fieldLabel, { color: theme.textSecondary }]}>
             Fernpiloten-Zeugnisnummer (eID)
           </ThemedText>
-          <TextInput
+          <TextInput disableFullscreenUI
             style={[styles.input, { color: theme.text, backgroundColor: theme.backgroundSecondary, borderColor: theme.border }]}
             value={profile.pilotId}
             onChangeText={(t) => update({ pilotId: t })}
@@ -341,7 +342,7 @@ export default function PilotProfileScreen() {
           <ThemedText style={[styles.fieldLabel, { color: theme.textSecondary }]}>
             Betreiber-Nummer (UAS-Betreiber)
           </ThemedText>
-          <TextInput
+          <TextInput disableFullscreenUI
             style={[styles.input, { color: theme.text, backgroundColor: theme.backgroundSecondary, borderColor: theme.border }]}
             value={profile.operatorId}
             onChangeText={(t) => update({ operatorId: t })}
@@ -514,7 +515,7 @@ export default function PilotProfileScreen() {
                 </View>
               ) : null}
               <ThemedText style={[styles.fieldLabel, { color: theme.textSecondary }]}>Gültigkeitsdatum</ThemedText>
-              <TextInput
+              <TextInput disableFullscreenUI
                 style={[styles.input, { color: theme.text, backgroundColor: theme.backgroundSecondary, borderColor: theme.border }]}
                 value={profile.licenseA1A3Details?.expirationDate || ""}
                 onChangeText={(t) => updateLicenseA1A3Details({ expirationDate: t })}
@@ -522,7 +523,7 @@ export default function PilotProfileScreen() {
                 placeholderTextColor={theme.textTertiary}
               />
               <ThemedText style={[styles.fieldLabel, { color: theme.textSecondary }]}>QR-Code Link (physische Karte)</ThemedText>
-              <TextInput
+              <TextInput disableFullscreenUI
                 style={[styles.input, { color: theme.text, backgroundColor: theme.backgroundSecondary, borderColor: theme.border }]}
                 value={profile.licenseA1A3Details?.qrCodeUrl || ""}
                 onChangeText={(t) => updateLicenseA1A3Details({ qrCodeUrl: t })}
@@ -615,7 +616,7 @@ export default function PilotProfileScreen() {
                 </View>
               ) : null}
               <ThemedText style={[styles.fieldLabel, { color: theme.textSecondary }]}>Gültigkeitsdatum</ThemedText>
-              <TextInput
+              <TextInput disableFullscreenUI
                 style={[styles.input, { color: theme.text, backgroundColor: theme.backgroundSecondary, borderColor: theme.border }]}
                 value={profile.licenseA2Details?.expirationDate || ""}
                 onChangeText={(t) => updateLicenseA2Details({ expirationDate: t })}
@@ -623,7 +624,7 @@ export default function PilotProfileScreen() {
                 placeholderTextColor={theme.textTertiary}
               />
               <ThemedText style={[styles.fieldLabel, { color: theme.textSecondary }]}>QR-Code Link (physische Karte)</ThemedText>
-              <TextInput
+              <TextInput disableFullscreenUI
                 style={[styles.input, { color: theme.text, backgroundColor: theme.backgroundSecondary, borderColor: theme.border }]}
                 value={profile.licenseA2Details?.qrCodeUrl || ""}
                 onChangeText={(t) => updateLicenseA2Details({ qrCodeUrl: t })}
@@ -716,7 +717,7 @@ export default function PilotProfileScreen() {
                 </View>
               ) : null}
               <ThemedText style={[styles.fieldLabel, { color: theme.textSecondary }]}>Gültigkeitsdatum</ThemedText>
-              <TextInput
+              <TextInput disableFullscreenUI
                 style={[styles.input, { color: theme.text, backgroundColor: theme.backgroundSecondary, borderColor: theme.border }]}
                 value={profile.licenseSTSDetails?.expirationDate || ""}
                 onChangeText={(t) => updateLicenseSTSDetails({ expirationDate: t })}
@@ -724,7 +725,7 @@ export default function PilotProfileScreen() {
                 placeholderTextColor={theme.textTertiary}
               />
               <ThemedText style={[styles.fieldLabel, { color: theme.textSecondary }]}>QR-Code Link (physische Karte)</ThemedText>
-              <TextInput
+              <TextInput disableFullscreenUI
                 style={[styles.input, { color: theme.text, backgroundColor: theme.backgroundSecondary, borderColor: theme.border }]}
                 value={profile.licenseSTSDetails?.qrCodeUrl || ""}
                 onChangeText={(t) => updateLicenseSTSDetails({ qrCodeUrl: t })}
@@ -841,7 +842,7 @@ export default function PilotProfileScreen() {
                     <ThemedText style={[styles.fieldLabel, { color: theme.textSecondary }]}>
                       Ablaufdatum
                     </ThemedText>
-                    <TextInput
+                    <TextInput disableFullscreenUI
                       style={[styles.input, { color: theme.text, backgroundColor: theme.background, borderColor: expired ? "#FF3B30" : theme.border }]}
                       value={e.expirationDate || ""}
                       onChangeText={(t) => updateErlaubnis(e.bundesland, { expirationDate: t })}
@@ -1019,7 +1020,7 @@ export default function PilotProfileScreen() {
             </View>
           ))}
         </Card>
-      </ScrollView>
+      </KeyboardAwareScrollViewCompat>
 
       <View style={[styles.footer, { bottom: tabBarHeight, paddingBottom: Spacing.md, backgroundColor: theme.backgroundDefault }]}>
         <Button

@@ -33,7 +33,7 @@ import { findNearbyCtrAirports, CTR_AIRPORTS } from "@/lib/ctrData";
 import { getCtrBandRings, getCtrLegendEntries, getCtrProvisionalNote } from "@/lib/ctrAltitude";
 import CtrInfoCard from "@/components/CtrInfoCard";
 import { splitCountriesByAccess, countryName } from "../../../shared/countryEntitlements";
-import { zonePolicy } from "../../../shared/restrictionPolicy";
+import { zoneMapColors } from "../../../shared/dipulLayerStyles";
 import type {
   EnergyFacility100mPoint,
   GermanEnergyInfrastructureItem,
@@ -41,9 +41,9 @@ import type {
 import { useAuth } from "@/lib/auth";
 import { supplementalInfrastructureAsGeozones, infrastructureMapGeometry } from "@/lib/energyInfrastructureZones";
 import { useTiledGeozoneIsos } from "@/lib/geozoneTiles/useTiledGeozones";
-import { countryDisabledWarning, isGeozoneSourceEnabled, usageCountryLabel, usageIsoOf } from "@/lib/countryUsage";
+import { isGeozoneSourceEnabled, usageIsoOf } from "@/lib/countryUsage";
 import { useCountryUsageMap } from "@/lib/useCountryUsage";
-import { EnableCountryButtons } from "@/components/EnableCountryButtons";
+import { DisabledCountryPopup, disabledCountryAt, tapToScreen, type DisabledCountryTap } from "@/components/maps/DisabledCountriesHint";
 
 function hexToRgba(hex: string, alpha: number): string {
   const h = hex.replace("#", "");
@@ -487,6 +487,12 @@ const MapPicker = forwardRef<MapPickerRef, MapPickerProps>(
     const [legendOpen, setLegendOpen] = useState(true);
     const [selectedCtrIcao, setSelectedCtrIcao] = useState<string | null>(null);
     const [settledRegion, setSettledRegion] = useState<Region | null>(null);
+    const settledRegionRef = useRef<Region | null>(null);
+    settledRegionRef.current = settledRegion;
+    const [pickerSize, setPickerSize] = useState({ width: 0, height: 0 });
+    const pickerSizeRef = useRef(pickerSize);
+    pickerSizeRef.current = pickerSize;
+    const [disabledTap, setDisabledTap] = useState<DisabledCountryTap | null>(null);
     const [settledZoom, setSettledZoom] = useState<number | null>(null);
     const [deviceLocation, setDeviceLocation] = useState<[number, number] | null>(null);
     const ctrLegend = useMemo(() => getCtrLegendEntries(), []);
@@ -547,7 +553,7 @@ const MapPicker = forwardRef<MapPickerRef, MapPickerProps>(
     );
     // Länder-Nutzung „Aus“: kein Overlay, Hinweis mit „Land aktivieren (online)“
     const countryUsageMap = useCountryUsageMap();
-    const { lockedSet, lockedNames, disabledIsos } = useMemo(() => {
+    const { lockedSet, lockedNames } = useMemo(() => {
       const { locked } = splitCountriesByAccess(candidateCountries, entitlement);
       // LI folgt CH: ein Hinweis „Schweiz / Liechtenstein“
       const disabled = candidateCountries.filter((iso) => !isGeozoneSourceEnabled(iso));
@@ -720,8 +726,8 @@ const MapPicker = forwardRef<MapPickerRef, MapPickerProps>(
           out.push({
             r: polys,
             // Farbe nach Einstufung (Policy-Tabelle), auch für temporäre Zonen.
-            s: z.strokeColor ?? zonePolicy(z).stroke,
-            f: z.fillColor ?? zonePolicy(z).fill,
+            s: zoneMapColors(z).stroke,
+            f: zoneMapColors(z).fill,
             ...(isTemp ? { t: 1 as const } : {}),
             // Zeitgesteuerte Zone (Fenster/Schedule), die jetzt nicht aktiv ist
             // (Karten-Zeitbezug: jetzt).
@@ -861,11 +867,19 @@ const MapPicker = forwardRef<MapPickerRef, MapPickerProps>(
         if (!isFinite(msg.lat) || !isFinite(msg.lon) || !(msg.latDelta > 0) || !(msg.lonDelta > 0)) return;
         const r: Region = { latitude: msg.lat, longitude: msg.lon, latitudeDelta: msg.latDelta, longitudeDelta: msg.lonDelta };
         setSettledRegion(r);
+        setDisabledTap(null);
         setSettledZoom(typeof msg.zoom === "number" ? msg.zoom : zoomFromRegion(r.latitudeDelta));
         if (onRegionChangeComplete) onRegionChangeComplete(r);
         return;
       }
-      if (msg.type === "mapPress") { if (onMapPress && isFinite(msg.lat) && isFinite(msg.lon)) onMapPress(msg.lat, msg.lon); return; }
+      if (msg.type === "mapPress") {
+        if (!isFinite(msg.lat) || !isFinite(msg.lon)) return;
+        const offIso = disabledCountryAt(msg.lat, msg.lon);
+        const reg = settledRegionRef.current;
+        setDisabledTap(offIso && reg ? { iso: offIso, ...tapToScreen(msg.lat, msg.lon, reg, pickerSizeRef.current) } : null);
+        if (onMapPress) onMapPress(msg.lat, msg.lon);
+        return;
+      }
       if (msg.type === "longPress") { if (onMapLongPress && isFinite(msg.lat) && isFinite(msg.lon)) onMapLongPress(msg.lat, msg.lon); return; }
       if (msg.type === "ctrPress") { if (msg.icao) onCtrPress(msg.icao); return; }
       if (msg.type === "wpPress") { if (typeof msg.i === "number") onWaypointPress?.(msg.i); return; }
@@ -873,7 +887,7 @@ const MapPicker = forwardRef<MapPickerRef, MapPickerProps>(
     }, [onRegionChangeComplete, onMapPress, onMapLongPress, onCtrPress, onWaypointPress, onWaypointDragEnd]);
 
     return (
-      <View style={[styles.map, style]}>
+      <View style={[styles.map, style]} onLayout={(e) => setPickerSize({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height })}>
         <WebView
           ref={webRef}
           source={{ html: MAP_HTML, baseUrl: "file:///" }}
@@ -922,17 +936,8 @@ const MapPicker = forwardRef<MapPickerRef, MapPickerProps>(
             </Text>
           </View>
         ) : null}
-        {disabledIsos.length > 0 ? (
-          <View
-            style={[lockedHintStyles.container, { top: (lockedNames.length > 0 ? 56 : 16) + (vzTruncated ? 40 : 0), flexDirection: "column", alignItems: "flex-start" }]}
-            testID="hint-disabled-countries"
-          >
-            {disabledIsos.map((iso) => (
-              <Text key={iso} style={lockedHintStyles.text}>{countryDisabledWarning(usageCountryLabel(iso))}</Text>
-            ))}
-            <EnableCountryButtons isos={disabledIsos} color="#FFFFFF" />
-          </View>
-        ) : null}
+        {/* Deaktivierte Länder: nur Popup nach Tipp ins Land, kein Dauer-Banner */}
+        <DisabledCountryPopup tap={disabledTap} mapSize={pickerSize} onClose={() => setDisabledTap(null)} />
         {vzTruncated ? (
           <View
             style={[lockedHintStyles.container, { top: lockedNames.length > 0 ? 56 : 16 }]}

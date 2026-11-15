@@ -9,7 +9,8 @@
  *    Verfolgung „dataSync“. Manifest: plugins/withRadarForegroundService.js.
  *  - Warnungen: lokale Benachrichtigungen über expo-notifications (ohne FCM –
  *    nur Push-Tokens brauchen Firebase), Kanal „radar-alerts“ mit Ton und
- *    Vibration, dazu der Sprachalarm aus proximityAlarm.ts wie im Vordergrund.
+ *    Vibration, dazu der Alarmton aus proximityAlarm.ts/alarmSound.ts (WAV
+ *    über expo-audio, ohne Google-TTS) wie im Vordergrund.
  *  - Position: @react-native-community/geolocation (LocationManager) über
  *    lib/location.ts. Mit Dienst-Typ „location“ genügt die Vordergrund-
  *    Berechtigung (ACCESS_FINE/COARSE_LOCATION); ACCESS_BACKGROUND_LOCATION
@@ -26,7 +27,13 @@ import * as Notifications from "expo-notifications";
 import * as Location from "@/lib/location";
 import { fetchNearbyAircraft } from "@/lib/opensky";
 import { DEFAULT_PROXIMITY_ALARM, getSettings } from "@/lib/storage";
-import { stopAlarmSound, triggerCriticalAlarm, triggerWarningAlarm } from "@/lib/proximityAlarm";
+import {
+  preloadAlarmSounds,
+  stopAlarmSound,
+  triggerCriticalAlarm,
+  triggerWarningAlarm,
+  updateAlarmAltitude,
+} from "@/lib/proximityAlarm";
 import { ensureNotificationPermissions } from "@/lib/notifications";
 import { fetchRadarAreaData, radarAreaSnapshot } from "@/lib/radarAreaCheck";
 import {
@@ -118,7 +125,9 @@ export const radarMonitorDeps: RadarMonitorDeps = {
   fetchAircraft: async (lat, lon, radiusKm) => (await fetchNearbyAircraft(lat, lon, radiusKm, 60)).states,
   fetchArea: async (lat, lon, ra, iso) => radarAreaSnapshot(await fetchRadarAreaData(lat, lon, ra, iso)),
   notify: (n) => postNotification(n).catch((e) => console.warn("[radarMonitor] notify:", e)),
-  triggerSound: (level, settings, alt) => (level === "critical" ? triggerCriticalAlarm(settings, alt) : triggerWarningAlarm(settings, alt)),
+  triggerSound: (level, settings, alt, approaching) =>
+    level === "critical" ? triggerCriticalAlarm(settings, alt) : triggerWarningAlarm(settings, alt, approaching),
+  updateSound: (alt, approaching) => updateAlarmAltitude(alt, approaching),
   stopSound: () => stopAlarmSound(),
   watchPosition: async (cb) => {
     const sub = await Location.watchPositionAsync({ accuracy: Location.Accuracy.High, timeInterval: 2000, distanceInterval: 5 }, (loc) =>
@@ -131,6 +140,9 @@ export const radarMonitorDeps: RadarMonitorDeps = {
       // Android 13+: Laufzeit-Berechtigung für Benachrichtigungen (POST_NOTIFICATIONS)
       await ensureNotificationPermissions().catch(() => false);
       await ensureAlertChannel();
+      // Alarmtöne laden und Audio-Modus „im Hintergrund spielen“ setzen,
+      // solange die App noch im Vordergrund ist
+      preloadAlarmSounds();
       await backgroundService().start(task, {
         taskName: "CopterPilotRadarMonitor",
         taskTitle: opts.title,

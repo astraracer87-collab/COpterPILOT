@@ -1,5 +1,5 @@
 // Config-Plugin plugins/withRcKeyEvents.js: MainActivity (.kt/.java) erhält
-// dispatchKeyEvent/dispatchGenericMotionEvent, MainApplication registriert
+// dispatchKeyEvent/dispatchGenericMotionEvent/onGenericMotionEvent, MainApplication registriert
 // RcKeysPackage, RcKeysModule.kt wird neben die MainActivity geschrieben.
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
@@ -100,10 +100,13 @@ describe("withRcKeyEvents – MainActivity", () => {
   it("Kotlin: Overrides und Imports, Klasse bleibt geschlossen", () => {
     const out: string = plugin.applyRcKeysToMainActivity(KT_ACTIVITY, "kt");
     assert.ok(out.includes("override fun dispatchKeyEvent(event: KeyEvent): Boolean {"));
-    assert.ok(out.includes("if (RcKeysModule.handleKeyEvent(event)) return true"));
+    assert.ok(out.includes('if (RcKeysModule.handleKeyEvent(event, "activity")) return true\n'));
     assert.ok(out.includes("return super.dispatchKeyEvent(event)"));
     assert.ok(out.includes("override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {"));
     assert.ok(out.includes("return super.dispatchGenericMotionEvent(event)"));
+    assert.ok(out.includes("override fun onGenericMotionEvent(event: MotionEvent): Boolean {"));
+    assert.ok(out.includes('if (RcKeysModule.handleMotionEvent(event, "activity-fallback")) return true\n'));
+    assert.ok(out.includes("return super.onGenericMotionEvent(event)"));
     assert.equal(count(out, "import android.view.KeyEvent\n"), 1);
     assert.equal(count(out, "import android.view.MotionEvent\n"), 1);
     assert.ok(!out.includes("import android.view.KeyEvent;"));
@@ -124,7 +127,9 @@ describe("withRcKeyEvents – MainActivity", () => {
   it("Java: Overrides mit @Override und Semikolon-Imports, idempotent", () => {
     const out: string = plugin.applyRcKeysToMainActivity(JAVA_ACTIVITY, "java");
     assert.ok(out.includes("public boolean dispatchKeyEvent(KeyEvent event) {"));
-    assert.ok(out.includes("if (RcKeysModule.handleKeyEvent(event)) return true;"));
+    assert.ok(out.includes('if (RcKeysModule.handleKeyEvent(event, "activity")) return true;'));
+    assert.ok(out.includes("public boolean onGenericMotionEvent(MotionEvent event) {"));
+    assert.ok(out.includes('if (RcKeysModule.handleMotionEvent(event, "activity-fallback")) return true;'));
     assert.ok(out.includes("return super.dispatchKeyEvent(event);"));
     assert.ok(out.includes("public boolean dispatchGenericMotionEvent(MotionEvent event) {"));
     assert.ok(out.includes("import android.view.KeyEvent;"));
@@ -134,6 +139,11 @@ describe("withRcKeyEvents – MainActivity", () => {
   });
 
   it("vorhandene fremde dispatchKeyEvent-Überschreibung → Fehler statt Doppelung", () => {
+    const fallback = KT_ACTIVITY.replace(
+      "  override fun getMainComponentName",
+      "  override fun onGenericMotionEvent(event: MotionEvent): Boolean = false\n\n  override fun getMainComponentName",
+    );
+    assert.throws(() => plugin.applyRcKeysToMainActivity(fallback, "kt"), /onGenericMotionEvent/);
     const src = KT_ACTIVITY.replace(
       "  override fun getMainComponentName",
       "  override fun dispatchKeyEvent(event: KeyEvent): Boolean = super.dispatchKeyEvent(event)\n\n  override fun getMainComponentName",
@@ -172,8 +182,18 @@ describe("withRcKeyEvents – RcKeysModule.kt", () => {
     assert.ok(src.includes('emit("rcMotion"'));
     assert.ok(src.includes("fun setCaptureMode(enabled: Boolean)"));
     assert.ok(src.includes("fun getDeviceInfo(promise: Promise)"));
-    assert.ok(src.includes("@JvmStatic\n    fun handleKeyEvent(event: KeyEvent): Boolean"));
-    assert.ok(src.includes("@JvmStatic\n    fun handleMotionEvent(event: MotionEvent): Boolean"));
+    assert.ok(src.includes("@JvmStatic\n    fun handleKeyEvent(event: KeyEvent, via: String): Boolean"));
+    assert.ok(src.includes("@JvmStatic\n    fun handleMotionEvent(event: MotionEvent, via: String): Boolean"));
+    // Test-Modus: zusätzliche Meldewege, Geräte-Änderungen, alle Achsen des Geräts
+    assert.ok(src.includes("class RcWindowCallback(val base: Window.Callback) : Window.Callback by base"));
+    assert.ok(src.includes('RcKeysModule.handleMotionEvent(event, "window")'));
+    assert.ok(src.includes("setOnGenericMotionListener(viewMotionListener)"));
+    assert.ok(src.includes("if (cb is RcWindowCallback) w.callback = cb.base"));
+    assert.ok(src.includes("registerInputDeviceListener"));
+    assert.ok(src.includes('emit("rcDevice", m)'));
+    assert.ok(src.includes("for (r in dev.motionRanges) add(r.axis)"));
+    assert.ok(src.includes("listeningEnabled && !isTouch(event)"));
+    assert.ok(src.includes('File("/proc/bus/input/devices")'));
     assert.ok(src.includes("class RcKeysPackage : BaseReactPackage()"));
     const never = src.slice(src.indexOf("NEVER_CONSUME = setOf("), src.indexOf("CAPTURE = setOf("));
     for (const k of ["KEYCODE_BACK", "KEYCODE_HOME", "KEYCODE_POWER", "KEYCODE_VOLUME_UP", "KEYCODE_VOLUME_DOWN"]) {

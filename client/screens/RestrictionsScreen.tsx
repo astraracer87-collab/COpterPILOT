@@ -226,7 +226,7 @@ export default function RestrictionsScreen() {
                 <ThemedText style={[styles.detailsLabel, { color: theme.textSecondary }]}>
                   Notizen (optional)
                 </ThemedText>
-                <TextInput
+                <TextInput disableFullscreenUI
                   style={[
                     styles.notesInput,
                     { backgroundColor: theme.backgroundSecondary, color: theme.text },

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, Pressable, ScrollView, ActivityIndicator, StyleSheet, Platform } from "react-native";
+import { View, Text, Pressable, ScrollView, ActivityIndicator, StyleSheet, Platform, useWindowDimensions } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import {
   fetchAirportWeather,
@@ -37,6 +37,11 @@ export default function AirportWeatherSheet({
   initialObservedAt = null,
 }: AirportWeatherSheetProps) {
   const isAdmin = useShowDataSources();
+  // Querformat (Fernsteuerung): Seitenpanel rechts über die volle Höhe,
+  // METAR und TAF nebeneinander mit je eigener Scroll-Spalte – die Karte
+  // bleibt links sichtbar, nichts wird abgeschnitten.
+  const { width, height } = useWindowDimensions();
+  const landscape = width > height;
   const [mode, setModeState] = useState<ViewMode>(sessionMode);
   // Liegt bereits eine METAR vom Marker vor, rendern wir sie sofort (kein
   // Spinner) und laden nur die fehlende TAF im Hintergrund nach.
@@ -89,39 +94,63 @@ export default function AirportWeatherSheet({
     };
   }, [icao, hasInitialMetar, initialMetarRaw, initialObservedAt]);
 
+  const metarSection = (
+    <Section
+      title="METAR (aktuell)"
+      subtitle={formatObservedTime(data?.observedAt ?? null)}
+      emptyText="Keine aktuelle METAR verfügbar"
+    >
+      {mode === "raw"
+        ? renderRaw(data?.metarRaw ?? null)
+        : renderMetarKlartext(data?.metarRaw ?? null)}
+    </Section>
+  );
+  const tafSection = (
+    <Section
+      title="TAF (Vorhersage)"
+      subtitle={null}
+      emptyText={loading ? "TAF wird geladen…" : "Keine aktuelle TAF verfügbar"}
+    >
+      {mode === "raw"
+        ? renderRaw(data?.tafRaw ?? null)
+        : renderTafKlartext(data?.tafRaw ?? null)}
+    </Section>
+  );
+  const sourceLine = isAdmin ? <Text style={styles.source}>Quelle: NOAA / aviationweather.gov</Text> : null;
+
   return (
     <View
-      style={[styles.overlay, bottomInset > 0 ? { paddingBottom: 16 + bottomInset } : null]}
+      style={[
+        styles.overlay,
+        landscape ? styles.overlayLandscape : null,
+        bottomInset > 0 ? { paddingBottom: (landscape ? 8 : 16) + bottomInset } : null,
+      ]}
       pointerEvents="box-none"
+      testID={landscape ? "airport-weather-landscape" : "airport-weather-portrait"}
     >
       <Pressable style={styles.backdrop} onPress={onClose} />
-      <View style={styles.card}>
-        <View style={styles.header}>
+      <View style={[styles.card, landscape ? [styles.cardLandscape, { width: Math.min(640, Math.max(420, width * 0.6)) }] : null]}>
+        <View style={[styles.header, landscape ? styles.headerLandscape : null]}>
           <View style={{ flex: 1 }}>
             <Text style={styles.title} numberOfLines={1}>{name}</Text>
             <Text style={styles.sub}>{icao} · Flugwetter</Text>
           </View>
-          <Pressable onPress={onClose} hitSlop={12} testID="airport-weather-close">
-            <Feather name="x" size={18} color="rgba(255,255,255,0.7)" />
+          {landscape ? (
+            <View style={[styles.toggle, styles.toggleInline]}>{renderToggle(mode, setMode)}</View>
+          ) : null}
+          <Pressable
+            onPress={onClose}
+            hitSlop={12}
+            testID="airport-weather-close"
+            accessibilityRole="button"
+            accessibilityLabel="Schließen"
+            style={({ pressed }) => [styles.closeBtn, pressed ? { opacity: 0.6 } : null]}
+          >
+            <Feather name="x" size={20} color="#FFFFFF" />
           </Pressable>
         </View>
 
-        <View style={styles.toggle}>
-          <Pressable
-            style={[styles.toggleBtn, mode === "klartext" ? styles.toggleActive : null]}
-            onPress={() => setMode("klartext")}
-            testID="airport-weather-toggle-klartext"
-          >
-            <Text style={[styles.toggleText, mode === "klartext" ? styles.toggleTextActive : null]}>Klartext</Text>
-          </Pressable>
-          <Pressable
-            style={[styles.toggleBtn, mode === "raw" ? styles.toggleActive : null]}
-            onPress={() => setMode("raw")}
-            testID="airport-weather-toggle-raw"
-          >
-            <Text style={[styles.toggleText, mode === "raw" ? styles.toggleTextActive : null]}>Roh</Text>
-          </Pressable>
-        </View>
+        {landscape ? null : <View style={styles.toggle}>{renderToggle(mode, setMode)}</View>}
 
         {loading ? (
           <View style={styles.center}>
@@ -133,35 +162,47 @@ export default function AirportWeatherSheet({
             <Feather name="alert-triangle" size={20} color="#FF9500" />
             <Text style={styles.muted}>{error}</Text>
           </View>
+        ) : landscape ? (
+          <View style={styles.columns} testID="airport-weather-columns">
+            <ScrollView style={styles.column} contentContainerStyle={{ paddingBottom: 8 }} showsVerticalScrollIndicator>
+              {metarSection}
+              {sourceLine}
+            </ScrollView>
+            <View style={styles.columnDivider} />
+            <ScrollView style={styles.column} contentContainerStyle={{ paddingBottom: 8 }} showsVerticalScrollIndicator>
+              {tafSection}
+            </ScrollView>
+          </View>
         ) : (
           <ScrollView style={styles.body} contentContainerStyle={{ paddingBottom: 4 }} showsVerticalScrollIndicator={false}>
-            <Section
-              title="METAR (aktuell)"
-              subtitle={formatObservedTime(data?.observedAt ?? null)}
-              emptyText="Keine aktuelle METAR verfügbar"
-            >
-              {mode === "raw"
-                ? renderRaw(data?.metarRaw ?? null)
-                : renderMetarKlartext(data?.metarRaw ?? null)}
-            </Section>
-
-            <Section
-              title="TAF (Vorhersage)"
-              subtitle={null}
-              emptyText={loading ? "TAF wird geladen…" : "Keine aktuelle TAF verfügbar"}
-            >
-              {mode === "raw"
-                ? renderRaw(data?.tafRaw ?? null)
-                : renderTafKlartext(data?.tafRaw ?? null)}
-            </Section>
-
-            {isAdmin ? (
-              <Text style={styles.source}>Quelle: NOAA / aviationweather.gov</Text>
-            ) : null}
+            {metarSection}
+            {tafSection}
+            {sourceLine}
           </ScrollView>
         )}
       </View>
     </View>
+  );
+}
+
+function renderToggle(mode: ViewMode, setMode: (m: ViewMode) => void) {
+  return (
+    <>
+      <Pressable
+        style={[styles.toggleBtn, mode === "klartext" ? styles.toggleActive : null]}
+        onPress={() => setMode("klartext")}
+        testID="airport-weather-toggle-klartext"
+      >
+        <Text style={[styles.toggleText, mode === "klartext" ? styles.toggleTextActive : null]}>Klartext</Text>
+      </Pressable>
+      <Pressable
+        style={[styles.toggleBtn, mode === "raw" ? styles.toggleActive : null]}
+        onPress={() => setMode("raw")}
+        testID="airport-weather-toggle-raw"
+      >
+        <Text style={[styles.toggleText, mode === "raw" ? styles.toggleTextActive : null]}>Roh</Text>
+      </Pressable>
+    </>
   );
 }
 
@@ -253,6 +294,47 @@ const styles = StyleSheet.create({
     paddingBottom: 16,
     paddingHorizontal: 12,
     zIndex: 300,
+  } as any,
+  overlayLandscape: {
+    top: 0,
+    alignItems: "flex-end",
+    justifyContent: "flex-start",
+    paddingTop: 8,
+    paddingBottom: 8,
+    paddingHorizontal: 8,
+  } as any,
+  cardLandscape: {
+    maxWidth: undefined,
+    maxHeight: undefined,
+    flex: 1,
+    paddingVertical: 10,
+  } as any,
+  headerLandscape: {
+    marginBottom: 8,
+  } as any,
+  toggleInline: {
+    marginBottom: 0,
+    width: 170,
+  } as any,
+  closeBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.14)",
+  } as any,
+  columns: {
+    flex: 1,
+    flexDirection: "row",
+    gap: 10,
+  } as any,
+  column: {
+    flex: 1,
+  } as any,
+  columnDivider: {
+    width: StyleSheet.hairlineWidth,
+    backgroundColor: "rgba(255,255,255,0.15)",
   } as any,
   backdrop: {
     position: "absolute",

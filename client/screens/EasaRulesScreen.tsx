@@ -157,7 +157,7 @@ export default function EasaRulesScreen() {
     >
       <View style={[styles.searchBox, { backgroundColor: theme.card, borderColor: theme.border }]}>
         <Feather name="search" size={16} color={theme.textTertiary} />
-        <TextInput
+        <TextInput disableFullscreenUI
           style={[styles.searchInput, { color: theme.text }]}
           placeholder="Regelwerk durchsuchen…"
           placeholderTextColor={theme.textTertiary}

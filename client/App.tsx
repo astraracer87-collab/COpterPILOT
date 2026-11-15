@@ -10,7 +10,9 @@ import { startCountryUsage } from "@/lib/countryUsageData";
 import { CountryUsagePrompt } from "@/components/CountryUsagePrompt";
 import { DownloadActivityBar } from "@/components/DownloadActivityBar";
 import { BlockingWorkOverlay } from "@/components/BlockingWorkOverlay";
-import { rootTouchHandlers } from "@/lib/backgroundWork";
+import { rootTouchHandlers, runAfterStartup } from "@/lib/backgroundWork";
+import { prefetchObstaclesAroundLastKnown } from "@/lib/obstacles";
+import { startWeatherPrefetch } from "@/lib/weatherPrefetch";
 
 // Übersetzungs-Cache der Behördentexte laden (offline) und neue Texte nachziehen
 startZoneTranslation();
@@ -21,6 +23,10 @@ initEd269ImportFlags();
 startGeozoneTileStore();
 // Länder-Nutzung (Aus/Online/Offline): laden bzw. migrieren, Offline-Länder automatisch aktualisieren
 startCountryUsage();
+// Hindernisse um die zuletzt bekannte Position leise vorab laden (Karte zeichnet dann sofort)
+runAfterStartup(() => { prefetchObstaclesAroundLastKnown().catch(() => {}); }, 8000);
+// Wetter für die letzte/aktuelle Position vorab laden (nach dem ersten Bildschirm, dann alle 20 min / bei Ortswechsel)
+startWeatherPrefetch();
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";

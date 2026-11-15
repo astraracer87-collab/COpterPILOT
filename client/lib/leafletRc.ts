@@ -19,7 +19,15 @@ import type { WebView } from "react-native-webview";
 import { COUNTRY_MAP_PROVIDERS, FALLBACK_MAP, FALLBACK_SATELLITE } from "@/lib/mapSources";
 import { detectCountryFromCoordinates } from "../../shared/countryDetection";
 import { detectBundeslandFromCoordinates } from "@/lib/countryMaps";
-import { getObstaclesEnabled, loadObstaclesForBounds, onObstaclesEnabledChange } from "@/lib/obstacles";
+import {
+  getObstaclesEnabled,
+  loadObstaclesForBounds,
+  onObstaclesEnabledChange,
+  prefetchObstaclesAround,
+  subscribeObstacleLoading,
+} from "@/lib/obstacles";
+import { tilesForBounds } from "@/lib/obstacleTileCache";
+import { stringifyYielding } from "../../shared/yieldingWork";
 import { ensureGoogleTiles, onGoogleTilesChange } from "@/lib/googleTiles";
 import { getOfflineTileConfig, onOfflineTilesChange } from "@/lib/offlineMaps";
 
@@ -188,15 +196,23 @@ export const RC_LEAFLET_JS = String.raw`
     return { color: "#6d7a86", weight: 1.5, dashArray: "6 4" };
   }
   var obsGroup = null, obsData = null, obsRenderer = null;
+  // Kachelweise Daten (vom RN-Teil inkrementell geschickt); aktiv = sichtbare Kacheln
+  var obsTiles = {}, obsActive = null;
+  function obsFeatures(){
+    if (!obsActive) return (obsData && obsData.features) || [];
+    var out = [];
+    for (var i = 0; i < obsActive.length; i++){ var t = obsTiles[obsActive[i]]; if (t && t.features) for (var j = 0; j < t.features.length; j++) out.push(t.features[j]); }
+    return out;
+  }
   function renderObstacles(){
     var map = window.__rcMap;
     if (!map) return;
     if (!obsGroup){ obsGroup = L.layerGroup().addTo(map); obsRenderer = L.canvas({ padding: 0.3 }); map.on("zoomend moveend", renderObstacles); }
     obsGroup.clearLayers();
     var z = map.getZoom();
-    if (!obsData || z < ${OBSTACLE_MIN_ZOOM}) return;
+    if ((!obsData && !obsActive) || z < ${OBSTACLE_MIN_ZOOM}) return;
     var b = map.getBounds().pad(0.2);
-    var feats = obsData.features || [];
+    var feats = obsFeatures();
     for (var i = 0; i < feats.length; i++){
       var f = feats[i], p = f.properties || {}, g = f.geometry;
       if (!g) continue;
@@ -226,10 +242,28 @@ export const RC_LEAFLET_JS = String.raw`
       }
     }
   }
-  rc.setObstacles = function(fc){ obsData = fc; renderObstacles(); };
+  rc.setObstacles = function(fc){ obsData = fc; if (!fc) { obsTiles = {}; obsActive = null; } renderObstacles(); };
+  var obsRenderTimer = null;
+  function renderSoon(){ if (obsRenderTimer) return; obsRenderTimer = setTimeout(function(){ obsRenderTimer = null; renderObstacles(); }, 60); }
+  rc.addObsTile = function(key, fc){ obsTiles[key] = fc; if (obsActive && obsActive.indexOf(key) >= 0) renderSoon(); };
+  rc.setObsActive = function(keys){ obsData = null; obsActive = keys || []; renderSoon(); };
+  rc.dropObsTiles = function(keys){ for (var i = 0; i < keys.length; i++) delete obsTiles[keys[i]]; };
+  // kleiner, unaufdringlicher Lade-Hinweis (statt app-weitem Banner)
+  var obsInd = null, obsIndTimer = null;
+  rc.setObsLoading = function(on){
+    if (obsIndTimer) { clearTimeout(obsIndTimer); obsIndTimer = null; }
+    if (!on) { if (obsInd) obsInd.style.display = "none"; return; }
+    obsIndTimer = setTimeout(function(){
+      if (!obsInd) { obsInd = document.createElement("div"); obsInd.className = "rc-obs-load"; obsInd.innerHTML = "<i></i>Hindernisse"; document.body.appendChild(obsInd); }
+      obsInd.style.display = "block";
+    }, 800);
+  };
 
   var css = document.createElement("style");
-  css.textContent = ".rc-obs-h{text-align:center}.rc-obs-h span{display:inline-block;font:700 11px Roboto,system-ui,sans-serif;color:#222;background:rgba(255,255,255,.92);padding:0 4px;border-radius:3px;white-space:nowrap}";
+  css.textContent = ".rc-obs-h{text-align:center}.rc-obs-h span{display:inline-block;font:700 11px Roboto,system-ui,sans-serif;color:#222;background:rgba(255,255,255,.92);padding:0 4px;border-radius:3px;white-space:nowrap}"
+    + ".rc-obs-load{position:absolute;left:8px;bottom:22px;z-index:900;pointer-events:none;font:500 10px Roboto,system-ui,sans-serif;color:#fff;background:rgba(20,24,31,.55);padding:2px 7px 2px 5px;border-radius:9px}"
+    + ".rc-obs-load i{display:inline-block;width:7px;height:7px;margin-right:4px;border:1.5px solid rgba(255,255,255,.85);border-top-color:transparent;border-radius:50%;vertical-align:-1px;animation:rcspin .8s linear infinite}"
+    + "@keyframes rcspin{to{transform:rotate(360deg)}}";
   document.head.appendChild(css);
 })();
 `;
@@ -378,27 +412,81 @@ export function useRcLeaflet(webRef: RefObject<WebView | null>, ready: boolean, 
     });
     return onObstaclesEnabledChange((v) => {
       enabledRef.current = v;
-      if (!v) run(`window.__rc.setObstacles(null)`);
+      if (!v) {
+        run(`window.__rc.setObstacles(null)`);
+        sentRef.current = new Set();
+      }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const zoomOk = (zoom ?? 0) >= OBSTACLE_MIN_ZOOM;
+  // Bereits an die WebView geschickte Kacheln (pro WebView-Ladevorgang)
+  const sentRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    if (!ready || !view || !zoomOk || !enabledRef.current) return;
+    sentRef.current = new Set();
+  }, [ready]);
+  // Neu laden nur, wenn sich die MENGE der Kacheln ändert (nicht bei jedem Pixel Verschieben)
+  const obsBox = view
+    ? {
+        w: view.longitude - view.longitudeDelta * 0.6,
+        e: view.longitude + view.longitudeDelta * 0.6,
+        s: view.latitude - view.latitudeDelta * 0.6,
+        n: view.latitude + view.latitudeDelta * 0.6,
+      }
+    : null;
+  const obsTileKey =
+    obsBox && zoomOk
+      ? tilesForBounds(obsBox.w, obsBox.s, obsBox.e, obsBox.n)
+          .map((t) => `${t.x}_${t.y}`)
+          .join(",")
+      : "";
+  useEffect(() => {
+    if (!ready || !obsBox || !zoomOk || !enabledRef.current) return;
     const id = ++reqRef.current;
+    const box = obsBox;
     const t = setTimeout(() => {
-      const w = view.longitude - view.longitudeDelta * 0.6;
-      const e = view.longitude + view.longitudeDelta * 0.6;
-      const s = view.latitude - view.latitudeDelta * 0.6;
-      const n = view.latitude + view.latitudeDelta * 0.6;
-      const send = (fc: GeoJSON.FeatureCollection) => {
-        if (id === reqRef.current) run(`window.__rc.setObstacles(${JSON.stringify(fc)})`);
+      if (id !== reqRef.current) return;
+      const activeKeys = tilesForBounds(box.w, box.s, box.e, box.n).map((tt) => `10_${tt.x}_${tt.y}`);
+      run(`window.__rc.setObsActive(${JSON.stringify(activeKeys)})`);
+      // Nicht mehr sichtbare Kacheln in der WebView freigeben (Speicher)
+      if (sentRef.current.size > 36) {
+        const keep = new Set(activeKeys);
+        const drop = [...sentRef.current].filter((k) => !keep.has(k));
+        drop.forEach((k) => sentRef.current.delete(k));
+        if (drop.length) run(`window.__rc.dropObsTiles(${JSON.stringify(drop)})`);
+      }
+      const onTile = (key: string, data: { fc: GeoJSON.FeatureCollection }) => {
+        if (sentRef.current.has(key)) return;
+        sentRef.current.add(key);
+        stringifyYielding(data.fc)
+          .then((json) => run(`window.__rc.addObsTile(${JSON.stringify(key)},${json})`))
+          .catch(() => sentRef.current.delete(key));
       };
-      loadObstaclesForBounds(w, s, e, n, send).then(send).catch(() => {});
-    }, 400);
+      loadObstaclesForBounds(box.w, box.s, box.e, box.n, undefined, { onTile }).catch(() => {});
+    }, 350);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, viewKey, zoomOk]);
+  }, [ready, obsTileKey, zoomOk]);
+
+  // Kleiner Lade-Hinweis in der Karte (nur bei Internet-Abfragen)
+  useEffect(() => {
+    if (!ready) return;
+    return subscribeObstacleLoading((n) => run(`window.__rc.setObsLoading(${n > 0})`));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready]);
+
+  // Umgebung des ersten Kartenausschnitts vorab laden (leise, nacheinander)
+  const prefetchedRef = useRef<string>("");
+  const centerKey = view ? `${view.latitude.toFixed(1)},${view.longitude.toFixed(1)}` : "";
+  useEffect(() => {
+    if (!ready || !view || !enabledRef.current || prefetchedRef.current === centerKey) return;
+    const t = setTimeout(() => {
+      prefetchedRef.current = centerKey;
+      prefetchObstaclesAround(view.latitude, view.longitude).catch(() => {});
+    }, 3000);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, centerKey]);
 }
 
 /** WebView-Eigenschaften, damit die Karte gespeicherte Kacheln lesen darf. */

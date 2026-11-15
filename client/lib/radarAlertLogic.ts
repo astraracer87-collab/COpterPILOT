@@ -224,9 +224,9 @@ export interface ProximityDecisionState {
 
 export type ProximityDecision =
   /** Alarm auslösen (neu oder Eskalation auf RA) */
-  | { action: "trigger"; level: "warning" | "critical"; reason: "alert" | "approach"; altitudeM: number | null; newLevel: ProximityLevel; alert?: ProximityAlert; approach?: ApproachingAircraft }
+  | { action: "trigger"; level: "warning" | "critical"; reason: "alert" | "approach"; altitudeM: number | null; newLevel: ProximityLevel; approaching: boolean; alert?: ProximityAlert; approach?: ApproachingAircraft }
   /** Alarm läuft weiter: Höhe aktualisieren; `downgrade` = RA → TA */
-  | { action: "update"; altitudeM: number | null; downgrade: boolean; newLevel: ProximityLevel }
+  | { action: "update"; altitudeM: number | null; downgrade: boolean; newLevel: ProximityLevel; approaching: boolean }
   /** Keine Bedrohung mehr → Entwarnung */
   | { action: "clear"; newLevel: ProximityLevel }
   | { action: "none"; newLevel: ProximityLevel };
@@ -251,22 +251,92 @@ export function decideProximityAlarm(
     const escalated = newLevel === "critical" && state.currentLevel !== "critical";
     const closest = critical ?? warning;
     const altitudeM = closest?.altitudeM ?? null;
+    const approachingThreat = alertsApproaching(alerts);
     if ((now - state.lastAlarmTime > ALARM_COOLDOWN_MS && state.currentLevel === "none") || escalated) {
-      return { action: "trigger", level: newLevel, reason: "alert", altitudeM, newLevel, alert: closest };
+      return { action: "trigger", level: newLevel, reason: "alert", altitudeM, newLevel, approaching: approachingThreat, alert: closest };
     }
     if (state.currentLevel !== "none") {
-      return { action: "update", altitudeM, downgrade: state.currentLevel === "critical" && newLevel === "warning", newLevel };
+      return { action: "update", altitudeM, downgrade: state.currentLevel === "critical" && newLevel === "warning", newLevel, approaching: approachingThreat };
     }
     return { action: "none", newLevel };
   }
   if (newLevel === "none" && approaching.length > 0 && !dismissed) {
     if (state.currentLevel === "none" && now - state.lastAlarmTime > APPROACH_COOLDOWN_MS) {
-      return { action: "trigger", level: "warning", reason: "approach", altitudeM: approaching[0]?.altitudeM ?? null, newLevel, approach: approaching[0] };
+      return { action: "trigger", level: "warning", reason: "approach", altitudeM: approaching[0]?.altitudeM ?? null, newLevel, approaching: true, approach: approaching[0] };
     }
     return { action: "none", newLevel };
   }
   if (newLevel === "none") return { action: "clear", newLevel };
   return { action: "none", newLevel };
+}
+
+/**
+ * Nähert sich mindestens ein TA/RA-Treffer? Ohne Kursangabe (trueTrack null)
+ * ist die Richtung unbekannt → vorsichtshalber wie „nähert sich“.
+ */
+export function alertsApproaching(alerts: ProximityAlert[]): boolean {
+  return alerts.some((a) => a.isApproaching || a.aircraft.trueTrack == null);
+}
+
+// ---------------------------------------------------------------------------
+// Verkehr: Alarmton (welcher Ton, wie oft, Vibration) – Vorder- und Hintergrund
+// ---------------------------------------------------------------------------
+
+export type AlarmToneKind = "critical" | "warning" | "soft";
+
+export interface AlarmTonePlan {
+  /** Abzuspielender Ton (null = stumm, z. B. „Akustisch“ aus) */
+  tone: AlarmToneKind | null;
+  /** Wiederholung solange der Alarm anhält (ms); null = nur einmal */
+  repeatMs: number | null;
+  /** Vibrationsmuster (react-native Vibration), null = keine */
+  vibrate: number[] | null;
+  /** Zusätzliche Sprachansage (expo-speech, nur wenn eine TTS-Engine da ist) */
+  speak: boolean;
+}
+
+/** RA: alle 3 s wiederholen */
+export const ALARM_TONE_REPEAT_CRITICAL_MS = 3000;
+/** TA (nähert sich): alle 6 s wiederholen */
+export const ALARM_TONE_REPEAT_WARNING_MS = 6000;
+export const VIBRATE_CRITICAL = [0, 500, 150, 500, 150, 500];
+export const VIBRATE_WARNING = [0, 400, 200, 400];
+export const VIBRATE_SOFT = [0, 150];
+
+/**
+ * Welcher Ton zu einem Verkehrsalarm gehört:
+ *  - RA (critical): lauter, schneller Piepton, alle 3 s, Sprachansage.
+ *  - TA, Flugobjekt nähert sich (oder Richtung unbekannt / reiner Anflug):
+ *    lauter Doppelton, alle 6 s, Sprachansage.
+ *  - TA, Flugobjekt entfernt sich: ein einzelner leiser Ton, keine
+ *    Wiederholung, keine Sprachansage (Banner bleibt sichtbar).
+ * „Akustisch“/„Vibration“ je Stufe aus den TCAS-Einstellungen (Standard an).
+ */
+export function decideAlarmTone(
+  level: "warning" | "critical",
+  approaching: boolean,
+  settings?: Pick<ProximityAlarmSettings, "ta" | "ra"> | null,
+): AlarmTonePlan {
+  const lvl = level === "critical" ? settings?.ra : settings?.ta;
+  const audio = lvl?.audio ?? true;
+  const haptic = lvl?.haptic ?? true;
+  if (level === "critical") {
+    return {
+      tone: audio ? "critical" : null,
+      repeatMs: audio ? ALARM_TONE_REPEAT_CRITICAL_MS : null,
+      vibrate: haptic ? VIBRATE_CRITICAL : null,
+      speak: audio,
+    };
+  }
+  if (approaching) {
+    return {
+      tone: audio ? "warning" : null,
+      repeatMs: audio ? ALARM_TONE_REPEAT_WARNING_MS : null,
+      vibrate: haptic ? VIBRATE_WARNING : null,
+      speak: audio,
+    };
+  }
+  return { tone: audio ? "soft" : null, repeatMs: null, vibrate: haptic ? VIBRATE_SOFT : null, speak: false };
 }
 
 /** Zustand nach einem ausgelösten Alarm */

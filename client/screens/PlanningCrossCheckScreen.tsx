@@ -187,7 +187,7 @@ export default function PlanningCrossCheckScreen() {
             </TouchableOpacity>
           </View>
 
-          <TextInput
+          <TextInput disableFullscreenUI
             style={[
               styles.noteInput,
               { color: theme.text, borderColor: theme.border, backgroundColor: theme.backgroundSecondary },

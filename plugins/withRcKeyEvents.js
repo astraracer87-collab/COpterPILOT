@@ -5,15 +5,26 @@
  *
  *  - Schreibt android/app/src/main/java/<package>/RcKeysModule.kt (kleines
  *    natives Modul „RcKeys“ + RcKeysPackage) neben die MainActivity.
- *  - MainActivity (.kt oder .java): überschreibt dispatchKeyEvent und
- *    dispatchGenericMotionEvent; jedes Ereignis geht an
- *    RcKeysModule.handleKeyEvent/handleMotionEvent, die es (nur solange JS
- *    zuhört) per RCTDeviceEventEmitter als „rcKey“ bzw. „rcMotion“ meldet.
- *    Standard: NICHT abfangen (super), die normale Bedienung bleibt. Nur im
+ *  - MainActivity (.kt oder .java): überschreibt dispatchKeyEvent,
+ *    dispatchGenericMotionEvent und onGenericMotionEvent; jedes Ereignis geht
+ *    an RcKeysModule.handleKeyEvent/handleMotionEvent.
+ *  - Test-Modus (setListening(true), nur solange der Tasten-Test zuhört):
+ *    zusätzlich Hülle um Window.Callback und OnGenericMotionListener an
+ *    DecorView/Inhalt/RN-Wurzel (Ereignisse unabhängig vom Fokus), Meldung
+ *    jeder Taste jedes Geräts und jeder Bewegung jeder Quelle außer
+ *    Touchscreen/Stift mit ALLEN Achsen des Geräts (auch 0) als „rcKey“ /
+ *    „rcMotion“, Geräte-Änderungen als „rcDevice“. Bewegungen: nur bei
+ *    Änderung, je Gerät höchstens ~30/s (neuester Stand wird nachgereicht).
+ *    Jedes Ereignis wird nur einmal gemeldet („via“ = erster Meldeweg).
+ *  - Standard: NICHT abfangen (super), die normale Bedienung bleibt. Nur im
  *    „Aufnahme-Modus“ (setCaptureMode(true), Tasten-Test-Bildschirm) werden
  *    Steuerkreuz/5D-Knopf, Enter, Bild-auf/-ab, SYSTEM_NAVIGATION_*,
- *    F-Tasten und Gamepad-Knöpfe abgefangen. Zurück, Home, Ein/Aus,
- *    Lautstärke, App-Wechsel usw. werden nie abgefangen.
+ *    F-Tasten, Gamepad-Knöpfe und Joystick-/Rad-Bewegungen abgefangen.
+ *    Zurück, Home, Ein/Aus, Lautstärke, App-Wechsel usw. werden nie
+ *    abgefangen.
+ *  - getDeviceInfo: Build-Angaben, Eingabegeräte mit Achsenbereichen und als
+ *    Diagnose, ob /dev/input bzw. /proc/bus/input/devices lesbar sind
+ *    (Achsen-Abfrage ohne Ereignis gibt es in Android nicht).
  *  - MainApplication (.kt oder .java): RcKeysPackage registrieren.
  *
  * Idempotent: der eingefügte Block ist markiert und wird bei erneutem Lauf
@@ -62,14 +73,20 @@ function activityBlock(language) {
       "  /** Tasten/Rädchen der Fernsteuerung an JS melden (Tasten-Test); abgefangen nur im Aufnahme-Modus. */",
       "  @Override",
       "  public boolean dispatchKeyEvent(KeyEvent event) {",
-      "    if (RcKeysModule.handleKeyEvent(event)) return true;",
+      '    if (RcKeysModule.handleKeyEvent(event, "activity")) return true;',
       "    return super.dispatchKeyEvent(event);",
       "  }",
       "",
       "  @Override",
       "  public boolean dispatchGenericMotionEvent(MotionEvent event) {",
-      "    if (RcKeysModule.handleMotionEvent(event)) return true;",
+      '    if (RcKeysModule.handleMotionEvent(event, "activity")) return true;',
       "    return super.dispatchGenericMotionEvent(event);",
+      "  }",
+      "",
+      "  @Override",
+      "  public boolean onGenericMotionEvent(MotionEvent event) {",
+      '    if (RcKeysModule.handleMotionEvent(event, "activity-fallback")) return true;',
+      "    return super.onGenericMotionEvent(event);",
       "  }",
       `  ${END}`,
     ].join("\n");
@@ -78,13 +95,18 @@ function activityBlock(language) {
     `  ${BEGIN}`,
     "  /** Tasten/Rädchen der Fernsteuerung an JS melden (Tasten-Test); abgefangen nur im Aufnahme-Modus. */",
     "  override fun dispatchKeyEvent(event: KeyEvent): Boolean {",
-    "    if (RcKeysModule.handleKeyEvent(event)) return true",
+    '    if (RcKeysModule.handleKeyEvent(event, "activity")) return true',
     "    return super.dispatchKeyEvent(event)",
     "  }",
     "",
     "  override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {",
-    "    if (RcKeysModule.handleMotionEvent(event)) return true",
+    '    if (RcKeysModule.handleMotionEvent(event, "activity")) return true',
     "    return super.dispatchGenericMotionEvent(event)",
+    "  }",
+    "",
+    "  override fun onGenericMotionEvent(event: MotionEvent): Boolean {",
+    '    if (RcKeysModule.handleMotionEvent(event, "activity-fallback")) return true',
+    "    return super.onGenericMotionEvent(event)",
     "  }",
     `  ${END}`,
   ].join("\n");
@@ -94,9 +116,9 @@ function activityBlock(language) {
 function applyRcKeysToMainActivity(src, language) {
   const lang = language === "java" ? "java" : "kt";
   let out = stripGeneratedBlock(src);
-  if (/\bdispatchKeyEvent\s*\(/.test(out) || /\bdispatchGenericMotionEvent\s*\(/.test(out)) {
+  if (/\b(?:dispatchKeyEvent|dispatchGenericMotionEvent|onGenericMotionEvent)\s*\(/.test(out)) {
     throw new Error(
-      "withRcKeyEvents: MainActivity überschreibt dispatchKeyEvent/dispatchGenericMotionEvent bereits – bitte zusammenführen",
+      "withRcKeyEvents: MainActivity überschreibt dispatchKeyEvent/dispatchGenericMotionEvent/onGenericMotionEvent bereits – bitte zusammenführen",
     );
   }
   out = addImports(out, ["android.view.KeyEvent", "android.view.MotionEvent"], lang);
@@ -135,11 +157,14 @@ function packageOf(src) {
   return m[1];
 }
 
-/** Kotlin-Quelltext des nativen Moduls (RcKeysModule + RcKeysPackage). */
+/** Kotlin-Quelltext des nativen Moduls (RcKeysModule, RcWindowCallback, RcKeysPackage). */
 function buildRcKeysModuleSource(pkg) {
   return `// @generated by plugins/withRcKeyEvents.js – nicht von Hand ändern (wird bei expo prebuild neu geschrieben)
 package ${pkg}
 
+import android.app.Activity
+import android.content.Context
+import android.hardware.input.InputManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -147,9 +172,15 @@ import android.os.SystemClock
 import android.view.InputDevice
 import android.view.KeyCharacterMap
 import android.view.KeyEvent
+import android.view.KeyboardShortcutGroup
+import android.view.Menu
 import android.view.MotionEvent
+import android.view.View
+import android.view.ViewGroup
+import android.view.Window
 import com.facebook.react.BaseReactPackage
 import com.facebook.react.bridge.Arguments
+import com.facebook.react.bridge.LifecycleEventListener
 import com.facebook.react.bridge.NativeModule
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
@@ -159,28 +190,47 @@ import com.facebook.react.bridge.WritableArray
 import com.facebook.react.bridge.WritableMap
 import com.facebook.react.module.model.ReactModuleInfo
 import com.facebook.react.module.model.ReactModuleInfoProvider
+import java.io.File
 import java.lang.ref.WeakReference
 
 /**
- * Meldet Tasten ("rcKey") und Achsen-Bewegungen ("rcMotion") der Fernsteuerung an JS.
- * Aufruf aus MainActivity.dispatchKeyEvent/dispatchGenericMotionEvent.
+ * Meldet Tasten ("rcKey"), Achsen-Bewegungen ("rcMotion") und Geräte-Änderungen
+ * ("rcDevice") der Fernsteuerung an JS – nur solange JS zuhört (Tasten-Test).
+ *
+ * Meldewege (jedes Ereignis wird nur einmal gemeldet, "via" = erster Weg):
+ *  - "activity": MainActivity.dispatchKeyEvent/dispatchGenericMotionEvent
+ *  - "window": Hülle um Window.Callback (nur während des Tests eingesetzt)
+ *  - "view": OnGenericMotionListener an DecorView/Inhalt/RN-Wurzel (Test)
+ *  - "activity-fallback": MainActivity.onGenericMotionEvent
  */
-class RcKeysModule(private val reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext) {
+class RcKeysModule(private val reactContext: ReactApplicationContext) :
+  ReactContextBaseJavaModule(reactContext), LifecycleEventListener {
   override fun getName(): String = NAME
 
   override fun initialize() {
     super.initialize()
     contextRef = WeakReference(reactContext)
+    reactContext.addLifecycleEventListener(this)
   }
 
   override fun invalidate() {
+    reactContext.removeLifecycleEventListener(this)
     if (contextRef?.get() === reactContext) {
-      contextRef = null
       captureEnabled = false
-      listeningEnabled = false
+      stopListening(reactContext)
+      contextRef = null
     }
     super.invalidate()
   }
+
+  override fun onHostResume() {
+    // neue Activity/neues Fenster während des Tests: Haken erneut setzen
+    if (listeningEnabled) handler.post { reactContext.currentActivity?.let { installHooks(it) } }
+  }
+
+  override fun onHostPause() {}
+
+  override fun onHostDestroy() {}
 
   /** Aufnahme-Modus: Steuerkreuz/Enter/Bild-Tasten usw. abfangen (nur Tasten-Test). */
   @ReactMethod
@@ -188,12 +238,11 @@ class RcKeysModule(private val reactContext: ReactApplicationContext) : ReactCon
     captureEnabled = enabled
   }
 
-  /** Ereignisse nur senden, solange JS zuhört (sonst kein Aufwand im normalen Betrieb). */
+  /** Test-Modus: Ereignisse senden, zusätzliche Meldewege einsetzen (sonst kein Aufwand). */
   @ReactMethod
   fun setListening(enabled: Boolean) {
     contextRef = WeakReference(reactContext)
-    listeningEnabled = enabled
-    if (!enabled) lastMotionKey = null
+    if (enabled) startListening(reactContext) else stopListening(reactContext)
   }
 
   @ReactMethod
@@ -233,14 +282,41 @@ class RcKeysModule(private val reactContext: ReactApplicationContext) : ReactCon
         if (Build.VERSION.SDK_INT >= 29) dm.putBoolean("isExternal", d.isExternal)
         dm.putInt("controllerNumber", d.controllerNumber)
         val axes = Arguments.createArray()
+        val ranges = Arguments.createArray()
         val seen = HashSet<Int>()
         for (r in d.motionRanges) {
           if (seen.add(r.axis)) axes.pushString(MotionEvent.axisToString(r.axis))
+          val rm = Arguments.createMap()
+          rm.putString("axis", MotionEvent.axisToString(r.axis).removePrefix("AXIS_"))
+          rm.putInt("source", r.source)
+          rm.putDouble("min", r.min.toDouble())
+          rm.putDouble("max", r.max.toDouble())
+          rm.putDouble("flat", r.flat.toDouble())
+          rm.putDouble("fuzz", r.fuzz.toDouble())
+          rm.putDouble("resolution", r.resolution.toDouble())
+          ranges.pushMap(rm)
         }
         dm.putArray("axes", axes)
+        dm.putArray("ranges", ranges)
         devices.pushMap(dm)
       }
       map.putArray("inputDevices", devices)
+      // Diagnose: direkter Zugriff auf die Kernel-Eingabegeräte (normale Apps: verweigert)
+      val nodes = try { File("/dev/input").listFiles() } catch (ignored: Throwable) { null }
+      if (nodes == null) {
+        map.putNull("devInput")
+      } else {
+        val arr = Arguments.createArray()
+        for (f in nodes.sortedBy { it.name }) {
+          val nm = Arguments.createMap()
+          nm.putString("name", f.name)
+          nm.putBoolean("readable", try { f.canRead() } catch (ignored: Throwable) { false })
+          arr.pushMap(nm)
+        }
+        map.putArray("devInput", arr)
+      }
+      val proc = try { File("/proc/bus/input/devices").readText().take(16000) } catch (ignored: Throwable) { null }
+      if (proc == null) map.putNull("procInputDevices") else map.putString("procInputDevices", proc)
       promise.resolve(map)
     } catch (t: Throwable) {
       promise.reject("E_RC_DEVICE_INFO", t.message, t)
@@ -254,19 +330,37 @@ class RcKeysModule(private val reactContext: ReactApplicationContext) : ReactCon
     @Volatile private var captureEnabled: Boolean = false
     @Volatile private var listeningEnabled: Boolean = false
     private var contextRef: WeakReference<ReactApplicationContext>? = null
+    private var hookedActivity: WeakReference<Activity>? = null
+    private var deviceListener: InputManager.InputDeviceListener? = null
 
     private val handler by lazy { Handler(Looper.getMainLooper()) }
-    private var lastMotionKey: String? = null
-    private var lastMotionAt = 0L
-    private var pendingMotion: WritableMap? = null
-    private val flushMotion = Runnable {
-      val p = pendingMotion
-      pendingMotion = null
-      if (p != null) {
-        lastMotionAt = SystemClock.uptimeMillis()
-        emit("rcMotion", p)
+
+    private class MotionState {
+      var lastKey: String? = null
+      var lastAt = 0L
+      var pending: WritableMap? = null
+      val flush = Runnable {
+        val p = pending
+        pending = null
+        if (p != null) {
+          lastAt = SystemClock.uptimeMillis()
+          emit("rcMotion", p)
+        }
       }
     }
+
+    private val motionStates = HashMap<Int, MotionState>()
+
+    // Jedes Ereignis nur einmal melden, auch wenn es mehrere Meldewege passiert.
+    private var lastKeyRef: WeakReference<KeyEvent>? = null
+    private var lastKeyTime = -1L
+    private var lastKeyAction = -1
+    private var lastKeyRepeat = -1
+    private var lastKeyResult = false
+    private var lastMotionRef: WeakReference<MotionEvent>? = null
+    private var lastMotionTime = -1L
+    private var lastMotionAction = -1
+    private var lastMotionResult = false
 
     /** Nie abfangen: System- und Zurück-Tasten behalten ihr normales Verhalten. */
     private val NEVER_CONSUME = setOf(
@@ -295,6 +389,7 @@ class RcKeysModule(private val reactContext: ReactApplicationContext) : ReactCon
       KeyEvent.KEYCODE_UNKNOWN,
     )
 
+    /** Zusätzlich zu den Achsen des Geräts: diese Achsen melden, wenn ≠ 0. */
     private val AXES = intArrayOf(
       MotionEvent.AXIS_HAT_X, MotionEvent.AXIS_HAT_Y,
       MotionEvent.AXIS_X, MotionEvent.AXIS_Y, MotionEvent.AXIS_Z, MotionEvent.AXIS_RX,
@@ -329,6 +424,8 @@ class RcKeysModule(private val reactContext: ReactApplicationContext) : ReactCon
 
     private val deviceNames = HashMap<Int, String>()
 
+    private val viewMotionListener = View.OnGenericMotionListener { _, ev -> handleMotionEvent(ev, "view") }
+
     @JvmStatic
     fun sourceNames(sources: Int): WritableArray {
       val arr = Arguments.createArray()
@@ -358,6 +455,94 @@ class RcKeysModule(private val reactContext: ReactApplicationContext) : ReactCon
       }
     }
 
+    private fun startListening(ctx: ReactApplicationContext) {
+      listeningEnabled = true
+      handler.post {
+        motionStates.clear()
+        try {
+          ctx.currentActivity?.let { installHooks(it) }
+        } catch (ignored: Throwable) {
+        }
+        registerDeviceListener(ctx)
+      }
+    }
+
+    private fun stopListening(ctx: ReactApplicationContext) {
+      listeningEnabled = false
+      handler.post {
+        if (listeningEnabled) return@post
+        try {
+          hookedActivity?.get()?.let { uninstallHooks(it) }
+        } catch (ignored: Throwable) {
+        }
+        hookedActivity = null
+        unregisterDeviceListener(ctx)
+        for (s in motionStates.values) handler.removeCallbacks(s.flush)
+        motionStates.clear()
+      }
+    }
+
+    /** Zusätzliche Meldewege (nur während des Tests): Window.Callback-Hülle und View-Listener. */
+    private fun installHooks(activity: Activity) {
+      val w = activity.window ?: return
+      val cb = w.callback
+      if (cb != null && cb !is RcWindowCallback) w.callback = RcWindowCallback(cb)
+      w.decorView.setOnGenericMotionListener(viewMotionListener)
+      val content = activity.findViewById<ViewGroup>(android.R.id.content)
+      content?.setOnGenericMotionListener(viewMotionListener)
+      if (content != null && content.childCount > 0) content.getChildAt(0).setOnGenericMotionListener(viewMotionListener)
+      hookedActivity = WeakReference(activity)
+    }
+
+    private fun uninstallHooks(activity: Activity) {
+      val w = activity.window ?: return
+      val cb = w.callback
+      if (cb is RcWindowCallback) w.callback = cb.base
+      w.decorView.setOnGenericMotionListener(null)
+      val content = activity.findViewById<ViewGroup>(android.R.id.content)
+      content?.setOnGenericMotionListener(null)
+      if (content != null && content.childCount > 0) content.getChildAt(0).setOnGenericMotionListener(null)
+    }
+
+    private fun registerDeviceListener(ctx: Context) {
+      if (deviceListener != null) return
+      val im = ctx.getSystemService(Context.INPUT_SERVICE) as? InputManager ?: return
+      val l = object : InputManager.InputDeviceListener {
+        override fun onInputDeviceAdded(deviceId: Int) = emitDevice("added", deviceId)
+        override fun onInputDeviceRemoved(deviceId: Int) = emitDevice("removed", deviceId)
+        override fun onInputDeviceChanged(deviceId: Int) = emitDevice("changed", deviceId)
+      }
+      im.registerInputDeviceListener(l, handler)
+      deviceListener = l
+    }
+
+    private fun unregisterDeviceListener(ctx: Context) {
+      val l = deviceListener ?: return
+      deviceListener = null
+      try {
+        (ctx.getSystemService(Context.INPUT_SERVICE) as? InputManager)?.unregisterInputDeviceListener(l)
+      } catch (ignored: Throwable) {
+      }
+    }
+
+    private fun emitDevice(change: String, deviceId: Int) {
+      if (!listeningEnabled) return
+      try {
+        val old = deviceNames.remove(deviceId)
+        val dev = try { InputDevice.getDevice(deviceId) } catch (ignored: Throwable) { null }
+        val m = Arguments.createMap()
+        m.putString("type", "device")
+        m.putString("change", change)
+        m.putInt("deviceId", deviceId)
+        m.putString("deviceName", dev?.name ?: old ?: "?")
+        m.putInt("sources", dev?.sources ?: 0)
+        m.putArray("sourceNames", sourceNames(dev?.sources ?: 0))
+        m.putDouble("timestamp", System.currentTimeMillis().toDouble())
+        emit("rcDevice", m)
+      } catch (ignored: Throwable) {
+      }
+    }
+
     /** true = Taste abfangen (nur im Aufnahme-Modus, nie System-/Zurück-Tasten). */
     @JvmStatic
     fun shouldConsumeKey(keyCode: Int, deviceId: Int): Boolean {
@@ -370,8 +555,22 @@ class RcKeysModule(private val reactContext: ReactApplicationContext) : ReactCon
     }
 
     @JvmStatic
-    fun handleKeyEvent(event: KeyEvent): Boolean {
+    fun handleKeyEvent(event: KeyEvent): Boolean = handleKeyEvent(event, "activity")
+
+    /** Jede Taste jedes Geräts melden (ohne Filter); Rückgabe: abfangen? */
+    @JvmStatic
+    fun handleKeyEvent(event: KeyEvent, via: String): Boolean {
+      if (lastKeyRef?.get() === event && lastKeyTime == event.eventTime &&
+        lastKeyAction == event.action && lastKeyRepeat == event.repeatCount
+      ) {
+        return lastKeyResult
+      }
       val consume = shouldConsumeKey(event.keyCode, event.deviceId)
+      lastKeyRef = WeakReference(event)
+      lastKeyTime = event.eventTime
+      lastKeyAction = event.action
+      lastKeyRepeat = event.repeatCount
+      lastKeyResult = consume
       if (listeningEnabled) {
         try {
           val m = Arguments.createMap()
@@ -404,6 +603,7 @@ class RcKeysModule(private val reactContext: ReactApplicationContext) : ReactCon
           m.putBoolean("isGamepad", KeyEvent.isGamepadButton(event.keyCode))
           m.putBoolean("isSystem", event.isSystem)
           m.putBoolean("consumed", consume)
+          m.putString("via", via)
           m.putDouble("eventTime", event.eventTime.toDouble())
           m.putDouble("timestamp", System.currentTimeMillis().toDouble())
           emit("rcKey", m)
@@ -419,44 +619,66 @@ class RcKeysModule(private val reactContext: ReactApplicationContext) : ReactCon
         ev.isFromSource(InputDevice.SOURCE_ROTARY_ENCODER) ||
         ev.isFromSource(InputDevice.SOURCE_TRACKBALL)
 
+    private fun isTouch(ev: MotionEvent): Boolean =
+      ev.isFromSource(InputDevice.SOURCE_TOUCHSCREEN) ||
+        ev.isFromSource(InputDevice.SOURCE_STYLUS) ||
+        ev.isFromSource(InputDevice.SOURCE_BLUETOOTH_STYLUS)
+
     @JvmStatic
-    fun handleMotionEvent(event: MotionEvent): Boolean {
+    fun handleMotionEvent(event: MotionEvent): Boolean = handleMotionEvent(event, "activity")
+
+    /**
+     * Bewegung melden (Test: jede Quelle außer Touchscreen/Stift, mit allen Achsen
+     * des Geräts inkl. 0); Rückgabe: abfangen? (nur Aufnahme-Modus, Joystick/Rad)
+     */
+    @JvmStatic
+    fun handleMotionEvent(event: MotionEvent, via: String): Boolean {
+      if (lastMotionRef?.get() === event && lastMotionTime == event.eventTime && lastMotionAction == event.action) {
+        return lastMotionResult
+      }
       val stick = isCaptureSource(event)
-      val mouse = event.isFromSource(InputDevice.SOURCE_MOUSE) || event.isFromSource(InputDevice.SOURCE_TOUCHPAD)
-      val action = event.actionMasked
-      if (listeningEnabled && (stick || mouse)) {
-        try {
-          // Maus/Touchpad: nur Rad und Knöpfe (keine Zeiger-Bewegung)
-          val relevant = if (mouse && !stick) {
-            action == MotionEvent.ACTION_SCROLL || action == MotionEvent.ACTION_BUTTON_PRESS || action == MotionEvent.ACTION_BUTTON_RELEASE
-          } else {
-            true
+      val consume = captureEnabled && stick
+      lastMotionRef = WeakReference(event)
+      lastMotionTime = event.eventTime
+      lastMotionAction = event.action
+      lastMotionResult = consume
+      if (listeningEnabled && !isTouch(event)) {
+        val action = event.actionMasked
+        val hover = action == MotionEvent.ACTION_HOVER_MOVE ||
+          action == MotionEvent.ACTION_HOVER_ENTER || action == MotionEvent.ACTION_HOVER_EXIT
+        if (stick || !hover) {
+          try {
+            reportMotion(event, via, consume)
+          } catch (ignored: Throwable) {
           }
-          if (relevant) reportMotion(event, stick)
-        } catch (ignored: Throwable) {
         }
       }
-      return captureEnabled && stick
+      return consume
     }
 
-    private fun reportMotion(event: MotionEvent, stick: Boolean) {
+    private fun reportMotion(event: MotionEvent, via: String, consume: Boolean) {
       val axes = Arguments.createMap()
-      val key = StringBuilder()
+      val key = StringBuilder(MotionEvent.actionToString(event.actionMasked)).append(';')
+      val pointer = (event.source and InputDevice.SOURCE_CLASS_POINTER) != 0
+      val seen = HashSet<Int>()
       var any = false
-      for (a in AXES) {
-        if (!stick && (a == MotionEvent.AXIS_X || a == MotionEvent.AXIS_Y)) continue
+      fun add(a: Int) {
+        if (!seen.add(a)) return
         val v = event.getAxisValue(a)
-        if (v != 0f && !v.isNaN()) {
-          val name = MotionEvent.axisToString(a).removePrefix("AXIS_")
-          axes.putDouble(name, Math.round(v * 1000f) / 1000.0)
-          key.append(name).append('=').append(Math.round(v * 100f)).append(';')
-          any = true
-        }
+        if (v.isNaN()) return
+        val name = MotionEvent.axisToString(a).removePrefix("AXIS_")
+        axes.putDouble(name, Math.round(v * 1000f) / 1000.0)
+        key.append(name).append('=').append(Math.round(v * 1000f)).append(';')
+        if (v != 0f && !(pointer && (a == MotionEvent.AXIS_X || a == MotionEvent.AXIS_Y))) any = true
       }
-      key.append("b=").append(event.buttonState).append(";s=").append(event.source).append(";d=").append(event.deviceId)
+      val dev = try { event.device } catch (ignored: Throwable) { null }
+      if (dev != null) for (r in dev.motionRanges) add(r.axis)
+      for (a in AXES) if (event.getAxisValue(a) != 0f) add(a)
+      key.append("b=").append(event.buttonState).append(";s=").append(event.source)
+      val st = motionStates.getOrPut(event.deviceId) { MotionState() }
       val k = key.toString()
-      if (k == lastMotionKey) return
-      lastMotionKey = k
+      if (k == st.lastKey) return
+      st.lastKey = k
       val m = Arguments.createMap()
       m.putString("type", "motion")
       m.putString("action", MotionEvent.actionToString(event.actionMasked))
@@ -465,25 +687,48 @@ class RcKeysModule(private val reactContext: ReactApplicationContext) : ReactCon
       m.putInt("deviceId", event.deviceId)
       m.putString("deviceName", deviceName(event.deviceId))
       m.putInt("buttonState", event.buttonState)
+      m.putInt("historySize", event.historySize)
       m.putMap("axes", axes)
       m.putBoolean("centered", !any)
-      m.putBoolean("consumed", captureEnabled && stick)
+      m.putBoolean("consumed", consume)
+      m.putString("via", via)
       m.putDouble("eventTime", event.eventTime.toDouble())
       m.putDouble("timestamp", System.currentTimeMillis().toDouble())
       val now = SystemClock.uptimeMillis()
-      val wait = lastMotionAt + MOTION_MIN_INTERVAL_MS - now
+      val wait = st.lastAt + MOTION_MIN_INTERVAL_MS - now
       if (wait <= 0) {
-        handler.removeCallbacks(flushMotion)
-        pendingMotion = null
-        lastMotionAt = now
+        handler.removeCallbacks(st.flush)
+        st.pending = null
+        st.lastAt = now
         emit("rcMotion", m)
       } else {
-        // höchstens ~30/s: neuesten Stand nachreichen (z. B. Rückkehr in die Mitte)
-        val first = pendingMotion == null
-        pendingMotion = m
-        if (first) handler.postDelayed(flushMotion, wait)
+        // höchstens ~30/s je Gerät: neuesten Stand nachreichen (z. B. Rückkehr in die Mitte)
+        val first = st.pending == null
+        st.pending = m
+        if (first) handler.postDelayed(st.flush, wait)
       }
     }
+  }
+}
+
+/** Hülle um Window.Callback: sieht Tasten/Bewegungen vor der Activity, unabhängig vom Fokus. */
+class RcWindowCallback(val base: Window.Callback) : Window.Callback by base {
+  override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+    if (RcKeysModule.handleKeyEvent(event, "window")) return true
+    return base.dispatchKeyEvent(event)
+  }
+
+  override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
+    if (RcKeysModule.handleMotionEvent(event, "window")) return true
+    return base.dispatchGenericMotionEvent(event)
+  }
+
+  override fun onProvideKeyboardShortcuts(data: MutableList<KeyboardShortcutGroup>?, menu: Menu?, deviceId: Int) {
+    if (Build.VERSION.SDK_INT >= 24) base.onProvideKeyboardShortcuts(data, menu, deviceId)
+  }
+
+  override fun onPointerCaptureChanged(hasCapture: Boolean) {
+    if (Build.VERSION.SDK_INT >= 26) base.onPointerCaptureChanged(hasCapture)
   }
 }
 

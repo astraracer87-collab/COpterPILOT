@@ -21,3 +21,8 @@ jest.mock("expo-secure-store", () => ({
   setItemAsync: jest.fn(async () => {}),
   deleteItemAsync: jest.fn(async () => {}),
 }));
+
+// Tastatur-Steuerung (KeyboardAwareScrollView): natives Modul ohne Jest-Umgebung
+jest.mock("react-native-keyboard-controller", () =>
+  require("react-native-keyboard-controller/jest"),
+);

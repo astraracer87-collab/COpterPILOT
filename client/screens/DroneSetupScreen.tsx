@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
+import { activeNdKitId, applyNdKitSelection, buildNdKits, type NdKit } from "@/lib/ndKits";
+import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import {
   View,
   StyleSheet,
@@ -218,14 +220,15 @@ export default function DroneSetupScreen() {
     setStep("details");
   };
 
-  const applyNdKit = (kit: string[]) => {
+  // Kit antippen setzt die Auswahl GENAU auf das Kit (nicht zusammenführen),
+  // damit die Hervorhebung eindeutig aus der Auswahl folgt.
+  const applyNdKit = (kit: NdKit) => {
     Haptics.selectionAsync().catch(() => {});
-    setOwnedNdFilters((prev) => {
-      const merged = new Set(prev);
-      kit.forEach((nd) => merged.add(nd));
-      return Array.from(merged);
-    });
+    setOwnedNdFilters(applyNdKitSelection(kit));
   };
+  const ndKits = buildNdKits(selectedPreset);
+  // Hervorhebung nur aus der Auswahl abgeleitet (kein gespeicherter Index)
+  const activeKitId = activeNdKitId(ownedNdFilters, ndKits);
 
   const handleSave = async () => {
     if (saving) return;
@@ -333,7 +336,7 @@ export default function DroneSetupScreen() {
         Wählen Sie ein vordefiniertes Modell oder richten Sie manuell ein.
       </ThemedText>
 
-      <TextInput
+      <TextInput disableFullscreenUI
         style={[
           styles.searchInput,
           { backgroundColor: theme.backgroundSecondary, color: theme.text },
@@ -350,7 +353,7 @@ export default function DroneSetupScreen() {
         renderItem={renderPresetItem}
         style={styles.presetList}
         ListHeaderComponent={
-          <Pressable onPress={selectManual} style={({ pressed }) => pressed && styles.pressed}>
+          <Pressable onPress={selectManual} style={({ pressed }) => pressed && styles.pressed} testID="button-manual-setup">
             <Card style={[styles.presetCard, { borderStyle: "dashed", borderWidth: 1, borderColor: theme.border }]}>
               <View style={styles.presetInfo}>
                 <ThemedText style={styles.presetName}>Manuell einrichten</ThemedText>
@@ -368,13 +371,13 @@ export default function DroneSetupScreen() {
 
   const renderDetailsStep = () => {
     return (
-    <ScrollView contentContainerStyle={styles.scrollContent}>
+    <KeyboardAwareScrollViewCompat bottomOffset={24} contentContainerStyle={styles.scrollContent}>
       <ThemedText style={styles.stepTitle}>
         {isEditing ? "Drohne bearbeiten" : "Details eingeben"}
       </ThemedText>
 
       <ThemedText style={[styles.sectionLabel, { color: theme.textSecondary }]}>NAME</ThemedText>
-      <TextInput
+      <TextInput disableFullscreenUI
         style={[styles.input, { backgroundColor: theme.backgroundSecondary, color: theme.text }]}
         placeholder="z.B. DJI Mini 4 Pro"
         placeholderTextColor={theme.textTertiary}
@@ -385,7 +388,7 @@ export default function DroneSetupScreen() {
       <View style={styles.row}>
         <View style={styles.halfInput}>
           <ThemedText style={[styles.sectionLabel, { color: theme.textSecondary }]}>HERSTELLER</ThemedText>
-          <TextInput
+          <TextInput disableFullscreenUI
             style={[styles.input, { backgroundColor: theme.backgroundSecondary, color: theme.text }]}
             placeholder="z.B. DJI"
             placeholderTextColor={theme.textTertiary}
@@ -395,7 +398,7 @@ export default function DroneSetupScreen() {
         </View>
         <View style={styles.halfInput}>
           <ThemedText style={[styles.sectionLabel, { color: theme.textSecondary }]}>MODELL</ThemedText>
-          <TextInput
+          <TextInput disableFullscreenUI
             style={[styles.input, { backgroundColor: theme.backgroundSecondary, color: theme.text }]}
             placeholder="z.B. Mini 4 Pro"
             placeholderTextColor={theme.textTertiary}
@@ -406,7 +409,7 @@ export default function DroneSetupScreen() {
       </View>
 
       <ThemedText style={[styles.sectionLabel, { color: theme.textSecondary }]}>SERIENNUMMER</ThemedText>
-      <TextInput
+      <TextInput disableFullscreenUI
         testID="drone-input-serial"
         style={[styles.input, { backgroundColor: theme.backgroundSecondary, color: theme.text }]}
         placeholder="optional, z.B. 1581F4..."
@@ -446,7 +449,7 @@ export default function DroneSetupScreen() {
 
       <ThemedText style={[styles.sectionLabel, { color: theme.textSecondary }]}>GEWICHT (MTOM)</ThemedText>
       <View style={styles.inputRow}>
-        <TextInput
+        <TextInput disableFullscreenUI
           style={[styles.input, styles.numberInput, { backgroundColor: theme.backgroundSecondary, color: theme.text }]}
           value={String(mtomGrams)}
           onChangeText={(v) => setMtomGrams(parseInt(v) || 0)}
@@ -459,7 +462,7 @@ export default function DroneSetupScreen() {
         CHARAKTERISTISCHE DIMENSION (CD)
       </ThemedText>
       <View style={styles.inputRow}>
-        <TextInput
+        <TextInput disableFullscreenUI
           style={[styles.input, styles.numberInput, { backgroundColor: theme.backgroundSecondary, color: theme.text }]}
           value={charDimensionM > 0 ? String(Math.round(charDimensionM * 1000)) : ""}
           onChangeText={(v) => setCharDimensionM((parseInt(v) || 0) / 1000)}
@@ -543,36 +546,31 @@ export default function DroneSetupScreen() {
           Schnellauswahl Standard-Kits:
         </ThemedText>
         <View style={[styles.ndChipRow, { marginBottom: Spacing.sm }]}>
-          {selectedPreset?.filterEcosystem && selectedPreset.filterEcosystem.length > 0 ? (
-            <Pressable
-              onPress={() => applyNdKit(selectedPreset.filterEcosystem!)}
-              style={[styles.ndKitChip, { borderColor: theme.primary, backgroundColor: theme.primary + "15" }]}
-              testID="nd-kit-preset"
-            >
-              <Feather name="package" size={12} color={theme.primary} />
-              <ThemedText style={{ color: theme.primary, fontWeight: "600", fontSize: 12 }}>
-                {selectedPreset.model}-Set ({selectedPreset.filterEcosystem.join("/").replace(/ND/g, "")})
-              </ThemedText>
-            </Pressable>
-          ) : null}
-          <Pressable
-            onPress={() => applyNdKit(["ND8", "ND32", "ND128"])}
-            style={[styles.ndKitChip, { borderColor: theme.border }]}
-            testID="nd-kit-dji-standard"
-          >
-            <ThemedText style={{ color: theme.textSecondary, fontWeight: "600", fontSize: 12 }}>
-              DJI-Standard (8/32/128)
-            </ThemedText>
-          </Pressable>
-          <Pressable
-            onPress={() => applyNdKit(["ND8", "ND16", "ND32"])}
-            style={[styles.ndKitChip, { borderColor: theme.border }]}
-            testID="nd-kit-fpv-standard"
-          >
-            <ThemedText style={{ color: theme.textSecondary, fontWeight: "600", fontSize: 12 }}>
-              FPV-Standard (8/16/32)
-            </ThemedText>
-          </Pressable>
+          {ndKits.map((kit) => {
+            const active = kit.id === activeKitId;
+            return (
+              <Pressable
+                key={kit.id}
+                onPress={() => applyNdKit(kit)}
+                accessibilityRole="button"
+                accessibilityState={{ selected: active }}
+                style={[
+                  styles.ndKitChip,
+                  active
+                    ? { borderColor: theme.primary, backgroundColor: theme.primary + "15" }
+                    : { borderColor: theme.border },
+                ]}
+                testID={`nd-kit-${kit.id}`}
+              >
+                {kit.id === "preset" ? (
+                  <Feather name="package" size={12} color={active ? theme.primary : theme.textSecondary} />
+                ) : null}
+                <ThemedText style={{ color: active ? theme.primary : theme.textSecondary, fontWeight: "600", fontSize: 12 }}>
+                  {kit.label} ({kit.filters.join("/").replace(/ND/g, "")})
+                </ThemedText>
+              </Pressable>
+            );
+          })}
           {ownedNdFilters.length > 0 ? (
             <Pressable
               onPress={() => {
@@ -609,6 +607,8 @@ export default function DroneSetupScreen() {
                     borderColor: active ? theme.primary : theme.border,
                   },
                 ]}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: active }}
                 testID={`nd-chip-${nd}`}
               >
                 <ThemedText
@@ -773,7 +773,7 @@ export default function DroneSetupScreen() {
           ? "Pflicht in FR ab MTOM 800 g – Bestätigung/QR der DGAC hier hinterlegen."
           : "Nur in Frankreich nötig (ab 800 g MTOM oder mit Kamera ohne Spielzeug-Status)."}
       </ThemedText>
-      <TextInput
+      <TextInput disableFullscreenUI
         testID="drone-input-alphatango-id"
         style={[styles.input, { backgroundColor: theme.backgroundSecondary, color: theme.text, marginBottom: Spacing.sm }]}
         placeholder="AlphaTango-Nummer (z.B. UAS-FR-XXXXXX)"
@@ -782,7 +782,7 @@ export default function DroneSetupScreen() {
         onChangeText={setAlphaTangoId}
         autoCapitalize="characters"
       />
-      <TextInput
+      <TextInput disableFullscreenUI
         testID="drone-input-alphatango-expiry"
         style={[styles.input, { backgroundColor: theme.backgroundSecondary, color: theme.text, marginBottom: Spacing.sm }]}
         placeholder="Ablaufdatum AlphaTango (TT.MM.JJJJ)"
@@ -887,7 +887,7 @@ export default function DroneSetupScreen() {
                 </View>
                 <View style={styles.inputRow}>
                   {customLimitsEnabled ? (
-                    <TextInput
+                    <TextInput disableFullscreenUI
                       style={[styles.limitInput, { backgroundColor: theme.backgroundSecondary, color: theme.text }]}
                       value={convertWindForDisplay(limits.maxWind)}
                       onChangeText={(v) => setLimits(prev => ({ ...prev, maxWind: parseWindFromInput(v) }))}
@@ -915,7 +915,7 @@ export default function DroneSetupScreen() {
                 </View>
                 <View style={styles.inputRow}>
                   {customLimitsEnabled ? (
-                    <TextInput
+                    <TextInput disableFullscreenUI
                       style={[styles.limitInput, { backgroundColor: theme.backgroundSecondary, color: theme.text }]}
                       value={convertWindForDisplay(limits.maxGusts)}
                       onChangeText={(v) => setLimits(prev => ({ ...prev, maxGusts: parseWindFromInput(v) }))}
@@ -943,7 +943,7 @@ export default function DroneSetupScreen() {
                 </View>
                 <View style={styles.inputRow}>
                   {customLimitsEnabled ? (
-                    <TextInput
+                    <TextInput disableFullscreenUI
                       style={[styles.limitInput, { backgroundColor: theme.backgroundSecondary, color: theme.text }]}
                       value={String(limits.minTemp)}
                       onChangeText={(v) => updateLimit("minTemp", v)}
@@ -971,7 +971,7 @@ export default function DroneSetupScreen() {
                 </View>
                 <View style={styles.inputRow}>
                   {customLimitsEnabled ? (
-                    <TextInput
+                    <TextInput disableFullscreenUI
                       style={[styles.limitInput, { backgroundColor: theme.backgroundSecondary, color: theme.text }]}
                       value={String(limits.maxTemp ?? 40)}
                       onChangeText={(v) => updateLimit("maxTemp", v)}
@@ -1015,7 +1015,7 @@ export default function DroneSetupScreen() {
               {batteryEditor.editingId ? "Akku bearbeiten" : "Neuen Akku anlegen"}
             </ThemedText>
             <ThemedText style={[styles.sectionLabel, { color: theme.textSecondary }]}>NAME</ThemedText>
-            <TextInput
+            <TextInput disableFullscreenUI
               testID="battery-input-name"
               style={[styles.input, { backgroundColor: theme.backgroundDefault, color: theme.text }]}
               placeholder="z.B. Akku #1"
@@ -1024,7 +1024,7 @@ export default function DroneSetupScreen() {
               onChangeText={(t) => setBatteryEditor((p) => ({ ...p, name: t }))}
             />
             <ThemedText style={[styles.sectionLabel, { color: theme.textSecondary }]}>SERIENNUMMER</ThemedText>
-            <TextInput
+            <TextInput disableFullscreenUI
               testID="battery-input-serial"
               style={[styles.input, { backgroundColor: theme.backgroundDefault, color: theme.text }]}
               placeholder="z.B. DJI-BAT-12345"
@@ -1079,7 +1079,7 @@ export default function DroneSetupScreen() {
           </Pressable>
         </Pressable>
       </Modal>
-    </ScrollView>
+    </KeyboardAwareScrollViewCompat>
     );
   };
 
@@ -1090,7 +1090,7 @@ export default function DroneSetupScreen() {
     <ThemedView
       style={[
         styles.container,
-        { paddingTop: headerHeight + Spacing.lg, paddingBottom: insets.bottom + 100 },
+        { paddingTop: headerHeight + Spacing.lg, paddingBottom: insets.bottom },
       ]}
     >
       {step === "select" && renderSelectStep()}
@@ -1126,7 +1126,8 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: Spacing.lg,
-    paddingBottom: 100,
+    // Tab-Leiste liegt im Layout-Fluss → nur noch Luft für das letzte Feld
+    paddingBottom: Spacing["4xl"],
   },
   stepTitle: {
     ...Typography.h2,

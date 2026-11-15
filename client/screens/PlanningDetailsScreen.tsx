@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
+import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { View, StyleSheet, ScrollView, Pressable, Alert, TextInput } from "react-native";
 import { useNavigation, useRoute, useFocusEffect } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -614,7 +615,7 @@ export default function PlanningDetailsScreen() {
 
   return (
     <ThemedView style={styles.container}>
-      <ScrollView
+      <KeyboardAwareScrollViewCompat bottomOffset={24}
         contentContainerStyle={[
           styles.content,
           {
@@ -704,7 +705,7 @@ export default function PlanningDetailsScreen() {
           </View>
           <View style={styles.altitudeCustomRow}>
             <ThemedText style={[styles.altitudeCustomLabel, { color: theme.textSecondary }]}>Eigene Höhe:</ThemedText>
-            <TextInput
+            <TextInput disableFullscreenUI
               style={[styles.altitudeInput, { color: theme.text, borderColor: theme.border, backgroundColor: theme.backgroundSecondary }]}
               value={String(maxAltitude)}
               onChangeText={t => {
@@ -1057,7 +1058,7 @@ export default function PlanningDetailsScreen() {
             <ThemedText style={[styles.quickActionSub, { color: theme.textTertiary }]}>Live-Daten</ThemedText>
           </Pressable>
         </View>
-      </ScrollView>
+      </KeyboardAwareScrollViewCompat>
 
       <View style={[styles.footer, { paddingBottom: insets.bottom + Spacing.lg, backgroundColor: theme.backgroundDefault }]}>
         <Button
