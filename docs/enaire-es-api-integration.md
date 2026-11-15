@@ -244,3 +244,36 @@ Webseiten-Proxy `drones.enaire.es/proxy_Insignia`). Alle Layer: `f=geojson`,
 - NOTAM stündlich (`itemB`/`itemC` filtern); Rest täglich. Attribution „© ENAIRE – AIS".
 - ⚠️ Dienstnamen `_V3`/`_V0` können sich mit neuer Version ändern → dann Web-Map-
   Definition (`…/insigniap/sharing/rest/content/items/b0449bba…/data?f=json`) neu lesen.
+
+---
+
+## Anhang ES (2): letzte Gap-Punkte umsetzbar (NOTAM-Filter + dynamische Namen)
+
+### NOTAM zeitlich filtern (Layer `NOTAM/NOTAM_UAS_APP_V3/MapServer/1`)
+Gültigkeit in **`itemB`** (von) / **`itemC`** (bis); zusätzlich `itemB_str`/
+`itemC_str` (Text), `itemD` (Tagesplan), `itemE` (Klartext), `itemF`/`itemG` bzw.
+`LOWER_VAL`/`UPPER_VAL`/`LOWER_VAL_AGL` (Höhen), `qcode`, `notamId`/`GFID`.
+→ Nur **aktive/kommende** NOTAMs anzeigen: `itemB ≤ jetzt ≤ itemC`.
+- Wenn `itemB`/`itemC` als Datum/Epoch abfragbar sind, serverseitig per `where`
+  (z. B. `itemC >= TIMESTAMP '<jetzt>'`); sonst **alle** NOTAM laden und
+  client-/serverseitig über die geparsten `itemB`/`itemC` filtern (Format beim
+  ersten Abruf prüfen, analog ROMATSA/`dto`). **Stündlich** neu laden; abgelaufene
+  (`itemC < jetzt`) verwerfen.
+
+### Dienstnamen dynamisch auflösen (statt `_V3`/`_V0` hart zu verdrahten)
+Die internen Versionssuffixe (`Drones_ZG_Aero_V3`, `Drones_ZG_Infra_V0`,
+`NOTAM_UAS_APP_V3`, `ENP_APP_Local_V4`) können mit neuen ENAIRE-Versionen wechseln.
+→ Beim Sync zuerst die **Web-Map-Definition** lesen und die Layer-URLs von dort
+nehmen (wie bei SI):
+```
+GET https://servais.enaire.es/insigniap/sharing/rest/content/items/b0449bba555240e9b93207cd8c190f21/data?f=json
+→ .operationalLayers[] (+ geschachtelte .layers[]) mit .title und .url
+```
+Mapping über den **Titel** (stabil: „ZG_EAC_FIZ", „ZG_Aeródromos",
+„ZG_Restringidas", „ZG_Infraestructuras", „NOTAM", „ENP", „ZEPA" …) → `url`,
+statt über den versionierten Pfad. Bei 404 die Item-Definition neu lesen. Die
+festen Pfade in §Anhang-ES-Tabelle bleiben nur **Fallback/Referenz**.
+
+→ **Damit ist ES vollständig** (Geometrie, Höhen `RESTRICCION_*`, NOTAM-Zeitfilter,
+versionsrobuste Auflösung). Skript `docs/tools/spain/enaire_es_geozones.py` ggf.
+um das Item-Lookup erweitern.
