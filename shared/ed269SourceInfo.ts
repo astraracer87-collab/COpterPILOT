@@ -54,7 +54,7 @@ export function ed269SourceInfo(properties: Record<string, any>): Ed269SourceInf
     const email = typeof authority.email === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(authority.email)
       ? authority.email
       : undefined;
-    if (email) links.push({ label: `E-Mail: ${email}`, url: email });
+    if (email) links.push({ label: `E-Mail: ${email}`, url: `mailto:${email}` });
   }
 
   // Austro Control's authorityRequirementConditions is nested in

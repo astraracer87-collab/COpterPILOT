@@ -151,11 +151,13 @@ export const COUNTRY_GEOZONE_CONFIGS: Record<string, CountryGeozoneConfig> = {
     wmsBaseUrl: "https://wms.geo.admin.ch/",
     wmsVersion: "1.3.0",
     layers: CH_GEOZONE_LAYERS,
-    featureInfoType: "rest-json",
+    // Drohnen-Einschränkungen und Aktivitätszonen als Vektoren aus der BAZL-
+    // ED-269-Datei (offline nutzbar); WMS/REST nur noch für Zusatz-Ebenen.
+    featureInfoType: "ed269-cached",
     restIdentifyUrl: "https://api3.geo.admin.ch/rest/services/api/MapServer/identify",
-    restIdentifyLayers: ["ch.bazl.einschraenkungen-drohnen", "ch.bazl.uas-aktivitaetszonen", "ch.bazl.landschaftsruhezonen"],
-    alwaysVisibleLayerIds: ["ch_drohnen", "ch_aktivitaetszonen"],
-    forceEnabledLayerIds: ["ch_drohnen"],
+    restIdentifyLayers: ["ch.bazl.landschaftsruhezonen", "ch.bazl.wohngebiete-aulav"],
+    alwaysVisibleLayerIds: [],
+    forceEnabledLayerIds: [],
   },
   LU: {
     iso: "LU",
@@ -247,8 +249,9 @@ export const COUNTRY_GEOZONE_CONFIGS: Record<string, CountryGeozoneConfig> = {
 };
 
 export function getCountryGeozoneConfig(countryIso?: string): CountryGeozoneConfig {
-  if (countryIso && COUNTRY_GEOZONE_CONFIGS[countryIso.toUpperCase()]) {
-    return COUNTRY_GEOZONE_CONFIGS[countryIso.toUpperCase()];
+  const iso = countryIso?.toUpperCase() === "LI" ? "CH" : countryIso?.toUpperCase(); // Liechtenstein steckt im BAZL-Datensatz
+  if (iso && COUNTRY_GEOZONE_CONFIGS[iso]) {
+    return COUNTRY_GEOZONE_CONFIGS[iso];
   }
   return COUNTRY_GEOZONE_CONFIGS.DE;
 }
@@ -1382,8 +1385,13 @@ async function queryGeozonesForCountry(
     return queryDipulGeozones(lat, lon, radiusKm, onDipulSourceStatus);
   }
 
-  if (config.featureInfoType === "rest-json" && config.iso === "CH") {
-    return queryChRestIdentify(lat, lon, radiusKm);
+  if (config.iso === "CH") {
+    // BAZL-Vektorzonen plus Zusatz-Ebenen (Ruhezonen, Wohngebiete) per REST
+    const [vector, extra] = await Promise.all([
+      queryEd269CachedFeatures(lat, lon, radiusKm, "CH", GEOZONE_VECTOR_MAX_FEATURES).catch(() => []),
+      queryChRestIdentify(lat, lon, radiusKm).catch(() => []),
+    ]);
+    return [...vector, ...extra];
   }
 
   if (config.featureInfoType === "ogc-features" && config.iso === "LU") {
@@ -1536,7 +1544,8 @@ export async function queryGeozoneFeatureInfo(
 ): Promise<GeozoneFeatureInfo[]> {
   const config = getCountryGeozoneConfig(countryIso);
 
-  if (config.featureInfoType === "rest-json" && config.iso === "CH") {
+  if (config.iso === "CH") {
+    // Zusatz-Ebenen (Ruhezonen, Wohngebiete); die BAZL-Zonen sind Vektoren mit eigenem Popup.
     const radiusKmCh = Math.max(latDelta * 111.32, lonDelta * 111.32 * Math.cos(degToRad(lat))) / 2;
     return queryChRestIdentify(lat, lon, radiusKmCh);
   }

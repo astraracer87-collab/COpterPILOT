@@ -88,8 +88,10 @@ export const GEOZONE_LAYERS: GeozoneLayer[] = [
 ];
 
 export const CH_GEOZONE_LAYERS: GeozoneLayer[] = [
-  { id: "ch_drohnen", wmsLayer: "ch.bazl.einschraenkungen-drohnen", label: "Drohnen-Einschränkungen", defaultEnabled: true },
-  { id: "ch_aktivitaetszonen", wmsLayer: "ch.bazl.uas-aktivitaetszonen", label: "UAS-Aktivitätszonen", defaultEnabled: true },
+  // Drohnen-Einschränkungen und Aktivitätszonen kommen als Vektoren (BAZL ED-269);
+  // die WMS-Ebenen bleiben abschaltbar erhalten, standardmäßig aus (sonst doppelt).
+  { id: "ch_drohnen", wmsLayer: "ch.bazl.einschraenkungen-drohnen", label: "Drohnen-Einschränkungen (WMS)", defaultEnabled: false },
+  { id: "ch_aktivitaetszonen", wmsLayer: "ch.bazl.uas-aktivitaetszonen", label: "UAS-Aktivitätszonen (WMS)", defaultEnabled: false },
   { id: "ch_bodenrisiko_100", wmsLayer: "ch.bazl.intrinsisches-bodenrisiko_sora_100", label: "Bodenrisiko SORA 100J", defaultEnabled: true },
   { id: "ch_bodenrisiko_200", wmsLayer: "ch.bazl.intrinsisches-bodenrisiko_sora_200", label: "Bodenrisiko SORA 200J", defaultEnabled: true },
   { id: "ch_ruhezonen", wmsLayer: "ch.bazl.landschaftsruhezonen", label: "Landschaftsruhezonen", defaultEnabled: true },

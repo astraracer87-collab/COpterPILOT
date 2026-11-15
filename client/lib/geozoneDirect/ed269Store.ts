@@ -20,6 +20,13 @@ import {
 } from "./ed269Sources";
 
 // Upstream-Daten ändern sich selten; der Server hat täglich synchronisiert.
+
+// Liechtenstein steckt im Schweizer BAZL-Datensatz.
+function cacheKey(iso: string | null | undefined): string {
+  const c = String(iso || "").toLowerCase();
+  return c === "li" ? "ch" : c;
+}
+
 export const ED269_REFRESH_AFTER_MS = 24 * 60 * 60 * 1000;
 // Nach einem fehlgeschlagenen Download nicht bei jedem Karten-Pan erneut
 // versuchen (offline!), sondern frühestens nach dieser Pause.
@@ -151,7 +158,7 @@ export async function getEd269Dataset(
   rawIso: string,
   opts?: { forceRefresh?: boolean },
 ): Promise<Ed269Dataset | null> {
-  const iso = String(rawIso || "").toLowerCase();
+  const iso = cacheKey(rawIso);
   if (!isEd269DirectCountry(iso)) return null;
   const now = Date.now();
 
@@ -208,14 +215,14 @@ function fallbackDataset(iso: string): Ed269Dataset | null {
 
 /** Erzwingt eine Aktualisierung (wartet darauf). true = erfolgreich geladen. */
 export async function refreshEd269Dataset(iso: string): Promise<boolean> {
-  const c = String(iso || "").toLowerCase();
+  const c = cacheKey(iso);
   if (!isEd269DirectCountry(c)) return false;
   return (await download(c)) != null;
 }
 
 /** Stand des Gerätecaches (für Status-/Debug-Anzeigen). */
 export function getEd269DatasetStatus(iso: string): { fetchedAt: number | null; count: number } {
-  const ds = memory.get(String(iso || "").toLowerCase());
+  const ds = memory.get(cacheKey(iso));
   return { fetchedAt: ds && ds.fetchedAt > 0 ? ds.fetchedAt : null, count: ds?.features.length ?? 0 };
 }
 
