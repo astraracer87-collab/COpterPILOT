@@ -10,6 +10,7 @@ import {
   normalizeDanishNatureFeatures,
 } from "../../../shared/danishGeozones";
 import { normalizeAustrianEd269Placeholder } from "../../../shared/ed269Restriction";
+import { normalizeEstonianProps } from "../../../shared/estonianGeozones";
 import {
   NL_QUERY_BOUNDS,
   dedupeGodroneFeatures,
@@ -34,7 +35,7 @@ export type GeoFeature = {
 // Länder, deren Geozonen als ED-269-/GeoJSON-Vektordaten vorliegen (kein WMS).
 // NL kommt aus GoDrone (LVNL). DE/CH/LU/FR werden über ihre WMS-/WFS-Pfade
 // abgefragt.
-export const ED269_DIRECT_COUNTRIES = ["at", "be", "dk", "nl"] as const;
+export const ED269_DIRECT_COUNTRIES = ["at", "be", "dk", "nl", "ee"] as const;
 
 export function isEd269DirectCountry(iso: string): boolean {
   return (ED269_DIRECT_COUNTRIES as readonly string[]).includes(String(iso || "").toLowerCase());
@@ -46,8 +47,13 @@ export const DK_GEOZONES_URL =
   "https://trafikstyrelsen.maps.arcgis.com/sharing/rest/content/items/980697acd04d4a9bb1fd34bbefab924a/data";
 export const DK_LEGACY_GEOZONES_URL =
   "https://trafikstyrelsen.maps.arcgis.com/sharing/rest/content/items/f049a65ae2f34bd1b747895d555dac71/data";
+// Feste offizielle Download-URL laut dronezoner.eu/API (täglich 03:00 CET);
+// Nutzung frei mit Quellenangabe „Kilde: Trafikstyrelsen“ (schriftlich bestätigt).
 export const DK_NATURE_ZONES_URL =
+  "https://trafikstyrelsen.maps.arcgis.com/sharing/rest/content/items/ff657943724944faaf19807380f5e24a/data";
+export const DK_NATURE_ZONES_FALLBACK_URL =
   "https://services-eu1.arcgis.com/Zvx25KS6sGRl9LIx/arcgis/rest/services/NaturOmraader2024v2/FeatureServer/0/query?where=1%3D1&outFields=*&outSR=4326&f=geojson";
+export const EE_GEOZONES_URL = "https://utm.eans.ee/avm/utm/uas.geojson";
 export const BE_SKEYES_UAS_ZONES_URL = "https://api-cis.skeyes.be/public/uas-zones";
 export const BE_DRONEGUIDE_WFS_URL = "https://map.droneguide.be/ows";
 export const NL_GODRONE_MAPDATA_URL = "https://api.godrone.nl/v2/mapdata/geojson";
@@ -168,8 +174,13 @@ export function roundFeatureCoords(features: GeoFeature[], decimals: number = VE
  * – siehe docs/dronespace-at-api-integration.md §5.1.
  */
 export function austriaGeozonesUrl(now: Date = new Date()): string {
+  return frequentisAvmUrl(AT_GEOZONES_URL, now);
+}
+
+/** Frequentis-AVM-Plattform (AT, EE): Zeitfenster ein Jahr ab jetzt. */
+export function frequentisAvmUrl(base: string, now: Date = new Date()): string {
   const end = new Date(now.getTime() + 365 * 24 * 3600 * 1000);
-  return `${AT_GEOZONES_URL}?start=${now.toISOString()}&end=${end.toISOString()}`;
+  return `${base}?start=${now.toISOString()}&end=${end.toISOString()}`;
 }
 
 async function fetchAustria(): Promise<GeoFeature[]> {
@@ -179,6 +190,19 @@ async function fetchAustria(): Promise<GeoFeature[]> {
   return finalize(raw, "at").map((feature) => ({
     ...feature,
     properties: normalizeAustrianEd269Placeholder((feature.properties as Record<string, any>) || {}),
+  }));
+}
+
+// ---------------------------------------------------------------------------
+// Estland (EANS / Transpordiamet) – gleiche Plattform wie Dronespace AT
+// ---------------------------------------------------------------------------
+async function fetchEstonia(): Promise<GeoFeature[]> {
+  const body = await fetchJson(frequentisAvmUrl(EE_GEOZONES_URL));
+  const raw: GeoFeature[] = Array.isArray(body?.features) ? body.features : [];
+  if (raw.length === 0) throw new Error("EANS lieferte keine Zonen");
+  return finalize(raw, "ee").map((feature) => ({
+    ...feature,
+    properties: normalizeEstonianProps((feature.properties as Record<string, any>) || {}),
   }));
 }
 
@@ -209,13 +233,18 @@ async function fetchDenmark(): Promise<GeoFeature[]> {
     // vorhandener Gerätebestand erhalten bleibt.
     throw new Error("Dänische Geozonen nicht erreichbar");
   }
-  try {
-    const body = await fetchJson(DK_NATURE_ZONES_URL);
-    const raw = Array.isArray(body?.features) ? body.features : [];
-    const nature = finalize(normalizeDanishNatureFeatures(raw) as unknown as GeoFeature[], "dk");
-    if (nature.length > 0) features = [...features, ...nature];
-  } catch (e) {
-    console.warn("[geozoneDirect] DK: Naturschutzzonen nicht erreichbar:", (e as Error)?.message || e);
+  for (const url of [DK_NATURE_ZONES_URL, DK_NATURE_ZONES_FALLBACK_URL]) {
+    try {
+      const body = await fetchJson(url);
+      const raw = Array.isArray(body?.features) ? body.features : [];
+      const nature = finalize(normalizeDanishNatureFeatures(raw) as unknown as GeoFeature[], "dk");
+      if (nature.length > 0) {
+        features = [...features, ...nature];
+        break;
+      }
+    } catch (e) {
+      console.warn("[geozoneDirect] DK: Naturschutzzonen nicht erreichbar:", url, (e as Error)?.message || e);
+    }
   }
   return features;
 }
@@ -394,6 +423,7 @@ export async function fetchEd269CountryFeatures(iso: string): Promise<GeoFeature
   else if (c === "dk") features = await fetchDenmark();
   else if (c === "be") features = await fetchBelgium();
   else if (c === "nl") features = await fetchNetherlands();
+  else if (c === "ee") features = await fetchEstonia();
   else throw new Error(`Kein Vektor-Geozonen-Feed für ${iso}`);
   return roundFeatureCoords(features);
 }

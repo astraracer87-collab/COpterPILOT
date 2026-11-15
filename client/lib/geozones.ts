@@ -112,7 +112,7 @@ export {
   COUNTRY_WMS_MAX_NATIVE_ZOOM,
 } from "@/lib/geozoneZoom";
 
-export type CountryIsoWithGeozones = "DE" | "CH" | "LU" | "NL" | "FR" | "AT" | "BE" | "DK";
+export type CountryIsoWithGeozones = "DE" | "CH" | "LU" | "NL" | "FR" | "AT" | "BE" | "DK" | "EE";
 
 export interface CountryGeozoneConfig {
   iso: CountryIsoWithGeozones;
@@ -226,6 +226,17 @@ export const COUNTRY_GEOZONE_CONFIGS: Record<string, CountryGeozoneConfig> = {
     // Österreich/Belgien – als native Vektor-Polygone gerendert (kein WMS-/
     // Kachel-Overlay). Konfigurierbar über GEOZONES_DK_URL.
     iso: "DK",
+    wmsBaseUrl: "",
+    wmsVersion: "1.3.0",
+    layers: [],
+    featureInfoType: "ed269-cached",
+    alwaysVisibleLayerIds: [],
+    forceEnabledLayerIds: [],
+  },
+  EE: {
+    // Estland (EANS / Transpordiamet): ED-269-Vektorzonen von utm.eans.ee
+    // (gleiche Plattform wie Dronespace AT), inkl. NOTAM-Zonen. Kein WMS.
+    iso: "EE",
     wmsBaseUrl: "",
     wmsVersion: "1.3.0",
     layers: [],
