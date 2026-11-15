@@ -47,12 +47,26 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(buildFrame())
-        showHome()
+        try {
+            setContentView(buildFrame())
+            showHome()
+        } catch (e: Throwable) {
+            setContentView(errorView(e))
+            return
+        }
         val f = IntentFilter(ACTION_USB_PERMISSION)
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(usbPermission, f, RECEIVER_NOT_EXPORTED)
         else registerReceiver(usbPermission, f)
         if (!prefs().getBoolean("disclaimer_ok", false)) showDisclaimer()
+    }
+
+    private fun errorView(e: Throwable): View {
+        val tv = TextView(this).apply {
+            setBackgroundColor(Ui.BG); setTextColor(Ui.RED); textSize = 12f
+            typeface = Typeface.MONOSPACE; setPadding(24, 24, 24, 24)
+            text = "FEHLER beim Aufbau:\n\n" + android.util.Log.getStackTraceString(e)
+        }
+        return ScrollView(this).apply { addView(tv) }
     }
 
     override fun onResume() {
@@ -74,21 +88,22 @@ class MainActivity : Activity() {
             setBackgroundColor(Ui.BG); setPadding(d(14f), d(12f), d(14f), d(14f))
         }
 
-        // Kopfzeile mit Status rechts
+        // Kopfzeile: Titel links (nimmt den Platz), Status rechts
         val header = Ui.row(this)
-        header.addView(TextView(this).apply {
+        val titleWrap = Ui.row(this)
+        titleWrap.addView(TextView(this).apply {
             text = "FCC Tool"; setTextColor(Ui.TEXT); textSize = 20f; typeface = Typeface.DEFAULT_BOLD
         })
-        header.addView(TextView(this).apply {
+        titleWrap.addView(TextView(this).apply {
             text = "  ·  DJI RC Pro 2"; setTextColor(Ui.TEXT2); textSize = 13f
         })
-        header.addView(View(this), Ui.lp(0, WRAP_CONTENT, 1f))
+        header.addView(titleWrap, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
         statusPill = Ui.badge(this)
         header.addView(statusPill)
-        root.addView(header)
+        root.addView(header, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
 
         body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        root.addView(body, Ui.lp(MATCH_PARENT, 0, 1f, topDp = d(12f)))
+        root.addView(body, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f).apply { topMargin = d(12f) })
         return root
     }
 
@@ -176,26 +191,26 @@ class MainActivity : Activity() {
 
     private fun showHome() {
         detachLog()
-        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-
-        // Band: Knöpfe links, Protokoll rechts – exakt gleiche Ober-/Unterkante.
-        val mid = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        // Knöpfe links (inkl. „Erweitert“ unten), Protokoll rechts – flache Verschachtelung.
         val buttons = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         buttons.addView(Ui.tallModeButton(this,
             "Fluggerät an dieser Fernsteuerung",
             "z. B. Air 3S an der RC Pro 2 – direkt über die Fernsteuerung",
-            Ui.GREEN, R.drawable.rc_controller) { showDroneMenu() }, Ui.lp(MATCH_PARENT, 0, 1f))
+            Ui.GREEN, R.drawable.rc_controller) { showDroneMenu() }, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
         buttons.addView(Ui.tallModeButton(this,
             "Fluggerät an Goggle",
             "z. B. Avata 2 – über eine Datei auf der SD-Karte der Goggle",
-            Ui.BLUE, R.drawable.fpv_goggle) { showGoggleMenu() }, Ui.lp(MATCH_PARENT, 0, 1f, topDp = Ui.dpi(this, 12f)))
+            Ui.BLUE, R.drawable.fpv_goggle) { showGoggleMenu() },
+            LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f).apply { topMargin = Ui.dpi(this@MainActivity, 12f) })
+        buttons.addView(Ui.smallButton(this, "Erweitert") { showAdvanced() },
+            LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply { topMargin = Ui.dpi(this@MainActivity, 12f) })
+
+        val mid = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         mid.addView(buttons, LinearLayout.LayoutParams(0, MATCH_PARENT, 1.1f))
         mid.addView(logCardView, LinearLayout.LayoutParams(0, MATCH_PARENT, 1f).apply { leftMargin = Ui.dpi(this@MainActivity, 12f) })
-        col.addView(mid, Ui.lp(MATCH_PARENT, 0, 1f))
 
-        col.addView(Ui.smallButton(this, "Erweitert") { showAdvanced() }, Ui.lp(topDp = Ui.dpi(this, 12f)))
         body.removeAllViews()
-        body.addView(col, LinearLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+        body.addView(mid, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
         refreshStatus()
     }
 
