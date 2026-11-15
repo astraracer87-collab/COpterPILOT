@@ -112,7 +112,7 @@ export {
   COUNTRY_WMS_MAX_NATIVE_ZOOM,
 } from "@/lib/geozoneZoom";
 
-export type CountryIsoWithGeozones = "DE" | "CH" | "LU" | "NL" | "FR" | "AT" | "BE" | "DK" | "EE" | "FI" | "NO" | "SE" | "IE" | "PT";
+export type CountryIsoWithGeozones = "DE" | "CH" | "LU" | "NL" | "FR" | "AT" | "BE" | "DK" | "EE" | "FI" | "NO" | "SE" | "IE" | "PT" | "ES" | "PL";
 
 export interface CountryGeozoneConfig {
   iso: CountryIsoWithGeozones;
@@ -272,6 +272,26 @@ export const COUNTRY_GEOZONE_CONFIGS: Record<string, CountryGeozoneConfig> = {
   PT: {
     // Portugal (ANAC – DNT): ED-269-Direktdownload, ohne Anmeldung.
     iso: "PT",
+    wmsBaseUrl: "",
+    wmsVersion: "1.3.0",
+    layers: [],
+    featureInfoType: "ed269-cached",
+    alwaysVisibleLayerIds: [],
+    forceEnabledLayerIds: [],
+  },
+  ES: {
+    // Spanien (ENAIRE): ED-318-Zonen über ArcGIS-REST/WFS, ohne Anmeldung.
+    iso: "ES",
+    wmsBaseUrl: "",
+    wmsVersion: "1.3.0",
+    layers: [],
+    featureInfoType: "ed269-cached",
+    alwaysVisibleLayerIds: [],
+    forceEnabledLayerIds: [],
+  },
+  PL: {
+    // Polen (PANSA DroneMap): KML-Download mit öffentlichem Plugin-Schlüssel.
+    iso: "PL",
     wmsBaseUrl: "",
     wmsVersion: "1.3.0",
     layers: [],

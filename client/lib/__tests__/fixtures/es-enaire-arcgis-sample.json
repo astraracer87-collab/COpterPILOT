@@ -1,0 +1,979 @@
+{
+ "_comment": "Handgebaute Fixture nach ENAIRE-Spec v3.1 (Feldnamen laut docs/enaire-es-api-integration.md §4). NICHT live abgerufen (WAF 403) – vor Produktion durch echte Antwort ersetzen.",
+ "featureServer": {
+  "currentVersion": 11.1,
+  "serviceDescription": "Zonas geográficas UAS (ED-318)",
+  "maxRecordCount": 1000,
+  "layers": [
+   {
+    "id": 0,
+    "name": "ZGUAS_Aero",
+    "geometryType": "esriGeometryPolygon"
+   },
+   {
+    "id": 1,
+    "name": "ZGUAS_Infraestructuras",
+    "geometryType": "esriGeometryPolygon"
+   },
+   {
+    "id": 2,
+    "name": "ZGUAS_Urbano",
+    "geometryType": "esriGeometryPolygon"
+   }
+  ],
+  "tables": []
+ },
+ "aeroPage1": {
+  "type": "FeatureCollection",
+  "properties": {
+   "exceededTransferLimit": true
+  },
+  "features": [
+   {
+    "type": "Feature",
+    "id": 1,
+    "geometry": {
+     "type": "Polygon",
+     "coordinates": [
+      [
+       [
+        -3.6470000000000002,
+        40.392
+       ],
+       [
+        -3.487,
+        40.392
+       ],
+       [
+        -3.487,
+        40.552
+       ],
+       [
+        -3.6470000000000002,
+        40.552
+       ],
+       [
+        -3.6470000000000002,
+        40.392
+       ]
+      ]
+     ]
+    },
+    "properties": {
+     "OBJECTID": 1,
+     "Identifier": "LEMD01",
+     "Country": "ESP",
+     "Type": "REQ_AUTHORIZATION",
+     "Name": "MADRID/BARAJAS (LEMD) - ZONA DE CONTROL",
+     "Reasons": "AIR_TRAFFIC",
+     "RestrictionConditions": "Coordinación previa con ENAIRE.",
+     "RegulationExemption": "NO",
+     "Message": "Zona de control de aeródromo. Las operaciones UAS requieren coordinación previa con el proveedor de servicios de tránsito aéreo y autorización conforme al RD 517/2024.",
+     "Lower": 0,
+     "LowerReference": "AGL",
+     "Upper": 120,
+     "UpperReference": "AGL",
+     "UOM": "M",
+     "StartDateTime": null,
+     "EndDateTime": null,
+     "Day": null,
+     "StartTime": null,
+     "StartEvent": null,
+     "EndTime": null,
+     "EndEvent": null,
+     "Purpose": "AUTHORIZATION",
+     "Service": "División de Espacio Aéreo - Coordinación UAS",
+     "ContactName": "Oficina de coordinación UAS",
+     "SiteURL": "https://drones.enaire.es",
+     "Email": "ais@enaire.es",
+     "Phone": "+34 913 213 000",
+     "Name_Authority": "ENAIRE",
+     "IntervalBefore": "P5D",
+     "Issued": 1793232000000,
+     "ValidFrom": 1793232000000,
+     "ValidTo": 1795651200000,
+     "Provider": "ENAIRE",
+     "Description": "Zonas geográficas UAS - ciclo AIRAC 2611",
+     "CreationDateTime": 1738195200000,
+     "UpdateDateTime": 1793232000000
+    }
+   },
+   {
+    "type": "Feature",
+    "id": 2,
+    "geometry": {
+     "type": "Polygon",
+     "coordinates": [
+      [
+       [
+        -3.7239999999999998,
+        40.408
+       ],
+       [
+        -3.704,
+        40.408
+       ],
+       [
+        -3.704,
+        40.428
+       ],
+       [
+        -3.7239999999999998,
+        40.428
+       ],
+       [
+        -3.7239999999999998,
+        40.408
+       ]
+      ]
+     ]
+    },
+    "properties": {
+     "OBJECTID": 2,
+     "Identifier": "LEP160",
+     "Country": "ESP",
+     "Type": "PROHIBITED",
+     "Name": "LEP160 MADRID",
+     "Reasons": "SENSITIVE",
+     "RestrictionConditions": null,
+     "RegulationExemption": "NO",
+     "Message": "Zona prohibida. Prohibido el vuelo de UAS salvo autorización expresa.",
+     "Lower": 0,
+     "LowerReference": "SFC",
+     "Upper": 3000,
+     "UpperReference": "AMSL",
+     "UOM": "FT",
+     "StartDateTime": null,
+     "EndDateTime": null,
+     "Day": null,
+     "StartTime": null,
+     "StartEvent": null,
+     "EndTime": null,
+     "EndEvent": null,
+     "Purpose": null,
+     "Service": null,
+     "ContactName": null,
+     "SiteURL": null,
+     "Email": null,
+     "Phone": null,
+     "Name_Authority": null,
+     "IntervalBefore": null,
+     "Issued": 1793232000000,
+     "ValidFrom": 1793232000000,
+     "ValidTo": 1795651200000,
+     "Provider": "ENAIRE",
+     "Description": "Zonas geográficas UAS - ciclo AIRAC 2611",
+     "CreationDateTime": 1738195200000,
+     "UpdateDateTime": 1793232000000
+    }
+   },
+   {
+    "type": "Feature",
+    "id": 3,
+    "geometry": {
+     "type": "Polygon",
+     "coordinates": [
+      [
+       [
+        -3.73,
+        40.54
+       ],
+       [
+        -3.69,
+        40.54
+       ],
+       [
+        -3.69,
+        40.580000000000005
+       ],
+       [
+        -3.73,
+        40.580000000000005
+       ],
+       [
+        -3.73,
+        40.54
+       ]
+      ]
+     ]
+    },
+    "properties": {
+     "OBJECTID": 3,
+     "Identifier": "LED101",
+     "Country": "ESP",
+     "Type": "CONDITIONAL",
+     "Name": "LED101 CAMPO DE TIRO EL GOLOSO",
+     "Reasons": "OTHER",
+     "RestrictionConditions": null,
+     "RegulationExemption": "NO",
+     "Message": "Zona peligrosa activa en horario publicado. Fuera de horario sin restricción adicional.",
+     "Lower": 0,
+     "LowerReference": "AGL",
+     "Upper": 120,
+     "UpperReference": "AGL",
+     "UOM": "M",
+     "StartDateTime": 1767225600000,
+     "EndDateTime": null,
+     "Day": "MON",
+     "StartTime": "08:00",
+     "StartEvent": null,
+     "EndTime": "15:00",
+     "EndEvent": null,
+     "Purpose": null,
+     "Service": null,
+     "ContactName": null,
+     "SiteURL": null,
+     "Email": null,
+     "Phone": null,
+     "Name_Authority": null,
+     "IntervalBefore": null,
+     "Issued": 1793232000000,
+     "ValidFrom": 1793232000000,
+     "ValidTo": 1795651200000,
+     "Provider": "ENAIRE",
+     "Description": "Zonas geográficas UAS - ciclo AIRAC 2611",
+     "CreationDateTime": 1738195200000,
+     "UpdateDateTime": 1793232000000
+    }
+   },
+   {
+    "type": "Feature",
+    "id": 4,
+    "geometry": {
+     "type": "Polygon",
+     "coordinates": [
+      [
+       [
+        -3.73,
+        40.54
+       ],
+       [
+        -3.69,
+        40.54
+       ],
+       [
+        -3.69,
+        40.580000000000005
+       ],
+       [
+        -3.73,
+        40.580000000000005
+       ],
+       [
+        -3.73,
+        40.54
+       ]
+      ]
+     ]
+    },
+    "properties": {
+     "OBJECTID": 4,
+     "Identifier": "LED101",
+     "Country": "ESP",
+     "Type": "CONDITIONAL",
+     "Name": "LED101 CAMPO DE TIRO EL GOLOSO",
+     "Reasons": "OTHER",
+     "RestrictionConditions": null,
+     "RegulationExemption": "NO",
+     "Message": "Zona peligrosa activa en horario publicado. Fuera de horario sin restricción adicional.",
+     "Lower": 0,
+     "LowerReference": "AGL",
+     "Upper": 120,
+     "UpperReference": "AGL",
+     "UOM": "M",
+     "StartDateTime": 1767225600000,
+     "EndDateTime": null,
+     "Day": "TUE",
+     "StartTime": "08:00",
+     "StartEvent": null,
+     "EndTime": "15:00",
+     "EndEvent": null,
+     "Purpose": null,
+     "Service": null,
+     "ContactName": null,
+     "SiteURL": null,
+     "Email": null,
+     "Phone": null,
+     "Name_Authority": null,
+     "IntervalBefore": null,
+     "Issued": 1793232000000,
+     "ValidFrom": 1793232000000,
+     "ValidTo": 1795651200000,
+     "Provider": "ENAIRE",
+     "Description": "Zonas geográficas UAS - ciclo AIRAC 2611",
+     "CreationDateTime": 1738195200000,
+     "UpdateDateTime": 1793232000000
+    }
+   },
+   {
+    "type": "Feature",
+    "id": 5,
+    "geometry": {
+     "type": "Polygon",
+     "coordinates": [
+      [
+       [
+        -3.73,
+        40.54
+       ],
+       [
+        -3.69,
+        40.54
+       ],
+       [
+        -3.69,
+        40.580000000000005
+       ],
+       [
+        -3.73,
+        40.580000000000005
+       ],
+       [
+        -3.73,
+        40.54
+       ]
+      ]
+     ]
+    },
+    "properties": {
+     "OBJECTID": 5,
+     "Identifier": "LED101",
+     "Country": "ESP",
+     "Type": "CONDITIONAL",
+     "Name": "LED101 CAMPO DE TIRO EL GOLOSO",
+     "Reasons": "OTHER",
+     "RestrictionConditions": null,
+     "RegulationExemption": "NO",
+     "Message": "Zona peligrosa activa en horario publicado. Fuera de horario sin restricción adicional.",
+     "Lower": 0,
+     "LowerReference": "AGL",
+     "Upper": 120,
+     "UpperReference": "AGL",
+     "UOM": "M",
+     "StartDateTime": 1767225600000,
+     "EndDateTime": null,
+     "Day": "SAT",
+     "StartTime": null,
+     "StartEvent": "SR",
+     "EndTime": null,
+     "EndEvent": "SS",
+     "Purpose": null,
+     "Service": null,
+     "ContactName": null,
+     "SiteURL": null,
+     "Email": null,
+     "Phone": null,
+     "Name_Authority": null,
+     "IntervalBefore": null,
+     "Issued": 1793232000000,
+     "ValidFrom": 1793232000000,
+     "ValidTo": 1795651200000,
+     "Provider": "ENAIRE",
+     "Description": "Zonas geográficas UAS - ciclo AIRAC 2611",
+     "CreationDateTime": 1738195200000,
+     "UpdateDateTime": 1793232000000
+    }
+   }
+  ]
+ },
+ "aeroPage2": {
+  "type": "FeatureCollection",
+  "features": [
+   {
+    "type": "Feature",
+    "id": 6,
+    "geometry": {
+     "type": "Polygon",
+     "coordinates": [
+      [
+       [
+        -4.25,
+        40.85
+       ],
+       [
+        -4.15,
+        40.85
+       ],
+       [
+        -4.15,
+        40.949999999999996
+       ],
+       [
+        -4.25,
+        40.949999999999996
+       ],
+       [
+        -4.25,
+        40.85
+       ]
+      ]
+     ]
+    },
+    "properties": {
+     "OBJECTID": 6,
+     "Identifier": "LER81",
+     "Country": "ESP",
+     "Type": "PROHIBITED",
+     "Name": "LER81 EJERCICIO TEMPORAL",
+     "Reasons": null,
+     "RestrictionConditions": null,
+     "RegulationExemption": "NO",
+     "Message": "Zona restringida temporal.",
+     "Lower": 0,
+     "LowerReference": "AGL",
+     "Upper": 120,
+     "UpperReference": "AGL",
+     "UOM": "M",
+     "StartDateTime": 1790812800000,
+     "EndDateTime": 1793491200000,
+     "Day": null,
+     "StartTime": null,
+     "StartEvent": null,
+     "EndTime": null,
+     "EndEvent": null,
+     "Purpose": null,
+     "Service": null,
+     "ContactName": null,
+     "SiteURL": null,
+     "Email": null,
+     "Phone": null,
+     "Name_Authority": null,
+     "IntervalBefore": null,
+     "Issued": 1793232000000,
+     "ValidFrom": 1793232000000,
+     "ValidTo": 1795651200000,
+     "Provider": "ENAIRE",
+     "Description": "Zonas geográficas UAS - ciclo AIRAC 2611",
+     "CreationDateTime": 1738195200000,
+     "UpdateDateTime": 1793232000000
+    }
+   },
+   {
+    "type": "Feature",
+    "id": 7,
+    "geometry": {
+     "type": "Polygon",
+     "coordinates": [
+      [
+       [
+        -5.1,
+        39.4
+       ],
+       [
+        -4.9,
+        39.4
+       ],
+       [
+        -4.9,
+        39.6
+       ],
+       [
+        -5.1,
+        39.6
+       ],
+       [
+        -5.1,
+        39.4
+       ]
+      ]
+     ]
+    },
+    "properties": {
+     "OBJECTID": 7,
+     "Identifier": "LER55",
+     "Country": "ESP",
+     "Type": "RESTRICTED",
+     "Name": "LER55 ZONA ALTA",
+     "Reasons": null,
+     "RestrictionConditions": null,
+     "RegulationExemption": "NO",
+     "Message": "Zona restringida por encima de 2000 ft AGL.",
+     "Lower": 2000,
+     "LowerReference": "AGL",
+     "Upper": 10000,
+     "UpperReference": "AMSL",
+     "UOM": "FT",
+     "StartDateTime": null,
+     "EndDateTime": null,
+     "Day": null,
+     "StartTime": null,
+     "StartEvent": null,
+     "EndTime": null,
+     "EndEvent": null,
+     "Purpose": null,
+     "Service": null,
+     "ContactName": null,
+     "SiteURL": null,
+     "Email": null,
+     "Phone": null,
+     "Name_Authority": null,
+     "IntervalBefore": null,
+     "Issued": 1793232000000,
+     "ValidFrom": 1793232000000,
+     "ValidTo": 1795651200000,
+     "Provider": "ENAIRE",
+     "Description": "Zonas geográficas UAS - ciclo AIRAC 2611",
+     "CreationDateTime": 1738195200000,
+     "UpdateDateTime": 1793232000000
+    }
+   },
+   {
+    "type": "Feature",
+    "id": 8,
+    "geometry": {
+     "type": "Polygon",
+     "coordinates": [
+      [
+       [
+        -3.6470000000000002,
+        40.392
+       ],
+       [
+        -3.487,
+        40.392
+       ],
+       [
+        -3.487,
+        40.552
+       ],
+       [
+        -3.6470000000000002,
+        40.552
+       ],
+       [
+        -3.6470000000000002,
+        40.392
+       ]
+      ]
+     ]
+    },
+    "properties": {
+     "OBJECTID": 8,
+     "Identifier": "LEMD01",
+     "Country": "ESP",
+     "Type": "REQ_AUTHORIZATION",
+     "Name": "MADRID/BARAJAS (LEMD) - ZONA DE CONTROL",
+     "Reasons": "AIR_TRAFFIC",
+     "RestrictionConditions": "Coordinación previa con ENAIRE.",
+     "RegulationExemption": "NO",
+     "Message": "Zona de control de aeródromo. Las operaciones UAS requieren coordinación previa con el proveedor de servicios de tránsito aéreo y autorización conforme al RD 517/2024.",
+     "Lower": 0,
+     "LowerReference": "AGL",
+     "Upper": 120,
+     "UpperReference": "AGL",
+     "UOM": "M",
+     "StartDateTime": null,
+     "EndDateTime": null,
+     "Day": null,
+     "StartTime": null,
+     "StartEvent": null,
+     "EndTime": null,
+     "EndEvent": null,
+     "Purpose": "AUTHORIZATION",
+     "Service": "División de Espacio Aéreo - Coordinación UAS",
+     "ContactName": "Oficina de coordinación UAS",
+     "SiteURL": "https://drones.enaire.es",
+     "Email": "ais@enaire.es",
+     "Phone": "+34 913 213 000",
+     "Name_Authority": "ENAIRE",
+     "IntervalBefore": "P5D",
+     "Issued": 1793232000000,
+     "ValidFrom": 1793232000000,
+     "ValidTo": 1795651200000,
+     "Provider": "ENAIRE",
+     "Description": "Zonas geográficas UAS - ciclo AIRAC 2611",
+     "CreationDateTime": 1738195200000,
+     "UpdateDateTime": 1793232000000
+    }
+   },
+   {
+    "type": "Feature",
+    "id": 9,
+    "geometry": {
+     "type": "Polygon",
+     "coordinates": [
+      [
+       [
+        -0.51,
+        38.25
+       ],
+       [
+        -0.44999999999999996,
+        38.25
+       ],
+       [
+        -0.44999999999999996,
+        38.31
+       ],
+       [
+        -0.51,
+        38.31
+       ],
+       [
+        -0.51,
+        38.25
+       ]
+      ]
+     ]
+    },
+    "properties": {
+     "OBJECTID": 9,
+     "Identifier": "LER70",
+     "Country": "ESP",
+     "Type": "PROHIBITED",
+     "Name": "LER70 EXHIBICIÓN AÉREA",
+     "Reasons": "AIR_TRAFFIC,EMERGENCY",
+     "RestrictionConditions": null,
+     "RegulationExemption": "NO",
+     "Message": "Exhibición aérea. Prohibido el vuelo de UAS.",
+     "Lower": 0,
+     "LowerReference": "AGL",
+     "Upper": 100,
+     "UpperReference": "STD",
+     "UOM": "FL",
+     "StartDateTime": 1796115600000,
+     "EndDateTime": 1797789600000,
+     "Day": null,
+     "StartTime": null,
+     "StartEvent": null,
+     "EndTime": null,
+     "EndEvent": null,
+     "Purpose": null,
+     "Service": null,
+     "ContactName": null,
+     "SiteURL": null,
+     "Email": null,
+     "Phone": null,
+     "Name_Authority": null,
+     "IntervalBefore": null,
+     "Issued": 1793232000000,
+     "ValidFrom": 1793232000000,
+     "ValidTo": 1795651200000,
+     "Provider": "ENAIRE",
+     "Description": "Zonas geográficas UAS - ciclo AIRAC 2611",
+     "CreationDateTime": 1738195200000,
+     "UpdateDateTime": 1793232000000
+    }
+   }
+  ]
+ },
+ "urbano": {
+  "type": "FeatureCollection",
+  "features": [
+   {
+    "type": "Feature",
+    "id": 10,
+    "geometry": {
+     "type": "Polygon",
+     "coordinates": [
+      [
+       [
+        -3.8200000000000003,
+        40.300000000000004
+       ],
+       [
+        -3.58,
+        40.300000000000004
+       ],
+       [
+        -3.58,
+        40.54
+       ],
+       [
+        -3.8200000000000003,
+        40.54
+       ],
+       [
+        -3.8200000000000003,
+        40.300000000000004
+       ]
+      ]
+     ]
+    },
+    "properties": {
+     "OBJECTID": 10,
+     "Identifier": "ZGUAS_URB_28079",
+     "Country": "ESP",
+     "Type": "CONDITIONAL",
+     "Name": "MADRID - ZONA URBANA",
+     "Reasons": "POPULATION",
+     "RestrictionConditions": null,
+     "RegulationExemption": "NO",
+     "Message": "Operaciones en zona urbana: requiere comunicación previa al Ministerio del Interior con una antelación mínima de 5 días naturales.",
+     "Lower": 0,
+     "LowerReference": "AGL",
+     "Upper": 120,
+     "UpperReference": "AGL",
+     "UOM": "M",
+     "StartDateTime": null,
+     "EndDateTime": null,
+     "Day": null,
+     "StartTime": null,
+     "StartEvent": null,
+     "EndTime": null,
+     "EndEvent": null,
+     "Purpose": "NOTIFICATION",
+     "Service": "Secretaría de Estado de Seguridad",
+     "ContactName": null,
+     "SiteURL": "https://sede.interior.gob.es",
+     "Email": "uas@interior.es",
+     "Phone": null,
+     "Name_Authority": "Ministerio del Interior",
+     "IntervalBefore": "P5D",
+     "Issued": 1793232000000,
+     "ValidFrom": 1793232000000,
+     "ValidTo": 1795651200000,
+     "Provider": "ENAIRE",
+     "Description": "Zonas geográficas UAS - ciclo AIRAC 2611",
+     "CreationDateTime": 1738195200000,
+     "UpdateDateTime": 1793232000000
+    }
+   },
+   {
+    "type": "Feature",
+    "id": 11,
+    "geometry": {
+     "type": "Polygon",
+     "coordinates": [
+      [
+       [
+        2.09,
+        41.31
+       ],
+       [
+        2.25,
+        41.31
+       ],
+       [
+        2.25,
+        41.47
+       ],
+       [
+        2.09,
+        41.47
+       ],
+       [
+        2.09,
+        41.31
+       ]
+      ]
+     ]
+    },
+    "properties": {
+     "OBJECTID": 11,
+     "Identifier": "ZGUAS_URB_08019",
+     "Country": "ESP",
+     "Type": null,
+     "Name": "BARCELONA - ZONA URBANA",
+     "Reasons": "POPULATION",
+     "RestrictionConditions": null,
+     "RegulationExemption": "NO",
+     "Message": "Operaciones en zona urbana: comunicación previa al Ministerio del Interior.",
+     "Lower": 0,
+     "LowerReference": "AGL",
+     "Upper": 120,
+     "UpperReference": "AGL",
+     "UOM": "M",
+     "StartDateTime": null,
+     "EndDateTime": null,
+     "Day": null,
+     "StartTime": null,
+     "StartEvent": null,
+     "EndTime": null,
+     "EndEvent": null,
+     "Purpose": null,
+     "Service": null,
+     "ContactName": null,
+     "SiteURL": null,
+     "Email": null,
+     "Phone": null,
+     "Name_Authority": null,
+     "IntervalBefore": null,
+     "Issued": 1793232000000,
+     "ValidFrom": 1793232000000,
+     "ValidTo": 1795651200000,
+     "Provider": "ENAIRE",
+     "Description": "Zonas geográficas UAS - ciclo AIRAC 2611",
+     "CreationDateTime": 1738195200000,
+     "UpdateDateTime": 1793232000000
+    }
+   }
+  ]
+ },
+ "infra": {
+  "type": "FeatureCollection",
+  "features": [
+   {
+    "type": "Feature",
+    "id": 12,
+    "geometry": {
+     "type": "Polygon",
+     "coordinates": [
+      [
+       [
+        -3.92,
+        39.879999999999995
+       ],
+       [
+        -3.88,
+        39.879999999999995
+       ],
+       [
+        -3.88,
+        39.92
+       ],
+       [
+        -3.92,
+        39.92
+       ],
+       [
+        -3.92,
+        39.879999999999995
+       ]
+      ]
+     ]
+    },
+    "properties": {
+     "OBJECTID": 12,
+     "Identifier": "ZGUAS_INF_ADIF_0001",
+     "Country": "ESP",
+     "Type": "REQ_AUTHORIZATION",
+     "Name": "LAV MADRID-SEVILLA - ZONA DE PROTECCIÓN FERROVIARIA",
+     "Reasons": "SENSITIVE,OTHER",
+     "RestrictionConditions": null,
+     "RegulationExemption": "NO",
+     "Message": "Infraestructura ferroviaria (CIDETRA). Se requiere autorización del gestor de la infraestructura.",
+     "Lower": 0,
+     "LowerReference": "AGL",
+     "Upper": 120,
+     "UpperReference": "AGL",
+     "UOM": "M",
+     "StartDateTime": null,
+     "EndDateTime": null,
+     "Day": null,
+     "StartTime": null,
+     "StartEvent": null,
+     "EndTime": null,
+     "EndEvent": null,
+     "Purpose": "AUTHORIZATION",
+     "Service": null,
+     "ContactName": "Centro de Gestión de Red",
+     "SiteURL": "www.adif.es",
+     "Email": "mailto:uas@adif.es",
+     "Phone": "+34 912 151 000",
+     "Name_Authority": "ADIF",
+     "IntervalBefore": "P0DT48H00M",
+     "Issued": 1793232000000,
+     "ValidFrom": 1793232000000,
+     "ValidTo": 1795651200000,
+     "Provider": "ENAIRE",
+     "Description": "Zonas geográficas UAS - ciclo AIRAC 2611",
+     "CreationDateTime": 1738195200000,
+     "UpdateDateTime": 1793232000000
+    }
+   },
+   {
+    "type": "Feature",
+    "id": 13,
+    "geometry": {
+     "type": "MultiPolygon",
+     "coordinates": [
+      [
+       [
+        [
+         -5.71,
+         39.800000000000004
+        ],
+        [
+         -5.69,
+         39.800000000000004
+        ],
+        [
+         -5.69,
+         39.82
+        ],
+        [
+         -5.71,
+         39.82
+        ],
+        [
+         -5.71,
+         39.800000000000004
+        ]
+       ]
+      ],
+      [
+       [
+        [
+         -5.685,
+         39.794999999999995
+        ],
+        [
+         -5.675,
+         39.794999999999995
+        ],
+        [
+         -5.675,
+         39.805
+        ],
+        [
+         -5.685,
+         39.805
+        ],
+        [
+         -5.685,
+         39.794999999999995
+        ]
+       ]
+      ]
+     ]
+    },
+    "properties": {
+     "OBJECTID": 13,
+     "Identifier": "ZGUAS_INF_CN_ALMARAZ",
+     "Country": "ESP",
+     "Type": "PROHIBIDA",
+     "Name": "CENTRAL NUCLEAR DE ALMARAZ",
+     "Reasons": "SENSITIVE",
+     "RestrictionConditions": null,
+     "RegulationExemption": "NO",
+     "Message": "Infraestructura crítica. Prohibido el vuelo de UAS.",
+     "Lower": 0,
+     "LowerReference": "AGL",
+     "Upper": 120,
+     "UpperReference": "AGL",
+     "UOM": "M",
+     "StartDateTime": null,
+     "EndDateTime": null,
+     "Day": null,
+     "StartTime": null,
+     "StartEvent": null,
+     "EndTime": null,
+     "EndEvent": null,
+     "Purpose": null,
+     "Service": null,
+     "ContactName": null,
+     "SiteURL": null,
+     "Email": null,
+     "Phone": null,
+     "Name_Authority": null,
+     "IntervalBefore": null,
+     "Issued": 1793232000000,
+     "ValidFrom": 1793232000000,
+     "ValidTo": 1795651200000,
+     "Provider": "ENAIRE",
+     "Description": "Zonas geográficas UAS - ciclo AIRAC 2611",
+     "CreationDateTime": 1738195200000,
+     "UpdateDateTime": 1793232000000
+    }
+   }
+  ]
+ },
+ "arcgisError": {
+  "error": {
+   "code": 500,
+   "message": "Error performing query operation",
+   "details": []
+  }
+ }
+}

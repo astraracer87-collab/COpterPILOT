@@ -1,0 +1,107 @@
+{
+ "_comment": "Handgebaute WFS-2.0-GeoJSON-Fixture (Rückfallpfad): Lat/Lon-Achsenfolge, Namespace-Präfix, ISO-Datumswerte. NICHT live abgerufen.",
+ "ZGUAS_Urbano": {
+  "type": "FeatureCollection",
+  "numberMatched": 2,
+  "numberReturned": 2,
+  "features": [
+   {
+    "type": "Feature",
+    "id": "ZGUAS_Urbano.101",
+    "geometry": {
+     "type": "Polygon",
+     "coordinates": [
+      [
+       [
+        39.41,
+        -0.436
+       ],
+       [
+        39.41,
+        -0.316
+       ],
+       [
+        39.53,
+        -0.316
+       ],
+       [
+        39.53,
+        -0.436
+       ],
+       [
+        39.41,
+        -0.436
+       ]
+      ]
+     ]
+    },
+    "properties": {
+     "esri:OBJECTID": 101,
+     "esri:Identifier": "ZGUAS_URB_46250",
+     "esri:Country": "ESP",
+     "esri:Type": "CONDITIONAL",
+     "esri:Name": "VALENCIA - ZONA URBANA",
+     "esri:Reasons": "POPULATION",
+     "esri:Message": "Operaciones en zona urbana: comunicación previa al Ministerio del Interior.",
+     "esri:Lower": "0",
+     "esri:LowerReference": "AGL",
+     "esri:Upper": "120",
+     "esri:UpperReference": "AGL",
+     "esri:UOM": "M",
+     "esri:Day": "LUN,MAR,MIE,JUE,VIE",
+     "esri:StartTime": "0700",
+     "esri:EndTime": "1900",
+     "esri:StartDateTime": "2026-01-01T00:00:00Z",
+     "esri:EndDateTime": "",
+     "esri:Name_Authority": "Ministerio del Interior",
+     "esri:Purpose": "NOTIFICATION",
+     "esri:Issued": "2026-10-29T00:00:00Z"
+    }
+   },
+   {
+    "type": "Feature",
+    "id": "ZGUAS_Urbano.102",
+    "geometry": {
+     "type": "Polygon",
+     "coordinates": [
+      [
+       [
+        37.34,
+        -6.03
+       ],
+       [
+        37.34,
+        -5.930000000000001
+       ],
+       [
+        37.44,
+        -5.930000000000001
+       ],
+       [
+        37.44,
+        -6.03
+       ],
+       [
+        37.34,
+        -6.03
+       ]
+      ]
+     ]
+    },
+    "properties": {
+     "esri:OBJECTID": 102,
+     "esri:Identifier": "ZGUAS_URB_41091",
+     "esri:Country": "ESP",
+     "esri:Type": "CONDITIONAL",
+     "esri:Name": "SEVILLA - ZONA URBANA",
+     "esri:Message": "Operaciones en zona urbana: comunicación previa al Ministerio del Interior.",
+     "esri:Lower": "0",
+     "esri:LowerReference": "AGL",
+     "esri:Upper": "120",
+     "esri:UpperReference": "AGL",
+     "esri:UOM": "M"
+    }
+   }
+  ]
+ }
+}

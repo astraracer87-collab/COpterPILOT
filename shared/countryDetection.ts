@@ -906,7 +906,7 @@ export function detectCountryFromCoordinates(lat: number, lon: number): string |
 // LAYER_GROUPS + ED-269-Vektorländer in web/src/lib/geozoneLayers.ts. Web und
 // Mobile leiten ihre "eigene Karte vs. offizielle Staatskarte"-Entscheidung
 // gemeinsam hieraus ab, damit beide Plattformen konsistent bleiben.
-export const OWN_MAP_DATA_COUNTRIES = ["DE", "FR", "CH", "LU", "NL", "AT", "BE", "DK", "EE", "FI", "NO", "IE", "SE", "PT"];
+export const OWN_MAP_DATA_COUNTRIES = ["DE", "FR", "CH", "LU", "NL", "AT", "BE", "DK", "EE", "FI", "NO", "IE", "SE", "PT", "ES", "PL"];
 
 // True, wenn wir für das Land eigene Geozonen-Daten haben (eigene Karte mit
 // Overlay). Sonst wird die offizielle Staatskarte bzw. der EASA-Fallback gezeigt.
