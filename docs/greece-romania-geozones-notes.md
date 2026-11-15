@@ -105,3 +105,35 @@ Geometrie: `Polygon` (WGS84). Höhen-Parser nötig (`GND`/`### M AGL`/`FL###`).
 → `shared/romaniaGeozones.ts`: beide Quellen mergen; statische Zonen als
 Dauerzonen, NOTAM als temporäre (über `dfrom`/`dto`). Dedupe statisch über
 `zone_id`, NOTAM über `serie`.
+
+---
+
+## Anhang GR: ✅ doch extrahierbar – WMS-KML + GetFeatureInfo (DE-Session, 2026-11-15)
+
+Obwohl WFS abgeschaltet ist, lässt sich GR **zu Vektordaten** bringen – ohne
+Login, nur über die öffentlichen WMS-Endpunkte:
+
+1. **`GetMap` mit `FORMAT=kml`** je Ebene → echte **Polygone in WGS84**
+   (ohne Attribute). Der WMS kann KML-Vektoren ausgeben, auch wenn WFS aus ist.
+2. Pro Polygon einen Punkt **innerhalb** bestimmen (point on surface).
+3. **`GetFeatureInfo`** an diesem Punkt:
+   - `text/html` → Tabelle mit `REG NO`, Name (Behörde), Gültigkeit, Höhen
+     AGL/MSL (ft)
+   - `application/vnd.ogc.gml` → Bounding-Box je Treffer (gleiche Reihenfolge)
+4. Zuordnung über **Bounding-Box-Match** (Polygon-BBox == GML-Box), da sich
+   Zonen überlappen und ein Punkt mehrere Treffer liefert.
+5. Ergebnis als GeoJSON-FeatureCollection.
+
+**Werkzeug im Repo:** [`docs/tools/greece/dagr_geozonen.py`](tools/greece/dagr_geozonen.py)
+(`pip install requests shapely`; `python dagr_geozonen.py --tage 30 --out dagr_geozonen.geojson`).
+- Ebenen: `all_limitation_layer`, `all_warning_layer`, `all_permifrag_layer`,
+  `hellas_CTR`. Zeitfenster über `WMS_DATE_FROM/TO`.
+- Ausgabe-Properties: `layer`, `reg_no`, `name`, `authority`, `valid_from`,
+  `valid_to`, `alt_agl_from_ft`/`alt_agl_to_ft`, `alt_msl_from_ft`/`alt_msl_to_ft`.
+
+### Rechtliches (wichtig)
+- Webseite unter **CC BY-NC-ND 4.0** → Nutzung **nur im Rahmen der erteilten
+  Datenfreigabe von HASP/HCAA**. Server höflich behandeln (Pause eingebaut).
+
+**Status GR: Daten extrahierbar** (Skript vorhanden) – alternativ weiterhin
+ED-269/AIXM bei HASP/HCAA.
