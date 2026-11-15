@@ -81,12 +81,21 @@ export function translateZoneNameDe(name: string): string {
   return d.names[k] ?? runtime.get(`name:${k}`) ?? name;
 }
 
+// Zeilen, die die App selbst mit deutschem Etikett erzeugt (Rest: Codes, Kontakte, Werte)
+const APP_LABEL = /^(Typ|Höhenbezug|Code|Kontakt|Pufferradius|ICAO|Kategorie|Rechtsgrundlage|Höhe laut Quelle|Gültig|Zuständige Stelle|Gebietsnummer|Quelle|Telefon|E-Mail|Website|Aktiv):/;
+
+/** Reine Kennung ohne Wörter (z. B. „EHD06“, „TMZ B2“, „GLV XII“) – nichts zu übersetzen. */
+export function isCodeOnly(s: string): boolean {
+  return !/[A-Za-zÀ-ÿ]*[a-zà-ÿ]{3,}/.test(s) && !/\b[A-ZÀ-Ý]{5,}\b/.test(s);
+}
+
 /** Ist dieser Text bereits übersetzt bzw. braucht er keine Übersetzung? */
 export function hasGermanFor(text: string, kind: "line" | "name" = "line"): boolean {
   const k = translationKey(text);
-  if (!k || looksGerman(k)) return true;
+  if (!k || looksGerman(k) || isCodeOnly(k)) return true;
   const d = dict();
   if (kind === "name") return k in d.names || (d.knownNames?.has(k) ?? false) || runtime.has(`name:${k}`);
+  if (APP_LABEL.test(k) && !(k in d.lines)) return true;
   const m = k.match(LABEL_PREFIX);
   return k in d.lines || runtime.has(k) || (!!m && (m[2] in d.lines || runtime.has(m[2])));
 }
