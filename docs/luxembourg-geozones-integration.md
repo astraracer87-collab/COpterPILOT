@@ -25,8 +25,15 @@ Vergleich: `docs/godrone-api-integration.md` (NL),
   → 34 Features, HTTP 200.
 - Die App nutzt für LU heute bereits die geoportail-WMS-Layer `1927`/`1928`
   (`shared/geozoneLayerCatalog.ts`, `NL`→ nein, LU in `GEOZONE_LAYERS` als
-  `lu_uas_0_50`/`lu_uas_50_120`). Die OGC-Features-Collection **1928**
-  enthält **alle** UAS-Zonen (sowohl `0to120m` als auch `50to120m`).
+  `lu_uas_0_50`/`lu_uas_50_120`).
+- ⚠️ **Korrektur (DE-Session verifiziert):** Es gibt **zwei** Höhenband-Ebenen,
+  und `1928` enthält **nicht** alle Zonen:
+  - `1927` = `zones_UAS_0_50m` (Boden–50 m) → **33** Objekte
+  - `1928` = `zones_UAS_50_120m` (50–120 m) → **34** Objekte
+  - Eine Zone kann in **beiden** Ebenen stehen (z. B. `EL-UAS-A1-ELLX0`,
+    0–120 m). Eine reine 0–50-m-Zone steht **nur** in `1927`.
+  - → **Beide Collections laden und pro `nom_zone` mergen** (Höhenband über
+    `min_height`/`max_height` bzw. die Layer-Zugehörigkeit kennzeichnen).
 
 ---
 
@@ -154,14 +161,53 @@ GET https://features.geoportail.lu/collections/1928/items?f=json&limit=2000
 
 ---
 
-## 6. Schnelltest
+## 6. Bedingungs-PDFs + Direktlink (DE-Session verifiziert)
+
+Die OGC-Features-API (§3) hat **keine** Verweise auf die Bedingungs-PDFs. Die
+holt man über denselben Aufruf, den die Karte beim Klick auf eine Zone nutzt
+(inoffiziell, aber öffentlich erreichbar):
+
+- **Infos + PDF-Liste je Zone (per Objekt-ID, einfachster Weg):**
+  ```
+  GET https://map.geoportail.lu/getfeatureinfo?fid=<Layer>_<objectid>
+  # z. B. fid=1928_47
+  ```
+  Antwort JSON pro Layer: `features[]` mit `attributes` (Zone Identifier,
+  Activity, Start/End, Lower/Upper limit [m], Conditions, Remarks) und
+  **`sketches[]`** = PDF-Liste, z. B.
+  `{id: 16, name: "EL-UAS-A1-ELLX0_v2.0_EN_DE.pdf"}` (meist EN/DE **und** FR/LU).
+  ⚠️ Geometrie hier in **EPSG:2169 (LUREF)** – für die Karte die WGS84-Geometrie
+  aus §3 nehmen, nicht die von hier.
+- **Einzelnes PDF laden:**
+  ```
+  GET https://map.geoportail.lu/downloadpdf?fid=1928_47&sketch_id=16  → application/pdf
+  ```
+- **Direktlink auf eine Zone in der Geoportail-Karte (zum Verlinken aus der App):**
+  ```
+  https://map.geoportail.lu/theme/main?layers=1928-1927&fid=1928_47
+  ```
+
+> Diese `getfeatureinfo`/`downloadpdf`-Endpunkte sind **nicht** offiziell
+> dokumentiert → serverseitig abfragen + cachen, und die Nutzung bei der DAC
+> freigeben lassen (nur der ED-269-/OGC-Datensatz ist ausdrücklich CC0).
+> Weitere Felder der OGC-Zone: `duree_previsualisation` (Vorschau-Stunden vor
+> Aktivierung → temporäre Zonen vorab anzeigen), `nature_protect` (`AERO`/`TERR`).
+
+---
+
+## 7. Schnelltest
 
 ```bash
 UA="Mozilla/5.0 Chrome/120"
-# ED-269 (CC0) – derzeit evtl. 422:
+# ED-269 (CC0) – derzeit 422 (kaputt):
 curl -s --compressed -A "$UA" "https://drones.geoportail.lu/zones" | head -c 200
-# OGC-Features-Rückfall (funktioniert):
-curl -s --compressed -A "$UA" \
-  "https://features.geoportail.lu/collections/1928/items?f=json&limit=2000" \
-  | jq '{n:(.features|length), bands:([.features[].properties.type_restiction]|group_by(.)|map({(.[0]):length})|add)}'
+# OGC-Features – BEIDE Ebenen (funktioniert):
+for L in 1927 1928; do
+  curl -s --compressed -A "$UA" \
+    "https://features.geoportail.lu/collections/$L/items?f=json&limit=1000" \
+    | jq --arg L "$L" '{layer:$L, n:(.features|length)}'
+done
+# PDF-Bedingungen einer Zone:
+curl -s -A "$UA" "https://map.geoportail.lu/getfeatureinfo?fid=1928_47" \
+  | jq '.[0].features[0].attributes.sketches'
 ```
