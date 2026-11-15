@@ -18,12 +18,8 @@ erreichbar. Solche Punkte sind mit 🌐 markiert. Sicherheits-/Bot-Schutz wurde
 Nur „von hier geblockt", Daten/Endpunkt bekannt. Von einer EU-IP oder im
 Gerätetest gegenprüfen und je eine Fixture einchecken.
 
-1. **PL – PANSA** (`docs/pansa-pl-api-integration.md`)
-   - Prüfen: Login (`x-api-key` → Bearer) + `GET /v1/kml/filtered?types=DRAP,DRAR,DRAI&max=500` → KML.
-   - Host `api.dronemap.pansa.pl` ist vom US-Egress geblockt.
-2. **ES – ENAIRE** (`docs/enaire-es-api-integration.md`)
-   - Prüfen: `…/SRV_UAS_ZG_data_V2/FeatureServer/<id>/query?...&f=geojson` + WFS.
-   - Host `servais.enaire.es` per WAF (403) geblockt.
+1. **PL – PANSA** ✅ ERLEDIGT (von DE-IP, 2026-11-15): 1.774 Zonen als KML abgerufen, Fixtures vorhanden. Offen nur noch: KML→GeoJSON-Adapter bauen.
+2. **ES – ENAIRE** ✅ ERLEDIGT (von DE-IP, 2026-11-15): Live-Endpunkt `insignias/.../NSF/Drones_ZG_Aero_V3/MapServer` gefunden, Fixtures vorhanden (Doc korrigiert). Offen nur noch: Normalisierer bauen.
 3. **RO – ROMATSA** (`docs/greece-romania-geozones-notes.md`)
    - Prüfen: `flightplan.romatsa.ro/init/drones` von EU-IP überhaupt erreichbar? Dann Datenendpunkt (Netzwerk-Tab) ermitteln.
    - Host aus US-Egress nicht erreichbar (000).

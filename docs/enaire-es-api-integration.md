@@ -41,15 +41,40 @@ Vergleich: NL/AT/IT/LU/IE/PL/BE/PT-Dokumente in `docs/`.
 
 ## 3. Zugriff (aus der Spec, §6)
 
-**Basis:** `https://servais.enaire.es/insigniads/`
+> ✅ **Korrektur (live verifiziert von DE-IP, 2026-11-15):** Der in der PDF-Spec
+> genannte `…/insigniads/.../SRV_UAS_ZG_data_V2/FeatureServer` ist **veraltet**.
+> Die Live-Karte `drones.enaire.es` nutzt aktuell **`insignias`** (anderer Pfad)
+> und **MapServer/<Layer>/query**. Von einer EU-IP direkt erreichbar
+> (HTTP 200, `application/geo+json`), **ohne Auth**. Der WAF-403 trat nur aus
+> der US-Cloud auf.
 
-### 3.1 ArcGIS REST (empfohlen für Vektorabruf)
+**Aktuelle Basis:** `https://servais.enaire.es/insignias/rest/services/`
+
+### 3.1 ArcGIS REST – AKTUELLE Services (live)
+| Service / Layer | Zweck |
+|---|---|
+| `NSF/Drones_ZG_Aero_V3/MapServer` | **Luftfahrt-Zonen (Hauptservice)** |
+| `NSF/Drones_ZG_Infra_V0/MapServer/11` | Infrastruktur |
+| `NSF/Drones_ZG_Urbano_V0/MapServer/11` | Urbane Zonen |
+| `NOTAM/NOTAM_UAS_APP_V3/MapServer/1` | NOTAM |
+| `ENP/ENP_APP_Local_V4/MapServer/0,1` | Naturschutz |
+
+Layer in `Drones_ZG_Aero_V3`: [0] AERODROMOS · [1] ZG_EAC_FIZ · [2] AVISOS ·
+[3] ZG_RVF · [4] AEROMODELISMO · [6] ZG_Aeródromos · [10] ZG_Restringidas.
+
+- Abruf als GeoJSON:
+  `…/insignias/rest/services/NSF/Drones_ZG_Aero_V3/MapServer/<layer>/query?where=1=1&outFields=*&returnGeometry=true&outSR=4326&f=geojson`
+- **Höhenfilter (<120 m):** `where=RESTRICCION_LOWER < 120` (Feld existiert nicht
+  auf jedem Layer – pro Layer prüfen).
+- Beispiel (funktioniert):
+  `https://servais.enaire.es/insignias/rest/services/NSF/Drones_ZG_Aero_V3/MapServer/0/query?where=1%3D1&outFields=*&returnGeometry=true&f=geojson`
+- **Fixtures (lokal erfasst):** `fixtures/enaire_Drones_ZG_Aero_V3_MapServer.json`
+  (Metadaten), `fixtures/enaire_aero_layer0_sample.geojson` (echte Features).
+
+#### Veraltet (nur als Referenz, aus PDF-Spec v3.1)
 ```
-https://servais.enaire.es/insigniads/rest/services/NSF_SRV/SRV_UAS_ZG_data_V2/FeatureServer
-https://servais.enaire.es/insigniads/rest/services/NSF_SRV/SRV_UAS_ZG_data_V2/MapServer
+https://servais.enaire.es/insigniads/rest/services/NSF_SRV/SRV_UAS_ZG_data_V2/FeatureServer   # veraltet
 ```
-- Layer-Liste: `…/FeatureServer?f=json`
-- Abruf als GeoJSON: `…/FeatureServer/<id>/query?where=1=1&outFields=*&outSR=4326&f=geojson`
 - Punkt-in-Polygon (Standort-Check): `…/query?geometry=<lon>,<lat>&geometryType=esriGeometryPoint&inSR=4326&spatialRel=esriSpatialRelIntersects&outFields=*&f=geojson`
 
 ### 3.2 OGC WFS 2.0
