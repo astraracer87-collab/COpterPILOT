@@ -417,7 +417,8 @@ export default function OfflineMapsScreen() {
 
         <ThemedText style={[styles.sectionTitle, { color: theme.textSecondary, marginTop: Spacing["2xl"] }]}>OFFLINE-LÄNDER</ThemedText>
         <ThemedText style={[styles.small, styles.intro, { color: theme.textSecondary }]}>
-          Gespeicherte Länder funktionieren ohne Internet. Karten und Luftbilder stammen von den amtlichen Vermessungsämtern.
+          Gespeicherte Länder funktionieren ohne Internet. Karten und Luftbilder stammen von den amtlichen Vermessungsämtern –
+          wo es keine frei speicherbare amtliche Karte gibt, werden Geozonen und Hindernisse gespeichert und die Karte online angezeigt.
           {freeMB != null ? ` Freier Speicher: ${formatMB(freeMB)}.` : ""}
         </ThemedText>
 
@@ -429,10 +430,11 @@ export default function OfflineMapsScreen() {
           const open = expanded === country.iso;
           const est = estimateSize(c);
           const packs = Object.values(st?.packs ?? {});
+          // Länder ohne Grundkarte haben evtl. nur Hindernisse (keine Pakete)
           const allDone =
-            packs.length > 0 &&
+            (packs.length > 0 || c.obstacles) &&
             packs.every((p) => p.state === "complete" || p.percentage >= 100) &&
-            (!c.obstacles || (st?.obstacles && st.obstacles.done >= st.obstacles.total));
+            (!c.obstacles || (!!st?.obstacles && st.obstacles.done >= st.obstacles.total));
           return (
             <Card key={country.iso} style={[styles.card, { marginTop: Spacing.sm }]}>
               <Pressable onPress={() => setExpanded(open ? null : country.iso)} style={styles.countryHead}>
@@ -452,6 +454,12 @@ export default function OfflineMapsScreen() {
 
               {open ? (
                 <View style={{ marginTop: Spacing.md, gap: Spacing.md }}>
+                  {country.note ? (
+                    <View style={[styles.noteBox, { backgroundColor: theme.backgroundSecondary }]}>
+                      <Feather name="info" size={16} color={theme.textSecondary} />
+                      <ThemedText style={[styles.small, { flex: 1, color: theme.textSecondary }]}>{country.note}</ThemedText>
+                    </View>
+                  ) : null}
                   <Row
                     label="Karte"
                     sub={country.hasMap ? `amtliche Karte · ca. ${formatMB(est.mapMB)}` : "für dieses Land nur online"}
@@ -486,12 +494,18 @@ export default function OfflineMapsScreen() {
 
                   <Row
                     label="Geozonen"
-                    sub={country.hasGeozones ? `ab Zoom 11 · ca. ${formatMB(est.geoMB)}` : "für dieses Land keine Geozonen-Karte"}
+                    sub={
+                      country.geozoneKind === "tiles"
+                        ? `ab Zoom 11 · ca. ${formatMB(est.geoMB)}`
+                        : country.geozoneKind === "vector"
+                          ? `alle Zonen des Landes (Behördendaten) · ca. ${formatMB(est.geoMB)}`
+                          : "für dieses Land keine Geozonen-Daten"
+                    }
                     value={c.geozones}
                     onChange={(v) => update(country.iso, { geozones: v })}
                     disabled={!country.hasGeozones}
                   />
-                  {c.geozones && country.hasGeozones ? (
+                  {c.geozones && country.geozoneKind === "tiles" ? (
                     <View>
                       <ThemedText style={[styles.small, { color: theme.textSecondary }]}>Detail: {DETAIL_LABELS[c.geoMaxZoom]}</ThemedText>
                       <Seg value={c.geoMaxZoom} onChange={(v) => update(country.iso, { geoMaxZoom: v })} />
@@ -511,7 +525,11 @@ export default function OfflineMapsScreen() {
                         <ThemedText key={p.key} style={styles.small}>
                           {KIND_LABEL[p.kind] ?? p.kind}
                           {p.key.includes(":sat:") ? ` (${p.key.split(":")[2].replace(/^de-dop-/, "").toUpperCase()})` : ""}:{" "}
-                          {p.state === "error" ? `Fehler – ${p.error ?? "erneut versuchen"}` : `${Math.floor(p.percentage)} % · ${formatMB(p.bytes / 1024 / 1024)}`}
+                          {p.state === "error"
+                            ? `Fehler – ${p.error ?? "erneut versuchen"}`
+                            : p.key.endsWith(":geo:vector")
+                              ? p.percentage >= 100 ? "gespeichert" : "wird geladen …"
+                              : `${Math.floor(p.percentage)} % · ${formatMB(p.bytes / 1024 / 1024)}`}
                         </ThemedText>
                       ))}
                       {st?.obstacles ? (
@@ -572,6 +590,7 @@ const styles = StyleSheet.create({
   segBtn: { flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: "center" },
   segText: { fontWeight: "700" },
   progressBox: { padding: Spacing.md, borderRadius: 10, gap: 4 },
+  noteBox: { flexDirection: "row", alignItems: "flex-start", gap: 8, padding: Spacing.md, borderRadius: 10 },
   buttons: { flexDirection: "row", gap: Spacing.sm, flexWrap: "wrap" },
   btn: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10 },
   btnText: { fontWeight: "700" },

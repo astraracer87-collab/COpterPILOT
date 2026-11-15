@@ -6,13 +6,27 @@
  * wobei <hash> aus der Kachel-Adresse der Quelle gebildet wird (gleiche
  * Funktion wie in leafletRc.ts). Die Leaflet-Karten schauen dort zuerst nach.
  * Hindernisse werden als Kacheln aus OpenStreetMap geladen (obstacles.ts).
+ *
+ * Wählbar sind alle Länder der App (OFFLINE_APP_COUNTRIES). Karte/Luftbild nur,
+ * wo mapSources.ts eine frei speicherbare amtliche Quelle kennt; Geozonen als
+ * Kacheln (WMS/XYZ, z. B. DE/CH/HU) oder als Vektordaten (ED-269-Gerätecache,
+ * z. B. AT/NO/ES); Hindernisse überall.
  */
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as FileSystem from "expo-file-system/legacy";
-import { COUNTRY_MAP_PROVIDERS, getMapProvider, type LngLatBox, type RasterDef } from "@/lib/mapSources";
+import {
+  OFFLINE_APP_COUNTRIES,
+  countryOfflineBounds,
+  getMapProvider,
+  noOfflineBasemapNote,
+  type LngLatBox,
+  type RasterDef,
+} from "@/lib/mapSources";
 import { COUNTRY_GEOZONE_CONFIGS, buildGeozoneTileUrls, getAllDefaultEnabledLayerNames, getAllLayerNames } from "@/lib/geozones";
 import { detectCountryFromCoordinates } from "../../shared/countryDetection";
 import { detectBundeslandFromCoordinates } from "@/lib/countryMaps";
+import { isEd269DirectCountry } from "@/lib/geozoneDirect/ed269Sources";
+import { refreshEd269Dataset } from "@/lib/geozoneDirect/ed269Store";
 import { OBSTACLE_TILE_ZOOM, deleteObstacleTiles, hasObstacleTile, loadObstacleTile, tilesForBounds } from "@/lib/obstacles";
 
 export type DetailLevel = 11 | 12 | 13 | 14 | 15;
@@ -46,6 +60,8 @@ const MAP_MIN_ZOOM = 5;
 const SAT_MIN_ZOOM = 8;
 const GEO_KB_PER_TILE = 6;
 const OBSTACLE_KB_PER_TILE = 120;
+/** Vektor-Geozonen (ED-269-Datei eines Landes) – grobe Größe */
+const VECTOR_GEO_MB = 3;
 const PARALLEL = 6;
 
 // ---------------------------------------------------------------------------
@@ -100,15 +116,49 @@ function fillTemplate(t: string, x: number, y: number, z: number): string {
 // Konfiguration
 // ---------------------------------------------------------------------------
 
-export function offlineCountries(): { iso: string; label: string; bounds: LngLatBox; hasMap: boolean; hasSatellite: boolean; hasGeozones: boolean }[] {
-  return COUNTRY_MAP_PROVIDERS.map((p) => ({
-    iso: p.iso,
-    label: p.label,
-    bounds: p.bounds,
-    hasMap: !!p.map,
-    hasSatellite: !!p.satellite?.length,
-    hasGeozones: geozoneTemplates(p.iso).length > 0,
-  }));
+export type GeozoneOfflineKind = "tiles" | "vector" | "none";
+
+export interface OfflineCountryInfo {
+  iso: string;
+  label: string;
+  bounds: LngLatBox;
+  hasMap: boolean;
+  hasSatellite: boolean;
+  hasGeozones: boolean;
+  /** Geozonen als Kacheln (WMS/XYZ) oder als Vektordatei (ED-269-Gerätecache) */
+  geozoneKind: GeozoneOfflineKind;
+  /** Hinweis, wenn es keine frei speicherbare Grundkarte gibt */
+  note?: string;
+}
+
+/** Wie werden die Geozonen eines Landes offline gespeichert? */
+export function geozoneOfflineKind(iso: string): GeozoneOfflineKind {
+  if (geozoneTemplates(iso).length > 0) return "tiles";
+  if (isEd269DirectCountry(iso)) return "vector";
+  return "none";
+}
+
+/** Alle Länder der App – jedes ist wählbar (mindestens Hindernisse). */
+export function offlineCountries(): OfflineCountryInfo[] {
+  const out: OfflineCountryInfo[] = [];
+  for (const c of OFFLINE_APP_COUNTRIES) {
+    const bounds = countryOfflineBounds(c.iso);
+    if (!bounds) continue;
+    const p = getMapProvider(c.iso);
+    const geozoneKind = geozoneOfflineKind(c.iso);
+    const hasMap = !!p?.map;
+    out.push({
+      iso: c.iso,
+      label: c.label,
+      bounds,
+      hasMap,
+      hasSatellite: !!p?.satellite?.length,
+      hasGeozones: geozoneKind !== "none",
+      geozoneKind,
+      note: hasMap ? undefined : noOfflineBasemapNote(c.label, geozoneKind !== "none"),
+    });
+  }
+  return out;
 }
 
 export function defaultConfig(iso: string): CountryOfflineConfig {
@@ -119,7 +169,7 @@ export function defaultConfig(iso: string): CountryOfflineConfig {
     mapMaxZoom: 12,
     satellite: false,
     satMaxZoom: 13,
-    geozones: geozoneTemplates(iso).length > 0,
+    geozones: geozoneOfflineKind(iso) !== "none",
     geoMaxZoom: 12,
     obstacles: true,
   };
@@ -218,19 +268,26 @@ export interface SizeEstimate {
 
 export function estimateSize(c: CountryOfflineConfig): SizeEstimate {
   const p = getMapProvider(c.iso);
+  const bounds = countryOfflineBounds(c.iso);
   const mb = (tiles: number, kb: number, share = LAND_SHARE) => (tiles * share * kb) / 1024;
   let mapMB = 0;
   let satMB = 0;
   let geoMB = 0;
   let obstaclesMB = 0;
-  if (c.map && p?.map) mapMB = mb(tileCount(p.map.bounds, MAP_MIN_ZOOM, c.mapMaxZoom), p.map.kbPerTile);
+  if (c.map && p?.map) {
+    mapMB = mb(tileCount(p.map.bounds, Math.max(MAP_MIN_ZOOM, p.map.minzoom ?? 0), Math.min(c.mapMaxZoom, p.map.maxzoom)), p.map.kbPerTile);
+  }
   if (c.satellite && p?.satellite) {
     for (const s of p.satellite) {
       satMB += mb(tileCount(s.bounds, Math.max(SAT_MIN_ZOOM, s.minzoom ?? 0), Math.min(c.satMaxZoom, s.maxzoom)), s.kbPerTile);
     }
   }
-  if (c.geozones && p) geoMB = mb(tileCount(p.bounds, GEOZONE_MIN_ZOOM, c.geoMaxZoom), GEO_KB_PER_TILE) * Math.max(1, geozoneTemplates(c.iso).length);
-  if (c.obstacles && p) obstaclesMB = (tilesForBounds(...p.bounds).length * LAND_SHARE * OBSTACLE_KB_PER_TILE) / 1024;
+  if (c.geozones && bounds) {
+    const kind = geozoneOfflineKind(c.iso);
+    if (kind === "tiles") geoMB = mb(tileCount(bounds, GEOZONE_MIN_ZOOM, c.geoMaxZoom), GEO_KB_PER_TILE) * geozoneTemplates(c.iso).length;
+    else if (kind === "vector") geoMB = VECTOR_GEO_MB;
+  }
+  if (c.obstacles && bounds) obstaclesMB = (tilesForBounds(...bounds).length * LAND_SHARE * OBSTACLE_KB_PER_TILE) / 1024;
   return { mapMB, satMB, geoMB, obstaclesMB, totalMB: mapMB + satMB + geoMB + obstaclesMB };
 }
 
@@ -253,6 +310,10 @@ export async function freeDiskMB(): Promise<number | null> {
 // ---------------------------------------------------------------------------
 
 type PackKind = "map" | "sat" | "geo";
+
+/** Fortschritts-Schlüssel der Vektor-Geozonen (keine Kacheln) */
+const vectorGeoKey = (iso: string) => `${iso}:geo:vector`;
+const VECTOR_TEMPLATE_PREFIX = "ed269:";
 
 interface PackPlan {
   key: string;
@@ -296,21 +357,22 @@ function cellInfo(x: number, y: number) {
 
 function plansFor(c: CountryOfflineConfig): PackPlan[] {
   const p = getMapProvider(c.iso);
-  if (!p) return [];
+  const bounds = countryOfflineBounds(c.iso);
+  if (!bounds) return [];
   const plans: PackPlan[] = [];
   const inCountry = (iso: string) => iso === c.iso;
-  if (c.map && p.map) {
+  if (c.map && p?.map) {
     plans.push({
       key: `${c.iso}:map`,
       kind: "map",
       template: p.map.tiles,
       bounds: p.map.bounds,
-      minZoom: MAP_MIN_ZOOM,
+      minZoom: Math.max(MAP_MIN_ZOOM, p.map.minzoom ?? 0),
       maxZoom: Math.min(c.mapMaxZoom, p.map.maxzoom),
       cellFilter: inCountry,
     });
   }
-  if (c.satellite && p.satellite) {
+  if (c.satellite && p?.satellite) {
     for (const s of p.satellite as RasterDef[]) {
       plans.push({
         key: `${c.iso}:sat:${s.id}`,
@@ -329,7 +391,7 @@ function plansFor(c: CountryOfflineConfig): PackPlan[] {
         key: `${c.iso}:geo:${i}`,
         kind: "geo",
         template: t,
-        bounds: p.bounds,
+        bounds,
         minZoom: GEOZONE_MIN_ZOOM,
         maxZoom: c.geoMaxZoom,
         cellFilter: inCountry,
@@ -435,6 +497,22 @@ async function downloadTile(template: string, hash: string, z: number, x: number
 }
 
 /** Startet bzw. setzt die Downloads für ein Land fort. */
+/** Wird die Kachel-Adresse noch von einem anderen Paket benutzt (z. B. LI = CH)? */
+function templateUsedElsewhere(progress: StoredProgress, ownKey: string, template: string): boolean {
+  return Object.entries(progress).some(([k, v]) => k !== ownKey && v.template === template);
+}
+
+/** Kachel-Ordner eines Pakets löschen – außer andere Pakete teilen ihn. */
+async function dropPack(progress: StoredProgress, levels: Record<string, number>, key: string): Promise<void> {
+  const tpl = progress[key]?.template ?? "";
+  if (tpl && !tpl.startsWith(VECTOR_TEMPLATE_PREFIX) && !templateUsedElsewhere(progress, key, tpl)) {
+    const h = tileSourceHash(tpl);
+    await FileSystem.deleteAsync(`${TILE_ROOT}${h}/`, { idempotent: true }).catch(() => {});
+    delete levels[h];
+  }
+  delete progress[key];
+}
+
 export async function startCountryDownload(
   c: CountryOfflineConfig,
   onPack: (p: PackProgress) => void,
@@ -445,21 +523,39 @@ export async function startCountryDownload(
   await saveOfflineConfigs([...list, c]);
 
   const plans = plansFor(c);
+  const vectorGeo = c.geozones && geozoneOfflineKind(c.iso) === "vector";
   const wanted = new Set(plans.map((p) => p.key));
+  if (vectorGeo) wanted.add(vectorGeoKey(c.iso));
   const progress = await loadProgress();
   const levels = await loadLevels();
 
   // abgewählte Teile entfernen
   for (const key of Object.keys(progress)) {
-    if (key.startsWith(`${c.iso}:`) && !wanted.has(key)) {
-      const h = tileSourceHash(progress[key].template);
-      await FileSystem.deleteAsync(`${TILE_ROOT}${h}/`, { idempotent: true }).catch(() => {});
-      delete levels[h];
-      delete progress[key];
-    }
+    if (key.startsWith(`${c.iso}:`) && !wanted.has(key)) await dropPack(progress, levels, key);
   }
   await saveProgress(progress);
   await saveLevels(levels);
+
+  // Vektor-Geozonen (ED-269): ganze Landesdatei in den Gerätecache laden
+  if (vectorGeo && !shouldStop()) {
+    const key = vectorGeoKey(c.iso);
+    onPack({ key, kind: "geo", percentage: 0, bytes: 0, state: "active" });
+    const ok = await refreshEd269Dataset(c.iso).catch(() => false);
+    if (ok) {
+      progress[key] = { done: 1, total: 1, bytes: 0, maxZoom: 0, template: VECTOR_TEMPLATE_PREFIX + c.iso };
+      await saveProgress(progress);
+      onPack({ key, kind: "geo", percentage: 100, bytes: 0, state: "complete" });
+    } else {
+      onPack({
+        key,
+        kind: "geo",
+        percentage: progress[key] ? 100 : 0,
+        bytes: 0,
+        state: "error",
+        error: c.iso === "IT" ? "d-flight-Zugang fehlt oder Anmeldung fehlgeschlagen" : "Geozonen konnten nicht geladen werden",
+      });
+    }
+  }
 
   for (const plan of plans) {
     if (shouldStop()) break;
@@ -516,9 +612,9 @@ export async function startCountryDownload(
 
   // Hindernisse: Kachel für Kachel, schonend für die OSM-Server
   if (c.obstacles && !shouldStop()) {
-    const p = getMapProvider(c.iso);
-    if (p) {
-      const tiles = tilesForBounds(...p.bounds, OBSTACLE_TILE_ZOOM);
+    const bounds = countryOfflineBounds(c.iso);
+    if (bounds) {
+      const tiles = tilesForBounds(...bounds, OBSTACLE_TILE_ZOOM);
       let done = 0;
       onObstacles(0, tiles.length);
       for (const t of tiles) {
@@ -542,33 +638,29 @@ export async function deleteCountry(iso: string): Promise<void> {
   const progress = await loadProgress();
   const levels = await loadLevels();
   for (const key of Object.keys(progress)) {
-    if (!key.startsWith(`${iso}:`)) continue;
-    const h = tileSourceHash(progress[key].template);
-    await FileSystem.deleteAsync(`${TILE_ROOT}${h}/`, { idempotent: true }).catch(() => {});
-    delete levels[h];
-    delete progress[key];
+    if (key.startsWith(`${iso}:`)) await dropPack(progress, levels, key);
   }
   await saveProgress(progress);
   await saveLevels(levels);
 
   const list = (await loadOfflineConfigs()).filter((x) => x.iso !== iso);
-  const prov = getMapProvider(iso);
-  if (prov) {
+  const bounds = countryOfflineBounds(iso);
+  if (bounds) {
     // Hindernis-Kacheln, die auch zu einem anderen Offline-Land gehören, behalten
     const keep = new Set<string>();
     for (const other of list) {
-      const op = getMapProvider(other.iso);
-      if (op && other.obstacles) for (const t of tilesForBounds(...op.bounds, OBSTACLE_TILE_ZOOM)) keep.add(`${t.x}_${t.y}`);
+      const ob = countryOfflineBounds(other.iso);
+      if (ob && other.obstacles) for (const t of tilesForBounds(...ob, OBSTACLE_TILE_ZOOM)) keep.add(`${t.x}_${t.y}`);
     }
-    await deleteObstacleTiles(tilesForBounds(...prov.bounds, OBSTACLE_TILE_ZOOM).filter((t) => !keep.has(`${t.x}_${t.y}`)));
+    await deleteObstacleTiles(tilesForBounds(...bounds, OBSTACLE_TILE_ZOOM).filter((t) => !keep.has(`${t.x}_${t.y}`)));
   }
   await saveOfflineConfigs(list);
 }
 
 export async function obstacleTilesStored(iso: string): Promise<{ done: number; total: number }> {
-  const p = getMapProvider(iso);
-  if (!p) return { done: 0, total: 0 };
-  const tiles = tilesForBounds(...p.bounds, OBSTACLE_TILE_ZOOM);
+  const bounds = countryOfflineBounds(iso);
+  if (!bounds) return { done: 0, total: 0 };
+  const tiles = tilesForBounds(...bounds, OBSTACLE_TILE_ZOOM);
   let done = 0;
   for (const t of tiles) if (await hasObstacleTile(t.x, t.y)) done++;
   return { done, total: tiles.length };

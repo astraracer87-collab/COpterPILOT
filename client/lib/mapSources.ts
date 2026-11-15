@@ -10,6 +10,8 @@
  * für Offline-Pakete benutzt – nur dann findet MapLibre die gespeicherten Kacheln.
  */
 
+import { getCountryBoundingBox } from "../../shared/countryDetection";
+
 export type LngLatBox = [west: number, south: number, east: number, north: number];
 
 export interface RasterDef {
@@ -213,7 +215,235 @@ export const COUNTRY_MAP_PROVIDERS: CountryMapProvider[] = [
     label: "Luxemburg",
     bounds: [5.73, 49.44, 6.53, 50.19],
   },
+  // ---------------------------------------------------------------------------
+  // Weitere Länder (live geprüft, Lizenz erlaubt Speicherung/Weitergabe; siehe
+  // docs/offline-karten-quellen.md). Länder ohne Eintrag hier oder ohne `map`
+  // zeigen die Karte nur online (CARTO/Esri dürfen nicht massenhaft geladen werden).
+  // ---------------------------------------------------------------------------
+  {
+    iso: "LI",
+    label: "Liechtenstein",
+    bounds: [9.47, 47.05, 9.64, 47.27],
+    // swisstopo-Landeskarten und SWISSIMAGE decken Liechtenstein mit ab; gleiche
+    // Kachel-Adressen wie CH, damit gespeicherte Kacheln gemeinsam genutzt werden.
+    map: {
+      id: "li-swisstopo",
+      tiles: "https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg",
+      tileSize: 256,
+      maxzoom: 18,
+      attribution: "© swisstopo",
+      bounds: [9.47, 47.05, 9.64, 47.27],
+      kbPerTile: 35,
+    },
+    satellite: [
+      {
+        id: "li-swissimage",
+        tiles: "https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.swissimage/default/current/3857/{z}/{x}/{y}.jpeg",
+        tileSize: 256,
+        maxzoom: 19,
+        attribution: "© swisstopo",
+        bounds: [9.47, 47.05, 9.64, 47.27],
+        kbPerTile: 28,
+      },
+    ],
+  },
+  {
+    // Kartverket Topografisk Norgeskart (Cache-WMTS, webmercator), CC BY 4.0.
+    // Luftbilder („Norge i bilder“) sind nicht frei – nur online.
+    iso: "NO",
+    label: "Norwegen",
+    bounds: [4.64, 57.96, 31.08, 71.19],
+    map: {
+      id: "no-kartverket-topo",
+      tiles: "https://cache.kartverket.no/v1/wmts/1.0.0/topo/default/webmercator/{z}/{y}/{x}.png",
+      tileSize: 256,
+      maxzoom: 18,
+      attribution: "© Kartverket (CC BY 4.0)",
+      bounds: [4.64, 57.96, 31.08, 71.19],
+      kbPerTile: 60,
+    },
+  },
+  {
+    // IGN España: Mapa base (IGNBaseTodo) und PNOA-Orthofotos, CC BY 4.0 (scne.es).
+    // Nur Festland + Balearen (Kanaren liegen außerhalb der Länder-Box).
+    iso: "ES",
+    label: "Spanien",
+    bounds: [-9.3, 35.95, 4.33, 43.79],
+    map: {
+      id: "es-ignbase",
+      tiles:
+        "https://www.ign.es/wmts/ign-base?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=IGNBaseTodo&STYLE=default&TILEMATRIXSET=GoogleMapsCompatible&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=image/jpeg",
+      tileSize: 256,
+      maxzoom: 19,
+      attribution: "© Instituto Geográfico Nacional de España (CC BY 4.0)",
+      bounds: [-9.3, 35.95, 4.33, 43.79],
+      kbPerTile: 16,
+    },
+    satellite: [
+      {
+        id: "es-pnoa",
+        tiles:
+          "https://www.ign.es/wmts/pnoa-ma?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=OI.OrthoimageCoverage&STYLE=default&TILEMATRIXSET=GoogleMapsCompatible&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=image/jpeg",
+        tileSize: 256,
+        maxzoom: 19,
+        attribution: "PNOA © Instituto Geográfico Nacional de España (CC BY 4.0)",
+        bounds: [-9.3, 35.95, 4.33, 43.79],
+        kbPerTile: 20,
+      },
+    ],
+  },
+  {
+    // Maa- ja Ruumiamet (Estland): Grundkarte und Orthofoto im GMC-Raster
+    // (= Web-Mercator), Open-Data-Lizenz (frei, auch kommerziell, Quellenangabe).
+    iso: "EE",
+    label: "Estland",
+    bounds: [21.76, 57.52, 28.21, 59.68],
+    map: {
+      id: "ee-maaamet-kaart",
+      tiles: "https://tiles.maaamet.ee/tm/wmts/1.0.0/kaart/default/GMC/{z}/{y}/{x}.png",
+      tileSize: 256,
+      maxzoom: 18,
+      attribution: "Aluskaart © Maa- ja Ruumiamet",
+      bounds: [21.76, 57.52, 28.21, 59.68],
+      kbPerTile: 18,
+    },
+    satellite: [
+      {
+        id: "ee-maaamet-foto",
+        tiles: "https://tiles.maaamet.ee/tm/wmts/1.0.0/foto/default/GMC/{z}/{y}/{x}.jpg",
+        tileSize: 256,
+        maxzoom: 18,
+        attribution: "Ortofoto © Maa- ja Ruumiamet",
+        bounds: [21.76, 57.52, 28.21, 59.68],
+        kbPerTile: 20,
+      },
+    ],
+  },
+  {
+    // ČÚZK (Tschechien): Základní topografické mapy und Ortofoto ČR als
+    // Web-Mercator-Kacheln, Open Data CC BY 4.0. Kacheln erst ab Zoom 6.
+    iso: "CZ",
+    label: "Tschechien",
+    bounds: [12.09, 48.55, 18.86, 51.06],
+    map: {
+      id: "cz-cuzk-ztm",
+      tiles: "https://ags.cuzk.gov.cz/arcgis1/rest/services/ZTM_WM/MapServer/tile/{z}/{y}/{x}",
+      tileSize: 256,
+      maxzoom: 18,
+      minzoom: 6,
+      attribution: "© ČÚZK (CC BY 4.0)",
+      bounds: [12.09, 48.55, 18.86, 51.06],
+      kbPerTile: 40,
+    },
+    satellite: [
+      {
+        id: "cz-cuzk-orto",
+        tiles: "https://ags.cuzk.gov.cz/arcgis1/rest/services/ORTOFOTO_WM/MapServer/tile/{z}/{y}/{x}",
+        tileSize: 256,
+        maxzoom: 19,
+        minzoom: 6,
+        attribution: "Ortofoto © ČÚZK (CC BY 4.0)",
+        bounds: [12.09, 48.55, 18.86, 51.06],
+        kbPerTile: 35,
+      },
+    ],
+  },
+  {
+    // Polen: amtliche Orthofotomap (GUGiK, Geoportal-WMTS EPSG:3857), kostenfrei
+    // und beliebig nutzbar. Eine topografische Karte gibt es nur in EPSG:2180 –
+    // die Karte bleibt daher online.
+    iso: "PL",
+    label: "Polen",
+    bounds: [14.12, 49.0, 24.15, 54.84],
+    satellite: [
+      {
+        id: "pl-gugik-orto",
+        tiles:
+          "https://mapy.geoportal.gov.pl/wss/service/PZGIK/ORTO/WMTS/StandardResolution?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=ORTOFOTOMAPA&STYLE=default&TILEMATRIXSET=EPSG:3857&TILEMATRIX=EPSG:3857:{z}&TILEROW={y}&TILECOL={x}&FORMAT=image/jpeg",
+        tileSize: 256,
+        maxzoom: 19,
+        attribution: "Ortofotomapa © GUGiK",
+        bounds: [14.12, 49.0, 24.15, 54.84],
+        kbPerTile: 13,
+      },
+    ],
+  },
+  {
+    // Island: Grundkarte der Landesvermessung (LMÍ, jetzt Náttúrufræðistofnun)
+    // über GeoServer-WMS in EPSG:3857, CC BY 4.0.
+    iso: "IS",
+    label: "Island",
+    bounds: [-24.6, 63.2, -13.4, 66.6],
+    map: {
+      id: "is-lmi-grunnkort",
+      tiles: wms13("https://gis.lmi.is/geoserver/wms", "nytt_grunnkort_samsett_naer_fjaer", "image/png"),
+      tileSize: 256,
+      maxzoom: 18,
+      attribution: "© Náttúrufræðistofnun / Landmælingar Íslands (CC BY 4.0)",
+      bounds: [-24.6, 63.2, -13.4, 66.6],
+      kbPerTile: 55,
+    },
+  },
 ];
+
+/**
+ * Alle Länder der App (wie LICENSE_COUNTRIES in storage.ts). Jedes davon ist in
+ * „Offline-Karten“ wählbar: Geozonen und Hindernisse gehen überall, Karte und
+ * Luftbild nur dort, wo COUNTRY_MAP_PROVIDERS eine frei speicherbare Quelle hat.
+ */
+export const OFFLINE_APP_COUNTRIES: { iso: string; label: string }[] = [
+  { iso: "DE", label: "Deutschland" },
+  { iso: "AT", label: "Österreich" },
+  { iso: "CH", label: "Schweiz" },
+  { iso: "LU", label: "Luxemburg" },
+  { iso: "NL", label: "Niederlande" },
+  { iso: "BE", label: "Belgien" },
+  { iso: "FR", label: "Frankreich" },
+  { iso: "PL", label: "Polen" },
+  { iso: "CZ", label: "Tschechien" },
+  { iso: "DK", label: "Dänemark" },
+  { iso: "IT", label: "Italien" },
+  { iso: "ES", label: "Spanien" },
+  { iso: "SE", label: "Schweden" },
+  { iso: "PT", label: "Portugal" },
+  { iso: "IE", label: "Irland" },
+  { iso: "GB", label: "Vereinigtes Königreich" },
+  { iso: "GR", label: "Griechenland" },
+  { iso: "FI", label: "Finnland" },
+  { iso: "HR", label: "Kroatien" },
+  { iso: "BG", label: "Bulgarien" },
+  { iso: "RO", label: "Rumänien" },
+  { iso: "HU", label: "Ungarn" },
+  { iso: "SK", label: "Slowakei" },
+  { iso: "SI", label: "Slowenien" },
+  { iso: "LT", label: "Litauen" },
+  { iso: "LV", label: "Lettland" },
+  { iso: "EE", label: "Estland" },
+  { iso: "CY", label: "Zypern" },
+  { iso: "MT", label: "Malta" },
+  { iso: "NO", label: "Norwegen" },
+  { iso: "IS", label: "Island" },
+  { iso: "LI", label: "Liechtenstein" },
+];
+
+/**
+ * Gebiet eines Landes für Offline-Pakete: Kartenquelle, sonst die gemeinsame
+ * Länder-Box aus shared/countryDetection.ts.
+ */
+export function countryOfflineBounds(iso: string | null | undefined): LngLatBox | undefined {
+  if (!iso) return undefined;
+  const p = getMapProvider(iso);
+  if (p) return p.bounds;
+  const b = getCountryBoundingBox(iso);
+  return b ? [b.minLon, b.minLat, b.maxLon, b.maxLat] : undefined;
+}
+
+/** Hinweis für Länder ohne frei speicherbare Grundkarte (Offline-Einstellungen). */
+export function noOfflineBasemapNote(label: string, hasGeozones = true): string {
+  return hasGeozones
+    ? `Für ${label} gibt es keine frei speicherbare Grundkarte – offline werden Geozonen und Hindernisse gespeichert; die Karte wird online angezeigt.`
+    : `Für ${label} gibt es keine frei speicherbare Grundkarte – offline werden Hindernisse gespeichert; die Karte wird online angezeigt.`;
+}
 
 /** Online-Ersatz außerhalb der Länder oben (nicht offline speicherbar). */
 export const FALLBACK_MAP = {
