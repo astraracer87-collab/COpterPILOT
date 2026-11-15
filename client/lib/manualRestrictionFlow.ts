@@ -112,10 +112,16 @@ export interface LocationContinueInput {
 //   - sonst (Land ohne eigene Daten / Einstellung aus)          -> "datetime"
 // Ein gesperrtes Land wird bereits vorher abgefangen; defensiv führt es hier
 // ebenfalls nicht zur Gegenprüfung.
+/** Gegenprüfungs-Schritt vorerst abgeschaltet (Betreiber-Entscheidung: bringt länderübergreifend
+ * keinen Mehrwert). Auf true setzen, um ihn wieder einzublenden. Länder OHNE eigene Daten
+ * behalten ihre manuelle Abfrage im Standort-Schritt – die ist davon nicht betroffen. */
+export const OFFICIAL_MAP_CROSSCHECK_STEP_ENABLED = false;
+
 export function decideLocationContinueTarget(
   input: LocationContinueInput,
+  stepEnabled: boolean = OFFICIAL_MAP_CROSSCHECK_STEP_ENABLED,
 ): LocationContinueTarget {
-  if (!input.countryLocked && input.hasOwnMapData && input.crossCheckEnabled) {
+  if (stepEnabled && !input.countryLocked && input.hasOwnMapData && input.crossCheckEnabled) {
     return "crosscheck";
   }
   return "datetime";

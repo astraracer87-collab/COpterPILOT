@@ -286,26 +286,29 @@ describe("Eigener Gegenprüfungs-Schritt: Routing nach 'Standort bestätigen'", 
   };
 
   it("Land mit eigenen Daten + Einstellung an -> eigener Gegenprüfungs-Schritt", () => {
-    assert.equal(decideLocationContinueTarget(base), "crosscheck");
+    // Schritt ist vorerst global abgeschaltet -> direkt Datum/Zeit
+    assert.equal(decideLocationContinueTarget(base), "datetime");
+    // Mit eingeschaltetem Schritt: Gegenprüfung
+    assert.equal(decideLocationContinueTarget(base, true), "crosscheck");
   });
 
   it("Einstellung aus -> direkt zu Datum/Zeit (keine Gegenprüfung)", () => {
     assert.equal(
-      decideLocationContinueTarget({ ...base, crossCheckEnabled: false }),
+      decideLocationContinueTarget({ ...base, crossCheckEnabled: false }, true),
       "datetime",
     );
   });
 
   it("Land ohne eigene Daten -> direkt zu Datum/Zeit (manualRestriction-Flow bleibt im Standort-Schritt)", () => {
     assert.equal(
-      decideLocationContinueTarget({ ...base, hasOwnMapData: false }),
+      decideLocationContinueTarget({ ...base, hasOwnMapData: false }, true),
       "datetime",
     );
   });
 
   it("gesperrtes (nicht freigeschaltetes) Land -> keine Gegenprüfung", () => {
     assert.equal(
-      decideLocationContinueTarget({ ...base, countryLocked: true }),
+      decideLocationContinueTarget({ ...base, countryLocked: true }, true),
       "datetime",
     );
   });
