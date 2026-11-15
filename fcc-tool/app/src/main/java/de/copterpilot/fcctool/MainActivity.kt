@@ -168,11 +168,11 @@ class MainActivity : Activity() {
         col.addView(Ui.modeButton(this,
             "Fluggerät an dieser Fernsteuerung",
             "z. B. Air 3S an der RC Pro 2 – direkt über die Fernsteuerung",
-            Ui.GREEN) { showDroneMenu() }, Ui.lp(topDp = Ui.dpi(this, 12f)))
+            Ui.GREEN, R.drawable.rc_controller) { showDroneMenu() }, Ui.lp(topDp = Ui.dpi(this, 12f)))
         col.addView(Ui.modeButton(this,
             "Fluggerät an Goggle",
             "z. B. Avata 2 – über eine Datei auf der SD-Karte der Goggle",
-            Ui.BLUE) { showGoggleMenu() }, Ui.lp(topDp = Ui.dpi(this, 12f)))
+            Ui.BLUE, R.drawable.fpv_goggle) { showGoggleMenu() }, Ui.lp(topDp = Ui.dpi(this, 12f)))
 
         col.addView(Ui.smallButton(this, "Erweitert") { showAdvanced() }, Ui.lp(topDp = Ui.dpi(this, 16f)))
         showLeft(col)
@@ -180,16 +180,16 @@ class MainActivity : Activity() {
     }
 
     /** Nach der Zielwahl: FCC aktivieren oder zurück auf CE – je Ziel. */
-    private fun showActionMenu(heading: String, sub: String, onFcc: () -> Unit, ceLabel: String, onCe: () -> Unit) {
+    private fun showActionMenu(heading: String, sub: String, imageRes: Int, onFcc: () -> Unit, ceLabel: String, onCe: () -> Unit) {
         val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         col.addView(Ui.row(this).apply {
             addView(Ui.smallButton(this@MainActivity, "‹ Zurück") { showHome() })
             addView(Ui.label(this@MainActivity, "   $heading", Ui.TEXT, 16f, bold = true))
         })
         col.addView(Ui.label(this, sub, Ui.TEXT2, 13f), Ui.lp(topDp = Ui.dpi(this, 8f)))
-        col.addView(Ui.modeButton(this, "FCC aktivieren", "Reichweite erhöhen (FCC)", Ui.GREEN, onFcc),
+        col.addView(Ui.modeButton(this, "FCC aktivieren", "Reichweite erhöhen (FCC)", Ui.GREEN, imageRes) { onFcc() },
             Ui.lp(topDp = Ui.dpi(this, 12f)))
-        col.addView(Ui.modeButton(this, ceLabel, "Zurück in den Auslieferungszustand (CE)", Ui.AMBER, onCe),
+        col.addView(Ui.modeButton(this, ceLabel, "Zurück in den Auslieferungszustand (CE)", Ui.AMBER) { onCe() },
             Ui.lp(topDp = Ui.dpi(this, 12f)))
         showLeft(col)
         refreshStatus()
@@ -197,13 +197,13 @@ class MainActivity : Activity() {
 
     private fun showDroneMenu() = showActionMenu(
         "Fluggerät an dieser Fernsteuerung",
-        "z. B. Air 3S – direkt über die Fernsteuerung.",
+        "z. B. Air 3S – direkt über die Fernsteuerung.", R.drawable.rc_controller,
         onFcc = { showDroneWizard() },
         ceLabel = "CE wiederherstellen", onCe = { showDroneCeWizard() })
 
     private fun showGoggleMenu() = showActionMenu(
         "Fluggerät an Goggle",
-        "z. B. Avata 2 – über eine Datei auf der SD-Karte der Goggle.",
+        "z. B. Avata 2 – über eine Datei auf der SD-Karte der Goggle.", R.drawable.fpv_goggle,
         onFcc = { showGoggleWizard() },
         ceLabel = "FCC rückgängig (Datei entfernen)", onCe = { showGoggleCeWizard() })
 

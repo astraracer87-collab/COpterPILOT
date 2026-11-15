@@ -106,10 +106,11 @@ object Ui {
 
     fun dpi(ctx: Context, v: Float) = dp(ctx, v)
 
-    /** Großer, zweizeiliger Modus-Knopf (Titel + Erklärung), farbiger Rand links. */
-    fun modeButton(ctx: Context, title: String, subtitle: String, accent: Int, onClick: () -> Unit): View {
+    /** Großer, zweizeiliger Modus-Knopf (Titel + Erklärung), optional mit Produktbild rechts. */
+    fun modeButton(ctx: Context, title: String, subtitle: String, accent: Int, imageRes: Int = 0, onClick: () -> Unit): View {
         val box = LinearLayout(ctx).apply {
-            orientation = LinearLayout.VERTICAL
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
             val bg = GradientDrawable().apply {
                 setColor(SURFACE); cornerRadius = dp(ctx, 14f).toFloat(); setStroke(dp(ctx, 1f), BORDER)
             }
@@ -118,13 +119,21 @@ object Ui {
             isClickable = true; isFocusable = true
             setOnClickListener { onClick() }
         }
-        box.addView(TextView(ctx).apply {
+        val texts = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
+        texts.addView(TextView(ctx).apply {
             text = title; setTextColor(accent); textSize = 18f; typeface = Typeface.DEFAULT_BOLD
         })
-        box.addView(TextView(ctx).apply {
+        texts.addView(TextView(ctx).apply {
             text = subtitle; setTextColor(TEXT2); textSize = 13f
             setPadding(0, dp(ctx, 4f), 0, 0)
         })
+        box.addView(texts, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+        if (imageRes != 0) {
+            box.addView(android.widget.ImageView(ctx).apply {
+                setImageResource(imageRes); adjustViewBounds = true
+                contentDescription = title
+            }, LinearLayout.LayoutParams(dp(ctx, 120f), WRAP_CONTENT).apply { leftMargin = dp(ctx, 12f) })
+        }
         return box
     }
 
