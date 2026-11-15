@@ -65,6 +65,7 @@
       "@maplibre/maplibre-react-native",
       "./plugins/withReleaseSigning",
       "./plugins/withRadarForegroundService",
+      "./plugins/withAsyncStorageSize",
       "./plugins/withRcKeyEvents",
       "expo-secure-store"
     ],

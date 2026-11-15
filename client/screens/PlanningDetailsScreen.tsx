@@ -609,7 +609,12 @@ export default function PlanningDetailsScreen() {
         });
       }
     } catch (error) {
-      Alert.alert("Fehler", "Session konnte nicht erstellt werden.");
+      const reason = error instanceof Error ? error.message : String(error);
+      console.warn("[Planung] Speichern fehlgeschlagen:", reason);
+      Alert.alert(
+        "Speichern fehlgeschlagen",
+        `Die Planung konnte nicht gespeichert werden.\n\nGrund: ${reason}`,
+      );
     }
   };
 
