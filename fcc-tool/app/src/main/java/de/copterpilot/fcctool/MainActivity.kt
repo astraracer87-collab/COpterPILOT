@@ -260,9 +260,8 @@ class MainActivity : Activity() {
             val top = Ui.row(this)
             top.addView(Ui.smallButton(this, "‹ Zurück") { showHome() })
             top.addView(Ui.label(this, "   $heading", Ui.TEXT, 16f, bold = true), Ui.lp(0, WRAP_CONTENT, 1f))
-            top.addView(Ui.label(this, "Schritt ${(current + 1).coerceAtMost(steps.size)}/${steps.size}", Ui.TEXT2, 12f))
             host.addView(top)
-            // Feste Fortschrittszeile (springt nicht, wächst nicht)
+            // Feste Fortschrittszeile: Punkte links, „Schritt X/Y“ rechts
             host.addView(progressLine(steps, current), Ui.lp(topDp = Ui.dpi(this, 10f)))
             // Aktueller Schritt füllt die Höhe → unten bündig mit dem Protokoll
             if (current < steps.size)
@@ -277,7 +276,7 @@ class MainActivity : Activity() {
         draw()
     }
 
-    /** Eine Zeile mit Punkten für jeden Schritt: erledigt ✓, aktuell •, offen °. */
+    /** Eine Zeile: Punkte je Schritt (erledigt ✓, aktuell ●, offen ○) links, „Schritt X/Y“ rechts. */
     private fun progressLine(steps: List<WizStep>, current: Int): View {
         val row = Ui.row(this)
         steps.forEachIndexed { i, _ ->
@@ -289,6 +288,8 @@ class MainActivity : Activity() {
             row.addView(Ui.label(this, sym, color, 16f, bold = true))
             if (i < steps.size - 1) row.addView(Ui.label(this, " ─ ", Ui.BORDER, 14f))
         }
+        row.addView(View(this), Ui.lp(0, WRAP_CONTENT, 1f))
+        row.addView(Ui.label(this, "Schritt ${(current + 1).coerceAtMost(steps.size)}/${steps.size}", Ui.TEXT2, 12f))
         return row
     }
 
