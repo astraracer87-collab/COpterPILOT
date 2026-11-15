@@ -162,6 +162,126 @@ nötig, nur für Detailpanel.
 5. **Tests:** Parser-Test mit einer eingecheckten Beispiel-Antwort (Fixture),
    Einheiten-Umrechnung, Skip der nicht-numerischen Keys.
 
+### 4.1 Fertiger Code (copy-paste in `client/lib/traffic/sources.ts`)
+
+Passt zu den vorhandenen Helfern der Datei (`feetToMeters`, `knotsToMs`,
+`fpmToMs`, `fetchWithTimeout`, `str`, `isAbortError`, `tileToBbox`) und dem
+`RawState`-Typ. `refineCategoryByType` aus `./classify` importieren
+(der Import von `parseAdsbCategory` ist schon da → ergänzen).
+
+```ts
+// --- Import oben in sources.ts ergänzen ---
+import { parseAdsbCategory, refineCategoryByType } from "./classify";
+
+// --- Endpoint-Konstante zu den anderen URLs ---
+export const FR24_FEED_URL = "https://data-cloud.flightradar24.com/zones/fcgi/feed.js";
+
+// --- FR24-Feldindizes (siehe §3.4) ---
+const FR24 = {
+  HEX: 0, LAT: 1, LON: 2, TRACK: 3, ALT_FT: 4, GSPD_KT: 5, SQUAWK: 6,
+  RADAR: 7, TYPE: 8, REG: 9, TIME: 10, ORIG: 11, DEST: 12, FLIGHT: 13,
+  ON_GROUND: 14, VSPD_FPM: 15, CALLSIGN: 16, AIRLINE_ICAO: 18,
+} as const;
+
+/** Parst eine FR24-feed.js-Antwort in RawState[] (nicht-numerische Keys werden übersprungen). */
+export function parseFr24Feed(data: Record<string, unknown>): RawState[] {
+  const out: RawState[] = [];
+  for (const [id, raw] of Object.entries(data)) {
+    if (!/^[0-9]/.test(id)) continue;              // full_count/version/stats überspringen
+    const a = raw as unknown[];
+    if (!Array.isArray(a) || a.length < 17) continue;
+    const lat = a[FR24.LAT] as number, lon = a[FR24.LON] as number;
+    if (typeof lat !== "number" || typeof lon !== "number") continue;
+
+    const hex = ((a[FR24.HEX] as string) || "").toLowerCase().trim();
+    const icao24 = hex.length >= 3 ? hex : `fr24-${id}`;   // synthetische Targets → fr24-* (merge.ts)
+    const type = str(a[FR24.TYPE]);
+    const onGround = a[FR24.ON_GROUND] === 1 || a[FR24.ON_GROUND] === "1";
+
+    out.push({
+      icao24,
+      callsign: ((a[FR24.CALLSIGN] as string) || "").trim(),
+      originCountry: "",
+      longitude: lon,
+      latitude: lat,
+      baroAltitude: onGround ? 0 : feetToMeters(typeof a[FR24.ALT_FT] === "number" ? (a[FR24.ALT_FT] as number) : null),
+      geoAltitude: null,
+      onGround,
+      velocity: knotsToMs(typeof a[FR24.GSPD_KT] === "number" ? (a[FR24.GSPD_KT] as number) : null),
+      trueTrack: typeof a[FR24.TRACK] === "number" ? (a[FR24.TRACK] as number) : null,
+      verticalRate: typeof a[FR24.VSPD_FPM] === "number" ? fpmToMs(a[FR24.VSPD_FPM] as number) : null,
+      category: refineCategoryByType("airplane", type, str(a[FR24.REG])),
+      sources: ["fr24"],
+      registration: str(a[FR24.REG]),
+      aircraftType: type,
+      operator: str(a[FR24.AIRLINE_ICAO]),
+      originIata: str(a[FR24.ORIG]),
+      destIata: str(a[FR24.DEST]),
+      flightNumber: str(a[FR24.FLIGHT]),
+    });
+  }
+  return out;
+}
+
+async function fetchFr24Tile(tile: Tile): Promise<SourceResult> {
+  try {
+    const b = tileToBbox(tile);
+    // FR24-bounds = Nord,Süd,West,Ost
+    const bounds = `${b.latMax.toFixed(3)},${b.latMin.toFixed(3)},${b.lonMin.toFixed(3)},${b.lonMax.toFixed(3)}`;
+    const params = new URLSearchParams({
+      bounds, faa: "1", satellite: "1", mlat: "1", flarm: "1", adsb: "1",
+      gnd: "1", air: "1", vehicles: "1", estimated: "1", gliders: "1",
+      maxage: "14400", stats: "0", limit: "5000",
+    });
+    const res = await fetchWithTimeout(`${FR24_FEED_URL}?${params.toString()}`, 8000);
+    if (res.status === 429 || res.status === 403) return { states: [], status: "error", rateLimited: true };
+    if (!res.ok) return { states: [], status: "error" };
+    const data = (await res.json()) as Record<string, unknown>;
+    return { states: parseFr24Feed(data), status: "ok" };
+  } catch (e) {
+    return { states: [], status: isAbortError(e) ? "timeout" : "error" };
+  }
+}
+
+async function fetchFr24(tiles: Tile[]): Promise<SourceResult> {
+  const results = await Promise.all(tiles.map((t) => fetchFr24Tile(t)));
+  const anyOk = results.some((r) => r.status === "ok");
+  const status: SourceStatus = anyOk ? "ok" : (results[0]?.status ?? "error");
+  const rateLimited = results.some((r) => r.rateLimited);
+  const dedup = new Map<string, RawState>();
+  for (const r of results) {
+    for (const s of r.states) {
+      if (!s.icao24) continue;
+      if (!dedup.has(s.icao24)) dedup.set(s.icao24, s);
+    }
+  }
+  return { states: Array.from(dedup.values()), status, rateLimited };
+}
+```
+
+**Im Dispatcher `fetchSource` den FR24-Zweig ersetzen** (derzeit liefert
+`case "fr24"` leer):
+```ts
+    case "fr24": return fetchFr24(tiles);
+    case "opensky":
+      return { states: [], status: "error" };   // OpenSky bleibt clientseitig aus
+```
+
+**In `aggregator.ts`** `"fr24"` in die Liste der abzufragenden Quellen
+aufnehmen (dort, wo `adsbfi`/`airplaneslive`/`adsblol`/`ogn` stehen) und den
+veralteten Kommentar „FR24 entfällt clientseitig" entfernen. Die
+`sourceStatus`-/Fallback-Logik greift dann automatisch.
+
+**Parser-Test** (`client/lib/traffic/__tests__/`): eine kleine echte Antwort als
+Fixture einchecken und prüfen:
+```ts
+const data = { full_count: 12798, version: 4,
+  "4294b831": ["4D2528",53.3164,9.4182,79,36975,467,"","F-BDWY1","A21N","9H-WNB",1794731836,"LTN","VNO","W61902",0,-64,"WZZ8409",0,"WZZ"] };
+const s = parseFr24Feed(data);
+// erwartet: 1 State, icao24="4d2528", aircraftType="A21N", registration="9H-WNB",
+// callsign="WZZ8409", velocity≈240 m/s, baroAltitude≈11270 m, full_count übersprungen
+```
+
 ### Einordnung
 - FR24 als **Zusatzquelle mit Fallback**, nicht als alleinige – der inoffizielle
   Feed kann sich ändern. Die ADS-B-/OGN-Quellen bleiben die Basis.
