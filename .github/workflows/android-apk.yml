@@ -72,7 +72,7 @@ jobs:
           CP_KEYSTORE_PASSWORD: ${{ secrets.CP_KEYSTORE_PASSWORD }}
           CP_KEY_ALIAS: ${{ secrets.CP_KEY_ALIAS }}
           CP_KEY_PASSWORD: ${{ secrets.CP_KEY_PASSWORD }}
-        run: ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a,armeabi-v7a
+        run: ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a --build-cache --parallel
 
       - name: APK umbenennen
         run: cp android/app/build/outputs/apk/release/app-release.apk COpterPilot-RC.apk
