@@ -1,5 +1,5 @@
 import { openLink } from "@/lib/webBrowser";
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { InfrastructureFlightGuidance } from "@/components/InfrastructureFlightGuidance";
 import { View, StyleSheet, TextInput, Pressable, ActivityIndicator, ScrollView, Linking, Alert, Platform } from "react-native";
 import { useRoute, useNavigation, useFocusEffect } from "@react-navigation/native";
@@ -28,7 +28,7 @@ import { fetchTerrainEstimate } from "@/lib/elevation";
 import type { TerrainEstimate } from "../../shared/geozoneAltitudeFilter";
 import { partitionByReachability, DEFAULT_REACHABLE_ALTITUDE_M, assessGeozoneAltitudeConflict } from "../../shared/geozoneAltitudeFilter";
 import { findMilLowFlightAreasContaining, findMilLowFlightAreasIntersectingRadius, MIL_LOW_FLIGHT_LABEL, MIL_LOW_FLIGHT_SOURCE_URL, MIL_LOW_FLIGHT_ACTIVATION_TEXT, MIL_LOW_FLIGHT_DATA_STAND, classifyMilLowFlightHits, getStatusLabel as getMilStatusLabel, getStatusColor as getMilStatusColor } from "@/lib/milLowFlight";
-import { getPilotProfile, savePilotProfile, PilotProfile, de21hRule, isDe21hZoneAvEligible, isErlaubnisExpired, getDrone, DroneProfile, BUNDESLAND_AV_INFO, Bundesland, GENERAL_UAS_RESOURCES, AdditionalDoc, getFlightSession, getSettings } from "@/lib/storage";
+import { getPilotProfile, savePilotProfile, PilotProfile, de21hRule, isDe21hZoneAvEligible, isErlaubnisExpired, getDrone, DroneProfile, BUNDESLAND_AV_INFO, Bundesland, GENERAL_UAS_RESOURCES, AdditionalDoc, getFlightSession, getSettings, updateFlightSession } from "@/lib/storage";
 import { WildlifeRescueInfoModal } from "@/components/WildlifeRescueInfo";
 import { windFacilitiesAsGeozones, supplementalLinesAsGeozones, supplementalInfrastructureAsGeozones } from "@/lib/energyInfrastructureZones";
 import { getGermanWindFacility100mPoints, getRadarEnergyInfrastructureItems, getEnergyInfrastructureCountry } from "../../shared/germanEnergyInfrastructure";
@@ -36,6 +36,8 @@ import { useGermanEnergyInfrastructure } from "@/lib/useGermanEnergyInfrastructu
 import { WILDLIFE_RESCUE_MODE_TITLE, WILDLIFE_RESCUE_PLANNING_HINT } from "../../shared/wildlifeRescue";
 import { checkCountryCompliance, ComplianceResult, ComplianceItem } from "@/lib/countryCompliance";
 import { getNightFlightRule } from "@/lib/countryInfo";
+import { nightFlightCountry } from "@/lib/assessment";
+import { geozoneChecks, coverageChecks, complianceChecks, replaceCheckCategories, type CheckResult, type CheckOverride } from "../../shared/checks";
 import { isFlightWindowDuringNight } from "@/lib/solar";
 import { detectBundeslandFromCoordinates } from "@/lib/countryMaps";
 import { hasOwnMap } from "../../shared/countryDetection";
@@ -131,6 +133,8 @@ export default function PlanningRestrictionsScreen() {
   const [dipulSourceStatus, setDipulSourceStatus] = useState<DipulGeozoneSourceStatus | null>(null);
   // Abdeckungslücken der Geozonen-Abfrage (Länder ohne verwertbare Daten).
   const [coverageGaps, setCoverageGaps] = useState<GeozoneSourceCoverage[]>([]);
+  // Alle Quellen (auch ok/veraltet) für die Abdeckungs-Befunde der Prüfkette.
+  const [coverageSources, setCoverageSources] = useState<GeozoneSourceCoverage[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [pilotProfile, setPilotProfile] = useState<PilotProfile | null>(null);
@@ -144,6 +148,8 @@ export default function PlanningRestrictionsScreen() {
   // Flugverbot (PROHIBITED) bewusst übersteuern: Schlüssel → Begründung.
   // Nur mit nicht-leerer Begründung wird aus NO-GO ein CAUTION.
   const [prohibitedOverrides, setProhibitedOverrides] = useState<Map<string, string>>(new Map());
+  // Zeitpunkt der Übersteuerung je Zone (für overriddenBy.at im CheckResult).
+  const overrideTimes = useRef<Map<string, string>>(new Map());
   const [detectedBundesland, setDetectedBundesland] = useState<string | null>(null);
   const [nearbyCtr, setNearbyCtr] = useState<CtrAirport[]>([]);
   const [edr146Result, setEdr146Result] = useState<Edr146ProximityResult | null>(null);
@@ -180,6 +186,7 @@ export default function PlanningRestrictionsScreen() {
       setError(false);
       setDipulSourceStatus(null);
       setCoverageGaps([]);
+      setCoverageSources([]);
       // Neue Position: alte Geländeschätzung verwerfen (bis zur neuen Messung
       // bleiben MSL-Zonen sichtbar).
       setTerrain(null);
@@ -196,6 +203,7 @@ export default function PlanningRestrictionsScreen() {
         // Länder ohne verwertbare Daten (Fehler, fehlender Datensatz, keine
         // automatische Prüfung) — darf NICHT als "keine Zonen" gelten.
         setCoverageGaps(uncoveredGeozoneSources(area.sources));
+        setCoverageSources(area.sources);
         const separated = separateTempRestrictions(results);
         setRawGeozones(separated.geozones);
         setTempRestrictions(separated.tempRestrictions);
@@ -395,12 +403,14 @@ export default function PlanningRestrictionsScreen() {
   const coverageGapWarnings = errorGap
     ? [geozoneCoverageWarning(countryName(countryIso) || countryIso || "den Standort")]
     : unresolvedCoverageGaps.map((g) => sourceCoverageWarning(g, countryName(g.iso) || g.iso));
-  const hasAnyRestrictions =
+  // Beschränkungen ohne Abdeckungslücke (die Lücke ist ein eigener
+  // Abdeckungs-Befund der Prüfkette).
+  const hasZoneRestrictions =
     restrictiveGeozones.length > 0 ||
     tempRestrictions.length > 0 ||
     milLowFlightHotHits.length > 0 ||
-    hasAdditionalEnergyInfrastructure ||
-    hasCoverageGap;
+    hasAdditionalEnergyInfrastructure;
+  const hasAnyRestrictions = hasZoneRestrictions || hasCoverageGap;
   const hasUncoveredRestrictions =
     nonExemptedUncoveredGeozones.length > 0 ||
     tempRestrictions.length > 0 ||
@@ -486,7 +496,11 @@ export default function PlanningRestrictionsScreen() {
     const endMin = (eh || 0) * 60 + (em || 0);
     return isFlightWindowDuringNight(latitude, longitude, d, startMin, endMin);
   }, [plannedDate, plannedTime, endTime, latitude, longitude]);
-  const nightRule = useMemo(() => getNightFlightRule(countryIso), [countryIso]);
+  // Land der Nachtflug-Regel aus dem Standort (wie im Gesamturteil, Review I6).
+  const nightRule = useMemo(
+    () => getNightFlightRule(nightFlightCountry(latitude, longitude, countryIso)),
+    [latitude, longitude, countryIso],
+  );
   const isNightPermitCountry =
     nightRule.status === "forbidden" || nightRule.status === "permit_required";
   // Harter Blocker nur in Verbots-/Freigabe-Ländern, solange keine Genehmigung
@@ -511,6 +525,49 @@ export default function PlanningRestrictionsScreen() {
     (gz) => prohibitedOverrides.get(getGeozoneKey(gz)),
   );
 
+  // Prüfkette (B4): Geozonen-, Abdeckungs- und Compliance-Befunde dieser Stufe.
+  // Werden in der Session gespeichert (bestehende Session sofort, neue Session
+  // über PlanningDetails) und zusätzlich als Route-Param durchgereicht.
+  const overrideOf = (gz: GeozoneFeatureInfo): CheckOverride | null => {
+    const key = getGeozoneKey(gz);
+    const reason = prohibitedOverrides.get(key);
+    if (!hasOverrideReason(reason)) return null;
+    return { reason: reason!.trim(), at: overrideTimes.current.get(key) ?? new Date().toISOString() };
+  };
+  const buildRestrictionChecks = (
+    status: "approved" | "limited" | undefined,
+    alphaTango: boolean,
+  ): CheckResult[] => [
+    ...geozoneChecks({
+      context: "planning",
+      classes: [zoneClass, tempClass],
+      overrideOf,
+      hasRestrictions: hasZoneRestrictions || alphaTango,
+      restrictionStatus: status,
+      source: "Einschränkungs-Stufe (Planung)",
+    }),
+    ...coverageChecks({
+      context: "planning",
+      sources: coverageSources,
+      queryFailed: error,
+      primaryIso: countryIso,
+      resolvedIsos: hasManualRestriction && countryIso ? [countryIso] : [],
+      countryLabel: (iso) => countryName(iso) || iso,
+    }),
+    ...complianceChecks({ alphaTangoMissingAcknowledged: alphaTango }, "planning"),
+  ];
+  const persistRestrictionChecks = (checks: CheckResult[]) => {
+    if (!sessionId) return;
+    getFlightSession(sessionId)
+      .then((existing) => {
+        if (!existing) return;
+        return updateFlightSession(sessionId, {
+          checkResults: replaceCheckCategories(existing.checkResults, checks, ["geozone", "coverage", "compliance"], "planning"),
+        });
+      })
+      .catch(() => {});
+  };
+
   const navigateToDetails = (nightConfirmedOverride?: boolean) => {
     const exemptionNote = buildExemptionNote(exemptedUncoveredGeozones);
     const nightNote = buildNightNote(nightConfirmedOverride);
@@ -523,6 +580,14 @@ export default function PlanningRestrictionsScreen() {
       ...(hasCoverageGap ? coverageGapWarnings : []),
       userNotes,
     ]);
+    const restrictionStatus = deriveDetailsRestrictionStatus({
+      restrictionChoice,
+      allCoveredByAV,
+      // Ausnahmen decken keine Abdeckungslücke: ohne Daten keine Auto-Freigabe.
+      allUncoveredExempted: allUncoveredExempted && !hasCoverageGap,
+    });
+    const checkResults = buildRestrictionChecks(restrictionStatus, false);
+    persistRestrictionChecks(checkResults);
     navigation.navigate("PlanningDetails", {
       droneId,
       latitude,
@@ -532,12 +597,8 @@ export default function PlanningRestrictionsScreen() {
       mapUrl,
       hasRestrictions: hasAnyRestrictions,
       restrictionVerdict,
-      restrictionStatus: deriveDetailsRestrictionStatus({
-        restrictionChoice,
-        allCoveredByAV,
-        // Ausnahmen decken keine Abdeckungslücke: ohne Daten keine Auto-Freigabe.
-        allUncoveredExempted: allUncoveredExempted && !hasCoverageGap,
-      }),
+      restrictionStatus,
+      checkResults,
       restrictionNotes,
       ...forwardCrossCheckParams({ officialMapCrossCheck }),
       radiusKm: localRadiusKm,
@@ -572,6 +633,9 @@ export default function PlanningRestrictionsScreen() {
       userNotes,
       alphaTangoNote,
     ]);
+    const restrictionStatus = deriveAlphaTangoRestrictionStatus(restrictionChoice);
+    const checkResults = buildRestrictionChecks(restrictionStatus, true);
+    persistRestrictionChecks(checkResults);
     navigation.navigate("PlanningDetails", {
       droneId,
       latitude,
@@ -581,7 +645,8 @@ export default function PlanningRestrictionsScreen() {
       mapUrl,
       hasRestrictions: true,
       restrictionVerdict,
-      restrictionStatus: deriveAlphaTangoRestrictionStatus(restrictionChoice),
+      restrictionStatus,
+      checkResults,
       restrictionNotes,
       ...forwardCrossCheckParams({ officialMapCrossCheck }),
       alphaTangoMissingAcknowledged: true,
@@ -811,8 +876,13 @@ export default function PlanningRestrictionsScreen() {
           onPress={() => {
             setProhibitedOverrides((prev) => {
               const next = new Map(prev);
-              if (next.has(key)) next.delete(key);
-              else next.set(key, "");
+              if (next.has(key)) {
+                next.delete(key);
+                overrideTimes.current.delete(key);
+              } else {
+                next.set(key, "");
+                overrideTimes.current.set(key, new Date().toISOString());
+              }
               return next;
             });
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);

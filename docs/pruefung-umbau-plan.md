@@ -198,3 +198,49 @@ alle Länderlisten werden daraus abgeleitet.
 - Offen: Geländeschätzung nicht dauerhaft gespeichert (App-Neustart offline →
   keine Geländehöhe → MSL-Zonen bleiben sichtbar, sicher); ED-269-Zonen mit
   mehreren Höhenbändern weiter als getrennte Features.
+
+## Stand B4 (2026-11-15)
+
+- Prüfkette: shared/checks/ (`types.ts`: `CheckSeverity`, `CheckCategory`,
+  `CheckResult` mit `overriddenBy`, `dataAge`, `context`; `aggregate.ts`:
+  `aggregate` – NO-GO nur bei nicht überschriebenem nogo, `unknown` ≥ CAUTION,
+  Gründe stabil nach Schwere –, `sessionReasonsFromChecks`,
+  `replaceCheckCategories` je Kategorie + Kontext; `builders.ts`:
+  `geozoneChecks`, `legacyGeozoneChecks`, `coverageChecks`, `notamChecks`,
+  `officialMapCrossCheckChecks`, `complianceChecks` sowie die Texte
+  RESTRICTION_NOGO_TEXT, NOTAM_STATUS_UNKNOWN_TEXT, Abdeckungs-Warntexte).
+- client/lib/flightChecks.ts: `weatherChecks`/`nightChecks` kapseln
+  assessWeather/`assessNightFlight` (Schwellen unverändert; assessWeather
+  markiert Warnungen mit `severe`/`nogo`), `evaluateZones` (Aktivität im
+  Kontext, optional Erreichbarkeit, Policy-Klassifizierung),
+  `storedChecksFor` (gespeicherte Befunde des Kontexts, sonst Rückfall auf
+  hasRestrictions/restrictionStatus/restrictionVerdict/notamStatusUnknown) und
+  `evaluateFlight` – EINE Bewertung für PlanningResult und ResultsScreen.
+- Session: `checkResults` (je Befund `context` planning|precheck; beide
+  bleiben nebeneinander erhalten) und `verdict`; Altfelder bleiben befüllt.
+  Planung: PlanningRestrictions schreibt geozone/coverage/compliance (bestehende
+  Session sofort, sonst Route-Param `checkResults`), PlanningDetails ergänzt
+  notam, PlanningResult Wetter/Nacht/Gegenprüfung, Urteil, Gründe. Pre-Check:
+  PreCheckOverview schreibt geozone/coverage/notam (Kontext precheck),
+  ResultsScreen ergänzt Wetter/Nacht (Zeit: jetzt). Route-Params bleiben
+  Rückfall (z. B. Pfad über FlightCheck-RestrictionsScreen ohne Session).
+- Override: PROHIBITED mit Begründung = nogo-Befund mit `overriddenBy`
+  {reason, at} → CAUTION. Dokumentierter Unterschied Planung/Pre-Check nur im
+  Zeitbezug (Zonen: geplant vs. jetzt ODER geplant; Nacht: geplant vs. jetzt),
+  Test client/lib/__tests__/flightChecks.test.ts.
+- I6: Nachtflug-Regel überall mit dem Land aus dem Standort
+  (`nightFlightCountry`, countryIso nur Rückfall) – auch im Nacht-Dialog der
+  Einschränkungs-Stufe.
+- Für den Piloten sichtbar: PlanningResult zeigt eine Karte „Prüfergebnis“
+  mit allen Befunden (inkl. Info, z. B. veraltete Daten) statt der Warnliste
+  im Wetterkasten und der Einzelkarten Gegenprüfung/NOTAM; Pre-Check prüft
+  jetzt Nacht (jetzt), wertet einen NOTAM-Abfragefehler als unbekannt
+  (CAUTION) und übernimmt eine „startverhindernde“ Gegenprüfung aus der
+  Planung; Flugverbot mit Begründung ergibt auch bei Auswahl „Genehmigung
+  liegt vor“ CAUTION (bisher GO); Protokoll-Gründe sind die Befundtexte
+  (NO-GO-Gründe als „nogo“).
+- Offen: FlightCheck-RestrictionsScreen schreibt noch keine Befunde (Rückfall
+  über Route-Params); Pre-Check filtert Zonen weiter ohne Höhe/Gelände
+  (`evaluateZones` kann es, `reachability` ungenutzt); FR-AlphaTango nur
+  Info-Befund (wirkt wie bisher über den Einschränkungsstatus); Datenalter für
+  Wetter/NOTAM folgt mit Teil A.

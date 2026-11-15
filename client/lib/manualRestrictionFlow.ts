@@ -372,17 +372,3 @@ export function buildRestrictionSessionPatch(
   if (params.restrictionVerdict) patch.restrictionVerdict = params.restrictionVerdict;
   return patch;
 }
-
-// PlanningResult: liest die gespeicherten Werte für assessWeather.
-export function restrictionAssessmentInput(
-  session:
-    | { hasRestrictions?: boolean; restrictionStatus?: ManualRestrictionStatus; restrictionVerdict?: RestrictionVerdict }
-    | null
-    | undefined,
-): { hasRestrictions: boolean; restrictionStatus?: ManualRestrictionStatus; restrictionVerdict?: RestrictionVerdict } {
-  return {
-    hasRestrictions: session?.hasRestrictions === true,
-    restrictionStatus: session?.restrictionStatus,
-    restrictionVerdict: session?.restrictionVerdict,
-  };
-}

@@ -213,8 +213,8 @@ function getNearbyAirportCodes(lat: number, lon: number): string[] {
 }
 
 /** Hinweistext, wenn die NOTAM-Abfrage fehlgeschlagen ist (z. B. HTTP 401 ohne Token). */
-export const NOTAM_STATUS_UNKNOWN_TEXT =
-  "NOTAM-Status unbekannt – bitte manuell prüfen (z. B. DFS AIS / EAD)";
+// Text liegt in der Prüfkette (shared/checks/builders.ts).
+export { NOTAM_STATUS_UNKNOWN_TEXT } from "../../shared/checks/builders";
 
 /**
  * Anzahl aktiver NOTAMs oder `null`, wenn der Status unbekannt ist. Eine

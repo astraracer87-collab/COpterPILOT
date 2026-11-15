@@ -1,3 +1,4 @@
+import type { CheckResult, FlightVerdict } from "../../shared/checks/types";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Api from "./api";
 import { isLoggedInSync, waitForAuthReady } from "./auth";
@@ -735,6 +736,14 @@ export interface FlightSession {
   /** Höchstes Policy-Urteil der Geozonen (shared/restrictionPolicy):
    *  "nogo" = aktive Flugverbotszone ohne dokumentierte Begründung → NO-GO. */
   restrictionVerdict?: "nogo" | "caution" | "info";
+  /** Prüfkette (B4, shared/checks): alle Befunde der Planung bzw. des
+   *  Pre-Checks (Geozonen, Abdeckung, NOTAM, Wetter, Nacht …), je Befund mit
+   *  Kontext. Die Felder hasRestrictions/restrictionStatus/restrictionVerdict
+   *  bleiben für Logbuch/PDF und Altdaten befüllt. */
+  checkResults?: CheckResult[];
+  /** Gesamturteil aus aggregate(checkResults) – ohne Pilot-Übersteuerung
+   *  (die steht in planning.noGoOverride). */
+  verdict?: FlightVerdict;
   detectedGeozones?: string[];
   savedGeozoneFeatures?: SavedGeozoneFeature[];
   savedDipulRestrictions?: SavedDipulRestriction[];

@@ -121,19 +121,9 @@ export function worseSourceStatus(a: GeozoneSourceStatus, b: GeozoneSourceStatus
   return rank[b] > rank[a] ? b : a;
 }
 
-/** Deutscher Warntext für eine Abdeckungslücke. */
-export function geozoneCoverageWarning(countryLabel: string, note?: string): string {
-  const base = `Geozonen-Daten für ${countryLabel} nicht verfügbar – Zonen bitte manuell prüfen.`;
-  return note ? `${base} (${note})` : base;
-}
-
-/** Warntext je Quelle: "partial" -> unvollständig (mit Hinweis), sonst nicht verfügbar. */
-export function sourceCoverageWarning(source: GeozoneSourceCoverage, countryLabel: string): string {
-  if (source.status === "partial") {
-    return `Geozonen-Daten für ${countryLabel} unvollständig${source.note ? `: ${source.note}` : ""} – Zonen bitte manuell prüfen.`;
-  }
-  return geozoneCoverageWarning(countryLabel);
-}
+// Warntexte (deutsch) liegen in der Prüfkette (shared/checks/builders.ts),
+// damit Liste, Dialog und CheckResult denselben Text verwenden.
+export { geozoneCoverageWarning, sourceCoverageWarning } from "../../shared/checks/builders";
 
 // Wie queryEd269CachedFeaturesFrom, liefert aber zusätzlich den Status der
 // Quelle: kein Datensatz -> "missing", Ausnahme -> "error", älter als das

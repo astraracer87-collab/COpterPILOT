@@ -28,8 +28,10 @@ import { attributionLabel } from "@/lib/sourceAttribution";
 import { Spacing, Typography, BorderRadius } from "@/constants/theme";
 import type { FlightCheckParamList } from "@/navigation/FlightCheckNavigator";
 import { uncoveredGeozoneSources, sourceCoverageWarning, type GeozoneSourceCoverage } from "@/lib/geozoneCoverage";
-import { classifyPlanningZones } from "@/lib/restrictionPlanning";
-import { maxRestrictionVerdict, zonePolicy, RESTRICTION_POLICY } from "../../shared/restrictionPolicy";
+import { zonePolicy, RESTRICTION_POLICY } from "../../shared/restrictionPolicy";
+import { evaluateZones } from "@/lib/flightChecks";
+import { coverageChecks, notamChecks, replaceCheckCategories } from "../../shared/checks";
+import { detectCountryFromCoordinates } from "../../shared/countryDetection";
 import {
   queryGeozonesInAreaWithCoverage,
   GeozoneFeatureInfo,
@@ -142,6 +144,8 @@ export default function PreCheckOverviewScreen() {
   const [geozoneLoading, setGeozoneLoading] = useState(true);
   // Länder ohne verwertbare Geozonen-Daten (Review-Fix 4).
   const [coverageGaps, setCoverageGaps] = useState<GeozoneSourceCoverage[]>([]);
+  // Alle Quellen (auch ok/veraltet) für die Abdeckungs-Befunde der Prüfkette.
+  const [coverageSources, setCoverageSources] = useState<GeozoneSourceCoverage[]>([]);
   const [notamLoading, setNotamLoading] = useState(true);
   const [geozoneError, setGeozoneError] = useState(false);
   const [notamError, setNotamError] = useState(false);
@@ -276,9 +280,11 @@ export default function PreCheckOverviewScreen() {
     setGeozoneLoading(true);
     setGeozoneError(false);
     setCoverageGaps([]);
+    setCoverageSources([]);
     try {
       const area = await queryGeozonesInAreaWithCoverage(latitude, longitude, searchRadiusKm);
       setCoverageGaps(uncoveredGeozoneSources(area.sources));
+      setCoverageSources(area.sources);
       const separated = separateTempRestrictions(area.zones);
       setGeozones(separated.geozones);
       setTempRestrictions(separated.tempRestrictions);
@@ -406,17 +412,6 @@ export default function PreCheckOverviewScreen() {
   // Kontext, damit Liste und Karte übereinstimmen.
   const preCheckTimeContext: ZoneTimeContext = { kind: "precheck", planned: plannedFlightDate };
   const isZoneRelevantInTime = (gz: GeozoneFeatureInfo): boolean => isZoneActiveInContext(gz, preCheckTimeContext);
-  const geozones = allGeozones.filter(isZoneRelevantInTime);
-  const timeInactiveGeozones = allGeozones.filter((gz) => !isZoneRelevantInTime(gz));
-  // Einstufung über die Policy-Tabelle (wie die Planungsliste): Info-Zonen
-  // (NO_RESTRICTION) brauchen keine Bestätigung, Flugverbot → NO-GO im Urteil.
-  const zoneClass = classifyPlanningZones(geozones.filter((gz) => !gz.informationalOnly), { isCoveredByAV: isGeozoneCoveredByAV });
-  const tempClass = classifyPlanningZones(tempRestrictions.filter(isZoneRelevantInTime), { isCoveredByAV: () => false });
-  const restrictionVerdict = maxRestrictionVerdict([zoneClass.verdict, tempClass.verdict]);
-  const infoGeozones = zoneClass.infoZones;
-  const coveredGeozones = zoneClass.coveredZones;
-  const uncoveredGeozones = zoneClass.uncoveredZones;
-  const hasAnyGeozones = coveredGeozones.length > 0 || uncoveredGeozones.length > 0 || tempRestrictions.length > 0;
   const totalNotams = notams.active.length + notams.upcoming.length;
   // Abdeckungslücke (Review-Fix 4): kein Datensatz / Abruffehler / Land ohne
   // automatische Prüfung. Ein kompletter Ladefehler zählt ebenso — der Status
@@ -425,6 +420,35 @@ export default function PreCheckOverviewScreen() {
   const coverageGapWarnings = geozoneError
     ? []
     : coverageGaps.map((g) => sourceCoverageWarning(g, countryName(g.iso) || g.iso));
+  // Prüfkette (B4): dieselbe Zonen-Auswahl/Einstufung wie die Planung
+  // (evaluateZones), Zeitbezug "precheck" (jetzt ODER geplant). Einstufung über
+  // die Policy-Tabelle: Info-Zonen (NO_RESTRICTION) brauchen keine Bestätigung,
+  // Flugverbot → NO-GO im Urteil.
+  const zoneEval = evaluateZones({
+    context: "precheck",
+    timeContext: preCheckTimeContext,
+    zones: allGeozones,
+    tempZones: tempRestrictions,
+    isCoveredByAV: isGeozoneCoveredByAV,
+    // Aktive DIPUL-Temporärbeschränkungen (NOTAM-Liste) zählen wie bisher als
+    // Einschränkung.
+    extraRestrictions: notams.active.length > 0,
+    // Bei Abdeckungslücke kein "approved" (auch wenn alle GEFUNDENEN Zonen
+    // AV-gedeckt sind) — Status ungeklärt -> mindestens CAUTION.
+    deriveStatus: ({ zoneClass: zc, hasZoneRestrictions }) => {
+      if (!(hasZoneRestrictions || hasCoverageGap) || hasCoverageGap) return undefined;
+      const anyGeozones = zc.coveredZones.length > 0 || zc.uncoveredZones.length > 0 || tempRestrictions.length > 0;
+      return anyGeozones && zc.uncoveredZones.length === 0 && tempRestrictions.length === 0 ? "approved" : "limited";
+    },
+  });
+  const geozones = zoneEval.activeZones;
+  const timeInactiveGeozones = zoneEval.inactiveZones;
+  const zoneClass = zoneEval.zoneClass;
+  const restrictionVerdict = zoneEval.restrictionVerdict;
+  const infoGeozones = zoneClass.infoZones;
+  const coveredGeozones = zoneClass.coveredZones;
+  const uncoveredGeozones = zoneClass.uncoveredZones;
+  const hasAnyGeozones = coveredGeozones.length > 0 || uncoveredGeozones.length > 0 || tempRestrictions.length > 0;
   const hasAnyRestrictions = hasAnyGeozones || notams.active.length > 0 || hasCoverageGap;
 
   const loading = geozoneLoading || notamLoading;
@@ -436,19 +460,13 @@ export default function PreCheckOverviewScreen() {
   const requiresNotamAck = totalNotams > 0 || notamError;
   const canContinue = (geozoneChecked || !requiresGeozoneAck) && (notamChecked || !requiresNotamAck);
 
-  const allCoveredByAV = hasAnyGeozones && uncoveredGeozones.length === 0 && tempRestrictions.length === 0;
 
   const handleContinue = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
-    // Bei Abdeckungslücke kein "approved" (auch wenn alle GEFUNDENEN Zonen
-    // AV-gedeckt sind) — Status ungeklärt -> mindestens CAUTION.
-    const restrictionStatus: "approved" | "limited" | undefined =
-      !hasAnyRestrictions || hasCoverageGap
-        ? undefined
-        : allCoveredByAV
-          ? "approved"
-          : "limited";
+    // Status aus evaluateZones (deriveStatus): bei Abdeckungslücke kein
+    // "approved" — Status ungeklärt -> mindestens CAUTION.
+    const restrictionStatus = zoneEval.restrictionStatus;
     const restrictionNotes = hasCoverageGap
       ? (coverageGapWarnings.length > 0
           ? coverageGapWarnings
@@ -456,11 +474,37 @@ export default function PreCheckOverviewScreen() {
         ).join(" — ")
       : undefined;
 
+    // Prüfkette (B4): Geozonen-, Abdeckungs- und NOTAM-Befunde des Pre-Checks
+    // in der Session (Kontext "precheck"); ResultsScreen ergänzt Wetter/Nacht.
+    const preCheckChecks = [
+      ...zoneEval.checks,
+      ...coverageChecks({
+        context: "precheck",
+        sources: coverageSources,
+        queryFailed: geozoneError,
+        primaryIso: detectCountryFromCoordinates(latitude, longitude),
+        countryLabel: (iso) => countryName(iso) || iso,
+      }),
+      ...notamChecks({
+        context: "precheck",
+        failed: notamError,
+        count: notamError ? null : notams.active.length,
+        source: "DIPUL temporäre Beschränkungen",
+      }),
+    ];
+
     if (sessionId) {
+      const existing = await getFlightSession(sessionId);
       await updateFlightSession(sessionId, {
         hasRestrictions: hasAnyRestrictions,
         restrictionVerdict,
         detectedGeozones: geozones.map((g) => g.name),
+        checkResults: replaceCheckCategories(
+          existing?.checkResults,
+          preCheckChecks,
+          ["geozone", "coverage", "notam", "compliance"],
+          "precheck",
+        ),
       });
     }
 

@@ -16,7 +16,9 @@ import { useTheme } from "@/hooks/useTheme";
 import { Spacing, Typography, BorderRadius } from "@/constants/theme";
 import { createFlightSession, updateFlightSession, FlightSession, getFlightSession, getSettings, getDrones, DroneProfile, SavedGeozoneFeature, SavedDipulRestriction, CtrWeatherSnapshot } from "@/lib/storage";
 import { startRecording as startTrafficRecording } from "@/lib/trafficRecorder";
-import { assessWeather, AssessmentResult, AssessmentWarning, ExpertTip } from "@/lib/assessment";
+import type { ExpertTip } from "@/lib/assessment";
+import { evaluateFlight, storedChecksFor, type FlightEvaluation } from "@/lib/flightChecks";
+import { ALL_CHECK_CATEGORIES, effectiveSeverity, replaceCheckCategories, sessionReasonsFromChecks } from "../../shared/checks";
 import { recommendDroneForExceedance } from "@/lib/droneRecommendation";
 import { fetchNearestAirportMetar, fetchCtrAirportMetar } from "@/lib/aviationWeather";
 import { findCtrForLocation, getCtrDistanceKm, assessCtrVmc } from "@/lib/ctrData";
@@ -34,7 +36,8 @@ export default function ResultsScreen() {
   const { theme } = useTheme();
   const headerHeight = useHeaderHeight();
   const insets = useSafeAreaInsets();
-  const [assessment, setAssessment] = useState<AssessmentResult | null>(null);
+  // Prüfkette (B4): Ergebnis von evaluateFlight (Kontext "precheck").
+  const [assessment, setAssessment] = useState<FlightEvaluation | null>(null);
   const [saving, setSaving] = useState(false);
   const [showConfirmation, setShowConfirmation] = useState(false);
   const [selectedTip, setSelectedTip] = useState<ExpertTip | null>(null);
@@ -132,6 +135,14 @@ export default function ResultsScreen() {
   }, [latitude, longitude]);
 
   const runAssessment = useCallback(async () => {
+    // Gespeicherte Pre-Check-Befunde (PreCheckOverview: Geozonen, Abdeckung,
+    // NOTAM). Ohne Session/Befunde Rückfall auf die Route-Params.
+    let session: FlightSession | null = null;
+    if (sessionId) {
+      try {
+        session = await getFlightSession(sessionId);
+      } catch {}
+    }
     // Flugplatz-METAR (nächster Verkehrsflughafen) für die Bewertung holen.
     // Schlägt der Abruf fehl oder ist kein Flughafen in der Nähe, läuft die
     // Bewertung ohne Flugplatzdaten weiter (graceful fallback).
@@ -140,25 +151,32 @@ export default function ResultsScreen() {
       airportMetar = await fetchNearestAirportMetar(latitude, longitude);
     } catch {}
 
-    const result = assessWeather(
-      weatherData,
+    // EINE Bewertung (wie Planung). Zeitbezug Pre-Check: Nacht JETZT (Start
+    // vor Ort), Zonenaktivität jetzt ODER geplant (PreCheckOverview).
+    const result = evaluateFlight({
+      context: "precheck",
+      at: new Date(),
+      latitude,
+      longitude,
+      countryIso: session?.countryIso,
+      weather: weatherData,
       limits,
-      hasRestrictions,
-      restrictionStatus,
       kpIndex,
-      undefined,
-      // Policy-Urteil des Pre-Checks: aktive Flugverbotszone → NO-GO.
-      { restrictionVerdict },
       airportMetar,
-    );
+      stored: storedChecksFor(
+        { checkResults: session?.checkResults, hasRestrictions, restrictionStatus, restrictionVerdict },
+        "precheck",
+      ),
+      officialMapCrossCheck: session?.planning?.officialMapCrossCheck,
+    });
     setAssessment(result);
 
-    if (result.status === "go") {
+    if (result.verdict === "go") {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } else {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     }
-  }, [weatherData, limits, hasRestrictions, restrictionStatus, restrictionVerdict, kpIndex, latitude, longitude]);
+  }, [weatherData, limits, hasRestrictions, restrictionStatus, restrictionVerdict, kpIndex, latitude, longitude, sessionId]);
 
   useEffect(() => {
     runAssessment();
@@ -188,8 +206,10 @@ export default function ResultsScreen() {
         const existingSession = await getFlightSession(sessionId);
         await updateFlightSession(sessionId, {
           currentPhase: "hover",
-          status: assessment.status,
-          reasons: assessment.reasons,
+          status: assessment.verdict,
+          verdict: assessment.verdict,
+          reasons: sessionReasonsFromChecks(assessment.results),
+          checkResults: replaceCheckCategories(existingSession?.checkResults, assessment.results, ALL_CHECK_CATEGORIES, "precheck"),
           planning: {
             ...existingSession?.planning,
             plannedDate: existingSession?.planning?.plannedDate || new Date().toISOString().split("T")[0],
@@ -217,8 +237,12 @@ export default function ResultsScreen() {
           longitude,
           hasRestrictions,
           restrictionNotes,
-          status: assessment.status,
-          reasons: assessment.reasons,
+          restrictionStatus,
+          restrictionVerdict,
+          status: assessment.verdict,
+          verdict: assessment.verdict,
+          reasons: sessionReasonsFromChecks(assessment.results),
+          checkResults: assessment.results,
           planning: {
             plannedDate: new Date().toISOString().split("T")[0],
             plannedTime: new Date().toTimeString().slice(0, 5),
@@ -259,7 +283,7 @@ export default function ResultsScreen() {
 
   const getStatusConfig = () => {
     if (!assessment) return null;
-    if (assessment.status === "go") {
+    if (assessment.verdict === "go") {
       return {
         icon: "check-circle" as const,
         title: "GO",
@@ -288,8 +312,11 @@ export default function ResultsScreen() {
 
   const config = getStatusConfig();
 
-  const severeWarnings = assessment?.warnings.filter(w => w.severity === "warning") || [];
-  const cautionWarnings = assessment?.warnings.filter(w => w.severity === "caution") || [];
+  // Gründe aus der Prüfkette: erhebliche (rot: NO-GO bzw. Warnung) und Hinweise.
+  const isSevere = (r: FlightEvaluation["reasons"][number]) =>
+    effectiveSeverity(r) === "nogo" || r.emphasis === "warning";
+  const severeWarnings = (assessment?.reasons ?? []).filter(isSevere);
+  const cautionWarnings = (assessment?.reasons ?? []).filter((r) => !isSevere(r));
 
   if (!assessment || !config) {
     return (
@@ -337,7 +364,7 @@ export default function ResultsScreen() {
                 <Card key={index} style={[styles.warningCard, { borderLeftColor: theme.statusNoGo }]}>
                   <View style={styles.warningHeader}>
                     <Feather name="alert-octagon" size={18} color={theme.statusNoGo} />
-                    <ThemedText style={[styles.warningText, { flex: 1 }]}>{warning.message}</ThemedText>
+                    <ThemedText style={[styles.warningText, { flex: 1 }]}>{warning.overriddenBy ? `${warning.title} (Begründung: ${warning.overriddenBy.reason})` : warning.title}</ThemedText>
                   </View>
                   {rec ? (
                     <View style={styles.recRow}>
@@ -355,10 +382,10 @@ export default function ResultsScreen() {
                       </ThemedText>
                     </View>
                   ) : null}
-                  {warning.expertTip ? (
+                  {warning.tip ? (
                     <Pressable
                       style={[styles.tipButton, { backgroundColor: theme.backgroundSecondary }]}
-                      onPress={() => setSelectedTip(warning.expertTip!)}
+                      onPress={() => setSelectedTip(warning.tip!)}
                     >
                       <Feather name="help-circle" size={14} color={theme.primary} />
                       <ThemedText style={[styles.tipButtonText, { color: theme.primary }]}>
@@ -378,12 +405,12 @@ export default function ResultsScreen() {
               HINWEISE
             </ThemedText>
             {cautionWarnings.map((warning, index) => {
-              const isRestrictionWarning = warning.message.startsWith("Flug mit Einschränkungen") || warning.message.startsWith("Geozonen-Einschränkungen");
+              const isRestrictionWarning = warning.id === "geozone:status";
               return (
                 <Card key={index} style={[styles.cautionCard, { borderLeftColor: theme.statusCaution }]}>
                   <View style={styles.warningHeader}>
                     <Feather name="alert-triangle" size={16} color={theme.statusCaution} />
-                    <ThemedText style={[styles.warningText, { flex: 1 }]}>{warning.message}</ThemedText>
+                    <ThemedText style={[styles.warningText, { flex: 1 }]}>{warning.overriddenBy ? `${warning.title} (Begründung: ${warning.overriddenBy.reason})` : warning.title}</ThemedText>
                   </View>
                   {isRestrictionWarning ? (
                     <View style={[styles.restrictionDetails, { borderTopColor: theme.border }]}>
@@ -432,7 +459,7 @@ export default function ResultsScreen() {
           </Animated.View>
         ) : null}
 
-        {assessment.status === "go" ? (
+        {assessment.verdict === "go" ? (
           <Animated.View entering={FadeIn.delay(300).duration(300)}>
             <Card style={[styles.successCard, { borderLeftColor: theme.statusGo }]}>
               <View style={styles.warningHeader}>
@@ -655,7 +682,7 @@ export default function ResultsScreen() {
                 Möchtest du trotzdem fortfahren?
               </ThemedText>
               
-              {severeWarnings.some(w => w.expertTip) ? (
+              {severeWarnings.some(w => w.tip) ? (
                 <ThemedText style={[styles.modalHint, { color: theme.textTertiary }]}>
                   Tipp: Schau dir die Experten-Tipps an, um zu wissen worauf du achten musst.
                 </ThemedText>

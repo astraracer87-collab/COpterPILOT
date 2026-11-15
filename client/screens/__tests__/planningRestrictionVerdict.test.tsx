@@ -312,7 +312,7 @@ describe("Policy-Urteil (restrictionVerdict) erreicht das Gesamturteil", () => {
     await press(result, "Planung speichern");
     const session = mockSessions[sessionId];
     expect(session.status).toBe("nogo");
-    expect(session.reasons).toEqual(expect.arrayContaining([expect.objectContaining({ type: "caution", message: RESTRICTION_NOGO_TEXT })]));
+    expect(session.reasons).toEqual(expect.arrayContaining([expect.objectContaining({ type: "nogo", message: RESTRICTION_NOGO_TEXT })]));
     expect(session.planning.noGoOverride).toEqual(expect.objectContaining({ originalStatus: "nogo" }));
   });
 
@@ -409,6 +409,208 @@ describe("NOTAM-Status unbekannt", () => {
     expect(mockSessions["s-notam"].status).toBe("caution");
     expect(mockSessions["s-notam"].reasons).toEqual(
       expect.arrayContaining([expect.objectContaining({ type: "caution", message: NOTAM_STATUS_UNKNOWN_TEXT })]),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// B4: Prüfkette. PlanningRestrictions baut Geozonen-/Abdeckungs-Befunde
+// (dieselben Builder wie der Screen), PlanningDetails speichert sie zusammen
+// mit dem NOTAM-Befund in der Session, PlanningResult ergänzt Wetter/Nacht,
+// bildet das Urteil über aggregate() und speichert checkResults + verdict.
+// ---------------------------------------------------------------------------
+describe("Prüfkette (B4): CheckResults in der Session und Urteil", () => {
+  const { classifyPlanningZones } = jest.requireActual("@/lib/restrictionPlanning");
+  const checks = jest.requireActual("../../../shared/checks");
+  const { RESTRICTION_NOGO_TEXT } = jest.requireActual("@/lib/assessment");
+
+  const PROHIBITED_ZONE = {
+    layerLabel: "Temporäre Betriebseinschränkungen",
+    name: "Sperrzone Test",
+    details: "",
+    restriction: "PROHIBITED",
+    country: "DE",
+  };
+
+  function restrictionStage(opts: {
+    zones?: any[];
+    overrideReason?: string;
+    coverage?: any[];
+    hasRestrictions?: boolean;
+  }) {
+    const cls = classifyPlanningZones(opts.zones ?? [], {
+      isCoveredByAV: () => false,
+      overrideReason: () => opts.overrideReason,
+    });
+    return [
+      ...checks.geozoneChecks({
+        context: "planning",
+        classes: [cls],
+        overrideOf: () => (opts.overrideReason ? { reason: opts.overrideReason, at: "2099-01-01T00:00:00.000Z" } : null),
+        hasRestrictions: opts.hasRestrictions ?? (opts.zones ?? []).length > 0,
+        restrictionStatus: undefined,
+      }),
+      ...checks.coverageChecks({
+        context: "planning",
+        sources: opts.coverage ?? [{ iso: "DE", status: "ok" }],
+        primaryIso: "DE",
+        countryLabel: (iso: string) => (iso === "DE" ? "Deutschland" : iso),
+      }),
+    ];
+  }
+
+  function hasLabel(tree: ReactTestRenderer, label: string): boolean {
+    return tree.root.findAll((n) => typeof n.type !== "string" && n.props?.accessibilityLabel === label).length > 0;
+  }
+
+  async function planWithChecks(checkResults: any[], details: any = {}, result: any = {}) {
+    mockRouteParams = {
+      ...baseDetailsParams,
+      hasRestrictions: checkResults.some((c) => c.category === "geozone" && c.severity !== "info"),
+      checkResults,
+      ...details,
+    };
+    const d = await render(PlanningDetailsScreen);
+    await press(d, "In Übersicht speichern");
+    act(() => d.unmount());
+    currentTree = null;
+    const sessionId = Object.keys(mockSessions)[0];
+    // Session enthält die Befunde der Einschränkungs-Stufe schon nach Details.
+    expect(mockSessions[sessionId].checkResults).toEqual(expect.arrayContaining(checkResults));
+    mockRouteParams = { ...resultParams(sessionId), ...result };
+    const tree = await render(PlanningResultScreen);
+    return { sessionId, tree };
+  }
+
+  it("PROHIBITED ohne Override → NO-GO; Session enthält checkResults und verdict", async () => {
+    const { sessionId, tree } = await planWithChecks(restrictionStage({ zones: [PROHIBITED_ZONE] }));
+    expect(hasLabel(tree, "Trotzdem durchführen")).toBe(true);
+    (Alert.alert as jest.Mock).mockImplementation((_t: string, _m: string, buttons: any[]) => {
+      buttons?.find((b) => b.style === "destructive")?.onPress?.();
+    });
+    await press(tree, "Trotzdem durchführen");
+    await press(tree, "Planung speichern");
+    const s = mockSessions[sessionId];
+    expect(s.status).toBe("nogo");
+    expect(s.verdict).toBe("nogo");
+    const prohibited = s.checkResults.find((c: any) => c.id === "geozone:prohibited");
+    expect(prohibited).toEqual(expect.objectContaining({ severity: "nogo", context: "planning", zoneRefs: ["Sperrzone Test"], overridable: true }));
+    expect(prohibited.overriddenBy).toBeUndefined();
+    expect(s.reasons).toEqual(expect.arrayContaining([{ type: "nogo", message: RESTRICTION_NOGO_TEXT }]));
+    // Wetter-/Nacht-Befunde ergänzt PlanningResult.
+    expect(s.checkResults.some((c: any) => c.category === "weather")).toBe(true);
+  });
+
+  it("PROHIBITED mit Override → CAUTION, Begründung als overriddenBy und Grund gespeichert", async () => {
+    const { sessionId, tree } = await planWithChecks(
+      restrictionStage({ zones: [PROHIBITED_ZONE], overrideReason: "Sondergenehmigung Az. 1" }),
+    );
+    expect(hasLabel(tree, "Trotzdem durchführen")).toBe(false);
+    await press(tree, "Planung speichern");
+    const s = mockSessions[sessionId];
+    expect(s.status).toBe("caution");
+    expect(s.verdict).toBe("caution");
+    const ov = s.checkResults.find((c: any) => c.id.startsWith("geozone:prohibited-override"));
+    expect(ov).toEqual(expect.objectContaining({ severity: "nogo", overriddenBy: { reason: "Sondergenehmigung Az. 1", at: "2099-01-01T00:00:00.000Z" } }));
+    expect(s.reasons).toEqual(
+      expect.arrayContaining([expect.objectContaining({ type: "caution", message: expect.stringContaining("Begründung: Sondergenehmigung Az. 1") })]),
+    );
+    expect(s.reasons.some((r: any) => r.type === "nogo")).toBe(false);
+  });
+
+  it("Abdeckung nicht verfügbar → CAUTION mit Abdeckungs-Grund", async () => {
+    const { sessionId, tree } = await planWithChecks(
+      restrictionStage({ coverage: [{ iso: "DE", status: "missing" }] }),
+    );
+    await press(tree, "Planung speichern");
+    const s = mockSessions[sessionId];
+    expect(s.status).toBe("caution");
+    expect(s.checkResults).toEqual(expect.arrayContaining([expect.objectContaining({ category: "coverage", severity: "unknown" })]));
+    expect(s.reasons).toEqual(
+      expect.arrayContaining([{ type: "caution", message: "Geozonen-Daten für Deutschland nicht verfügbar – Zonen bitte manuell prüfen." }]),
+    );
+  });
+
+  it("DE ohne Wohngrundstücke (partial) → CAUTION", async () => {
+    const { sessionId, tree } = await planWithChecks(
+      restrictionStage({ coverage: [{ iso: "DE", status: "partial", note: "Wohngrundstücke offline nicht gespeichert – nicht geprüft" }] }),
+    );
+    await press(tree, "Planung speichern");
+    expect(mockSessions[sessionId].status).toBe("caution");
+    expect(mockSessions[sessionId].reasons[0].message).toContain("unvollständig: Wohngrundstücke offline nicht gespeichert");
+  });
+
+  it("NOTAM-Status unbekannt → CAUTION, NOTAM-Befund in der Session", async () => {
+    const { NOTAM_STATUS_UNKNOWN_TEXT } = jest.requireActual("@/lib/notams");
+    mockNotamResult = { notams: [], total: 0, queriedCodes: ["EDWW"], error: "HTTP 401", failed: true };
+    const d = new Date(Date.now() + 2 * 60 * 60 * 1000);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    mockRouteParams = {
+      ...baseDetailsParams,
+      plannedDate: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
+      plannedTime: `${pad(d.getHours())}:${pad(d.getMinutes())}`,
+      endTime: `${pad(d.getHours())}:${pad(d.getMinutes())}`,
+      hasRestrictions: false,
+      checkResults: restrictionStage({}),
+    };
+    const details = await render(PlanningDetailsScreen);
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    await press(details, "Weiter zur Checkliste");
+    act(() => details.unmount());
+    currentTree = null;
+    const sessionId = Object.keys(mockSessions)[0];
+    expect(mockSessions[sessionId].checkResults).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "notam:status", severity: "unknown", context: "planning" })]),
+    );
+    mockRouteParams = resultParams(sessionId);
+    const result = await render(PlanningResultScreen);
+    await press(result, "Planung speichern");
+    expect(mockSessions[sessionId].status).toBe("caution");
+    expect(mockSessions[sessionId].reasons).toEqual(
+      expect.arrayContaining([{ type: "caution", message: NOTAM_STATUS_UNKNOWN_TEXT }]),
+    );
+  });
+
+  it("alles frei → GO; Session enthält checkResults (Info-Befunde) und verdict go", async () => {
+    const { sessionId, tree } = await planWithChecks(restrictionStage({}));
+    await press(tree, "Planung speichern");
+    const s = mockSessions[sessionId];
+    expect(s.status).toBe("go");
+    expect(s.verdict).toBe("go");
+    const ids = s.checkResults.map((c: any) => c.id);
+    expect(ids).toEqual(expect.arrayContaining(["geozone:status", "weather:ok"]));
+    expect(s.checkResults.every((c: any) => c.severity === "info")).toBe(true);
+    expect(s.reasons).toEqual([{ type: "go", message: checks.ALL_CHECKS_CLEAR_TEXT }]);
+  });
+
+  it("Nacht in DE (Blinklicht-Pflicht) → CAUTION nach bestehender Regel", async () => {
+    const { sessionId, tree } = await planWithChecks(restrictionStage({}), { plannedTime: "00:30" }, { plannedTime: "00:30" });
+    await press(tree, "Planung speichern");
+    const s = mockSessions[sessionId];
+    expect(s.status).toBe("caution");
+    expect(s.checkResults).toEqual(expect.arrayContaining([expect.objectContaining({ category: "night", severity: "caution" })]));
+  });
+
+  it("Nacht in FR (Préfecture-Freigabe) → NO-GO nach bestehender Regel; Land aus dem Standort", async () => {
+    const paris = { latitude: 48.85, longitude: 2.35, locationName: "Paris" };
+    // countryIso bewusst falsch ("DE"): die Nachtregel folgt dem Standort (I6).
+    const { sessionId, tree } = await planWithChecks(
+      restrictionStage({}),
+      { ...paris, countryIso: "DE", plannedTime: "00:30" },
+      { ...paris, countryIso: "DE", plannedTime: "00:30" },
+    );
+    expect(hasLabel(tree, "Trotzdem durchführen")).toBe(true);
+    (Alert.alert as jest.Mock).mockImplementation((_t: string, _m: string, buttons: any[]) => {
+      buttons?.find((b) => b.style === "destructive")?.onPress?.();
+    });
+    await press(tree, "Trotzdem durchführen");
+    await press(tree, "Planung speichern");
+    const s = mockSessions[sessionId];
+    expect(s.status).toBe("nogo");
+    expect(s.checkResults).toEqual(
+      expect.arrayContaining([expect.objectContaining({ category: "night", severity: "nogo", title: expect.stringContaining("FR") })]),
     );
   });
 });

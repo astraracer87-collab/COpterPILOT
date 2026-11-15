@@ -28,6 +28,7 @@ import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { consumeFlightPlanningMode, getFlightPlanningMode } from "@/lib/flightPlanningMode";
 import { CommonActions } from "@react-navigation/native";
 import { buildRestrictionSessionPatch } from "@/lib/manualRestrictionFlow";
+import { notamChecks, replaceCheckCategories, type CheckResult } from "../../shared/checks";
 
 type NavigationProp = NativeStackNavigationProp<FlightPlanningParamList, "PlanningDetails">;
 type RouteParams = RouteProp<FlightPlanningParamList, "PlanningDetails">;
@@ -45,6 +46,22 @@ export default function PlanningDetailsScreen() {
   // Wird in der Flug-Session persistiert und in PlanningResult für das
   // Gesamturteil verwendet (vorher ging es hier verloren → falsches GO).
   const restrictionPatch = buildRestrictionSessionPatch(route.params);
+  // Prüfkette (B4): Befunde der Einschränkungs-Stufe (Route-Param als Rückfall,
+  // falls PlanningRestrictions die Session noch nicht hatte). Kam die Navigation
+  // aus der Einschränkungs-Stufe ohne Befunde (Altpfad), werden alte Befunde
+  // verworfen, damit der Rückfall auf die Einzelfelder greift.
+  const restrictionChecks: CheckResult[] | null =
+    route.params.checkResults ?? (typeof route.params.hasRestrictions === "boolean" ? [] : null);
+  const mergeChecks = (existing: CheckResult[] | undefined): CheckResult[] => {
+    let next = existing ?? [];
+    if (restrictionChecks) next = replaceCheckCategories(next, restrictionChecks, ["geozone", "coverage", "compliance"], "planning");
+    return replaceCheckCategories(
+      next,
+      notamChecks({ context: "planning", failed: notamUnknown, count: notamCount, source: "NOTAM-Abfrage (Planung)" }),
+      ["notam"],
+      "planning",
+    );
+  };
   
   const plannedDate = route.params.plannedDate || (() => {
     const today = new Date();
@@ -425,6 +442,7 @@ export default function PlanningDetailsScreen() {
         
         await updateFlightSession(sessionId, {
           ...restrictionPatch,
+          checkResults: mergeChecks(existingSession?.checkResults),
           planning: {
             plannedDate,
             plannedTime,
@@ -463,6 +481,7 @@ export default function PlanningDetailsScreen() {
           mapUrl,
           ...restrictionPatch,
           hasRestrictions: restrictionPatch.hasRestrictions ?? false,
+          checkResults: mergeChecks(undefined),
           status: "caution",
           planning: {
             plannedDate,

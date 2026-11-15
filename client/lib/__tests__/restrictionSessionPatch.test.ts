@@ -1,7 +1,9 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { buildRestrictionSessionPatch, restrictionAssessmentInput } from "../manualRestrictionFlow";
+import { buildRestrictionSessionPatch } from "../manualRestrictionFlow";
+import { storedChecksFor } from "../flightChecks";
+import { aggregate } from "../../../shared/checks";
 
 // Review-Fix 1: Einschränkungs-Ergebnis -> Flug-Session -> Gesamturteil.
 describe("buildRestrictionSessionPatch", () => {
@@ -30,9 +32,12 @@ describe("buildRestrictionSessionPatch", () => {
     assert.deepEqual(buildRestrictionSessionPatch({}), {});
   });
 
-  it("restrictionAssessmentInput liest die gespeicherten Werte", () => {
-    assert.deepEqual(restrictionAssessmentInput({ hasRestrictions: true }), { hasRestrictions: true, restrictionStatus: undefined, restrictionVerdict: undefined });
-    assert.deepEqual(restrictionAssessmentInput(null), { hasRestrictions: false, restrictionStatus: undefined, restrictionVerdict: undefined });
-    assert.deepEqual(restrictionAssessmentInput({ hasRestrictions: true, restrictionVerdict: "nogo" }), { hasRestrictions: true, restrictionStatus: undefined, restrictionVerdict: "nogo" });
+  // B4: restrictionAssessmentInput entfällt – PlanningResult liest die
+  // gespeicherten Felder über storedChecksFor (Rückfall ohne CheckResults).
+  it("storedChecksFor leitet aus den gespeicherten Feldern dasselbe Urteil ab", () => {
+    assert.equal(aggregate(storedChecksFor({ hasRestrictions: true }, "planning")).verdict, "caution");
+    assert.equal(aggregate(storedChecksFor(null, "planning")).verdict, "go");
+    assert.equal(aggregate(storedChecksFor({ hasRestrictions: true, restrictionVerdict: "nogo" }, "planning")).verdict, "nogo");
+    assert.equal(aggregate(storedChecksFor({ hasRestrictions: true, restrictionStatus: "approved" }, "planning")).verdict, "go");
   });
 });

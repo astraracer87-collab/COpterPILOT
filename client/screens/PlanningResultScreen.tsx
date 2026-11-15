@@ -15,9 +15,9 @@ import StatusBadge from "@/components/StatusBadge";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, Typography, Colors, BorderRadius } from "@/constants/theme";
 import { updateFlightSession, getFlightSession, getDrone, getDrones, DroneProfile } from "@/lib/storage";
-import { assessWeather, ExpertTip } from "@/lib/assessment";
-import { restrictionAssessmentInput } from "@/lib/manualRestrictionFlow";
-import { NOTAM_STATUS_UNKNOWN_TEXT } from "@/lib/notams";
+import type { ExpertTip } from "@/lib/assessment";
+import { evaluateFlight, storedChecksFor } from "@/lib/flightChecks";
+import { ALL_CHECK_CATEGORIES, effectiveSeverity, replaceCheckCategories, sessionReasonsFromChecks, sortChecks, type CheckResult } from "../../shared/checks";
 import { recommendDroneForExceedance, DroneRecommendation } from "@/lib/droneRecommendation";
 import { suggestCategory, CategoryAdvice } from "@/lib/categoryAdvice";
 import { calculateSolarTimes, formatSolarTime, getDaylightPhase, SolarTimes, computeSunElevation } from "@/lib/solar";
@@ -49,12 +49,12 @@ export default function PlanningResultScreen() {
   // hebt den Status auf mindestens "caution" an, ersetzt aber NICHT die
   // automatische Geozonen-/§21h-Erkennung.
   const [crossCheck, setCrossCheck] = useState<{ blocking: boolean; note?: string } | null>(null);
-  // Ergebnis der Einschränkungs-Stufe (Geozonen/§21h/AV/Ausnahmen), in der
-  // Session gespeichert von PlanningDetails. Fließt ins Gesamturteil ein.
-  const [restriction, setRestriction] = useState<ReturnType<typeof restrictionAssessmentInput>>({ hasRestrictions: false });
+  // Prüfkette (B4): gespeicherte Befunde der Planung (Geozonen, Abdeckung,
+  // NOTAM, Compliance) aus der Session; ohne gespeicherte Befunde Rückfall auf
+  // hasRestrictions/restrictionStatus/restrictionVerdict/notamStatusUnknown.
+  const [storedChecks, setStoredChecks] = useState<CheckResult[]>(() => storedChecksFor(null, "planning"));
   // Speichern erst, wenn die Session (inkl. Einschränkungs-Ergebnis) geladen ist.
   const [sessionLoaded, setSessionLoaded] = useState(false);
-  const [notamUnknown, setNotamUnknown] = useState(false);
 
   const { 
     droneId, 
@@ -83,19 +83,11 @@ export default function PlanningResultScreen() {
     return d;
   })();
 
-  const assessmentContext = {
-    plannedDateTime,
-    latitude,
-    longitude,
-    // Höchstes Policy-Urteil der Geozonen aus der Session (PROHIBITED ohne
-    // Begründung → NO-GO).
-    restrictionVerdict: restriction.restrictionVerdict,
-  };
-
-  const assessment = forecastWeather 
+  // Wetterdaten der Planung (Snapshot) für die Prüfkette.
+  const weatherData = forecastWeather
     ? (() => {
         const emptyAlt = [{ height: 2, value: 0 }];
-        const weatherData = {
+        return {
           latitude,
           longitude,
           calculationTime: new Date().toISOString(),
@@ -116,25 +108,24 @@ export default function PlanningResultScreen() {
             pressure: 1013,
           }],
         };
-        return assessWeather(weatherData, limits, restriction.hasRestrictions, restriction.restrictionStatus, undefined, maxAltitude, assessmentContext);
       })()
-    : (() => {
-        // Ohne Wetterdaten: trotzdem Nachtflug-Check ausführen
-        const dummyWeather = {
-          latitude,
-          longitude,
-          calculationTime: new Date().toISOString(),
-          forecasts: [{
-            timestamp: new Date().toISOString(),
-            temperature: 15, humidity: 50, windSpeed: 0, windGust: 0, windDirection: 0,
-            windAtAltitude: [], temperatureAtAltitude: [{ height: 2, value: 15 }],
-            humidityAtAltitude: [{ height: 2, value: 50 }], cloudCoverAtAltitude: [],
-            rain: 0, snow: 0, cloudCover: 0, pressure: 1013,
-          }],
-        };
-        const partial = assessWeather(dummyWeather, limits, restriction.hasRestrictions, restriction.restrictionStatus, undefined, maxAltitude, assessmentContext);
-        return { ...partial, status: partial.status === "nogo" ? "nogo" as const : "caution" as const };
-      })();
+    : null;
+
+  // EINE Bewertung (wie Pre-Check), Zeitbezug: geplanter Zeitpunkt.
+  const evaluation = evaluateFlight({
+    context: "planning",
+    at: plannedDateTime,
+    latitude,
+    longitude,
+    countryIso: route.params.countryIso,
+    weather: weatherData,
+    limits,
+    maxAltitude,
+    stored: storedChecks,
+    officialMapCrossCheck: crossCheck,
+  });
+  // Darstellung: wirksame Befunde zuerst, dann Info-Befunde.
+  const displayedChecks = sortChecks(evaluation.results);
 
   useEffect(() => {
     getDrone(droneId).then(drone => {
@@ -158,20 +149,21 @@ export default function PlanningResultScreen() {
     getFlightSession(sessionId)
       .then((session) => {
         setCrossCheck(session?.planning?.officialMapCrossCheck ?? null);
-        setRestriction(restrictionAssessmentInput(session));
-        setNotamUnknown(session?.planning?.notamStatusUnknown === true);
+        setStoredChecks(
+          storedChecksFor(
+            session ? { ...session, notamStatusUnknown: session.planning?.notamStatusUnknown === true } : null,
+            "planning",
+          ),
+        );
       })
       .catch(() => {})
       .finally(() => setSessionLoaded(true));
   }, [sessionId]);
 
-  // Eine startverhindernde Gegenprüfung hebt den Gesamtstatus auf mindestens
-  // "caution" an (nie über No-Go hinaus reduziert).
-  const crossCheckBlocking = crossCheck?.blocking === true;
-  // Unbekannter NOTAM-Status (Abfrage fehlgeschlagen) ist kein sauberes Ergebnis:
-  // ebenfalls mindestens "caution".
-  const effectiveStatus: "go" | "caution" | "nogo" =
-    (crossCheckBlocking || notamUnknown) && assessment.status === "go" ? "caution" : assessment.status;
+  // Gesamturteil aus aggregate(): Flugverbot ohne Begründung, Nacht-Verbot,
+  // Gewitter → NO-GO; Gegenprüfung "startverhindernd", NOTAM-/Geozonen-Status
+  // unbekannt, Auflagen, Wetterhinweise → CAUTION.
+  const effectiveStatus = evaluation.verdict;
 
   const handleSave = async () => {
     setSaving(true);
@@ -181,23 +173,10 @@ export default function PlanningResultScreen() {
       const existing = await getFlightSession(sessionId);
       await updateFlightSession(sessionId, {
         status: effectiveStatus,
-        reasons: [
-          // Jede Warnung (caution ODER warning) ist ein CAUTION-Grund — vorher
-          // landeten "caution"-Warnungen als GO-Grund im Protokoll.
-          ...assessment.warnings.map(w => ({
-            type: "caution" as const,
-            message: w.message,
-          })),
-          ...(crossCheckBlocking
-            ? [{
-                type: "caution" as const,
-                message: crossCheck?.note
-                  ? `Offizielle Karte: startverhindernde Geozonen gemeldet. Notiz: ${crossCheck.note}`
-                  : "Offizielle Karte: startverhindernde Geozonen gemeldet.",
-              }]
-            : []),
-          ...(notamUnknown ? [{ type: "caution" as const, message: NOTAM_STATUS_UNKNOWN_TEXT }] : []),
-        ],
+        verdict: evaluation.verdict,
+        checkResults: replaceCheckCategories(existing?.checkResults, evaluation.results, ALL_CHECK_CATEGORIES, "planning"),
+        // Jeder wirksame Befund ist ein Grund (nogo bzw. caution) im Protokoll.
+        reasons: sessionReasonsFromChecks(evaluation.results),
         planning: {
           ...(existing?.planning ?? {}),
           plannedDate,
@@ -250,13 +229,13 @@ export default function PlanningResultScreen() {
           text: "Ja, ich übernehme die Verantwortung",
           style: "destructive",
           onPress: () => {
-            const reasons = assessment.warnings
-              .filter((w) => w.severity === "warning")
-              .map((w) => w.message);
+            const reasons = evaluation.reasons
+              .filter((r) => effectiveSeverity(r) === "nogo" || r.emphasis === "warning")
+              .map((r) => r.title);
             setNoGoOverride({
               acknowledgedAt: new Date().toISOString(),
               reasons: reasons.length > 0 ? reasons : ["NO-GO bewusst übersteuert"],
-              originalStatus: assessment.status,
+              originalStatus: evaluation.verdict,
             });
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
           },
@@ -381,54 +360,6 @@ export default function PlanningResultScreen() {
                 </View>
               );
             })() : null}
-            {assessment.warnings.length > 0 ? (
-              <View style={styles.warningsSection}>
-                {assessment.warnings.map((warning, index) => {
-                  const rec = warning.exceedance
-                    ? recommendDroneForExceedance(warning.exceedance, allDrones, droneId)
-                    : null;
-                  const tip: ExpertTip = warning.expertTip ?? {
-                    title: "Erläuterung",
-                    description: warning.message,
-                  };
-                  const dotColor = warning.severity === "warning" ? theme.statusNoGo : theme.statusCaution;
-                  return (
-                    <View key={index} style={styles.warningItem}>
-                      <View style={styles.warningRow}>
-                        <View style={[styles.warningDot, { backgroundColor: dotColor }]} />
-                        <ThemedText style={[styles.warningText, { color: theme.textSecondary }]}>
-                          {warning.message}
-                        </ThemedText>
-                        <Pressable
-                          onPress={() => setSelectedInfo({ tip, recommendation: rec })}
-                          hitSlop={8}
-                          style={styles.infoButton}
-                          testID={`button-warning-info-${index}`}
-                        >
-                          <Feather name="info" size={18} color={theme.primary} />
-                        </Pressable>
-                      </View>
-                      {rec ? (
-                        <View style={styles.recRow}>
-                          <Feather
-                            name={rec.hasMatch ? "check-circle" : "shopping-bag"}
-                            size={13}
-                            color={rec.hasMatch ? theme.statusGo : theme.textTertiary}
-                            style={styles.recIcon}
-                          />
-                          <ThemedText
-                            style={[styles.recText, { color: rec.hasMatch ? theme.statusGo : theme.textTertiary }]}
-                            testID={`text-warning-recommendation-${index}`}
-                          >
-                            {rec.message}
-                          </ThemedText>
-                        </View>
-                      ) : null}
-                    </View>
-                  );
-                })}
-              </View>
-            ) : null}
             {solarTimes ? (
               <View style={[styles.solarRow, { borderTopColor: theme.border }]}>
                 <View style={styles.solarItem}>
@@ -454,45 +385,67 @@ export default function PlanningResultScreen() {
           </Card>
         ) : null}
 
-        {crossCheckBlocking ? (
-          <Card
-            style={[styles.crossCheckCard, { borderLeftColor: theme.statusCaution }]}
-            testID="card-crosscheck-warning"
-          >
-            <View style={styles.crossCheckHeader}>
-              <Feather name="alert-triangle" size={18} color={theme.statusCaution} />
-              <ThemedText style={[styles.crossCheckTitle, { color: theme.statusCaution }]}>
-                Gegenprüfung: offizielle Karte
-              </ThemedText>
-            </View>
-            <ThemedText style={[styles.crossCheckText, { color: theme.textSecondary }]}>
-              Du hast bei der Gegenprüfung der offiziellen Staatskarte angegeben, dass
-              dort Geozonen einen Start verhindern würden. Bitte vor dem Flug prüfen.
-            </ThemedText>
-            {crossCheck?.note ? (
-              <ThemedText style={[styles.crossCheckNote, { color: theme.textSecondary }]}>
-                Notiz: {crossCheck.note}
-              </ThemedText>
-            ) : null}
-          </Card>
-        ) : null}
-
-        {notamUnknown ? (
-          <Card
-            style={[styles.crossCheckCard, { borderLeftColor: theme.statusCaution }]}
-            testID="card-notam-unknown"
-          >
-            <View style={styles.crossCheckHeader}>
-              <Feather name="alert-triangle" size={18} color={theme.statusCaution} />
-              <ThemedText style={[styles.crossCheckTitle, { color: theme.statusCaution }]}>
-                NOTAMs
-              </ThemedText>
-            </View>
-            <ThemedText style={[styles.crossCheckText, { color: theme.textSecondary }]}>
-              {NOTAM_STATUS_UNKNOWN_TEXT}
-            </ThemedText>
-          </Card>
-        ) : null}
+        {/* Prüfkette (B4): alle Befunde (Geozonen, Abdeckung, NOTAM, Nacht,
+            Wetter, Gegenprüfung) mit Info-Dialog; Urteil aus aggregate(). */}
+        <Card style={styles.weatherCard} testID="card-check-results">
+          <View style={styles.weatherHeader}>
+            <ThemedText style={styles.weatherTitle}>Prüfergebnis</ThemedText>
+            <StatusBadge status={effectiveStatus} />
+          </View>
+          <View>
+            {displayedChecks.map((check, index) => {
+              const rec = check.exceedance
+                ? recommendDroneForExceedance(check.exceedance, allDrones, droneId)
+                : null;
+              const tip: ExpertTip = check.tip ?? {
+                title: "Erläuterung",
+                description: check.detail || check.title,
+              };
+              const sev = effectiveSeverity(check);
+              const dotColor = sev === "nogo" || check.emphasis === "warning"
+                ? theme.statusNoGo
+                : sev === "info"
+                  ? theme.textTertiary
+                  : theme.statusCaution;
+              return (
+                <View key={`${check.id}-${index}`} style={styles.warningItem} testID={`check-result-${check.id}`}>
+                  <View style={styles.warningRow}>
+                    <View style={[styles.warningDot, { backgroundColor: dotColor }]} />
+                    <ThemedText style={[styles.warningText, { color: theme.textSecondary }]}>
+                      {check.overriddenBy
+                        ? `${check.title} (Begründung: ${check.overriddenBy.reason})`
+                        : check.title}
+                    </ThemedText>
+                    <Pressable
+                      onPress={() => setSelectedInfo({ tip, recommendation: rec })}
+                      hitSlop={8}
+                      style={styles.infoButton}
+                      testID={`button-warning-info-${index}`}
+                    >
+                      <Feather name="info" size={18} color={theme.primary} />
+                    </Pressable>
+                  </View>
+                  {rec ? (
+                    <View style={styles.recRow}>
+                      <Feather
+                        name={rec.hasMatch ? "check-circle" : "shopping-bag"}
+                        size={13}
+                        color={rec.hasMatch ? theme.statusGo : theme.textTertiary}
+                        style={styles.recIcon}
+                      />
+                      <ThemedText
+                        style={[styles.recText, { color: rec.hasMatch ? theme.statusGo : theme.textTertiary }]}
+                        testID={`text-warning-recommendation-${index}`}
+                      >
+                        {rec.message}
+                      </ThemedText>
+                    </View>
+                  ) : null}
+                </View>
+              );
+            })}
+          </View>
+        </Card>
 
         {categoryAdvice ? (
           <Card style={[styles.categoryCard, { borderLeftColor: categoryAdvice.color === "green" ? theme.statusGo : categoryAdvice.color === "yellow" ? theme.statusCaution : theme.statusNoGo }]}>
@@ -627,7 +580,7 @@ export default function PlanningResultScreen() {
       </ScrollView>
 
       <View style={[styles.footer, { paddingBottom: insets.bottom + Spacing.lg, backgroundColor: theme.backgroundDefault }]}>
-        {assessment.status === "nogo" && !noGoOverride && !saved ? (
+        {evaluation.verdict === "nogo" && !noGoOverride && !saved ? (
           <View>
             <View style={[styles.nogoBanner, { backgroundColor: theme.statusNoGoBackground, borderColor: theme.statusNoGo }]}>
               <Feather name="alert-octagon" size={20} color={theme.statusNoGo} />
@@ -892,12 +845,6 @@ const styles = StyleSheet.create({
     ...Typography.caption,
     fontWeight: "600",
   },
-  warningsSection: {
-    marginTop: Spacing.lg,
-    paddingTop: Spacing.lg,
-    borderTopWidth: 1,
-    borderTopColor: Colors.light.border,
-  },
   warningItem: {
     marginBottom: Spacing.sm,
   },
@@ -1021,29 +968,6 @@ const styles = StyleSheet.create({
     padding: Spacing.lg,
     marginBottom: Spacing.lg,
     borderLeftWidth: 3,
-  },
-  crossCheckCard: {
-    padding: Spacing.lg,
-    marginBottom: Spacing.lg,
-    borderLeftWidth: 3,
-  },
-  crossCheckHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.md,
-    marginBottom: Spacing.sm,
-  },
-  crossCheckTitle: {
-    ...Typography.h4,
-  },
-  crossCheckText: {
-    ...Typography.body,
-    lineHeight: 20,
-  },
-  crossCheckNote: {
-    ...Typography.small,
-    marginTop: Spacing.sm,
-    fontStyle: "italic",
   },
   categoryHeader: {
     flexDirection: "row",

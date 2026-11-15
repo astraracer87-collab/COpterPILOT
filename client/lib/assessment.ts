@@ -7,6 +7,9 @@ import { detectCountryFromCoordinates } from "@/lib/countryMaps";
 import { getNightFlightRule } from "@/lib/countryInfo";
 import type { LimitExceedance } from "@/lib/droneRecommendation";
 import type { RestrictionVerdict } from "../../shared/restrictionPolicy";
+import { RESTRICTION_NOGO_TEXT, RESTRICTION_NOGO_TIP } from "../../shared/checks/builders";
+
+export { RESTRICTION_NOGO_TEXT };
 
 export interface ExpertTip {
   title: string;
@@ -24,6 +27,10 @@ export interface AssessmentWarning {
    * Ergebnisschirmen (siehe lib/droneRecommendation.ts).
    */
   exceedance?: LimitExceedance;
+  /** Erheblicher Befund (setzt requiresConfirmation). Für die Prüfkette. */
+  severe?: boolean;
+  /** Befund führt zum NO-GO (Nacht-Verbot, Gewitter, Flugverbotszone). */
+  nogo?: boolean;
 }
 
 export interface AssessmentResult {
@@ -43,8 +50,94 @@ export interface AssessmentContext {
   restrictionVerdict?: RestrictionVerdict;
 }
 
-/** Text des NO-GO-Grunds bei aktiver Flugverbotszone (Protokoll/Tests). */
-export const RESTRICTION_NOGO_TEXT = "Flugverbotszone im Umkreis – Flug nicht zulässig (NO-GO)";
+/** Land für die Nachtflug-Regel: immer aus dem Standort (Koordinaten), nur
+ * wenn dort kein Land erkannt wird, aus dem übergebenen Rückfall (Review I6:
+ * Planung und Urteil verwenden dasselbe Land). */
+export function nightFlightCountry(lat: number, lon: number, fallbackIso?: string | null): string | null {
+  return detectCountryFromCoordinates(lat, lon) ?? (fallbackIso ? fallbackIso.toUpperCase() : null);
+}
+
+export interface NightAssessment {
+  warnings: AssessmentWarning[];
+  reasons: AssessmentReason[];
+  isNoGo: boolean;
+  requiresConfirmation: boolean;
+}
+
+/**
+ * Nachtflug-Check (länderspezifisch).
+ * Definition: "Nacht" beginnt mit Ende der buergerlichen Daemmerung
+ * (Sonne -6 deg unter Horizont). Zwischen Sonnenuntergang und Daemmerungsende
+ * -> Karenz/Daemmerung (caution, kein NO-GO).
+ */
+export function assessNightFlight(
+  planTime: Date | undefined | null,
+  lat: number | undefined | null,
+  lon: number | undefined | null,
+  fallbackIso?: string | null,
+): NightAssessment {
+  const warnings: AssessmentWarning[] = [];
+  const reasons: AssessmentReason[] = [];
+  let isNoGo = false;
+  let severe = false;
+  if (planTime && lat != null && lon != null && Number.isFinite(planTime.getTime())) {
+    const solar = calculateSolarTimes(lat, lon, planTime);
+    const isDay = isTimeDuringDaylight(planTime, solar);
+    const isCivilTwilight = isTimeDuringCivilTwilight(planTime, solar);
+    const isLegalNight = !isDay && !isCivilTwilight;
+    if (!isDay) {
+      const iso = nightFlightCountry(lat, lon, fallbackIso);
+      const rule = getNightFlightRule(iso);
+      const phase = isLegalNight ? "Nacht" : "Dämmerung";
+      if (isLegalNight && (rule.status === "forbidden" || rule.status === "permit_required")) {
+        warnings.push({
+          message: `Nacht-Flug am geplanten Standort: ${rule.shortText}`,
+          severity: "warning",
+          expertTip: {
+            title: rule.shortText,
+            description: rule.detail,
+            practiceCheck: "Flug auf Tageszeit verschieben (vor Sonnenuntergang bzw. nach Sonnenaufgang) oder die erforderliche Sonderfreigabe einholen. Definition: \"Nacht\" beginnt mit Ende der buergerlichen Daemmerung (Sonne -6 deg).",
+          },
+          severe: true,
+          nogo: true,
+        });
+        reasons.push({ type: "caution", message: rule.shortText });
+        severe = true;
+        isNoGo = true;
+      } else if (rule.status === "forbidden" || rule.status === "permit_required") {
+        // Daemmerung in eigentlich verbotenem Land -> CAUTION (Karenz)
+        warnings.push({
+          message: `${phase}-Flug geplant — am Rand der Tageszeit (Karenz)`,
+          severity: "caution",
+          expertTip: {
+            title: "Dämmerung als Karenzzone",
+            description: `${rule.detail} Aktuell liegt die geplante Zeit innerhalb der bürgerlichen Dämmerung (Sonne zwischen 0° und -6°) — der Flug wird hier noch nicht als formaler Nachtflug gewertet, du solltest aber zügig handeln und vor Ende der Dämmerung gelandet sein.`,
+            practiceCheck: "Lande spätestens am Ende der bürgerlichen Dämmerung. Bei Unsicherheit Flug auf Tageszeit verschieben.",
+          },
+        });
+        reasons.push({ type: "caution", message: `${phase} — Karenzzone` });
+      } else if (rule.status === "allowed_with_lights") {
+        warnings.push({
+          message: `${phase}-Flug geplant — ${rule.shortText}`,
+          severity: "caution",
+          expertTip: {
+            title: rule.shortText,
+            description: rule.detail,
+            practiceCheck: "Grünes Blinklicht an der Drohne anbringen und vor dem Start auf einwandfreie Funktion prüfen.",
+          },
+        });
+        reasons.push({ type: "caution", message: rule.shortText });
+      } else {
+        warnings.push({
+          message: `${phase}-Flug geplant — ${rule.shortText}`,
+          severity: "caution",
+        });
+        reasons.push({ type: "caution", message: rule.shortText });
+      }
+    }
+  }
+  return { warnings, reasons, isNoGo, requiresConfirmation: severe };
+}
 
 function calculateDewPoint(temperature: number, humidity: number): number {
   const a = 17.27;
@@ -135,67 +228,25 @@ export function assessWeather(
   let hasSevereWarning = false;
   let isNoGo = false;
 
-  // Nachtflug-Check (länderspezifisch).
-  // Definition: "Nacht" beginnt mit Ende der buergerlichen Daemmerung
-  // (Sonne -6 deg unter Horizont). Zwischen Sonnenuntergang und Daemmerungsende
-  // -> Karenz/Daemmerung (caution, kein NO-GO).
-  const planTime = context?.plannedDateTime;
-  const lat = context?.latitude;
-  const lon = context?.longitude;
-  if (planTime && lat != null && lon != null) {
-    const solar = calculateSolarTimes(lat, lon, planTime);
-    const isDay = isTimeDuringDaylight(planTime, solar);
-    const isCivilTwilight = isTimeDuringCivilTwilight(planTime, solar);
-    const isLegalNight = !isDay && !isCivilTwilight;
-    if (!isDay) {
-      const iso = detectCountryFromCoordinates(lat, lon);
-      const rule = getNightFlightRule(iso);
-      const phase = isLegalNight ? "Nacht" : "Dämmerung";
-      if (isLegalNight && (rule.status === "forbidden" || rule.status === "permit_required")) {
-        warnings.push({
-          message: `Nacht-Flug am geplanten Standort: ${rule.shortText}`,
-          severity: "warning",
-          expertTip: {
-            title: rule.shortText,
-            description: rule.detail,
-            practiceCheck: "Flug auf Tageszeit verschieben (vor Sonnenuntergang bzw. nach Sonnenaufgang) oder die erforderliche Sonderfreigabe einholen. Definition: \"Nacht\" beginnt mit Ende der buergerlichen Daemmerung (Sonne -6 deg).",
-          },
-        });
-        reasons.push({ type: "caution", message: rule.shortText });
-        hasSevereWarning = true;
-        isNoGo = true;
-      } else if (rule.status === "forbidden" || rule.status === "permit_required") {
-        // Daemmerung in eigentlich verbotenem Land -> CAUTION (Karenz)
-        warnings.push({
-          message: `${phase}-Flug geplant — am Rand der Tageszeit (Karenz)`,
-          severity: "caution",
-          expertTip: {
-            title: "Dämmerung als Karenzzone",
-            description: `${rule.detail} Aktuell liegt die geplante Zeit innerhalb der bürgerlichen Dämmerung (Sonne zwischen 0° und -6°) — der Flug wird hier noch nicht als formaler Nachtflug gewertet, du solltest aber zügig handeln und vor Ende der Dämmerung gelandet sein.`,
-            practiceCheck: "Lande spätestens am Ende der bürgerlichen Dämmerung. Bei Unsicherheit Flug auf Tageszeit verschieben.",
-          },
-        });
-        reasons.push({ type: "caution", message: `${phase} — Karenzzone` });
-      } else if (rule.status === "allowed_with_lights") {
-        warnings.push({
-          message: `${phase}-Flug geplant — ${rule.shortText}`,
-          severity: "caution",
-          expertTip: {
-            title: rule.shortText,
-            description: rule.detail,
-            practiceCheck: "Grünes Blinklicht an der Drohne anbringen und vor dem Start auf einwandfreie Funktion prüfen.",
-          },
-        });
-        reasons.push({ type: "caution", message: rule.shortText });
-      } else {
-        warnings.push({
-          message: `${phase}-Flug geplant — ${rule.shortText}`,
-          severity: "caution",
-        });
-        reasons.push({ type: "caution", message: rule.shortText });
-      }
-    }
-  }
+  // Erheblichen bzw. NO-GO-Befund am zuletzt hinzugefügten Warnhinweis
+  // markieren (Prüfkette: CheckResult.requiresConfirmation / nogo).
+  const markSevere = () => {
+    hasSevereWarning = true;
+    const w = warnings[warnings.length - 1];
+    if (w) w.severe = true;
+  };
+  const markNoGo = () => {
+    isNoGo = true;
+    const w = warnings[warnings.length - 1];
+    if (w) w.nogo = true;
+  };
+
+  // Nachtflug-Check (länderspezifisch), siehe assessNightFlight.
+  const night = assessNightFlight(context?.plannedDateTime, context?.latitude, context?.longitude);
+  warnings.push(...night.warnings);
+  reasons.push(...night.reasons);
+  if (night.requiresConfirmation) hasSevereWarning = true;
+  if (night.isNoGo) isNoGo = true;
 
   const current = weather.forecasts[0];
   const upcomingForecasts = weather.forecasts.slice(0, 9);
@@ -208,15 +259,11 @@ export function assessWeather(
     warnings.push({
       message: RESTRICTION_NOGO_TEXT,
       severity: "warning",
-      expertTip: {
-        title: "Flugverbotszone",
-        description: "Am Standort liegt eine aktive Geozone mit Flugverbot (z. B. Sperrgebiet, Kernanlage, Justizvollzug). Ein Flug ist ohne Sondergenehmigung der zuständigen Behörde nicht zulässig.",
-        practiceCheck: "Standort/Flughöhe/Zeit ändern oder – nur mit Sondergenehmigung – im Schritt „Einschränkungen“ die Begründung dokumentieren.",
-      },
+      expertTip: RESTRICTION_NOGO_TIP,
     });
     reasons.push({ type: "nogo", message: RESTRICTION_NOGO_TEXT });
-    hasSevereWarning = true;
-    isNoGo = true;
+    markSevere();
+    markNoGo();
   }
 
   if (hasRestrictions) {
@@ -267,7 +314,7 @@ export function assessWeather(
       type: "caution",
       message: icingRisk.message!,
     });
-    hasSevereWarning = true;
+    markSevere();
   } else if (icingRisk.level === "warning") {
     warnings.push({
       message: icingRisk.message!,
@@ -320,7 +367,7 @@ export function assessWeather(
       type: "caution",
       message: `Windgeschwindigkeit ${current.windSpeed.toFixed(1)} m/s überschreitet Limit`,
     });
-    hasSevereWarning = true;
+    markSevere();
   } else if (current.windSpeed > limits.maxWind * 0.8) {
     warnings.push({
       message: `Windgeschwindigkeit ${current.windSpeed.toFixed(1)} m/s nahe am Limit von ${limits.maxWind} m/s`,
@@ -353,7 +400,7 @@ export function assessWeather(
       type: "caution",
       message: `Böen ${current.windGust.toFixed(1)} m/s überschreiten Limit`,
     });
-    hasSevereWarning = true;
+    markSevere();
   } else if (current.windGust && current.windGust > limits.maxGusts * 0.8) {
     warnings.push({
       message: `Böen ${current.windGust.toFixed(1)} m/s nahe am Limit von ${limits.maxGusts} m/s`,
@@ -385,7 +432,7 @@ export function assessWeather(
       type: "caution",
       message: `Niederschlag überschreitet Limit`,
     });
-    hasSevereWarning = true;
+    markSevere();
   } else if (current.rain > 0) {
     warnings.push({
       message: `Leichter Niederschlag (${current.rain.toFixed(2)} mm/h)`,
@@ -418,7 +465,7 @@ export function assessWeather(
       type: "caution",
       message: `Temperatur zu niedrig für optimale Akkuleistung`,
     });
-    hasSevereWarning = true;
+    markSevere();
   } else if (current.temperature < limits.minTemp + 5) {
     warnings.push({
       message: `Temperatur ${current.temperature.toFixed(1)}°C nahe am Minimum von ${limits.minTemp}°C`,
@@ -451,7 +498,7 @@ export function assessWeather(
       type: "caution",
       message: `Temperatur zu hoch für sicheren Betrieb`,
     });
-    hasSevereWarning = true;
+    markSevere();
   } else if (limits.maxTemp != null && current.temperature > limits.maxTemp - 5) {
     warnings.push({
       message: `Temperatur ${current.temperature.toFixed(1)}°C nahe am Maximum von ${limits.maxTemp}°C`,
@@ -483,7 +530,7 @@ export function assessWeather(
       type: "caution",
       message: `Wolkenuntergrenze zu niedrig für VLOS`,
     });
-    hasSevereWarning = true;
+    markSevere();
   }
 
   if (current.visibility && current.visibility < limits.minVisibility) {
@@ -501,7 +548,7 @@ export function assessWeather(
       type: "caution",
       message: `Sichtweite zu gering für VLOS`,
     });
-    hasSevereWarning = true;
+    markSevere();
   }
 
   if (airportMetar) {
@@ -521,8 +568,8 @@ export function assessWeather(
         },
       });
       reasons.push({ type: "caution", message: `Gewitter am ${where}` });
-      hasSevereWarning = true;
-      isNoGo = true;
+      markSevere();
+      markNoGo();
     }
 
     if (a.windGustMs != null && a.windGustMs > limits.maxGusts) {
@@ -537,7 +584,7 @@ export function assessWeather(
         exceedance: { kind: "gusts", value: a.windGustMs, limit: limits.maxGusts },
       });
       reasons.push({ type: "caution", message: `Böen am ${where} über Limit` });
-      hasSevereWarning = true;
+      markSevere();
     } else if (a.windGustMs != null && a.windGustMs > limits.maxGusts * 0.8) {
       warnings.push({
         message: `${where}: gemeldete Böen ${a.windGustMs.toFixed(1)} m/s nahe am Limit (${limits.maxGusts} m/s)`,
@@ -558,7 +605,7 @@ export function assessWeather(
         exceedance: { kind: "wind", value: a.windSpeedMs, limit: limits.maxWind },
       });
       reasons.push({ type: "caution", message: `Wind am ${where} über Limit` });
-      hasSevereWarning = true;
+      markSevere();
     } else if (a.windSpeedMs != null && a.windSpeedMs > limits.maxWind * 0.8) {
       warnings.push({
         message: `${where}: gemeldeter Wind ${a.windSpeedMs.toFixed(1)} m/s nahe am Limit (${limits.maxWind} m/s)`,
@@ -578,7 +625,7 @@ export function assessWeather(
         },
       });
       reasons.push({ type: "caution", message: `Sicht am ${where} zu gering` });
-      hasSevereWarning = true;
+      markSevere();
     }
 
     if (a.ceilingFt != null) {
@@ -594,7 +641,7 @@ export function assessWeather(
           },
         });
         reasons.push({ type: "caution", message: `Wolkenuntergrenze am ${where} zu niedrig` });
-        hasSevereWarning = true;
+        markSevere();
       }
     }
 
@@ -653,7 +700,7 @@ export function assessWeather(
             exceedance: { kind: "wind", value: worstWindSpeed, limit: limits.maxWind, height: worstWindHeight },
           });
           reasons.push({ type: "caution", message: `Starker Wind auf ${worstWindHeight}m Flughöhe` });
-          hasSevereWarning = true;
+          markSevere();
         } else if (worstWindHeight > 0 && worstWindSpeed > limits.maxWind * 0.75) {
           warnings.push({
             message: `Wind auf ${worstWindHeight}m Höhe: ${worstWindSpeed.toFixed(1)} m/s nahe am Drohnen-Limit (${limits.maxWind} m/s)`,
@@ -674,7 +721,7 @@ export function assessWeather(
             exceedance: { kind: "gusts", value: worstGustValue, limit: limits.maxGusts, height: worstGustHeight },
           });
           reasons.push({ type: "caution", message: `Starke Böen auf ${worstGustHeight}m Flughöhe` });
-          hasSevereWarning = true;
+          markSevere();
         }
 
         const topHeight = relevantHeights.length > 0 ? relevantHeights[relevantHeights.length - 1] : altHeights[0];
@@ -719,7 +766,7 @@ export function assessWeather(
             exceedance: { kind: "temp", value: worstTempValue, limit: limits.minTemp, height: worstTempHeight },
           });
           reasons.push({ type: "caution", message: `Zu kalt auf ${worstTempHeight}m Flughöhe` });
-          hasSevereWarning = true;
+          markSevere();
         }
       }
     }
@@ -746,7 +793,7 @@ export function assessWeather(
           practiceCheck: `Reduziere die Flughöhe auf max. ${Math.max(0, current.cloudCeiling - 50)}m oder warte auf bessere Sichtverhältnisse.`,
         },
       });
-      hasSevereWarning = true;
+      markSevere();
     }
   }
 
