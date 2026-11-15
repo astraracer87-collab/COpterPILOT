@@ -29,7 +29,7 @@ Pro Land gibt es ein eigenes Detaildokument (`docs/<land>-…-integration.md`).
 | **LU** | Geoportail Luxembourg | keine (CC0) | ED-269 / OGC Features | 🔑 Modul `luGeozones.ts` gebaut (nicht eingebunden), Feed defekt → auf OGC umstellen | `luxembourg-geozones-integration.md` |
 | **IT** | d-flight | Login (Keycloak) + CSRF | ED-269 Download | 🔑 CSRF gelöst, Download-Format erfassen | `dflight-it-api-integration.md` |
 | **PL** | PANSA DroneMap | API-Key (`x-api-key`) → Bearer | KML | ✅ live abgerufen (DE-IP): 1.774 Zonen | `pansa-pl-api-integration.md` |
-| **ES** | ENAIRE | keine | ED-318 (ArcGIS MapServer) | ✅ live abgerufen (DE-IP), Fixtures | `enaire-es-api-integration.md` |
+| **ES** | ENAIRE | keine | ED-318 (ArcGIS MapServer) | ✅ KOMPLETT abgerufen (DE-IP, ~21k Feat.) | `enaire-es-api-integration.md` |
 | **MT** | iDronect / Transport Malta | keine (DDP) | Meteor-DDP (`flightArea`-GeoJSON) | 🔑 Filter-Parameter fehlen (Browser-Capture) | `idronect-mt-api-integration.md` |
 | **HU** | MyDroneSpace / HungaroControl | Login (GoodID/Google) | GeoJSON (`/api/zones`) + WMTS-Raster | 🔑 Zonen brauchen Login; WMTS öffentlich | `hungary-mydronespace-api-integration.md` |
 | **CZ** | ANS CR / ŘLP | keine | custom (`getGJ.php`) + ArcGIS-WMS | 🔑 Endpoint-Parameter fehlen | `czech-ans-api-integration.md` |

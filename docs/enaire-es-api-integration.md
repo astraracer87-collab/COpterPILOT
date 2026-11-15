@@ -174,3 +174,41 @@ curl -s "$BASE?f=json" | jq '.layers'
 curl -s "$BASE/0/query?where=1%3D1&outFields=*&outSR=4326&resultRecordCount=1&f=geojson" \
   | jq '.features[0].properties'
 ```
+
+---
+
+## 8. Verifizierte Daten – KOMPLETT abgerufen (DE-IP, 2026-11-15)
+
+Alle Layer live als GeoJSON geholt (`features/`-Zähler bestätigt). Übersicht:
+`docs/geozonen-daten-abruf-DE-2026-11-15.md`.
+
+**Service `NSF/Drones_ZG_Aero_V3/MapServer`:**
+| Layer | Name | Features |
+|---|---|---|
+| 0 | AERODROMOS | 563 |
+| 1 | ZG_EAC_FIZ | 223 |
+| 2 | AVISOS | 184 |
+| 3 | ZG_RVF | 119 |
+| 4 | AEROMODELISMO | 257 |
+| 6 | ZG_Aeródromos | 1.305 |
+| 10 | ZG_Restringidas | 370 |
+
+**Weitere Services:** `Drones_ZG_Infra_V0/11` (Infrastruktur, **14.163**),
+`Drones_ZG_Urbano_V0/11` (urban, 4), `NOTAM_UAS_APP_V3/1` (NOTAM, 745),
+`ENP_APP_Local_V4/0` (Naturschutz, 1.814), `ENP_APP_Local_V4/1` (1.321).
+
+### ⚠️ Größenwarnung (wichtig für die App)
+- **`Drones_ZG_Infra_V0/11` ≈ 177 MB** und **`ENP_APP_Local_V4/0` ≈ 221 MB**
+  (sehr detaillierte Geometrie). Diese Layer **nicht** roh ins Gerät laden.
+- Empfehlung: serverseitig/beim Abruf **vereinfachen** (ArcGIS-Parameter
+  `maxAllowableOffset=<grad>` bzw. `geometryPrecision`), nur benötigte
+  `outFields` holen, und/oder **bbox-/viewport-basiert** statt landesweit laden
+  (`geometry=<bbox>&geometryType=esriGeometryEnvelope&spatialRel=esriSpatialRelIntersects`).
+  ArcGIS liefert maximal `maxRecordCount` (hier 2000) pro Request → **paginieren**
+  (`resultOffset`/`resultRecordCount`).
+- Für die reine Drohnen-Geo-Awareness sind v. a. `ZG_Restringidas`, `ZG_EAC_FIZ`,
+  `ZG_RVF` und NOTAM relevant; Infra/ENP (Naturschutz) als optionaler Layer.
+
+### Höhenfilter
+`where=RESTRICCION_LOWER < 120` – Feld existiert nur auf Layern mit Höhen;
+pro Layer prüfen (Flugplatz-Punktlayer haben es nicht).
