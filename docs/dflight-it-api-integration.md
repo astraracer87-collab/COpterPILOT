@@ -123,26 +123,69 @@ grant_type=password
    Client `web-app` ist ein reiner Login-Client, kein Service-Account. Der
    öffentliche Client liefert also nur die `client_id`; es braucht einen
    echten Nutzer-Login.
-3. **CSRF ist Pflicht, vom Gateway erzwungen.** Ohne die beiden Header
-   antwortet der Token-Endpunkt mit `403 "Missing Headers CSRF protection
-   policy exception"`. Der `X-CSRF-Token` ist der `general.csrf_pub_key` aus
-   dem Socket-Event `d-flight.hci.configuration`; die `X-CSRF-Nonce` erzeugt
-   die Web-App clientseitig in einem **eigenen Format** (kein Standard-UUIDv4;
-   eine Standard-UUID wird mit `403 "Malformed Headers"` abgelehnt).
+3. **CSRF ist Pflicht, vom Gateway erzwungen** – und es ist ein
+   **standardisierter RSA-Double-Submit**, kein Sonderformat. (Das war der
+   zuvor übersehene Punkt; siehe §3a für den vollständigen Algorithmus.)
+   Ohne die Header: `403 "Missing Headers"`; mit falsch gebildetem Token:
+   `403 "Malformed Headers"`.
 4. **Der ED-269-Download braucht Bearer + dieselben CSRF-Header.** Ein GET auf
    `/geo-awareness/api/ed-269/geo-zones/download` mit gültigem Bearer, aber
    ohne CSRF-Header, liefert `401 "Unable to authenticate using the
-   Authorization header"`. Mit korrekten CSRF-Headern (die die App erzeugt)
-   geht die Anfrage durch.
+   Authorization header"`. Mit korrekt gebildeten CSRF-Headern geht die
+   Anfrage durch.
 
-**Konsequenz für die Integration:** Der Client muss den Login-Fluss der App
-nachbilden – socket.io-Konfiguration holen (liefert `csrf_pub_key`), die
-Nonce im App-Format erzeugen und beide Header an **jede** Anfrage hängen.
-Das genaue Nonce-Format bzw. eine offizielle Integrationsanleitung sollte bei
-d-flight angefragt werden (siehe §6), statt die Schutzfunktion
-nachzukonstruieren. Der Download selbst war mit diesem Account technisch
-erreichbar; Format und Umfang sind noch mit korrekt erzeugter Nonce zu
-verifizieren.
+### §3a – Der CSRF-Mechanismus im Detail (aus dem Client-Code rekonstruiert)
+
+Die Web-App hängt an **jede** API-Anfrage die Header `X-CSRF-Token` und
+`X-CSRF-Nonce`. Die werden so gebildet (`getXcsrfInfo()` im Bundle):
+
+1. **Echten Public Key gewinnen:** `general.csrf_pub_key` aus dem
+   socket.io-Event `d-flight.hci.configuration` ist base64 und wird mit einem
+   **fest im Client hinterlegten Schlüssel** `publicCsrfDecryptKey` per
+   RSA-`publicDecrypt` (Padding **PKCS#1 v1.5** = `padding:1`) entschlüsselt.
+   Ergebnis = `publicKeyPem` (der eigentliche RSA-Public-Key als PEM).
+   Der hinterlegte Entschlüsselungs-Key (öffentlich, steht im Bundle):
+   ```
+   -----BEGIN PUBLIC KEY-----
+   MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA1bpY0TH/OqwY71j+7ayl
+   bWIo2njiAh2H+o0ghgOhXxcUgw4RSZrUzTRdJOhXKozgXwZ4BX2rrMpEZJ/RCZQA
+   HiSvmhFeuztgFLK7CFKTkS3uftaT7jBdvtI9GKgxgPd+nrThnc78w/fBilzPVCdg
+   +U0zhA4mnWNco2Jk1WDEK6PJ05SC4ZwQ29SVMZv6264q6bs6Le4lmWC/JxzeR2Sq
+   TprCwIa9y1Yq22u27wgwVqcqc1vsGgTHQe/VWLmbb6QxfJpTyNJc+ZwH1N6gILkC
+   E2RF52mWrQ/grz7YoLXg7haLWxzjflbhVlRujGqcrdYpNm5u8yGiKYmNlWvGP0dv
+   Qy8LJZXlmaiKHy8v70NobdzgodepoENIL4QS5nI5HyMMBAo5pWSQFktOiuTokY/s
+   2O6oWliIwdevqLg64cW2joWNAV9a8sfU49OXrEzuZPve3gJRxhdwKjlfW7STIFrU
+   pGUheLpUfjrjSUY3WWIw6lXimllHOg0iIsCq7UBFWvXLz2xubw4DGNFWrj/5oX7Q
+   9+367SxJMErS9xvhuP8vlvDQ/XISCHox9v4tvBP/jNZAirP15UbWtGhritJ1v9St
+   7765ICsoDSDddSgQJ4UC5m5kwVFi5WlKaYig3lvW8DFGbrwocbdCQetOt8tGoxwT
+   +Y5a/Mb8L8KiEJ4RPspHLvsCAwEAAQ==
+   -----END PUBLIC KEY-----
+   ```
+2. **Server-Wert holen:** `GET {gatewayBaseUrl}/pre-flight`
+   (`gatewayBaseUrl` = `https://www.d-flight.it/api-gateway`, also
+   **`GET https://www.d-flight.it/api-gateway/pre-flight`**). Antwort enthält
+   `{ "value": <W> }`. **Cookies/Session mitführen** (gleicher Jar wie beim
+   Token-Request).
+3. **Pro Anfrage Header bilden:**
+   - `H` = eine frisch erzeugte **UUID** (das Format ist egal – der Server
+     prüft nur, dass die entschlüsselte Nonce gleich `X-CSRF-Nonce` ist).
+   - `X-CSRF-Token` = base64( RSA-`publicEncrypt`(`publicKeyPem`,
+     Padding **PKCS#1 v1.5**, Daten = `H + "|" + W`) )
+   - `X-CSRF-Nonce` = `H`
+4. Der Server entschlüsselt `X-CSRF-Token`, prüft `H` gegen `X-CSRF-Nonce`
+   und `W` gegen den ausgegebenen `/pre-flight`-Wert.
+
+**Warum der frühere Versuch scheiterte:** Wir hatten den rohen
+`csrf_pub_key` direkt als `X-CSRF-Token` geschickt und eine Zufalls-UUID als
+Nonce. Richtig ist: Key erst entschlüsseln, `/pre-flight`-Wert holen, dann
+`nonce|value` RSA-verschlüsseln. **Kein kostenpflichtiger Support nötig** –
+der Mechanismus ist vollständig im Client enthalten und oben beschrieben.
+
+**Konsequenz für die Integration:** Diesen Ablauf einmal implementieren
+(socket.io-Config für `csrf_pub_key`, `/pre-flight` für `value`, RSA-Encrypt
+pro Request) und `X-CSRF-Token`/`X-CSRF-Nonce` zusammen mit dem Bearer an
+alle Anfragen hängen. Die ED-269-Download-Antwort (Format/Umfang) ist dann
+einmal zu erfassen und als Fixture abzulegen.
 
 **Architekturfrage (vor dem Bau klären, siehe §6):** Die App hat kein eigenes
 Backend mehr. Möglich sind zwei Wege:
@@ -299,11 +342,12 @@ Zahlungen (`/epay`, `/store`), Nutzerverwaltung.
 3. **Abo-Stufen:** ATM-09 und NOTAM gibt es nur mit Base/Pro. Was ein
    Gratis-Account im ED-269-Download sieht, ist zu prüfen.
 4. **Rate-Limits und Nutzungsbedingungen** für automatisierte Abrufe.
-5. **CSRF-Nonce-Format / offizielle Integrationsanleitung:** Die App hängt an
-   jede Anfrage `X-CSRF-Token` (= `csrf_pub_key`) und eine `X-CSRF-Nonce` im
-   eigenen Format. Für eine Fremd-App bei d-flight erfragen, wie die Nonce
-   korrekt zu bilden ist bzw. ob es dafür eine dokumentierte Schnittstelle
-   gibt. Diese Schutzfunktion nicht selbst nachkonstruieren.
+5. **CSRF-Mechanismus: GELÖST** (siehe §3a). Es ist ein Standard-RSA-Double-
+   Submit, vollständig aus dem Client rekonstruiert (`/pre-flight`-Wert +
+   RSA-Encrypt von `nonce|value`). Keine Rückfrage/kein kostenpflichtiger
+   Support bei d-flight nötig. Offen bleibt nur, die **Download-Antwort einmal
+   live zu erfassen** (Format/Feldbelegung des ED-269-Exports) und als Fixture
+   abzulegen – das macht der Programmierer im App-Session-Kontext.
 
 ---
 
