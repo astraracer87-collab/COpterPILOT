@@ -62,7 +62,14 @@ function templateFor(key: string, sessionId: string): string {
 }
 
 /** Liefert die Kachel-Adresse (oder null ohne Schlüssel / offline). */
+const GOOGLE_TILES_ENABLED = false;
+
 export async function ensureGoogleTiles(): Promise<string | null> {
+  // Google-Luftbild ist abgeschaltet (Vorgabe: kein Google). Satellitenmodus nutzt die amtlichen Luftbilder.
+  if (!GOOGLE_TILES_ENABLED) {
+    emit({ template: null });
+    return null;
+  }
   const key = await getGoogleKey();
   if (!key) {
     emit({ template: null });

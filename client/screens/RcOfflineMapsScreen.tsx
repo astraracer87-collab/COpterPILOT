@@ -46,8 +46,6 @@ import {
 } from "@/lib/offlineMaps";
 import { getObstaclesEnabled, setObstaclesEnabled } from "@/lib/obstacles";
 import { openLink } from "@/lib/webBrowser";
-import { clearGoogleKey, getGoogleKey, setGoogleKey } from "@/lib/googleTiles";
-import { clearDeeplKey, getDeeplKey, setDeeplKey } from "@/lib/zoneTranslationStore";
 import { clearDflightCredentials, getDflightCredentials, setDflightCredentials } from "@/lib/geozoneDirect/dflightAuth";
 import { deleteEd269Dataset, loadStoredEd269Dataset, type Ed269ImportMeta } from "@/lib/geozoneDirect/ed269Store";
 import { getTilePartMeta, hasTiledGeozones } from "@/lib/geozoneTiles/tileStore";
@@ -135,6 +133,16 @@ function useSafeTabBarHeight(): number {
   }
 }
 
+/** Flaggen-Emoji aus dem ISO-Code; der gemeinsame Eintrag CH zeigt Schweiz und Liechtenstein. */
+function flagOf(iso: string): string {
+  const code = iso.toUpperCase() === "UK" ? "GB" : iso.toUpperCase();
+  if (!/^[A-Z]{2}$/.test(code)) return "";
+  return String.fromCodePoint(...[...code].map((ch) => 0x1f1e6 + ch.charCodeAt(0) - 65));
+}
+function countryFlags(iso: string): string {
+  return iso.toUpperCase() === "CH" ? `${flagOf("CH")} ${flagOf("LI")}` : flagOf(iso);
+}
+
 export default function OfflineMapsScreen() {
   const { theme } = useTheme();
   const headerHeight = useHeaderHeight();
@@ -147,16 +155,9 @@ export default function OfflineMapsScreen() {
   const [state, setState] = useState<Record<string, CountryState>>({});
   const [freeMB, setFreeMB] = useState<number | null>(null);
   const [obstaclesOn, setObstaclesOn] = useState(true);
-  const [hasGoogle, setHasGoogle] = useState(false);
-  const [googleInput, setGoogleInput] = useState("");
-  const [googleBusy, setGoogleBusy] = useState(false);
-  const [googleMsg, setGoogleMsg] = useState<string | null>(null);
-
   // Teil A: große Geozonen-Pakete (DE/FR/CZ, NL) sonst nur im WLAN aktualisieren
   const [largePacksMobile, setLargePacksMobile] = useState(false);
   useEffect(() => {
-    getGoogleKey().then((k) => setHasGoogle(!!k));
-    getDeeplKey().then((k) => setHasDeepl(!!k));
     loadLargePacksOnMobile().then(setLargePacksMobile).catch(() => {});
   }, []);
 
@@ -184,37 +185,6 @@ export default function OfflineMapsScreen() {
     }
   };
 
-  const [hasDeepl, setHasDeepl] = useState(false);
-  const [deeplInput, setDeeplInput] = useState("");
-  const [deeplBusy, setDeeplBusy] = useState(false);
-  const [deeplMsg, setDeeplMsg] = useState<string | null>(null);
-  const saveDeepl = async () => {
-    setDeeplBusy(true);
-    setDeeplMsg(null);
-    const r = await setDeeplKey(deeplInput);
-    setDeeplBusy(false);
-    if (r.ok) {
-      setHasDeepl(true);
-      setDeeplInput("");
-      setDeeplMsg("Gespeichert – neue Behördentexte werden beim nächsten Laden übersetzt.");
-    } else {
-      setDeeplMsg(r.error ?? "Schlüssel konnte nicht geprüft werden.");
-    }
-  };
-
-  const saveGoogle = async () => {
-    setGoogleBusy(true);
-    setGoogleMsg(null);
-    const r = await setGoogleKey(googleInput);
-    setGoogleBusy(false);
-    if (r.ok) {
-      setHasGoogle(true);
-      setGoogleInput("");
-      setGoogleMsg("Gespeichert – im Satellitenmodus wird jetzt das Google-Bild gezeigt.");
-    } else {
-      setGoogleMsg(r.error ?? "Schlüssel konnte nicht geprüft werden.");
-    }
-  };
   const stopFlags = useRef<Record<string, boolean>>({});
 
   // Länder-Nutzung (Aus/Online/Offline), gespeicherte Größen, automatische Synchronisation
@@ -454,90 +424,13 @@ export default function OfflineMapsScreen() {
   return (
     <ThemedView style={styles.container}>
       <ScrollView contentContainerStyle={[styles.content, { paddingTop: headerHeight + Spacing.xl, paddingBottom: tabBarHeight + Spacing.xl }]}>
-        <ThemedText style={[styles.sectionTitle, { color: theme.textSecondary }]}>GOOGLE-SATELLITENBILD</ThemedText>
+        <ThemedText style={[styles.sectionTitle, { color: theme.textSecondary }]}>ÜBERSETZUNG DER BEHÖRDENTEXTE</ThemedText>
         <Card style={styles.card}>
           <ThemedText style={[styles.small, { color: theme.textSecondary }]}>
-            Mit eigenem Google-API-Schlüssel („Map Tiles API“ aktiviert, Abrechnung eingerichtet) zeigt der Satellitenmodus
-            online das Google-Luftbild. Ohne Internet erscheinen die gespeicherten amtlichen Luftbilder. Der Schlüssel bleibt
-            verschlüsselt auf diesem Gerät.
+            Zonennamen und Beschreibungen ausländischer Behörden werden auf Deutsch angezeigt, das Original steht jeweils
+            darunter. Die Übersetzung erfolgt vollständig in der App (Wörterbuch und Satzmuster) – ohne externen Dienst und
+            ohne Internet.
           </ThemedText>
-          {hasGoogle ? (
-            <View style={[styles.row, { marginTop: Spacing.md }]}>
-              <Feather name="check-circle" size={18} color="#1B8A2A" />
-              <ThemedText style={[styles.rowLabel, { flex: 1 }]}>Schlüssel gespeichert</ThemedText>
-              <Pressable
-                onPress={async () => { await clearGoogleKey(); setHasGoogle(false); setGoogleMsg(null); }}
-                style={[styles.btn, { backgroundColor: "rgba(255,59,48,0.12)" }]}
-              >
-                <ThemedText style={[styles.btnText, { color: "#FF3B30" }]}>Entfernen</ThemedText>
-              </Pressable>
-            </View>
-          ) : (
-            <View style={{ marginTop: Spacing.md, gap: Spacing.sm }}>
-              <TextInput
-                value={googleInput}
-                onChangeText={setGoogleInput}
-                placeholder="API-Schlüssel (AIza…)"
-                placeholderTextColor={theme.textTertiary}
-                autoCapitalize="none"
-                autoCorrect={false}
-                secureTextEntry
-                style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.backgroundSecondary }]}
-              />
-              <Pressable
-                onPress={saveGoogle}
-                disabled={googleBusy || googleInput.trim().length < 20}
-                style={[styles.btn, { backgroundColor: theme.primary, alignSelf: "flex-start", opacity: googleBusy || googleInput.trim().length < 20 ? 0.5 : 1 }]}
-              >
-                {googleBusy ? <ActivityIndicator size="small" color="#FFFFFF" /> : <Feather name="key" size={16} color="#FFFFFF" />}
-                <ThemedText style={[styles.btnText, { color: "#FFFFFF" }]}>Prüfen & speichern</ThemedText>
-              </Pressable>
-            </View>
-          )}
-          {googleMsg ? <ThemedText style={[styles.small, { marginTop: Spacing.sm }]}>{googleMsg}</ThemedText> : null}
-        </Card>
-
-        <ThemedText style={[styles.sectionTitle, { color: theme.textSecondary, marginTop: Spacing["2xl"] }]}>ÜBERSETZUNG DER BEHÖRDENTEXTE</ThemedText>
-        <Card style={styles.card}>
-          <ThemedText style={[styles.small, { color: theme.textSecondary }]}>
-            Zonennamen und Beschreibungen ausländischer Behörden werden auf Deutsch angezeigt (das Original steht jeweils
-            darunter). Alle bekannten Texte sind in der App enthalten. Für Texte, die Behörden später neu veröffentlichen,
-            kann optional ein eigener DeepL-Schlüssel eingetragen werden; ohne Schlüssel erscheint dann der Originaltext.
-          </ThemedText>
-          {hasDeepl ? (
-            <View style={[styles.row, { marginTop: Spacing.md }]}>
-              <Feather name="check-circle" size={18} color="#1B8A2A" />
-              <ThemedText style={[styles.rowLabel, { flex: 1 }]}>DeepL-Schlüssel gespeichert</ThemedText>
-              <Pressable
-                onPress={async () => { await clearDeeplKey(); setHasDeepl(false); setDeeplMsg(null); }}
-                style={[styles.btn, { backgroundColor: "rgba(255,59,48,0.12)" }]}
-              >
-                <ThemedText style={[styles.btnText, { color: "#FF3B30" }]}>Entfernen</ThemedText>
-              </Pressable>
-            </View>
-          ) : (
-            <View style={{ marginTop: Spacing.md, gap: Spacing.sm }}>
-              <TextInput
-                value={deeplInput}
-                onChangeText={setDeeplInput}
-                placeholder="DeepL-API-Schlüssel (optional)"
-                placeholderTextColor={theme.textTertiary}
-                autoCapitalize="none"
-                autoCorrect={false}
-                secureTextEntry
-                style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.backgroundSecondary }]}
-              />
-              <Pressable
-                onPress={saveDeepl}
-                disabled={deeplBusy || deeplInput.trim().length < 20}
-                style={[styles.btn, { backgroundColor: theme.primary, alignSelf: "flex-start", opacity: deeplBusy || deeplInput.trim().length < 20 ? 0.5 : 1 }]}
-              >
-                {deeplBusy ? <ActivityIndicator size="small" color="#FFFFFF" /> : <Feather name="key" size={16} color="#FFFFFF" />}
-                <ThemedText style={[styles.btnText, { color: "#FFFFFF" }]}>Prüfen & speichern</ThemedText>
-              </Pressable>
-            </View>
-          )}
-          {deeplMsg ? <ThemedText style={[styles.small, { marginTop: Spacing.sm }]}>{deeplMsg}</ThemedText> : null}
         </Card>
 
         <ThemedText style={[styles.sectionTitle, { color: theme.textSecondary, marginTop: Spacing["2xl"] }]}>ITALIEN – D-FLIGHT-ZUGANG</ThemedText>
@@ -699,7 +592,10 @@ export default function OfflineMapsScreen() {
                   color={isSaved ? (allDone ? "#1B8A2A" : theme.primary) : theme.textTertiary}
                 />
                 <View style={{ flex: 1 }}>
-                  <ThemedText style={styles.rowLabel}>{country.label}</ThemedText>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                    <ThemedText style={styles.rowLabel} accessible={false}>{countryFlags(country.iso)}</ThemedText>
+                    <ThemedText style={styles.rowLabel}>{country.label}</ThemedText>
+                  </View>
                   <ThemedText style={[styles.small, { color: theme.textSecondary }]} testID={`country-status-${country.iso}`}>
                     {usage === "off"
                       ? size?.importBytes
