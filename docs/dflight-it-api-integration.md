@@ -103,6 +103,18 @@ grant_type=password
   credentials“, „Account disabled“.
 - Danach bei allen Daten-Requests `Authorization: Bearer <access_token>` senden.
 
+**Verifiziert (2026-11-15):** Der öffentlich in der Konfiguration liegende
+Client (`client_id: web-app` samt des sichtbaren `clientSecret`) genügt
+**allein nicht**. Ein **Client-Credentials-Grant** (ohne Nutzer) am
+Token-Endpunkt liefert **401** – der Client ist ein reiner Login-Client für
+den Password-Grant, ein Service-Account ist nicht aktiv. Zusätzlich sichert
+ein **API-Gateway** den gesamten `auth-iam`- und Daten-Pfad mit
+`WWW-Authenticate: Bearer` ab; selbst die OIDC-Discovery
+(`.well-known/openid-configuration`) antwortet ohne Token mit 401. Der
+ED-269-Download ist also **erst mit einem echten Nutzer-Token** möglich.
+Genau dafür sind die noch ausstehenden Zugangsdaten nötig; der öffentliche
+Client liefert beim Login nur die `client_id`.
+
 **Architekturfrage (vor dem Bau klären, siehe §6):** Die App hat kein eigenes
 Backend mehr. Möglich sind zwei Wege:
 - (a) Jeder Pilot meldet sich in COpterPILOT mit **seinem eigenen
