@@ -61,6 +61,11 @@ export const COUNTRY_BOUNDING_BOXES: CountryBoundingBox[] = [
   { iso: "RS", minLat: 42.23, maxLat: 46.19, minLon: 18.83, maxLon: 23.01 },
   { iso: "UA", minLat: 44.39, maxLat: 52.38, minLon: 22.14, maxLon: 40.23 },
   { iso: "BY", minLat: 51.26, maxLat: 56.17, minLon: 23.18, maxLon: 32.74 },
+  // Vereinigtes Königreich (Großbritannien inkl. Scilly/Hebriden/Shetland und
+  // Nordirland). Erkennung NUR über isGreatBritainOrNorthernIreland (REFINED_
+  // BOUNDARIES) – die Box überlappt Nordfrankreich und Irland und dient nur der
+  // Abdeckung (getCountryBoundingBox/Offline-Pakete).
+  { iso: "GB", minLat: 49.86, maxLat: 60.86, minLon: -8.65, maxLon: 1.77 },
   { iso: "RU", minLat: 41.19, maxLat: 77.72, minLon: 27.30, maxLon: 180.00 },
 ];
 
@@ -785,6 +790,42 @@ export function pointInPolygon(lon: number, lat: number, polygon: number[][][]):
   return true;
 }
 
+// Grobes Grenzpolygon Nordirlands als [lon, lat]-Ring (Natural Earth 1:50m,
+// Douglas-Peucker 0,01°). Trennt NI von der Republik Irland; direkt am
+// Grenzfluss gelegene Orte (z. B. Lifford/Strabane) sind nicht scharf getrennt.
+const NI_POLYGON: number[][] = [
+  [-6.22, 54.09], [-6.30, 54.09], [-6.40, 54.06], [-6.65, 54.06], [-6.66, 54.08],
+  [-6.65, 54.16], [-6.67, 54.18], [-6.77, 54.20], [-6.80, 54.21], [-6.86, 54.27],
+  [-6.88, 54.33], [-7.01, 54.41], [-7.05, 54.41], [-7.20, 54.30], [-7.16, 54.24],
+  [-7.36, 54.12], [-7.41, 54.14], [-7.61, 54.14], [-7.68, 54.19], [-7.85, 54.22],
+  [-7.88, 54.28], [-8.12, 54.41], [-8.14, 54.45], [-8.04, 54.51], [-7.79, 54.57],
+  [-7.75, 54.59], [-7.75, 54.62], [-7.89, 54.67], [-7.91, 54.70], [-7.87, 54.72],
+  [-7.74, 54.71], [-7.55, 54.77], [-7.45, 54.88], [-7.40, 55.00], [-7.38, 55.03],
+  [-7.22, 55.09], [-7.18, 55.06], [-7.10, 55.05], [-7.03, 55.08], [-6.95, 55.18],
+  [-6.70, 55.19], [-6.48, 55.24], [-6.13, 55.22], [-6.04, 55.14], [-5.99, 55.03],
+  [-5.87, 54.92], [-5.72, 54.82], [-5.71, 54.76], [-5.88, 54.68], [-5.88, 54.64],
+  [-5.74, 54.67], [-5.58, 54.66], [-5.53, 54.62], [-5.47, 54.50], [-5.48, 54.44],
+  [-5.53, 54.46], [-5.57, 54.51], [-5.67, 54.55], [-5.65, 54.48], [-5.66, 54.38],
+  [-5.56, 54.37], [-5.61, 54.27], [-5.83, 54.24], [-5.94, 54.09], [-6.02, 54.05],
+  [-6.12, 54.06], [-6.22, 54.09],
+];
+
+// Großbritannien (Insel + vorgelagerte Inseln) über Längen-/Breiten-Grenzen, die
+// Irland (Ostküste ≤ −5,99°) und Nordfrankreich (Küste bei Boulogne/Calais
+// ≥ 1,5° E, Normandie/Picardie südlich 50,7° N) ausschließen; Nordirland über
+// NI_POLYGON. Die Isle of Man (eigentlich IM) fällt mit hinein – die UK-AIP-
+// Daten enthalten auch deren Zone.
+export function isGreatBritainOrNorthernIreland(lat: number, lon: number): boolean {
+  if (pointInPolygon(lon, lat, [NI_POLYGON])) return true;
+  if (lat < 49.86 || lat > 60.86 || lon < -8.65 || lon > 1.77) return false;
+  if (lat < 51.2 && lon > 1.45) return false; // Pas-de-Calais
+  if (lat < 50.7 && lon > 0.3) return false; // Normandie/Picardie
+  if (lat > 55.45) return true; // nördlich von Irland (Schottland, Hebriden)
+  if (lat >= 54.0) return lon >= -5.9; // Nordkanal (Irland/NI westlich)
+  if (lat >= 51.4) return lon >= -5.75; // Irische See
+  return lon >= -6.5; // Cornwall/Scilly (Irland liegt nördlich von 51,4° N)
+}
+
 const REFINED_BOUNDARIES: { iso: string; check: (lat: number, lon: number) => boolean }[] = [
   {
     // Belgien als Polygon, BEVOR LU und NL geprüft werden – sonst würde die grobe
@@ -855,6 +896,12 @@ const REFINED_BOUNDARIES: { iso: string; check: (lat: number, lon: number) => bo
       return false;
     },
   },
+  {
+    // Vereinigtes Königreich (GB + Nordirland) VOR der Box-Schleife – sonst
+    // würden die IE-Box Nordirland und die FR-Box Südengland erfassen.
+    iso: "GB",
+    check: isGreatBritainOrNorthernIreland,
+  },
 ];
 
 export function detectCountryFromCoordinates(lat: number, lon: number): string | null {
@@ -884,6 +931,9 @@ export function detectCountryFromCoordinates(lat: number, lon: number): string |
     // deutsche Ufer-/Allgäu-Orte (z. B. Lindau) fälschlich als CH erkennen. Die
     // CH-Box bleibt nur für getCountryBoundingBox/Abdeckung in COUNTRY_BOUNDING_BOXES.
     if (box.iso === "CH") continue;
+    // GB nur über isGreatBritainOrNorthernIreland (oben); die Box würde
+    // Nordfrankreich (Boulogne) und Irland mit erfassen.
+    if (box.iso === "GB") continue;
     if (lat >= box.minLat && lat <= box.maxLat && lon >= box.minLon && lon <= box.maxLon) {
       const area = (box.maxLat - box.minLat) * (box.maxLon - box.minLon);
       matches.push({ iso: box.iso, area });
@@ -906,7 +956,7 @@ export function detectCountryFromCoordinates(lat: number, lon: number): string |
 // LAYER_GROUPS + ED-269-Vektorländer in web/src/lib/geozoneLayers.ts. Web und
 // Mobile leiten ihre "eigene Karte vs. offizielle Staatskarte"-Entscheidung
 // gemeinsam hieraus ab, damit beide Plattformen konsistent bleiben.
-export const OWN_MAP_DATA_COUNTRIES = ["DE", "FR", "CH", "LU", "NL", "AT", "BE", "DK", "EE", "FI", "NO", "IE", "SE", "PT", "ES", "PL", "LT", "IT"];
+export const OWN_MAP_DATA_COUNTRIES = ["DE", "FR", "CH", "LU", "NL", "AT", "BE", "DK", "EE", "FI", "NO", "IE", "SE", "PT", "ES", "PL", "LT", "IT", "GB"];
 
 // True, wenn wir für das Land eigene Geozonen-Daten haben (eigene Karte mit
 // Overlay). Sonst wird die offizielle Staatskarte bzw. der EASA-Fallback gezeigt.

@@ -2687,6 +2687,7 @@ export const LICENSE_COUNTRIES = [
   { code: "SE", label: "Schweden", flag: "SE" },
   { code: "PT", label: "Portugal", flag: "PT" },
   { code: "IE", label: "Irland", flag: "IE" },
+  { code: "GB", label: "Vereinigtes K\u00F6nigreich", flag: "GB" },
   { code: "GR", label: "Griechenland", flag: "GR" },
   { code: "FI", label: "Finnland", flag: "FI" },
   { code: "HR", label: "Kroatien", flag: "HR" },

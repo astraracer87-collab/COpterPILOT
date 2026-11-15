@@ -249,7 +249,10 @@ export const COUNTRY_INFO: CountryInfo[] = [
 ];
 
 export function getCountryInfo(iso: string): CountryInfo | undefined {
-  return COUNTRY_INFO.find((c) => c.iso === iso.toUpperCase());
+  // Länderinfos führen das Vereinigte Königreich als "UK"; ISO-Code ist "GB".
+  const up = iso.toUpperCase();
+  const key = up === "GB" ? "UK" : up;
+  return COUNTRY_INFO.find((c) => c.iso === key);
 }
 
 export type NightFlightStatus = "forbidden" | "permit_required" | "allowed_with_lights" | "allowed";

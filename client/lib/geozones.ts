@@ -112,7 +112,7 @@ export {
   COUNTRY_WMS_MAX_NATIVE_ZOOM,
 } from "@/lib/geozoneZoom";
 
-export type CountryIsoWithGeozones = "DE" | "CH" | "LU" | "NL" | "FR" | "AT" | "BE" | "DK" | "EE" | "FI" | "NO" | "SE" | "IE" | "PT" | "ES" | "PL" | "LT" | "IT";
+export type CountryIsoWithGeozones = "DE" | "CH" | "LU" | "NL" | "FR" | "AT" | "BE" | "DK" | "EE" | "FI" | "NO" | "SE" | "IE" | "PT" | "ES" | "PL" | "LT" | "IT" | "GB";
 
 export interface CountryGeozoneConfig {
   iso: CountryIsoWithGeozones;
@@ -302,6 +302,17 @@ export const COUNTRY_GEOZONE_CONFIGS: Record<string, CountryGeozoneConfig> = {
   LT: {
     // Litauen (Oro navigacija): ED-269-Feed wie Dronespace AT, ohne Anmeldung.
     iso: "LT",
+    wmsBaseUrl: "",
+    wmsVersion: "1.3.0",
+    layers: [],
+    featureInfoType: "ed269-cached",
+    alwaysVisibleLayerIds: [],
+    forceEnabledLayerIds: [],
+  },
+  GB: {
+    // Vereinigtes Königreich (CAA): UK-AIP-KML (Danger/Prohibited/Restricted
+    // Areas inkl. Flugplatz-FRZ) über Google My Maps, ohne Anmeldung.
+    iso: "GB",
     wmsBaseUrl: "",
     wmsVersion: "1.3.0",
     layers: [],

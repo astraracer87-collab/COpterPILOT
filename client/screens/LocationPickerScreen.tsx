@@ -101,7 +101,9 @@ export default function LocationPickerScreen() {
       );
       if (response.ok) {
         const data = await response.json();
-        const countryCode = data.address?.country_code?.toUpperCase();
+        const rawCode = data.address?.country_code?.toUpperCase();
+        // Nominatim liefert "gb"; "UK"/"EL" (EU-Schreibweisen) auf ISO normalisieren.
+        const countryCode = rawCode === "UK" ? "GB" : rawCode === "EL" ? "GR" : rawCode;
         if (countryCode) {
           setDetectedCountryIso(countryCode);
           const config = getCountryMapConfig(countryCode);

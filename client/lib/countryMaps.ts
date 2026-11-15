@@ -40,6 +40,7 @@ const COUNTRY_DEFAULT_CENTER: Record<string, { lat: number; lon: number; latDelt
   BE: { lat: 50.5039, lon: 4.4699, latDelta: 1.8, lonDelta: 3.0 },
   DK: { lat: 56.2639, lon: 9.5018, latDelta: 4.0, lonDelta: 6.0 },
   IE: { lat: 53.1424, lon: -7.6921, latDelta: 4.0, lonDelta: 5.5 },
+  GB: { lat: 54.0, lon: -2.5, latDelta: 10.0, lonDelta: 9.0 },
   PL: { lat: 51.9194, lon: 19.1451, latDelta: 5.5, lonDelta: 8.0 },
   CZ: { lat: 49.8175, lon: 15.473, latDelta: 2.8, lonDelta: 5.0 },
   PT: { lat: 39.3999, lon: -8.2245, latDelta: 5.0, lonDelta: 4.0 },

@@ -212,6 +212,12 @@ export interface KmlPlacemark {
   /** ExtendedData: <Data name><value> und <SchemaData><SimpleData name>. */
   data: Record<string, string>;
   polygons: KmlPolygonGeometry[];
+  /**
+   * LineString-Koordinaten (auch aus MultiGeometry), roh. Ob eine geschlossene
+   * Linie als Fläche gilt, entscheidet der jeweilige Normalisierer
+   * (siehe kmlClosedLineRing). Zählen zusätzlich in otherGeometryCount.
+   */
+  lineStrings?: KmlCoord[][];
   /** Anzahl sonstiger Geometrien (Point/LineString/…) – nur zur Diagnose. */
   otherGeometryCount: number;
   timeSpan?: { begin?: string; end?: string };
@@ -292,6 +298,13 @@ function collectGeometry(el: XmlElement, pm: KmlPlacemark): void {
       collectGeometry(c, pm);
     } else if (GEOMETRY_NAMES.has(c.name)) {
       pm.otherGeometryCount++;
+      if (c.name === "LineString") {
+        const coords = parseKmlCoordinates(childText(c, "coordinates"));
+        if (coords.length >= 2) {
+          if (!pm.lineStrings) pm.lineStrings = [];
+          pm.lineStrings.push(coords);
+        }
+      }
     }
   }
 }
@@ -356,6 +369,21 @@ export function parseKmlPlacemarks(kml: string): KmlPlacemark[] {
   };
   walk(root, []);
   return out;
+}
+
+/**
+ * Geschlossene LineString (erster == letzter Punkt) mit mindestens drei
+ * verschiedenen Punkten → Ring; sonst null. Offene Linien und entartete
+ * „Hin-und-zurück“-Linien (A→B→A, z. B. 3D-Wandsegmente aus Google My Maps)
+ * sind keine Fläche.
+ */
+export function kmlClosedLineRing(coords: KmlCoord[]): KmlCoord[] | null {
+  if (coords.length < 4) return null;
+  const a = coords[0];
+  const b = coords[coords.length - 1];
+  if (a[0] !== b[0] || a[1] !== b[1]) return null;
+  const distinct = new Set(coords.map((c) => `${c[0]},${c[1]}`));
+  return distinct.size >= 3 ? coords : null;
 }
 
 /** Placemark-Polygone → GeoJSON-Geometrie (2D, Lon/Lat) oder null. */

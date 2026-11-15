@@ -317,13 +317,13 @@ describe("hasOwnMap klassifiziert Länder ohne eigene Geozonen-Daten korrekt", (
   });
 
   it("weitere datenlose Länder werden als ohne eigene Karte erkannt", () => {
-    for (const iso of ["IT", "ES", "PL", "CZ"]) {
+    for (const iso of ["CZ", "HU", "GR", "HR"]) {
       assert.equal(hasOwnMap(iso), false, `${iso} sollte keine eigene Karte haben`);
     }
   });
 
   it("Länder mit eigenen Daten lösen den manuellen Flow NICHT aus", () => {
-    for (const iso of ["DE", "FR", "CH", "LU", "NL", "AT", "BE", "DK"]) {
+    for (const iso of ["DE", "FR", "CH", "LU", "NL", "AT", "BE", "DK", "ES", "PL", "IT", "LT", "GB"]) {
       assert.equal(hasOwnMap(iso), true, `${iso} sollte eine eigene Karte haben`);
     }
   });

@@ -5,6 +5,18 @@
 
 Vergleich: übrige Länder-Dokumente in `docs/`.
 
+
+> **Korrektur (2026-11-15, nach Integration):**
+> - Die Karte wird **offiziell von den britischen Behörden verteilt** (Auskunft
+>   Product Owner) – sie ist keine inoffizielle Quelle. Label in der App:
+>   „UK AIP (CAA)“.
+> - Die Daten **enthalten die Flugplatz-FRZ**: 666 der 848 „Restricted“-Zonen
+>   sind FRZ („FRZ Active H24. Unmanned aircraft flight not permitted…“, auch
+>   militärische), dazu Gefängnis- (HMP) und National-Security-Act-Zonen.
+>   Die Aussagen unten zu „inoffiziell“ und „FRZ fehlen“ sind damit überholt.
+> - Umsetzung: `shared/ukGeozones.ts`, `client/lib/geozoneDirect/ukSource.ts`.
+
+
 ---
 
 ## 1. Kurzfassung & wichtige Einordnung

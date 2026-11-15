@@ -135,6 +135,16 @@ export const COUNTRY_MAPS: CountryMapConfig[] = [
     iframeable: false,
   },
   {
+    // Vereinigtes Königreich: CAA-Seite „Where you can fly“ (Drone Code) mit
+    // Verweis auf die offiziellen Karten; keine Koordinaten-Deep-Links.
+    iso: "GB",
+    name: "United Kingdom",
+    nameDE: "Vereinigtes Königreich",
+    urlTemplate: "https://register-drones.caa.co.uk/drone-code/where-you-can-fly",
+    supportsCoordinates: false,
+    iframeable: false,
+  },
+  {
     iso: "GR",
     name: "Greece",
     nameDE: "Griechenland",
