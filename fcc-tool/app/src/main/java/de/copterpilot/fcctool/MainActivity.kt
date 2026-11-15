@@ -97,7 +97,7 @@ class MainActivity : Activity() {
             text = "  ·  DJI RC Pro 2"; setTextColor(Ui.TEXT2); textSize = 13f
         })
         header.addView(titleWrap, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
-        header.addView(Ui.smallButton(this, "Erweitert") { showAdvanced() },
+        header.addView(Ui.pillButton(this, "Erweitert") { showAdvanced() },
             LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply { rightMargin = d(10f) })
         statusPill = Ui.badge(this)
         header.addView(statusPill)
@@ -215,7 +215,12 @@ class MainActivity : Activity() {
             addView(Ui.label(this@MainActivity, "   $heading", Ui.TEXT, 16f, bold = true))
         })
         col.addView(Ui.label(this, sub, Ui.TEXT2, 13f), Ui.lp(topDp = Ui.dpi(this, 8f)))
-        col.addView(Ui.modeButton(this, "FCC aktivieren", "Reichweite erhöhen (FCC)", Ui.GREEN, imageRes) { onFcc() },
+        // Gerätebild einmal mittig über den beiden Knöpfen
+        col.addView(android.widget.ImageView(this).apply {
+            setImageResource(imageRes); scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
+            adjustViewBounds = true
+        }, LinearLayout.LayoutParams(MATCH_PARENT, Ui.dpi(this, 96f)).apply { topMargin = Ui.dpi(this@MainActivity, 10f) })
+        col.addView(Ui.modeButton(this, "FCC aktivieren", "Reichweite erhöhen (FCC)", Ui.GREEN) { onFcc() },
             LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f).apply { topMargin = Ui.dpi(this@MainActivity, 12f) })
         col.addView(Ui.modeButton(this, ceLabel, "Zurück in den Auslieferungszustand (CE)", Ui.AMBER) { onCe() },
             LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f).apply { topMargin = Ui.dpi(this@MainActivity, 12f) })
@@ -347,7 +352,7 @@ class MainActivity : Activity() {
             "Goggles 2 / 3 / N3 / Integra", { adv -> sdVariant = SdCard.Variant.HAM; adv() },
             "Goggles V1 / V2" to { adv: () -> Unit -> sdVariant = SdCard.Variant.NACO; adv() },
             secondaryBig = true)
-        steps += WizStep("SD-Karte in die Fernsteuerung",
+        steps += WizStep("SD-Karte der Goggle in die Fernsteuerung stecken",
             "Schalte die Goggle aus, nimm ihre microSD-Karte heraus und stecke sie in die Fernsteuerung.",
             "SD-Karte ist eingelegt – weiter", { adv -> adv() })
         steps += WizStep("FCC-Datei schreiben",
@@ -374,7 +379,7 @@ class MainActivity : Activity() {
 
     private fun showGoggleCeWizard() {
         val steps = ArrayList<WizStep>()
-        steps += WizStep("SD-Karte in die Fernsteuerung",
+        steps += WizStep("SD-Karte der Goggle in die Fernsteuerung stecken",
             "Schalte die Goggle aus, nimm ihre microSD-Karte heraus und stecke sie in die Fernsteuerung.",
             "SD-Karte ist eingelegt – weiter", { adv -> adv() })
         steps += WizStep("FCC-Datei entfernen",
@@ -442,10 +447,6 @@ class MainActivity : Activity() {
         }, Ui.lp(topDp = Ui.dpi(this, 8f)))
         card.addView(Ui.smallButton(this, "Teilnehmer suchen (nur lesen)") {
             bg { Engine.tcpLink(this)?.let { Engine.scan(it, 0x82) } }
-        }, Ui.lp(topDp = Ui.dpi(this, 8f)))
-        card.addView(Ui.smallButton(this, "USB-Geräte anzeigen") { listUsb() }, Ui.lp(topDp = Ui.dpi(this, 8f)))
-        card.addView(Ui.smallButton(this, "USB: Teilnehmer suchen (Goggle per Kabel)") {
-            withDjiUsb { dev -> bg { usbScan(dev) } }
         }, Ui.lp(topDp = Ui.dpi(this, 8f)))
         col.addView(card, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f).apply { topMargin = Ui.dpi(this@MainActivity, 8f) })
         showLeft(col)

@@ -165,12 +165,20 @@ object Ui {
             gravity = android.view.Gravity.CENTER
             setPadding(0, dp(ctx, 12f), 0, 0)
         })
-        box.addView(TextView(ctx).apply {
-            text = subtitle; setTextColor(TEXT2); textSize = 13f
-            gravity = android.view.Gravity.CENTER
-            setPadding(0, dp(ctx, 4f), 0, 0)
-        })
         return box
+    }
+
+    /** Knopf im Stil des Status-Abzeichens (gleiche Höhe wie badge). */
+    fun pillButton(ctx: Context, text: String, onClick: () -> Unit) = TextView(ctx).apply {
+        this.text = text; setTextColor(TEXT); textSize = 15f; typeface = Typeface.DEFAULT_BOLD
+        gravity = android.view.Gravity.CENTER
+        setPadding(dp(ctx, 14f), dp(ctx, 8f), dp(ctx, 14f), dp(ctx, 8f))
+        val bg = GradientDrawable().apply {
+            setColor(SURFACE2); cornerRadius = dp(ctx, 8f).toFloat(); setStroke(dp(ctx, 1f), BORDER)
+        }
+        background = RippleDrawable(ColorStateList.valueOf(Color.argb(40, 255, 255, 255)), bg, null)
+        isClickable = true; isFocusable = true
+        setOnClickListener { onClick() }
     }
 
     fun logColor(level: Log.Level): Int = when (level) {
