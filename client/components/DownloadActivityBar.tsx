@@ -34,15 +34,22 @@ export function DownloadActivityBar({ onPress = openOfflineSettings }: { onPress
   return (
     <View
       pointerEvents="box-none"
-      style={[styles.wrap, { top: insets.top + 6, right: Math.max(insets.right, 0) + 12 }]}
+      // In der Statusleiste mittig (zwischen Uhr und Akku), damit nichts in der App verdeckt wird.
+      // Ohne Statusleiste: schmal unten links, Berührungen gehen durch.
+      style={
+        insets.top >= 18
+          ? [styles.wrap, styles.inStatusBar, { height: insets.top }]
+          : [styles.wrap, styles.bottomLeft, { left: insets.left + 8 }]
+      }
       testID="download-activity-bar"
     >
       <Pressable
         onPress={onPress}
         accessibilityRole="button"
         accessibilityLabel={`${text}. Antippen öffnet Länder und Offline-Daten.`}
-        style={styles.pill}
-        hitSlop={6}
+        style={[styles.pill, insets.top >= 18 ? { maxHeight: insets.top - 2 } : null]}
+        disabled={insets.top < 18}
+        hitSlop={2}
         testID="download-activity-pill"
       >
         <ActivityIndicator size="small" color="#FFFFFF" />
@@ -64,20 +71,32 @@ const styles = StyleSheet.create({
     position: "absolute",
     zIndex: 9998,
     elevation: 11,
-    maxWidth: "60%",
+  },
+  inStatusBar: {
+    top: 0,
+    left: "25%",
+    right: "25%",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  bottomLeft: {
+    bottom: 8,
+    left: 8,
+    maxWidth: "45%",
+    opacity: 0.85,
   },
   pill: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 2,
+    borderRadius: 12,
     backgroundColor: "rgba(20,24,31,0.86)",
   },
   text: {
     color: "#FFFFFF",
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "600",
     flexShrink: 1,
   },

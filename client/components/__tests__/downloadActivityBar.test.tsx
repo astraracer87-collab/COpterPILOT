@@ -66,11 +66,12 @@ test("kurze Downloads (< 1 s) erscheinen nicht, längere mit Land, Inhalt und Pr
     jest.advanceTimersByTime(DOWNLOAD_DISPLAY_DELAY_MS + 10);
   });
   expect(text(tree)).toContain("Lädt: Deutschland – Geozonen 45 %");
-  // Safe-Area (Querformat): Abstand oben und rechts
+  // Ohne nutzbare Statusleiste (top < 18): schmal unten links, nichts in der App verdeckt
   const wrap = tree.root.findByProps({ testID: "download-activity-bar" });
   const style = Object.assign({}, ...[wrap.props.style].flat());
-  expect(style.top).toBe(16);
-  expect(style.right).toBe(42);
+  expect(style.bottom).toBe(8);
+  expect(style.left).toBe(38);
+  expect(style.top).toBeUndefined();
   act(() => tree.unmount());
 });
 

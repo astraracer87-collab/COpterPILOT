@@ -37,7 +37,13 @@ import { bboxAround, DIPUL_WOHN_LAYER, TILE_STORE_OPTIONAL_PARTS, type LngLatBBo
 import { queryEsLiveZones } from "@/lib/geozoneTiles/esLive";
 import { trackDownload } from "@/lib/downloadActivity";
 import { geozoneTruncationHint } from "../../shared/checks/builders";
-import { enrichDipulTempGeometry } from "@/lib/dipulTempGeometry";
+import {
+  DIPUL_TEMP_WFS_LAYER,
+  dipulWfsFeatureToGeoapiArea,
+  enrichDipulTempGeometry,
+  loadDipulLayer,
+  type DipulFeatureStore,
+} from "@/lib/dipulTempGeometry";
 import {
   queryChRestIdentifyFrom,
   queryDipulWfsFeaturesFrom,
@@ -757,6 +763,8 @@ export interface DipulTempRestriction {
   // bleibt die flache Außenring-Liste für Treffer-/Schnitt-Tests. Ohne Löcher undefined.
   polygonGroups?: [number, number][][][] | null;
   kind?: "mil_low_flight_day";
+  /** Grund, warum (noch) keine Fläche vorliegt (siehe dipulTempGeometry). */
+  geometryNote?: string | null;
 }
 
 function pointInRing(lat: number, lon: number, ring: [number, number][]): boolean {
@@ -1136,12 +1144,63 @@ async function fetchDipulGeoapi(lon: number, lat: number, radiusM: number): Prom
 
     if (!resp.ok) throw new Error(`Geoapi returned ${resp.status}`);
     const data = await resp.json();
+    clearTimeout(timeout);
     // Die geoapi liefert nur Sachdaten ohne Geometrie – exakte Flächen aus dem
     // dipul-WFS (temporaere_betriebseinschraenkungen, ED-R-Rückfall) ergänzen.
-    return await enrichDipulTempGeometry(parseGeoApiResponse(data));
+    return await enrichDipulTempGeometry(parseGeoApiResponse(data), { store: dipulLayerStore });
   } finally {
     clearTimeout(timeout);
   }
+}
+
+// Zuletzt erfolgreich geladene dipul-WFS-Layer (ohne Ablauf; Join über extRef,
+// abgelaufene Gebiete stören daher nicht). Dient als Rückfall, wenn der
+// Kartendienst gerade nicht antwortet, und zum Nachrüsten gespeicherter Listen.
+const DIPUL_LAYER_STORE_PREFIX = "dipul_wfs_layer_v1:";
+const dipulLayerStore: DipulFeatureStore = {
+  async load(layer) {
+    try {
+      const raw = await AsyncStorage.getItem(DIPUL_LAYER_STORE_PREFIX + layer);
+      const parsed = raw ? JSON.parse(raw) : null;
+      return Array.isArray(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  },
+  async save(layer, features) {
+    try {
+      await AsyncStorage.setItem(DIPUL_LAYER_STORE_PREFIX + layer, JSON.stringify(features));
+    } catch {
+      // Speicher voll o. Ä. – nur der Offline-Rückfall fehlt dann
+    }
+  },
+};
+
+/**
+ * Gespeicherte DE-Listen (auch aus älteren App-Versionen, die noch keine
+ * Flächen kannten) mit Geometrie nachrüsten. Wirft nie.
+ */
+export async function reenrichDipulTempRestrictions<R extends DipulTempRestrictionsResult>(data: R): Promise<R> {
+  try {
+    return await enrichDipulTempGeometry(data, { store: dipulLayerStore });
+  } catch {
+    return data;
+  }
+}
+
+/**
+ * Rückfall, wenn die geoapi nicht antwortet: die Liste direkt aus dem
+ * WFS-Layer temporaere_betriebseinschraenkungen aufbauen (gleiche extRefs,
+ * Namen, Zeiten und Höhen – plus Fläche). Nur mit live geladenem Layer.
+ */
+async function fetchTempRestrictionsFromWfs(): Promise<DipulTempRestrictionsResult | null> {
+  await awaitCountryUsage();
+  if (!isGeozoneSourceEnabled("DE")) return null;
+  const layer = await loadDipulLayer(DIPUL_TEMP_WFS_LAYER, { store: dipulLayerStore });
+  if (layer.source !== "live" && layer.source !== "memory") return null;
+  if (layer.features.length === 0) return null;
+  const areas = layer.features.map(dipulWfsFeatureToGeoapiArea).filter(Boolean);
+  return parseGeoApiResponse({ affectedAreas: areas });
 }
 
 function mergeMilLowFlight(
@@ -1162,8 +1221,17 @@ export async function fetchAllTempRestrictions(): Promise<DipulTempRestrictionsR
     setCache("dipul_all", data).catch(() => {});
     return mergeMilLowFlight(data, getAllMilLowFlightRestrictions());
   } catch (err) {
+    console.warn("[dipul geoapi] nicht erreichbar:", err instanceof Error ? err.message : err);
+    const fromWfs = await fetchTempRestrictionsFromWfs().catch(() => null);
+    if (fromWfs) {
+      setCache("dipul_all", fromWfs).catch(() => {});
+      return mergeMilLowFlight(fromWfs, getAllMilLowFlightRestrictions());
+    }
     const cached = await getCached<DipulTempRestrictionsResult>("dipul_all");
-    if (cached) return { ...mergeMilLowFlight(cachedTempRestrictions(cached.data, cached.ts), getAllMilLowFlightRestrictions()), offline: { fetchedAt: cached.ts, cached: true } };
+    if (cached) {
+      const data = await reenrichDipulTempRestrictions(cachedTempRestrictions(cached.data, cached.ts));
+      return { ...mergeMilLowFlight(data, getAllMilLowFlightRestrictions()), offline: { fetchedAt: cached.ts, cached: true } };
+    }
     throw err;
   }
 }
@@ -1179,7 +1247,10 @@ export async function fetchNearbyTempRestrictions(lat: number, lon: number, radi
     return mergeMilLowFlight(data, milExtra);
   } catch (err) {
     const cached = await getCached<DipulTempRestrictionsResult>(ck);
-    if (cached) return { ...mergeMilLowFlight(cachedTempRestrictions(cached.data, cached.ts), milExtra), offline: { fetchedAt: cached.ts, cached: true } };
+    if (cached) {
+      const data = await reenrichDipulTempRestrictions(cachedTempRestrictions(cached.data, cached.ts));
+      return { ...mergeMilLowFlight(data, milExtra), offline: { fetchedAt: cached.ts, cached: true } };
+    }
     throw err;
   }
 }
@@ -1201,7 +1272,7 @@ export async function fetchNearbyTempRestrictionsRaw(lat: number, lon: number, r
     return data;
   } catch (err) {
     const cached = await getCached<DipulTempRestrictionsResult>(ck);
-    if (cached) return cachedTempRestrictions(cached.data, cached.ts);
+    if (cached) return reenrichDipulTempRestrictions(cachedTempRestrictions(cached.data, cached.ts));
     throw err;
   }
 }
