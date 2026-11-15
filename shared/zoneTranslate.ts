@@ -8,7 +8,7 @@
 //
 // Bewusst frei von React-Native-Importen (unter tsx/Node testbar).
 
-type Dict = { lines: Record<string, string>; names: Record<string, string> };
+type Dict = { lines: Record<string, string>; names: Record<string, string>; knownNames?: Set<string> };
 
 let bundled: Dict | null = null;
 const runtime = new Map<string, string>();
@@ -17,8 +17,9 @@ function dict(): Dict {
   if (!bundled) {
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const raw = require("./data/zoneTranslationsDe.json") as Partial<Dict>;
-      bundled = { lines: raw.lines ?? {}, names: raw.names ?? {} };
+      const raw = require("./data/zoneTranslationsDe.json") as { lines?: Record<string, string>; names?: Record<string, string>; unchangedNames?: string[] };
+      // unchangedNames: geprüfte Eigennamen, die keine Übersetzung brauchen
+      bundled = { lines: raw.lines ?? {}, names: raw.names ?? {}, knownNames: new Set(raw.unchangedNames ?? []) };
     } catch {
       bundled = { lines: {}, names: {} };
     }
@@ -40,11 +41,22 @@ export function looksGerman(s: string): boolean {
 }
 
 /** Übersetzt eine Zeile (oder gibt sie unverändert zurück). */
+// Zeilen wie „Hinweis Traficom (fi): <Text>“ – das Etikett ist schon deutsch,
+// übersetzt wird der Teil nach dem Doppelpunkt.
+const LABEL_PREFIX = /^((?:Hinweis(?: [A-Za-zÀ-ÿ]+ \([a-z]{2}\))?|Bedingung(?:en)?|Ausnahmen|Zuständig|Bemerkung(?:en)?|Grund|Hinweis Traficom \(fi\)):\s*)(.+)$/;
+
 export function translateLineDe(line: string): string {
   const k = translationKey(line);
   if (!k) return line;
   const d = dict();
-  return d.lines[k] ?? runtime.get(k) ?? line;
+  const direct = d.lines[k] ?? runtime.get(k);
+  if (direct) return direct;
+  const m = k.match(LABEL_PREFIX);
+  if (m) {
+    const rest = d.lines[m[2]] ?? runtime.get(m[2]);
+    if (rest) return m[1] + rest;
+  }
+  return line;
 }
 
 /** Übersetzt einen mehrzeiligen Text zeilenweise. */
@@ -74,8 +86,9 @@ export function hasGermanFor(text: string, kind: "line" | "name" = "line"): bool
   const k = translationKey(text);
   if (!k || looksGerman(k)) return true;
   const d = dict();
-  if (kind === "name") return k in d.names || runtime.has(`name:${k}`);
-  return k in d.lines || runtime.has(k);
+  if (kind === "name") return k in d.names || (d.knownNames?.has(k) ?? false) || runtime.has(`name:${k}`);
+  const m = k.match(LABEL_PREFIX);
+  return k in d.lines || runtime.has(k) || (!!m && (m[2] in d.lines || runtime.has(m[2])));
 }
 
 /** Laufzeit-Übersetzungen eintragen (z. B. aus dem DeepL-Cache des Geräts). */

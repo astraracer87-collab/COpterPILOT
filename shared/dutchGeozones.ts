@@ -190,6 +190,10 @@ function buildMessage(props: Record<string, any>): string | null {
     const text = s?.text ? stripHtml(String(s.text)) : "";
     if (!text) continue;
     const title = String(s?.displayTitle ?? s?.title ?? "").trim();
+    // „Active now / Active in 1 day …“ ist ein relativer Zeitstempel zum
+    // Abrufzeitpunkt – auf dem Gerät schnell veraltet und nicht übersetzbar.
+    // Die Aktivität rechnet die App selbst (validStartTs/validEndTs).
+    if (/^active\b/i.test(title)) continue;
     lines.push(title && title !== "Summary" ? `${title}: ${text}` : text);
   }
   const utm = props?.utmStatus;
