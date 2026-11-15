@@ -185,7 +185,7 @@ export default function PlanningRestrictionsScreen() {
         // Geländehöhe nur laden, wenn MSL-bezogene Vektorzonen (AT/BE/DK) vorliegen.
         const needsTerrain = separated.geozones.some(
           (gz) => gz.lowerReference === "MSL"
-            && ["AT", "BE", "DK", "NL", "EE", "CH", "LI", "FI", "NO", "SE", "IE", "LU", "PT", "ES", "PL"].includes(String(gz.country || countryIso || "").toUpperCase()),
+            && ["AT", "BE", "DK", "NL", "EE", "CH", "LI", "FI", "NO", "SE", "IE", "LU", "PT", "ES", "PL", "LT"].includes(String(gz.country || countryIso || "").toUpperCase()),
         );
         if (needsTerrain) {
           fetchElevation(latitude, longitude)
@@ -223,7 +223,7 @@ export default function PlanningRestrictionsScreen() {
   // geplanten Höhe (Standard 120 m AGL) ausblenden. WMS-Länder bleiben unberührt.
   // Der Schalter "Alle Geozonen anzeigen" hebt den Filter auf.
   const { geozones, hiddenAboveGeozones } = useMemo(() => {
-    const VECTOR_ISOS = ["AT", "BE", "DK", "NL", "EE", "CH", "LI", "FI", "NO", "SE", "IE", "LU", "PT", "ES", "PL"];
+    const VECTOR_ISOS = ["AT", "BE", "DK", "NL", "EE", "CH", "LI", "FI", "NO", "SE", "IE", "LU", "PT", "ES", "PL", "LT"];
     const isFilterable = (gz: GeozoneFeatureInfo) =>
       VECTOR_ISOS.includes(String(gz.country || countryIso || "").toUpperCase());
     if (showAllGeozones) return { geozones: rawGeozones, hiddenAboveGeozones: [] as GeozoneFeatureInfo[] };

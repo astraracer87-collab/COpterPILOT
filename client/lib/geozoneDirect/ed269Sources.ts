@@ -17,6 +17,8 @@ import { fetchNorway } from "./norwaySource";
 import { fetchIreland, fetchLuxembourg, fetchPortugal } from "./irelandLuxSource";
 import { fetchSpain } from "./spainSource";
 import { fetchPoland } from "./polandSource";
+
+export const LT_GEOZONE_SOURCE_LABEL = "Oro navigacija (ED-269)";
 import { fetchSweden } from "./swedenSource";
 import {
   NL_QUERY_BOUNDS,
@@ -42,7 +44,7 @@ export type GeoFeature = {
 // Länder, deren Geozonen als ED-269-/GeoJSON-Vektordaten vorliegen (kein WMS).
 // NL kommt aus GoDrone (LVNL). DE/CH/LU/FR werden über ihre WMS-/WFS-Pfade
 // abgefragt.
-export const ED269_DIRECT_COUNTRIES = ["at", "be", "dk", "nl", "ee", "ch", "fi", "no", "ie", "lu", "se", "pt", "es", "pl"] as const;
+export const ED269_DIRECT_COUNTRIES = ["at", "be", "dk", "nl", "ee", "ch", "fi", "no", "ie", "lu", "se", "pt", "es", "pl", "lt"] as const;
 
 export function isEd269DirectCountry(iso: string): boolean {
   return (ED269_DIRECT_COUNTRIES as readonly string[]).includes(String(iso || "").toLowerCase());
@@ -63,6 +65,8 @@ export const DK_NATURE_ZONES_FALLBACK_URL =
 // Estland: öffentlich, freie Nutzung von EANS bestätigt (2026-11-15).
 // Quelle: EANS (Lennuliiklusteeninduse AS) / Transpordiamet, utm.eans.ee
 export const EE_GEOZONES_URL = "https://utm.eans.ee/avm/utm/uas.geojson";
+// Litauen (Oro navigacija) – gleiche Frequentis-Plattform wie AT/EE, ohne Anmeldung.
+export const LT_GEOZONES_URL = "https://utm.ans.lt/avm/utm/uas.geojson";
 export const BE_SKEYES_UAS_ZONES_URL = "https://api-cis.skeyes.be/public/uas-zones";
 export const BE_DRONEGUIDE_WFS_URL = "https://map.droneguide.be/ows";
 export const NL_GODRONE_MAPDATA_URL = "https://api.godrone.nl/v2/mapdata/geojson";
@@ -200,6 +204,23 @@ async function fetchAustria(): Promise<GeoFeature[]> {
   return finalize(raw, "at").map((feature) => ({
     ...feature,
     properties: normalizeAustrianEd269Placeholder((feature.properties as Record<string, any>) || {}),
+  }));
+}
+
+// ---------------------------------------------------------------------------
+// Litauen (Oro navigacija) – Feed und Schema wie Österreich,
+// siehe docs/lithuania-ans-api-integration.md.
+// ---------------------------------------------------------------------------
+async function fetchLithuania(): Promise<GeoFeature[]> {
+  const body = await fetchJson(frequentisAvmUrl(LT_GEOZONES_URL));
+  const raw: GeoFeature[] = Array.isArray(body?.features) ? body.features : [];
+  if (raw.length === 0) throw new Error("Oro navigacija lieferte keine Zonen");
+  return finalize(raw, "lt").map((feature) => ({
+    ...feature,
+    properties: {
+      ...normalizeAustrianEd269Placeholder((feature.properties as Record<string, any>) || {}),
+      source: LT_GEOZONE_SOURCE_LABEL,
+    },
   }));
 }
 
@@ -443,6 +464,7 @@ export async function fetchEd269CountryFeatures(iso: string): Promise<GeoFeature
   else if (c === "pt") features = await fetchPortugal();
   else if (c === "es") features = await fetchSpain();
   else if (c === "pl") features = await fetchPoland();
+  else if (c === "lt") features = await fetchLithuania();
   else throw new Error(`Kein Vektor-Geozonen-Feed für ${iso}`);
   return roundFeatureCoords(features);
 }

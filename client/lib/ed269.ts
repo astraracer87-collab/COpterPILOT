@@ -79,6 +79,7 @@ export const ED269_SOURCE_LABELS: Record<string, string> = {
   PT: PT_GEOZONE_SOURCE_LABEL,
   ES: ES_GEOZONE_SOURCE_LABEL,
   PL: PL_GEOZONE_SOURCE_LABEL,
+  LT: "Oro navigacija (ED-269)",
 };
 
 // Wandelt einen ED-269-Höhenwert in Meter um. Versteht Klartext-Marker (SFC/GND
