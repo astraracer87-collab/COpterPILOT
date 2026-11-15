@@ -48,6 +48,7 @@ import { aggregate, geozoneChecks, coverageChecks, complianceChecks, formatCover
 import { useGeozoneRevalidation, useVerdictChangeWatch } from "@/lib/geozoneSources/useGeozoneRevalidation";
 import { GeozoneDataChangedBanner } from "@/components/GeozoneDataChangedBanner";
 import { DataStandLines } from "@/components/DataStandLines";
+import { EnableCountryButtons } from "@/components/EnableCountryButtons";
 import { isFlightWindowDuringNight } from "@/lib/solar";
 import { detectBundeslandFromCoordinates } from "@/lib/countryMaps";
 import { hasOwnMap } from "../../shared/countryDetection";
@@ -1140,6 +1141,11 @@ export default function PlanningRestrictionsScreen() {
                   {w}
                 </ThemedText>
               ))}
+              {/* Länder-Nutzung „Aus“: mit einem Tipp online aktivieren */}
+              <EnableCountryButtons
+                isos={errorGap ? [] : unresolvedCoverageGaps.filter((g) => g.status === "disabled").map((g) => g.iso)}
+                color={theme.primary}
+              />
               {/* Ohne eigene Zonen-Liste gibt es sonst keine Auswahl — die manuelle
                   Bestätigung ist Pflicht, ein "keine Zonen" darf nicht still GO ergeben. */}
               {errorGap || uncoveredGeozones.length === 0 || allUncoveredExempted ? (

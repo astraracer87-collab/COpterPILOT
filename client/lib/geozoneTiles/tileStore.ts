@@ -72,6 +72,7 @@ import { setCountryAccessAvailable } from "../../../shared/countryDetection";
 import { zoneEndedLongAgo } from "../../../shared/ed269Restriction";
 import { TEMPORARY_ZONES_MAX_AGE_MS } from "../../../shared/geozoneSourceMeta";
 import { loadLargePacksOnMobile, mayDownloadLargePack } from "../geozoneSources/largePackSetting";
+import { awaitCountryUsage, isGeozoneSourceOffline } from "../countryUsage";
 
 // ---------------------------------------------------------------------------
 // Umgebung (Dateisystem, Netz)
@@ -1076,8 +1077,11 @@ export async function refreshDueTileStores(): Promise<void> {
   const env = getEnv();
   if (!env.fs || env.isOffline()) return;
   await loadTileStoreMeta();
+  await awaitCountryUsage();
   for (const iso of tiledGeozoneIsos()) {
     try {
+      // Länder-Nutzung: nur Offline-Länder halten ihr Paket aktuell
+      if (!isGeozoneSourceOffline(iso)) continue;
       if (!(await tileStoreRefreshDue(iso))) continue;
       // Teil A: große Pakete nur im WLAN, außer „auch über mobile Daten“ ist erlaubt
       if (!mayDownloadLargePack(await env.isWifi(), await loadLargePacksOnMobile())) return;

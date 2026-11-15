@@ -194,11 +194,13 @@ export function swissLimitMeters(value: unknown, uom: unknown): number | undefin
   return round1(parseHeight(n, u === "FT" || u === "F" ? "ft" : "m")?.m ?? n);
 }
 
-// ⚠️ Leerer/unbekannter Bezug wird (wie bisher) AGL – siehe docs/pruefung-umbau-plan.md (B6).
+// Leerer/unbekannter Bezug → "UNKNOWN" (Product Owner: nie still AGL; Zone
+// wird nie wegen der Höhe ausgeblendet).
 function verticalRef(raw: unknown): string {
   const r = String(raw ?? "").toUpperCase().trim();
   if (r === "AMSL" || r === "MSL" || r === "WGS84") return "AMSL";
-  return "AGL";
+  if (r === "AGL" || r === "SFC" || r === "GND" || r === "HEI") return "AGL";
+  return "UNKNOWN";
 }
 
 // ---------------------------------------------------------------------------

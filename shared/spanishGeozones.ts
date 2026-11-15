@@ -182,13 +182,14 @@ export function parseEsAltitude(value: unknown, uomRaw: unknown, refRaw: unknown
   let uom = str(uomRaw).toUpperCase();
   if (uom === "F" || uom === "FEET") uom = "FT";
   if (uom === "METERS" || uom === "METRES" || uom === "") uom = refU === "STD" ? "FL" : "M";
-  // ⚠️ Leerer Bezug wird hier (wie bisher) zu AGL – siehe docs/pruefung-umbau-plan.md (B6).
-  const reference = esReference(refRaw, "AGL");
-  if (n === 0 && reference === "AGL") return { meters: 0, reference, text: "GND" };
+  // Fehlender Bezug → UNKNOWN (Product Owner: nie still AGL; nie ausgeblendet).
+  // Untergrenze 0 ohne Bezug bleibt „GND“ (0 ist in jedem Bezug der Boden bzw. darunter).
+  const reference = esReference(refRaw, "UNKNOWN");
+  if (n === 0 && reference !== "MSL") return { meters: 0, reference: "AGL", text: "GND" };
   // Umrechnung über den gemeinsamen Parser (unbekannte Einheit → Meter).
   const meters = parseHeight(n, uom === "FT" || uom === "FL" ? uom : "M")?.m ?? n;
   if (uom === "FL") return { meters: round1(meters), reference: "MSL", text: `FL ${n}` };
-  const refText = refU === "WGS84" || refU === "MSL" ? "AMSL" : refU || "AGL";
+  const refText = refU === "WGS84" || refU === "MSL" ? "AMSL" : refU || "(Bezug unbekannt)";
   return { meters: round1(meters), reference, text: `${n} ${uom === "FT" ? "ft" : "m"} ${refText}` };
 }
 
@@ -644,8 +645,8 @@ export function esArcgisPage(body: any): { features: any[]; exceeded: boolean } 
 // Zonen-Layer werden tolerant gelesen: ED-318-Namen (Identifier, Type, Lower,
 // Upper, UOM, LowerReference, StartDateTime …) ODER die insignias-Varianten
 // (RESTRICCION_LOWER/RESTRICCION_UPPER, NAME_TXT, REMARKS_TXT …). Ein
-// fehlender Höhenbezug wird – wie im bisherigen ES-Pfad – als AGL gelesen
-// (⚠️ dokumentiert in docs/pruefung-umbau-plan.md B6).
+// fehlender Höhenbezug ist UNKNOWN (Product Owner, Stand Länder-Nutzung:
+// nie still AGL; die Zone wird nie wegen der Höhe ausgeblendet).
 // ---------------------------------------------------------------------------
 
 export const ENAIRE_INSIGNIAS_BASE = "https://servais.enaire.es/insignias/rest/services";

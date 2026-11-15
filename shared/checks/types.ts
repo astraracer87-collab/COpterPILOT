@@ -81,6 +81,15 @@ export interface CheckResult {
   exceedance?: CheckExceedance;
   /** Kontext, in dem der Befund erhoben wurde. */
   context?: CheckContext;
+  /** Aktion zum Befund (z. B. deaktiviertes Land mit einem Tipp aktivieren). */
+  action?: CheckAction;
+}
+
+/** Aktion zu einem Befund (Länder-Nutzung: „Land aktivieren (online)“). */
+export interface CheckAction {
+  kind: "enable-country";
+  iso: string;
+  label: string;
 }
 
 export interface CheckAggregate {

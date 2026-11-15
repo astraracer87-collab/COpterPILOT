@@ -805,9 +805,10 @@ export function decideSkDuRestriction(z: Pick<SkDuZone, "headerSk" | "headerEn" 
 
 export interface SkDuHeight {
   lowerMeters: number;
-  lowerReference: "AGL" | "MSL";
+  /** UNKNOWN: Text nennt keinen Bezug (nie still AGL, Product Owner) */
+  lowerReference: "AGL" | "MSL" | "UNKNOWN";
   upperMeters?: number;
-  upperReference?: "AGL" | "MSL";
+  upperReference?: "AGL" | "MSL" | "UNKNOWN";
   label: string;
 }
 
@@ -825,13 +826,15 @@ export function parseSkDuHeight(text: string): SkDuHeight | null {
   const ref = (r: string | undefined): "AGL" | "MSL" | undefined =>
     !r ? undefined : r.toUpperCase() === "AGL" ? "AGL" : "MSL";
   const upperUnit = m[5];
-  const upperRef = ref(m[6]) ?? "AGL";
+  // Obergrenze ohne Bezug → UNKNOWN (nie still AGL); die Untergrenze erbt ihn
+  const upperRef: "AGL" | "MSL" | "UNKNOWN" = ref(m[6]) ?? "UNKNOWN";
   const upperMeters = toM(m[4], upperUnit);
   const isGround = /^(GND|SFC)$/i.test(m[1]);
   const lowerMeters = isGround ? 0 : toM(m[1], m[2] ?? upperUnit);
-  const lowerReference: "AGL" | "MSL" = isGround ? "AGL" : (ref(m[3]) ?? upperRef);
+  const lowerReference: "AGL" | "MSL" | "UNKNOWN" = isGround ? "AGL" : (ref(m[3]) ?? upperRef);
   const unitDe = (u: string) => (u.toLowerCase() === "ft" ? "ft" : "m");
-  const refDe = (r: "AGL" | "MSL") => (r === "AGL" ? "über Grund (AGL)" : "über dem Meeresspiegel (MSL)");
+  const refDe = (r: "AGL" | "MSL" | "UNKNOWN") =>
+    r === "AGL" ? "über Grund (AGL)" : r === "MSL" ? "über dem Meeresspiegel (MSL)" : "(Bezug unbekannt)";
   const lowerLabel = isGround
     ? "Boden (GND)"
     : `${fmtDec(Number(m[1].replace(",", ".")))} ${unitDe(m[2] ?? upperUnit)} ${refDe(lowerReference)}`;

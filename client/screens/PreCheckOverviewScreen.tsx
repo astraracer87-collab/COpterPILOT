@@ -34,6 +34,7 @@ import { aggregate, coverageChecks, formatCoverageDataAges, formatCoverageTrunca
 import { useGeozoneRevalidation, useVerdictChangeWatch } from "@/lib/geozoneSources/useGeozoneRevalidation";
 import { GeozoneDataChangedBanner } from "@/components/GeozoneDataChangedBanner";
 import { DataStandLines } from "@/components/DataStandLines";
+import { EnableCountryButtons } from "@/components/EnableCountryButtons";
 import { detectCountryFromCoordinates } from "../../shared/countryDetection";
 import {
   queryGeozonesInAreaWithCoverage,
@@ -942,6 +943,12 @@ export default function PreCheckOverviewScreen() {
                     {w}
                   </ThemedText>
                 ))}
+                {/* Länder-Nutzung „Aus“: mit einem Tipp online aktivieren */}
+                <EnableCountryButtons
+                  isos={coverageGaps.filter((g) => g.status === "disabled").map((g) => g.iso)}
+                  color={theme.primary}
+                  onEnabled={() => { void loadGeozones(); }}
+                />
               </View>
             </Card>
           ) : null}

@@ -28,6 +28,7 @@ import {
   resolveGeozoneSourceIso,
 } from "../../../shared/geozoneSourceMeta";
 import { setCountryAccessAvailable } from "../../../shared/countryDetection";
+import { awaitCountryUsage, isGeozoneSourceEnabled } from "../countryUsage";
 
 // Upstream-Daten ändern sich selten; der Server hat täglich synchronisiert.
 
@@ -88,10 +89,13 @@ type FsModule = {
   writeAsStringAsync(path: string, data: string): Promise<void>;
   moveAsync(opts: { from: string; to: string }): Promise<void>;
   deleteAsync(path: string, opts?: { idempotent?: boolean }): Promise<void>;
+  readDirectoryAsync?(path: string): Promise<string[]>;
 };
 
 let fsCache: FsModule | null | undefined;
+let fsOverride: FsModule | null | undefined;
 function getFs(): FsModule | null {
+  if (fsOverride !== undefined) return fsOverride;
   if (fsCache !== undefined) return fsCache;
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -234,6 +238,10 @@ export async function getEd269Dataset(
 ): Promise<Ed269Dataset | null> {
   const iso = cacheKey(rawIso);
   if (!isStoreCountry(iso)) return null;
+  // Länder-Nutzung „aus“: weder Abruf noch Nutzung gespeicherter Daten (ein
+  // Datei-Import bleibt auf dem Gerät und gilt wieder, sobald das Land aktiv ist).
+  await awaitCountryUsage();
+  if (!isGeozoneSourceEnabled(rawIso)) return null;
   const now = Date.now();
 
   let ds = recall(iso) ?? null;
@@ -295,6 +303,8 @@ function fallbackDataset(iso: string): Ed269Dataset | null {
 export async function refreshEd269Dataset(iso: string): Promise<boolean> {
   const c = cacheKey(iso);
   if (!isEd269DirectCountry(c)) return false;
+  await awaitCountryUsage();
+  if (!isGeozoneSourceEnabled(iso)) return false;
   return (await download(c)) != null;
 }
 
@@ -364,6 +374,69 @@ export async function deleteEd269Dataset(rawIso: string): Promise<void> {
   if (isImportOnly(iso)) setCountryAccessAvailable(iso, false);
 }
 
+/**
+ * Länder-Nutzung: herunterladbaren Bestand löschen, einen Datei-Import aber
+ * behalten (lässt sich nicht erneut herunterladen; nur „Import entfernen“
+ * löscht ihn). Liefert, ob ein Import erhalten blieb.
+ */
+export async function deleteDownloadedEd269Dataset(rawIso: string): Promise<{ keptImport: boolean }> {
+  const ds = await loadStoredEd269Dataset(rawIso).catch(() => null);
+  if (ds?.imported) return { keptImport: true };
+  await deleteEd269Dataset(rawIso);
+  return { keptImport: false };
+}
+
+/** Datensatz-ISOs (Großbuchstaben) mit gespeicherter Datei – ohne sie zu lesen. */
+export async function listStoredEd269Isos(): Promise<string[]> {
+  const fs = getFs();
+  const out = new Set<string>();
+  for (const k of memory.keys()) {
+    const ds = memory.get(k);
+    if (ds && ds.fetchedAt > 0) out.add(k.toUpperCase());
+  }
+  if (fs?.readDirectoryAsync) {
+    try {
+      const names = await fs.readDirectoryAsync(dirPath(fs));
+      for (const n of names) {
+        const m = /^ed269-([a-z]{2})\.json$/.exec(n);
+        if (m) out.add(m[1].toUpperCase());
+      }
+    } catch {}
+  }
+  return [...out];
+}
+
+/**
+ * Stand eines gespeicherten Bestands OHNE die Datei zu lesen: aus dem Speicher
+ * bzw. aus der Änderungszeit der Datei (imported dann null = unbekannt).
+ */
+export async function storedEd269Info(rawIso: string): Promise<{ fetchedAt: number; imported: boolean | null } | null> {
+  const iso = cacheKey(rawIso);
+  const mem = memory.get(iso);
+  if (mem && mem.fetchedAt > 0) return { fetchedAt: mem.fetchedAt, imported: !!mem.imported };
+  const fs = getFs();
+  if (!fs) return null;
+  try {
+    const info = (await fs.getInfoAsync(filePath(fs, iso))) as { exists: boolean; modificationTime?: number };
+    if (!info.exists) return null;
+    return { fetchedAt: (info.modificationTime ?? 0) * 1000, imported: null };
+  } catch {
+    return null;
+  }
+}
+
+/** Dateigröße des gespeicherten Bestands in Bytes (0 = keiner). */
+export async function storedEd269Bytes(rawIso: string): Promise<number> {
+  const fs = getFs();
+  if (!fs) return 0;
+  try {
+    const info = (await fs.getInfoAsync(filePath(fs, cacheKey(rawIso)))) as { exists: boolean; size?: number };
+    return info.exists ? info.size ?? 0 : 0;
+  } catch {
+    return 0;
+  }
+}
+
 /** Beim App-Start: Nur-Import-Länder mit gespeichertem Bestand als „eigene Daten“ markieren. */
 export async function initEd269ImportFlags(): Promise<void> {
   for (const iso of GEOZONE_IMPORT_ONLY_ISOS) {
@@ -373,6 +446,11 @@ export async function initEd269ImportFlags(): Promise<void> {
       setCountryAccessAvailable(iso, false);
     }
   }
+}
+
+/** Nur für Tests: Dateisystem ersetzen (undefined = Standard, null = keins). */
+export function __setEd269FsForTests(fs: FsModule | null | undefined): void {
+  fsOverride = fs;
 }
 
 /** Nur für Tests: Speicher-Cache leeren. */

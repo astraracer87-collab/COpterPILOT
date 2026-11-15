@@ -373,8 +373,9 @@ alle Länderlisten werden daraus abgeleitet.
   und die ArcGIS-/WFS-URLs und Paging-Entscheidungen: **identisch**. Einzige
   Abweichung nach B7: ES-Zeitplan „Sonnenaufgang–Sonnenuntergang Uhr“ →
   „… Sonnenuntergang“ (I9, gewollt).
-- Gefunden, **unverändert gelassen** (stiller AGL-Rückfall bei fehlendem
-  Bezug, mit ⚠️-Kommentar markiert; fachlich zu entscheiden): ES
+- Gefunden, zunächst **unverändert gelassen** (stiller AGL-Rückfall bei fehlendem
+  Bezug, mit ⚠️-Kommentar markiert) – **inzwischen entschieden und umgesetzt:
+  fehlender Bezug = UNKNOWN**, siehe „Stand Länder-Nutzung“: ES
   `esReference` (leer → AGL), SE `ed318LayerAltitudes` (leer → AGL), CH
   `verticalRef` (alles außer AMSL/MSL/WGS84 → AGL), CY Texthöhen ohne „MSL“ →
   AGL, IE `layer.lower/upperReference` fehlt → AGL, SK DÚ-Obergrenze ohne
@@ -646,3 +647,123 @@ Grundlage: die von DE-IP verifizierten Doku-Stände und die echten Fixtures in
 - Offen: PL-Höhenbezug, ES-Feldnamen der Zonen-Layer und Paketgrößen, MT-
   Höheneinheit, GR-Kacheln/Ebenen-Semantik, RO-TLS auf Android – auf dem Gerät
   bzw. mit den Betreibern klären.
+
+## Stand Länder-Nutzung (2026-11-15)
+
+Product Owner: je Land eine Nutzungsstufe, damit nicht genutzte Länder keine
+Daten hinterlassen („keine Datenleichen“) und genutzte möglichst vollständig
+sind.
+
+- **Einstellung** (client/lib/countryUsage.ts, RN-frei, AsyncStorage
+  `@copterpilot/country_usage_v1`, `onCountryUsageChange`): je App-Land
+  (OFFLINE_APP_COUNTRIES) `usage: "off" | "online" | "offline"`; bei „offline“
+  gelten die bisherigen Paket-Optionen (CountryOfflineConfig: Karte, Luftbild,
+  Geozonen, Hindernisse, DE-Wohngrundstücke, ES-Infrastruktur/Naturschutz).
+  Standard: DE offline (Standard-Teile), alle anderen aus; das Land der
+  GPS-Position wird beim ersten Start einmalig vorgeschlagen
+  (components/CountryUsagePrompt.tsx: „Land erkannt“ – Nicht jetzt / Online /
+  Offline; fragt keine Standort-Berechtigung an, wartet bis zu 30 min auf sie;
+  kein Dialog, wenn das Land schon aktiv ist). **Migration**: bei fehlender
+  Einstellung werden Länder mit gespeicherten Daten (Offline-Konfiguration,
+  ED-269-Datei inkl. Import, Kachelspeicher, altes Offline-Paket) „offline“.
+  Gemeinsame Quelle CH/LI: aktiv, solange eines der beiden Länder aktiv ist
+  (`isGeozoneSourceEnabled`). Solange die Einstellung nicht geladen ist (Tests,
+  App-Start), gilt jedes Land als aktiv; asynchrone Abrufpfade warten auf einen
+  laufenden Ladevorgang (`awaitCountryUsage`).
+- **„Aus“** – keine Abrufe: `getEd269Dataset`/`refreshEd269Dataset` (null/false),
+  `queryEd269CachedFeaturesWithStatus(From)` (Status `"disabled"`),
+  `queryGeozonesInAreaWithCoverage` (deaktivierte Länder – auch Nachbarländer
+  im Umkreis – werden nicht abgefragt und als Quelle `"disabled"` gemeldet),
+  `queryGeozoneFeatureInfo` (Tippen), dipul-Temporärbeschränkungen (DE),
+  `revalidateGeozoneSources` (Aktion `"disabled"`), `refreshDueTileStores`
+  (nur Offline-Länder), Karten-Overlays in Radar (TrafficMapView) und
+  Planungskarte (MapPicker). Beim Umschalten löscht
+  `applyCountryUsage` (client/lib/countryUsageData.ts) alles Herunterladbare:
+  Karten-/Luftbild-/Geozonen-Kacheln, Kachelspeicher, Hindernis-Kacheln (über
+  `deleteCountry`, geteilte Kacheln LI/CH und Hindernis-Kacheln anderer
+  Offline-Länder bleiben), ED-269-Bestand, altes Offline-Paket
+  (offlineStore), zwischengespeicherte Live-Ergebnisse (`geozones-live`,
+  Schlüssel jetzt mit Länder-Präfix `DE_…`/`ES_…`; ältere DE-Schlüssel werden
+  über die Koordinaten zugeordnet). Ein mit einem aktiven Land geteilter
+  Datensatz (CH-BAZL für LI) bleibt. **Datei-Importe bleiben immer erhalten**
+  (Product Owner, nicht erneut herunterladbar): weder „Aus“ noch „Alle
+  deaktivierten Länder bereinigen“ löschen sie; solange das Land aus ist,
+  werden sie weder geprüft noch gezeichnet, nach dem Einschalten gelten sie
+  sofort wieder. Nur „Import entfernen“ löscht einen Import (Bestätigung
+  „… Diese Daten lassen sich nicht erneut herunterladen …“).
+- **„Online“** – nur Live-Abfragen des betrachteten Bereichs. Entscheidung für
+  ED-269-Länder: der (kleine) Landesbestand wird bei Bedarf wie bisher geladen
+  und darf als **Zwischenspeicher höchstens 24 h** auf dem Gerät bleiben
+  (`sweepOnlineCaches`: beim Start und alle 15 min; Stand aus dem Speicher
+  bzw. der Dateizeit; Importe und von einem Offline-Land mitgenutzte Bestände
+  bleiben); er gehört zu keinem Offline-Paket und wird nicht automatisch
+  synchronisiert. Kachelland DE/FR/ES: Live-bbox-Abfragen (dipul-WFS,
+  FR-WFS, ENAIRE) mit dem bisherigen kleinen Standort-Speicher
+  (`geozones-live`, 10 Einträge LRU); CZ hat ohne Paket keine Live-Quelle →
+  Abdeckungslücke „manuell prüfen“ (Hinweis in den Einstellungen). Wechsel
+  Offline → Online löscht die Offline-Pakete (mit Bestätigung).
+- **„Offline“** – alles gespeichert und automatisch aktuell
+  (`syncOfflineCountries`, `startCountryUsage` in App.tsx: 20 s nach dem Start,
+  danach alle 6 h bei geöffneter App, sofort beim Umschalten auf „Offline“,
+  Knopf „Offline-Länder jetzt prüfen“): je Land `autoSyncCountry`
+  (offlineMaps.ts) = `startCountryDownload(…, { auto: true, allowLarge })` –
+  ED-269 nach Teil-A-Regeln (`revalidateGeozoneSources(…, "map")`: fehlend oder
+  älter als 6 h; großer NL-Feed nur im WLAN), Kachelspeicher: fehlende Teile
+  laden bzw. günstige Versionsprüfung (AIRAC/Trefferzahl/Ordner),
+  Karten-/Luftbild-/Geozonen-Kacheln und Hindernisse nur, wenn unvollständig.
+  Große Daten nur im WLAN bzw. mit „Große Pakete auch über mobile Daten
+  laden“, sonst „Wartet auf WLAN“; offline nichts; Speicherplatz-Prüfung.
+  Fortschritt/Ergebnis je Land (`getOfflineSyncState`/`onOfflineSyncChange`)
+  in den Einstellungen.
+- **Sicherheit**: Quelle `"disabled"` → `coverageChecks`: Befund
+  `coverage:<ISO>:disabled`, Schwere unbekannt (≥ CAUTION), Bestätigung
+  nötig, Text „Geozonen für <Land> sind deaktiviert – Land aktivieren oder
+  manuell prüfen.“, Aktion `{ kind: "enable-country", label: "Land aktivieren
+  (online)" }` (neues Feld `CheckResult.action`). Manuell geklärte Länder
+  (Standort-Schritt) wie bisher ohne Befund. Ein Tipp auf „Land aktivieren
+  (online)“ (components/EnableCountryButtons.tsx) in der Planung
+  (Abdeckungskarte), im Pre-Check (Abdeckungshinweis) und im Radar bzw. auf der
+  Planungskarte (Kartenhinweis) stellt das Land auf „Online“; die Prüfung lädt
+  über `onGeozoneDataChanged` (Art `"usage"`) neu.
+- **Einstellungen** (RcOfflineMapsScreen): Abschnitt „LÄNDER & OFFLINE-DATEN“
+  (Großschreibung wie alle Abschnitte) mit allen App-Ländern, je Land Auswahl
+  Aus / Online / Offline, Status und gespeicherte Größe
+  (`storedCountrySizes`: Kacheln, Kachelspeicher, ED-269-Bestand, Import,
+  Hindernisse geschätzt; gemeinsame Kacheln in der Summe einmal), Summe
+  „Gespeichert gesamt“, „Alle deaktivierten Länder bereinigen“; Paket-Optionen
+  und „Speichern / Aktualisieren“ nur bei „Offline“; deaktivierte Länder mit
+  Import: „Aus · Import bleibt erhalten (Land deaktiviert) · <Größe>“. Wechsel
+  auf „Aus“ bzw. Offline → Online mit Bestätigung (Größe; Hinweis, dass
+  Importe bleiben). Der frühere Knopf „Löschen“ je Land entfällt (= „Aus“).
+- **Höhenbezug (Product Owner)**: fehlender Bezug ist **UNKNOWN, nie still
+  AGL** (die B6-⚠️-Stellen): ES `esReference` (Rückfall UNKNOWN, Text „(Bezug
+  unbekannt)“; gilt auch für den insignias-Pfad
+  `normalizeEnaireInsigniasFeature`), SE `ed318LayerAltitudes` (Schicht ohne
+  Bezug → UNKNOWN; Text mit eigenem Bezug behält ihn), CH `verticalRef`
+  (AGL/SFC/GND/HEI → AGL, AMSL/MSL/WGS84 → AMSL, sonst UNKNOWN), CY
+  Texthöhen ohne Bezug → UNKNOWN (Anzeige „… (Bezug unbekannt)“), IE
+  `layer.lower/upperReference` fehlt → UNKNOWN, SK DÚ-Obergrenze ohne Bezug →
+  UNKNOWN (Untergrenze erbt ihn). Untergrenze 0 ohne Bezug bleibt „GND“.
+  UNKNOWN wird nie ausgeblendet (B3) und kann bei MSL-Annahme nicht mehr
+  fälschlich als „über dem Flug“ gelten.
+- **Tests**: client/lib/__tests__/countryUsage.test.ts (Speicherung,
+  Standard, Migration, CH/LI; „Aus“ ohne fetch, Daten gelöscht außer geteilt;
+  Import bleibt bei „Aus“/„Bereinigen“ und gilt nach dem Einschalten ohne
+  Neu-Import; „Online“ ohne Paket, 24-h-Zwischenspeicher; „Offline“
+  automatische Aktualisierung beim Start mit WLAN-Regel; Befund „deaktiviert“ →
+  CAUTION mit Aktion; Live-Ergebnisse je Land),
+  client/lib/__tests__/verticalReferenceUnknown.test.ts (sieben Stellen),
+  client/screens/__tests__/countryUsageCoverage.test.tsx (Planung/Pre-Check-
+  Abfrage inkl. Nachbarland, Knopf „Land aktivieren (online)“),
+  client/screens/__tests__/rcOfflineMapsUsage.test.tsx (Einstellungen).
+  Bestehende Tests mussten nicht angepasst werden (keiner prüfte den
+  AGL-Rückfall).
+- **Offen / zu bestätigen**: Neuinstallation lädt DE (Standard-Teile ≈ 0,5–1 GB
+  inkl. Karte und Hindernisse) im WLAN automatisch. Hindernisse werden
+  außerhalb gespeicherter Länder weiter bei Bedarf geladen und zwischen-
+  gespeichert (keine Geozonen; Sicherheitsfunktion) – beim Umschalten auf
+  „Aus“ werden sie im Länder-Rechteck gelöscht. LI aus, CH aktiv: der
+  gemeinsame BAZL-Bestand bleibt aktiv, LI-Zonen erscheinen deshalb weiter in
+  Karte/Prüfung (Abfragen laufen über den Datensatz CH). Energie-Infrastruktur-
+  Feeds und NOTAM-Abrufe sind nicht nach Land gesperrt. Vor dem Laden der
+  Einstellung (erste Millisekunden nach dem Start) gilt jedes Land als aktiv.

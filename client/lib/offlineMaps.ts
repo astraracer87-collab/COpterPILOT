@@ -27,12 +27,14 @@ import {
 import { COUNTRY_GEOZONE_CONFIGS, buildGeozoneTileUrls, getAllDefaultEnabledLayerNames, getAllLayerNames } from "@/lib/geozones";
 import { detectCountryFromCoordinates } from "../../shared/countryDetection";
 import { detectBundeslandFromCoordinates } from "@/lib/countryMaps";
-import { refreshEd269Dataset } from "@/lib/geozoneDirect/ed269Store";
-import { getGeozoneSourceMeta } from "../../shared/geozoneSourceMeta";
+import { loadStoredEd269Dataset, refreshEd269Dataset, storedEd269Bytes } from "@/lib/geozoneDirect/ed269Store";
+import { getGeozoneSourceMeta, resolveGeozoneSourceIso } from "../../shared/geozoneSourceMeta";
 import { getGeozoneSource } from "@/lib/geozoneSources/registry";
 import { deleteTileStore, downloadTileStore, getTilePartMeta, loadTileStoreMeta } from "@/lib/geozoneTiles/tileStore";
 import { isTileStoreIso, type TileStorePart } from "@/lib/geozoneTiles/tileStoreCore";
 import { OBSTACLE_TILE_ZOOM, deleteObstacleTiles, hasObstacleTile, loadObstacleTile, tilesForBounds } from "@/lib/obstacles";
+import { revalidateGeozoneSources } from "@/lib/geozoneSources/revalidate";
+import type { OfflineSyncCountryResult, OfflineSyncProgress } from "@/lib/countryUsageData";
 
 export type DetailLevel = 11 | 12 | 13 | 14 | 15;
 
@@ -596,7 +598,6 @@ async function downloadTile(template: string, hash: string, z: number, x: number
   return after.exists && "size" in after ? after.size ?? 0 : 0;
 }
 
-/** Startet bzw. setzt die Downloads für ein Land fort. */
 /** Wird die Kachel-Adresse noch von einem anderen Paket benutzt (z. B. LI = CH)? */
 function templateUsedElsewhere(progress: StoredProgress, ownKey: string, template: string): boolean {
   return Object.entries(progress).some(([k, v]) => k !== ownKey && v.template === template);
@@ -619,12 +620,58 @@ async function dropPack(progress: StoredProgress, levels: Record<string, number>
   delete progress[key];
 }
 
+export interface CountryDownloadOptions {
+  /**
+   * Automatische Synchronisation (Länder-Nutzung „offline“): ED-269-Bestand
+   * nur bei Bedarf (Teil-A-Regeln) statt erzwungen, Kachelspeicher nur
+   * fehlende Teile bzw. Versionsprüfung, große Pakete (Kacheln, Hindernisse,
+   * Kachelspeicher) nur mit `allowLarge` (WLAN bzw. Erlaubnis mobile Daten).
+   */
+  auto?: boolean;
+  allowLarge?: boolean;
+}
+
+export interface CountryDownloadSummary {
+  /** Etwas Großes wartet auf WLAN */
+  pendingWifi: boolean;
+  failed: boolean;
+  /** Neue Daten geladen */
+  updated: boolean;
+}
+
+/** Länder mit laufendem Download (Einstellungen oder automatische Synchronisation). */
+const activeDownloads = new Set<string>();
+export function isCountryDownloadRunning(iso: string): boolean {
+  return activeDownloads.has(iso.toUpperCase());
+}
+
+/** Startet bzw. setzt die Downloads für ein Land fort. */
 export async function startCountryDownload(
   c: CountryOfflineConfig,
   onPack: (p: PackProgress) => void,
   onObstacles: (done: number, total: number) => void,
   shouldStop: () => boolean,
-): Promise<void> {
+  opts: CountryDownloadOptions = {},
+): Promise<CountryDownloadSummary> {
+  const iso = c.iso.toUpperCase();
+  activeDownloads.add(iso);
+  try {
+    return await runCountryDownload(c, onPack, onObstacles, shouldStop, opts);
+  } finally {
+    activeDownloads.delete(iso);
+  }
+}
+
+async function runCountryDownload(
+  c: CountryOfflineConfig,
+  onPack: (p: PackProgress) => void,
+  onObstacles: (done: number, total: number) => void,
+  shouldStop: () => boolean,
+  opts: CountryDownloadOptions,
+): Promise<CountryDownloadSummary> {
+  const summary: CountryDownloadSummary = { pendingWifi: false, failed: false, updated: false };
+  const auto = opts.auto === true;
+  const allowLarge = !auto || opts.allowLarge === true;
   const list = (await loadOfflineConfigs()).filter((x) => x.iso !== c.iso);
   await saveOfflineConfigs([...list, c]);
 
@@ -648,13 +695,29 @@ export async function startCountryDownload(
   // Vektor-Geozonen (ED-269): ganze Landesdatei in den Gerätecache laden
   if (vectorGeo && !shouldStop()) {
     const key = vectorGeoKey(c.iso);
-    onPack({ key, kind: "geo", percentage: 0, bytes: 0, state: "active" });
-    const ok = await refreshEd269Dataset(c.iso).catch(() => false);
-    if (ok) {
+    onPack({ key, kind: "geo", percentage: progress[key] ? 100 : 0, bytes: 0, state: "active" });
+    let ok: boolean;
+    let pending = false;
+    if (auto) {
+      // Teil-A-Regeln: nur laden, wenn älter als maxAgeMs bzw. fehlend; großer Feed (NL) nur im WLAN
+      const [r] = await revalidateGeozoneSources([c.iso], "map").catch(() => [{ iso: c.iso, action: "refresh-failed" as const }]);
+      const action = r?.action;
+      ok = action === "fresh" || action === "refreshed" || action === "import-only";
+      pending = action === "pending-wifi";
+      if (action === "refreshed") summary.updated = true;
+      if (pending) summary.pendingWifi = true;
+    } else {
+      ok = await refreshEd269Dataset(c.iso).catch(() => false);
+      if (ok) summary.updated = true;
+    }
+    if (ok || (pending && progress[key])) {
       progress[key] = { done: 1, total: 1, bytes: 0, maxZoom: 0, template: VECTOR_TEMPLATE_PREFIX + c.iso };
       await saveProgress(progress);
       onPack({ key, kind: "geo", percentage: 100, bytes: 0, state: "complete" });
+    } else if (pending) {
+      onPack({ key, kind: "geo", percentage: 0, bytes: 0, state: "inactive", error: "wartet auf WLAN" });
     } else {
+      summary.failed = true;
       onPack({
         key,
         kind: "geo",
@@ -668,10 +731,33 @@ export async function startCountryDownload(
     }
   }
 
-  // Gekachelter Vektor-Speicher (DE/FR/CZ): alle Zonen des Landes
+  // Gekachelter Vektor-Speicher (DE/FR/CZ/ES): alle Zonen des Landes
   if (storeParts.length > 0 && !shouldStop()) {
-    const failed = await downloadStorePacks(c, storeParts, progress, onPack, shouldStop);
-    if (failed) return;
+    await loadTileStoreMeta().catch(() => {});
+    const missing = storeParts.filter((p) => getTilePartMeta(c.iso, p)?.complete !== true);
+    if (auto && missing.length === 0) {
+      // vorhandener Bestand: günstige Versionsprüfung, Download nur im WLAN bzw. mit Erlaubnis
+      const [r] = await revalidateGeozoneSources([c.iso], "map").catch(() => []);
+      if (r?.action === "pack-updated") summary.updated = true;
+      if (r?.action === "pending-wifi") summary.pendingWifi = true;
+      if (r?.action === "refresh-failed") summary.failed = true;
+      for (const part of storeParts) {
+        const meta = getTilePartMeta(c.iso, part);
+        if (meta?.complete) onPack({ key: storeGeoKey(c.iso, part), kind: "geo", percentage: 100, bytes: meta.dataBytes, state: "complete" });
+      }
+    } else if (!allowLarge) {
+      summary.pendingWifi = true;
+      for (const part of missing) {
+        onPack({ key: storeGeoKey(c.iso, part), kind: "geo", percentage: 0, bytes: 0, state: "inactive", error: "wartet auf WLAN" });
+      }
+    } else {
+      const failed = await downloadStorePacks(c, storeParts, progress, onPack, shouldStop);
+      if (failed) {
+        summary.failed = true;
+        return summary;
+      }
+      if (missing.length > 0) summary.updated = true;
+    }
   }
 
   for (const plan of plans) {
@@ -681,6 +767,14 @@ export async function startCountryDownload(
     if (!st || st.maxZoom !== plan.maxZoom || st.template !== plan.template) {
       st = { done: 0, total: planTileCount(plan), bytes: st?.bytes ?? 0, maxZoom: plan.maxZoom, template: plan.template };
       progress[plan.key] = st;
+    }
+    if (st.total && st.done >= st.total) {
+      onPack({ key: plan.key, kind: plan.kind, percentage: 100, bytes: st.bytes, state: "complete" });
+      continue;
+    }
+    if (!allowLarge) {
+      summary.pendingWifi = true;
+      continue;
     }
     // Karte darf die Kacheln ab sofort vom Gerät lesen
     levels[hash] = Math.max(levels[hash] ?? 0, plan.maxZoom);
@@ -720,10 +814,12 @@ export async function startCountryDownload(
       await Promise.all(Array.from({ length: PARALLEL }, worker));
       await saveProgress(progress);
       report(st.done >= st.total ? "complete" : "inactive");
+      summary.updated = true;
     } catch (e: any) {
       await saveProgress(progress);
       report("error", e?.message);
-      return;
+      summary.failed = true;
+      return summary;
     }
   }
 
@@ -737,7 +833,12 @@ export async function startCountryDownload(
       for (const t of tiles) {
         if (shouldStop()) break;
         if (!(await hasObstacleTile(t.x, t.y))) {
+          if (!allowLarge) {
+            summary.pendingWifi = true;
+            break;
+          }
           await loadObstacleTile(t.x, t.y, { force: true });
+          summary.updated = true;
           await new Promise((r) => setTimeout(r, 1200));
         }
         done++;
@@ -745,6 +846,50 @@ export async function startCountryDownload(
       }
     }
   }
+  return summary;
+}
+
+const SYNC_KEY_LABELS: Record<string, string> = { map: "Karte", sat: "Satellit", geo: "Geozonen" };
+
+/**
+ * Länder-Nutzung „offline“: ein Land automatisch prüfen und aktualisieren
+ * (App-Start, alle 6 h, beim Umschalten auf „Offline“). Gespeicherte
+ * Paket-Optionen gelten; ohne Konfiguration die Standard-Teile.
+ */
+export async function autoSyncCountry(
+  rawIso: string,
+  allowLarge: boolean,
+  onProgress: (p: OfflineSyncProgress) => void,
+): Promise<OfflineSyncCountryResult> {
+  const iso = rawIso.toUpperCase();
+  if (activeDownloads.has(iso)) return { iso, status: "skipped", message: "Download läuft bereits" };
+  const c = (await loadOfflineConfigs()).find((x) => x.iso === iso) ?? defaultConfig(iso);
+  // Speicherplatz grob prüfen (wie beim Laden aus den Einstellungen)
+  if (allowLarge) {
+    const free = await freeDiskMB();
+    const stored = free != null ? (await storedCountrySizes([iso]).catch(() => null))?.byIso[iso]?.totalBytes ?? 0 : 0;
+    if (free != null && estimateSize(c).totalMB - stored / 1024 / 1024 > free * 0.9) {
+      return { iso, status: "failed", message: "Zu wenig Speicher – Paket-Optionen in den Einstellungen verkleinern" };
+    }
+  }
+  const r = await startCountryDownload(
+    c,
+    (p) =>
+      onProgress({
+        key: p.key,
+        label: SYNC_KEY_LABELS[p.kind] ?? p.kind,
+        percentage: p.percentage,
+        state: p.state,
+        ...(p.error ? { error: p.error } : {}),
+      }),
+    (done, total) =>
+      onProgress({ key: `${iso}:obstacles`, label: "Hindernisse", percentage: total ? (done / total) * 100 : 100, state: done >= total ? "complete" : "active" }),
+    () => false,
+    { auto: true, allowLarge },
+  );
+  if (r.failed) return { iso, status: "failed", message: "Aktualisierung fehlgeschlagen – erneut versuchen" };
+  if (r.pendingWifi) return { iso, status: "pending-wifi", message: "Große Daten werden im WLAN geladen" };
+  return { iso, status: r.updated ? "updated" : "current" };
 }
 
 /** Lädt die Teile des Vektor-Speichers; true bei Fehler (Download abbrechen). */
@@ -812,4 +957,76 @@ export async function obstacleTilesStored(iso: string): Promise<{ done: number; 
   let done = 0;
   for (const t of tiles) if (await hasObstacleTile(t.x, t.y)) done++;
   return { done, total: tiles.length };
+}
+
+// ---------------------------------------------------------------------------
+// Gespeicherte Größe je Land (Einstellungen „Länder & Offline-Daten“)
+// ---------------------------------------------------------------------------
+
+export interface CountryStoredSize {
+  iso: string;
+  /** Karten-, Luftbild- und Geozonen-Kacheln sowie Kachelspeicher */
+  packBytes: number;
+  /** ED-269-Bestand (heruntergeladen) */
+  datasetBytes: number;
+  /** Datei-Import (bleibt auch bei „Aus“ erhalten) */
+  importBytes: number;
+  /** Hindernis-Kacheln (geschätzt aus der Anzahl) */
+  obstacleBytes: number;
+  totalBytes: number;
+}
+
+/**
+ * Gespeicherte Daten je Land. Gemeinsame Kacheln (LI/CH) erscheinen bei beiden
+ * Ländern, zählen in `totalBytes` der Summe aber nur einmal.
+ */
+export async function storedCountrySizes(isos: string[]): Promise<{ byIso: Record<string, CountryStoredSize>; totalBytes: number }> {
+  const progress = await loadProgress();
+  await loadTileStoreMeta().catch(() => {});
+  // Hindernis-Kacheln nur für Länder mit gespeicherter Konfiguration prüfen (viele Dateiabfragen)
+  const withObstacles = new Set((await loadOfflineConfigs()).filter((c) => c.obstacles).map((c) => c.iso));
+  const byIso: Record<string, CountryStoredSize> = {};
+  const countedTemplates = new Set<string>();
+  const countedSources = new Set<string>();
+  let total = 0;
+  for (const raw of isos) {
+    const iso = raw.toUpperCase();
+    const out: CountryStoredSize = { iso, packBytes: 0, datasetBytes: 0, importBytes: 0, obstacleBytes: 0, totalBytes: 0 };
+    for (const [k, v] of Object.entries(progress)) {
+      if (!k.startsWith(`${iso}:`) || v.template.startsWith(VECTOR_TEMPLATE_PREFIX) || v.template.startsWith(STORE_TEMPLATE_PREFIX)) continue;
+      out.packBytes += v.bytes || 0;
+      if (!countedTemplates.has(v.template)) {
+        countedTemplates.add(v.template);
+        total += v.bytes || 0;
+      }
+    }
+    if (isTileStoreIso(iso)) {
+      for (const part of ["base", "wohn", "infra", "enp"] as TileStorePart[]) {
+        const meta = getTilePartMeta(iso, part);
+        if (meta) {
+          out.packBytes += meta.dataBytes;
+          total += meta.dataBytes;
+        }
+      }
+    }
+    // ED-269-Bestand nur beim Land des Datensatzes zählen (LI steckt im CH-Bestand)
+    const source = resolveGeozoneSourceIso(iso);
+    if (source === iso && !countedSources.has(source)) {
+      countedSources.add(source);
+      const bytes = await storedEd269Bytes(source).catch(() => 0);
+      if (bytes > 0) {
+        const ds = await loadStoredEd269Dataset(source).catch(() => null);
+        if (ds?.imported) out.importBytes = bytes;
+        else out.datasetBytes = bytes;
+        total += bytes;
+      }
+    }
+    const obs = withObstacles.has(iso) ? await obstacleTilesStored(iso).catch(() => ({ done: 0, total: 0 })) : { done: 0, total: 0 };
+    out.obstacleBytes = obs.done * LAND_SHARE * OBSTACLE_KB_PER_TILE * 1024;
+    out.totalBytes = out.packBytes + out.datasetBytes + out.importBytes + out.obstacleBytes;
+    byIso[iso] = out;
+  }
+  // Hindernis-Kacheln überlappender Länder-Rechtecke: grob, ohne Abgleich
+  total += Object.values(byIso).reduce((n, c) => n + c.obstacleBytes, 0);
+  return { byIso, totalBytes: total };
 }

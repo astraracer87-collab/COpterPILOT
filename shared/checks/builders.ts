@@ -229,7 +229,7 @@ export function legacyGeozoneChecks(input: LegacyRestrictionInput, context: Chec
 // Abdeckung
 // ---------------------------------------------------------------------------
 
-export type CoverageSourceStatus = "ok" | "stale" | "partial" | "missing" | "error" | "unsupported";
+export type CoverageSourceStatus = "ok" | "stale" | "partial" | "missing" | "error" | "unsupported" | "disabled";
 
 export interface CoverageSourceLike {
   iso: string;
@@ -263,8 +263,17 @@ export function geozoneCoverageWarning(countryLabel: string, note?: string): str
   return note ? `${base} (${note})` : base;
 }
 
-/** Warntext je Quelle: "partial" -> unvollständig (mit Hinweis), sonst nicht verfügbar. */
+/** Länder-Nutzung „Aus“: Text der Abdeckungslücke. */
+export function countryDisabledWarning(countryLabel: string): string {
+  return `Geozonen für ${countryLabel} sind deaktiviert – Land aktivieren oder manuell prüfen.`;
+}
+
+/** Aktion zum Befund „Land deaktiviert“ (Planung, Pre-Check, Radar). */
+export const ENABLE_COUNTRY_ACTION_LABEL = "Land aktivieren (online)";
+
+/** Warntext je Quelle: "partial" -> unvollständig (mit Hinweis), "disabled" -> deaktiviert, sonst nicht verfügbar. */
 export function sourceCoverageWarning(source: CoverageSourceLike, countryLabel: string): string {
+  if (source.status === "disabled") return countryDisabledWarning(countryLabel);
   if (source.status === "partial") {
     return `Geozonen-Daten für ${countryLabel} unvollständig${source.note ? `: ${source.note}` : ""} – Zonen bitte manuell prüfen.`;
   }
@@ -397,9 +406,11 @@ export function coverageChecks(input: CoverageCheckInput): CheckResult[] {
       category: "coverage",
       severity: "unknown",
       title: sourceCoverageWarning(s, label(iso)),
-      detail: s.note ?? "",
+      detail: s.status === "disabled" ? "Das Land ist in den Einstellungen (Länder & Offline-Daten) auf „Aus“ gestellt – seine Geozonen werden weder geladen noch geprüft." : s.note ?? "",
       dataAge,
       emphasis: "caution",
+      // Deaktiviertes Land: mit einem Tipp online aktivieren (bzw. manuell prüfen)
+      ...(s.status === "disabled" ? { requiresConfirmation: true, action: { kind: "enable-country" as const, iso, label: ENABLE_COUNTRY_ACTION_LABEL } } : {}),
       context: input.context,
     });
   }

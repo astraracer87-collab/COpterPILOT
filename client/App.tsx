@@ -6,6 +6,8 @@ import { startZoneTranslation } from "@/lib/zoneTranslationStore";
 import { initDflightAccessFlag } from "@/lib/geozoneDirect/dflightAuth";
 import { initEd269ImportFlags } from "@/lib/geozoneDirect/ed269Store";
 import { startGeozoneTileStore } from "@/lib/geozoneTiles/tileStore";
+import { startCountryUsage } from "@/lib/countryUsageData";
+import { CountryUsagePrompt } from "@/components/CountryUsagePrompt";
 
 // Übersetzungs-Cache der Behördentexte laden (offline) und neue Texte nachziehen
 startZoneTranslation();
@@ -14,6 +16,8 @@ initDflightAccessFlag();
 initEd269ImportFlags();
 // Offline-Geozonen DE/FR/CZ (Kachelspeicher): Bestand bekannt machen, AIRAC-Aktualisierung
 startGeozoneTileStore();
+// Länder-Nutzung (Aus/Online/Offline): laden bzw. migrieren, Offline-Länder automatisch aktualisieren
+startCountryUsage();
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -169,6 +173,7 @@ function AuthGate({
   return (
     <NavigationContainer ref={navigationRef}>
       <RootStackNavigator />
+      <CountryUsagePrompt />
     </NavigationContainer>
   );
 }

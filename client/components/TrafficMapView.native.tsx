@@ -32,6 +32,9 @@ import { useTiledGeozoneIsos } from "@/lib/geozoneTiles/useTiledGeozones";
 import CtrInfoCard from "@/components/CtrInfoCard";
 import AirportWeatherSheet from "@/components/AirportWeatherSheet";
 import { geozoneTruncationHint } from "../../shared/checks/builders";
+import { countryDisabledWarning, isGeozoneSourceEnabled, usageCountryLabel } from "@/lib/countryUsage";
+import { useCountryUsageMap } from "@/lib/useCountryUsage";
+import { EnableCountryButtons } from "@/components/EnableCountryButtons";
 
 function hexToRgba(hex: string, alpha: number): string {
   const h = hex.replace("#", "");
@@ -1276,14 +1279,19 @@ export default function TrafficMapView({
   // UrlTile), daher kann die Server-Gate-Prüfung dort nicht greifen — das Ausgrauen
   // gesperrter Nachbarländer muss hier clientseitig erfolgen.
   const { entitlement } = useAuth();
-  const { lockedSet, lockedNames } = useMemo(() => {
+  // Länder-Nutzung „Aus“: keine Overlays/Abfragen, Hinweis mit „Land aktivieren (online)“
+  const countryUsageMap = useCountryUsageMap();
+  const { lockedSet, lockedNames, disabledIsos } = useMemo(() => {
     const isos = countryListKey ? countryListKey.split(",").filter(Boolean) : [];
     const { locked } = splitCountriesByAccess(isos, entitlement);
+    const disabled = isos.filter((iso) => !isGeozoneSourceEnabled(iso));
     return {
-      lockedSet: new Set(locked),
+      lockedSet: new Set([...locked, ...disabled]),
       lockedNames: locked.map((iso) => countryName(iso)),
+      disabledIsos: disabled,
     };
-  }, [countryListKey, entitlement]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [countryListKey, entitlement, countryUsageMap]);
 
   // Länder, deren Zonen gerade aus dem Kachelspeicher gezeichnet werden
   // (String-Schlüssel, damit die Kachel-Ebenen nur beim Wechsel neu entstehen).
@@ -2173,6 +2181,17 @@ export default function TrafficMapView({
           </Text>
         </View>
       ) : null}
+      {disabledIsos.length > 0 ? (
+        <View
+          style={[disabledHintStyles.container, { top: topInset + 16 + (vectorZonesHiddenHint || vectorZonesTruncated ? 40 : 0) + (lockedNames.length > 0 ? 40 : 0) }]}
+          testID="hint-disabled-countries"
+        >
+          {disabledIsos.map((iso) => (
+            <Text key={iso} style={disabledHintStyles.text}>{countryDisabledWarning(usageCountryLabel(iso))}</Text>
+          ))}
+          <EnableCountryButtons isos={disabledIsos} color="#FFFFFF" style={{ marginTop: 4 }} />
+        </View>
+      ) : null}
       {onMapStyleChange ? (
         <View style={mapSwitchStyles.container}>
           {([
@@ -2474,6 +2493,26 @@ const vectorHintStyles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "600",
     flexShrink: 1,
+  },
+});
+
+const disabledHintStyles = StyleSheet.create({
+  container: {
+    position: "absolute",
+    alignSelf: "center",
+    maxWidth: "86%",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: "rgba(146, 64, 14, 0.94)",
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(251, 191, 36, 0.6)",
+    zIndex: 17,
+  },
+  text: {
+    color: "rgba(255, 255, 255, 0.97)",
+    fontSize: 12,
+    fontWeight: "600",
   },
 });
 

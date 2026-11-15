@@ -20,7 +20,8 @@ import { cleanText, round1 } from "./geozoneKit/text";
 export const SE_GEOZONE_SOURCE_LABEL = "LFV / Transportstyrelsen (CC BY 4.0)";
 export const SE_GEOZONE_ATTRIBUTION = "Quelle: LFV Drönarkartan / Transportstyrelsen, CC BY 4.0";
 
-export type SeAltitudeReference = "AGL" | "MSL";
+/** UNKNOWN: ED-318-Schicht ohne Bezug (nie still AGL, Product Owner). */
+export type SeAltitudeReference = "AGL" | "MSL" | "UNKNOWN";
 
 export type SeFeature = {
   type: "Feature";
@@ -181,21 +182,23 @@ export function ed318LayerAltitudes(layer: any): { lower: SeAltitude | null; upp
   const conv = (value: unknown, refRaw: unknown): SeAltitude | null => {
     if (value == null || value === "") return null;
     const r = String(refRaw ?? "").toUpperCase();
-    const reference: SeAltitudeReference = r === "AGL" || r === "SFC" ? "AGL" : r ? "MSL" : "AGL";
+    // Fehlender Bezug → UNKNOWN (nie still AGL)
+    const reference: SeAltitudeReference = r === "AGL" || r === "SFC" ? "AGL" : r ? "MSL" : "UNKNOWN";
     if (typeof value === "string" && !/^\d+(\.\d+)?$/.test(value.trim())) {
       const parsed = parseSwedishAltitude(value);
-      return parsed ? { ...parsed, reference: parsed.unlimited ? "MSL" : reference } : null;
+      // Text mit eigenem Bezug („260FT AGL“, GND) bzw. LFV-Konvention behält ihn; sonst gilt die Schicht
+      return parsed ? { ...parsed, reference: parsed.unlimited ? "MSL" : r ? reference : parsed.reference } : null;
     }
     const n = Number(value);
     if (!Number.isFinite(n)) return null;
-    if (n === 0 && reference === "AGL") return { meters: 0, reference, text: "GND" };
+    if (n === 0 && reference !== "MSL") return { meters: 0, reference: "AGL", text: "GND" };
     // Einheit der Schicht (unbekannt → Meter) über den gemeinsamen Parser.
     const meters = parseHeight(n, uom === "FT" || uom === "FL" ? uom : "M")?.m ?? n;
     const unitText = uom === "FL" ? `FL ${n}` : `${n} ${uom === "FT" ? "ft" : "m"}`;
     return {
       meters: round1(meters),
       reference,
-      text: uom === "FL" ? unitText : `${unitText} ${r === "AMSL" || r === "WGS84" ? "AMSL" : r || "AGL"}`,
+      text: uom === "FL" ? unitText : `${unitText} ${r === "AMSL" || r === "WGS84" ? "AMSL" : r || "(Bezug unbekannt)"}`,
     };
   };
   return { lower: conv(layer.lower, layer.lowerReference), upper: conv(layer.upper, layer.upperReference) };

@@ -22,6 +22,8 @@ import { isLoggedInSync } from "@/lib/auth";
 import { isOfflineNow } from "@/lib/network";
 import { getOfflineResult, putOfflineResult } from "@/lib/offlineResultCache";
 import { offlineLocationKey } from "../../shared/offlineDataPolicy";
+import { awaitCountryUsage, COUNTRY_DISABLED_NOTE, isGeozoneSourceEnabled } from "@/lib/countryUsage";
+import { disabledSourceCoverage } from "@/lib/geozoneCoverage";
 import {
   hasTiledGeozones,
   queryTiledGeozones,
@@ -584,6 +586,9 @@ export async function queryEd269CachedFeaturesWithStatus(
   maxValidityDays?: number,
   opts?: { layers?: string[] },
 ): Promise<Ed269StatusResult> {
+  // Länder-Nutzung „Aus“: weder Speicher noch Live-Abfrage (Karte/Radar zeigen den Hinweis)
+  await awaitCountryUsage();
+  if (!isGeozoneSourceEnabled(iso)) return { zones: [], status: "disabled", note: COUNTRY_DISABLED_NOTE };
   // DE/FR/CZ mit Offline-Kachelspeicher: nur die Kacheln des Ausschnitts lesen
   // (nie das ganze Land, keine NOTAM-artige Gesamtabfrage).
   if (hasTiledGeozones(iso)) {
@@ -1092,6 +1097,9 @@ function parseGeoApiResponse(data: any): DipulTempRestrictionsResult {
 }
 
 async function fetchDipulGeoapi(lon: number, lat: number, radiusM: number): Promise<DipulTempRestrictionsResult> {
+  // Länder-Nutzung: Deutschland „Aus“ → keine dipul-Abfrage (die Abdeckung meldet „deaktiviert“)
+  await awaitCountryUsage();
+  if (!isGeozoneSourceEnabled("DE")) return { active: [], upcoming: [] };
   let token = await getDipulToken();
 
   const body = JSON.stringify({
@@ -1531,7 +1539,8 @@ async function queryGeozonesForCountry(
     // Teil A: Land ohne Offline-Paket → online direkt (dipul-WFS) und das
     // Ergebnis je Standort zwischenspeichern; offline der gespeicherte Stand
     // (mit Alter), sonst Abdeckungslücke statt „keine Zonen“.
-    const key = `${offlineLocationKey(lat, lon)}_${Math.round(radiusKm * 10)}`;
+    // Schlüssel mit Länder-Präfix (Länder-Nutzung „Aus“ löscht je Land)
+    const key = `DE_${offlineLocationKey(lat, lon)}_${Math.round(radiusKm * 10)}`;
     if (isOfflineNow()) {
       const stored = await getOfflineResult<GeozoneFeatureInfo[]>("geozones-live", key).catch(() => null);
       if (stored && Array.isArray(stored.data)) {
@@ -1709,6 +1718,11 @@ export async function queryGeozonesInAreaWithCoverage(
     });
   };
   for (const iso of countries) sources.set(iso, { iso, status: "ok" });
+  // Länder-Nutzung „Aus“ (auch Nachbarländer im Umkreis): nicht abfragen,
+  // Abdeckungslücke „deaktiviert“ (≥ CAUTION, Aktion „Land aktivieren“).
+  await awaitCountryUsage();
+  const disabled = new Set(countries.filter((iso) => !isGeozoneSourceEnabled(iso)));
+  for (const iso of disabled) sources.set(iso, disabledSourceCoverage(iso));
 
   // Nicht-deutsche Zonen ohne country-Feld mit dem abgefragten Land taggen,
   // damit länderspezifische Regeln (§ 21h/AV, siehe de21hRule) sie sicher
@@ -1720,7 +1734,7 @@ export async function queryGeozonesInAreaWithCoverage(
   const withTimeout = <T,>(promise: Promise<T>, ms: number): Promise<T | typeof NEIGHBOR_TIMEOUT> =>
     Promise.race([promise, new Promise<typeof NEIGHBOR_TIMEOUT>((resolve) => setTimeout(() => resolve(NEIGHBOR_TIMEOUT), ms))]);
 
-  const primaryResult = tag(primary, await queryGeozonesForCountry(lat, lon, radiusKm, primary, onDipulSourceStatus, reporterFor(primary)).catch((e) => {
+  const primaryResult = disabled.has(primary) ? [] : tag(primary, await queryGeozonesForCountry(lat, lon, radiusKm, primary, onDipulSourceStatus, reporterFor(primary)).catch((e) => {
     if (e instanceof DipulWfsAccessError) throw e;
     console.warn(`[Geozones] Primary query failed for ${primary}:`, e?.message || e);
     reporterFor(primary)({ status: "error", note: String(e?.message || e) });
@@ -1728,9 +1742,10 @@ export async function queryGeozonesInAreaWithCoverage(
   }));
 
   let neighborResults: GeozoneFeatureInfo[] = [];
-  if (neighbors.length > 0) {
+  const activeNeighbors = neighbors.filter((iso) => !disabled.has(iso));
+  if (activeNeighbors.length > 0) {
     const settled = await Promise.allSettled(
-      neighbors.map(async (iso) => {
+      activeNeighbors.map(async (iso) => {
         const res = await withTimeout(
           queryGeozonesForCountry(lat, lon, radiusKm, iso, onDipulSourceStatus, reporterFor(iso)).catch((e) => {
             console.warn(`[Geozones] Neighbor query failed for ${iso}:`, e?.message || e);
@@ -1801,6 +1816,8 @@ export async function queryGeozoneFeatureInfo(
   skipTiles?: boolean,
 ): Promise<GeozoneFeatureInfo[]> {
   const config = getCountryGeozoneConfig(countryIso);
+  // Länder-Nutzung „Aus“: keine Abfrage am Tipp-Punkt
+  if (!isGeozoneSourceEnabled(config.iso)) return [];
 
   // Offline-Kachelspeicher (DE/FR/CZ): Zonen am Tipp-Punkt lokal bestimmen.
   if (!skipTiles && hasTiledGeozones(config.iso)) {

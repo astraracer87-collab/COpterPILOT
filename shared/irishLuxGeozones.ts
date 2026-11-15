@@ -54,9 +54,9 @@ export function normalizeIrishFeature(f: Feature): Feature | null {
     restriction,
     name: String(p.name ?? p.identifier ?? "Geozone"),
     lowerMeters,
-    // ⚠️ Fehlender Bezug wird (wie bisher) AGL – siehe docs/pruefung-umbau-plan.md (B6).
-    lowerReference: String(layer.lowerReference ?? "AGL").toUpperCase(),
-    upperReference: String(layer.upperReference ?? "AGL").toUpperCase(),
+    // Fehlender Bezug → UNKNOWN (Product Owner: nie still AGL)
+    lowerReference: String(layer.lowerReference || "UNKNOWN").toUpperCase(),
+    upperReference: String(layer.upperReference || "UNKNOWN").toUpperCase(),
     message: lines.join("\n"),
     source: IE_GEOZONE_SOURCE_LABEL,
   };

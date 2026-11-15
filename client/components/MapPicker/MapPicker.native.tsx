@@ -40,6 +40,9 @@ import type {
 import { useAuth } from "@/lib/auth";
 import { supplementalInfrastructureAsGeozones, infrastructureMapGeometry } from "@/lib/energyInfrastructureZones";
 import { useTiledGeozoneIsos } from "@/lib/geozoneTiles/useTiledGeozones";
+import { countryDisabledWarning, isGeozoneSourceEnabled, usageCountryLabel } from "@/lib/countryUsage";
+import { useCountryUsageMap } from "@/lib/useCountryUsage";
+import { EnableCountryButtons } from "@/components/EnableCountryButtons";
 
 function hexToRgba(hex: string, alpha: number): string {
   const h = hex.replace("#", "");
@@ -528,13 +531,18 @@ const MapPicker = forwardRef<MapPickerRef, MapPickerProps>(
       () => (useViewportCountries ? viewportCountries : countryIso ? [countryIso] : []),
       [useViewportCountries, viewportCountries, countryIso],
     );
-    const { lockedSet, lockedNames } = useMemo(() => {
+    // Länder-Nutzung „Aus“: kein Overlay, Hinweis mit „Land aktivieren (online)“
+    const countryUsageMap = useCountryUsageMap();
+    const { lockedSet, lockedNames, disabledIsos } = useMemo(() => {
       const { locked } = splitCountriesByAccess(candidateCountries, entitlement);
+      const disabled = candidateCountries.filter((iso) => !isGeozoneSourceEnabled(iso));
       return {
-        lockedSet: new Set(locked),
+        lockedSet: new Set([...locked, ...disabled]),
         lockedNames: locked.map((iso) => countryName(iso)),
+        disabledIsos: disabled,
       };
-    }, [candidateCountries, entitlement]);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [candidateCountries, entitlement, countryUsageMap]);
     const visibleViewportCountries = useMemo(
       () => viewportCountries.filter((iso) => !lockedSet.has(iso)),
       [viewportCountries, lockedSet],
@@ -884,6 +892,17 @@ const MapPicker = forwardRef<MapPickerRef, MapPickerProps>(
                 ? `${lockedNames[0]}: Land freischalten`
                 : `Land freischalten: ${lockedNames.join(", ")}`}
             </Text>
+          </View>
+        ) : null}
+        {disabledIsos.length > 0 ? (
+          <View
+            style={[lockedHintStyles.container, { top: (lockedNames.length > 0 ? 56 : 16) + (vzTruncated ? 40 : 0), flexDirection: "column", alignItems: "flex-start" }]}
+            testID="hint-disabled-countries"
+          >
+            {disabledIsos.map((iso) => (
+              <Text key={iso} style={lockedHintStyles.text}>{countryDisabledWarning(usageCountryLabel(iso))}</Text>
+            ))}
+            <EnableCountryButtons isos={disabledIsos} color="#FFFFFF" />
           </View>
         ) : null}
         {vzTruncated ? (

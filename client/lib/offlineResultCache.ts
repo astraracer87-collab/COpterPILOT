@@ -178,6 +178,42 @@ export function getOfflineResult<T>(kind: OfflineCacheKind, key: string): Promis
   });
 }
 
+/**
+ * Gespeicherte Ergebnisse einer Art entfernen, deren Schlüssel `match` erfüllt
+ * (Länder-Nutzung „aus“: Live-Geozonen eines Landes). Liefert die Anzahl.
+ */
+export function removeOfflineResults(kind: OfflineCacheKind, match: (key: string) => boolean): Promise<number> {
+  return serialize(async () => {
+    const idx = await loadIndex();
+    const prefix = storageKey(kind, "");
+    const st = getStorage();
+    let n = 0;
+    for (const [sk, e] of Object.entries(idx)) {
+      if (e.kind !== kind || !sk.startsWith(prefix) || !match(sk.slice(prefix.length))) continue;
+      delete idx[sk];
+      memory.delete(sk);
+      await st?.removeItem(sk).catch(() => {});
+      n += 1;
+    }
+    for (const sk of [...memory.keys()]) {
+      if (sk.startsWith(prefix) && match(sk.slice(prefix.length))) memory.delete(sk);
+    }
+    if (n > 0) await saveIndex();
+    return n;
+  });
+}
+
+/** Schlüssel aller gespeicherten Ergebnisse einer Art. */
+export function listOfflineResultKeys(kind: OfflineCacheKind): Promise<string[]> {
+  return serialize(async () => {
+    const idx = await loadIndex();
+    const prefix = storageKey(kind, "");
+    return Object.entries(idx)
+      .filter(([sk, e]) => e.kind === kind && sk.startsWith(prefix))
+      .map(([sk]) => sk.slice(prefix.length));
+  });
+}
+
 function defaultOffline(): boolean {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports

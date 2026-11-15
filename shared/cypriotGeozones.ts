@@ -412,7 +412,8 @@ function isProhibitionSentence(sentence: string): boolean {
 // Höhen (live nicht vorhanden; für künftige Texte)
 // ---------------------------------------------------------------------------
 
-export type CyReference = "AGL" | "MSL";
+/** UNKNOWN: Text nennt keinen Bezug (nie still AGL, Product Owner). */
+export type CyReference = "AGL" | "MSL" | "UNKNOWN";
 
 export interface CyLimit {
   meters: number;
@@ -433,8 +434,9 @@ function toLimit(numRaw: string, unitRaw: string, refRaw: string | undefined, ra
   const u = unitRaw.toLowerCase();
   const isFt = /^(ft|feet|foot|ποδ)/.test(u);
   const r = (refRaw ?? "").toUpperCase();
-  const reference: CyReference = /AMSL|MSL|ΜΣΘ|ΘΑΛΑΣΣ/.test(r) ? "MSL" : "AGL";
-  // Umrechnung über den gemeinsamen Parser. ⚠️ Ohne MSL-Angabe gilt (wie bisher) AGL.
+  // Ohne Bezugsangabe → UNKNOWN (Product Owner: nie still AGL).
+  const reference: CyReference = /AMSL|MSL|ΜΣΘ|ΘΑΛΑΣΣ/.test(r) ? "MSL" : r ? "AGL" : "UNKNOWN";
+  // Umrechnung über den gemeinsamen Parser.
   const meters = parseHeight(n, isFt ? "ft" : "m")?.m ?? n;
   return { meters: round1(meters), reference, feet: isFt ? n : undefined, raw: raw.trim() };
 }
@@ -481,6 +483,7 @@ export function formatCyLimitDe(l: CyLimit | null | undefined): string {
   if (l.meters === 0) return "Boden (GND)";
   const base = l.feet != null ? `${fmtNum(l.feet)} ft` : `${fmtNum(l.meters)} m`;
   const approx = l.feet != null ? ` (≈ ${fmtNum(l.meters)} m)` : "";
+  if (l.reference === "UNKNOWN") return `${base}${approx} (Bezug unbekannt)`;
   return l.reference === "AGL" ? `${base} über Grund${approx}` : `${base} MSL${approx}`;
 }
 

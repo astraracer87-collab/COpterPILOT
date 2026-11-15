@@ -21,6 +21,7 @@ import {
   TEMPORARY_ZONES_STALE_NOTE,
 } from "../../shared/geozoneSourceMeta";
 import { queryEd269Features } from "./geozoneDirect/ed269Query";
+import { awaitCountryUsage, COUNTRY_DISABLED_NOTE, isGeozoneSourceEnabled } from "./countryUsage";
 
 // Sowohl die Radius- (getCountriesInRadius) als auch die Viewport-Abdeckung
 // (getViewportCountries) bestimmen die berührten Länder polygon-autoritativ über
@@ -76,9 +77,15 @@ export async function queryEd269CachedFeaturesFrom(
 // Abdeckungslücke, die der Pilot manuell prüfen muss.
 // ---------------------------------------------------------------------------
 
-/** Status einer einzelnen Länder-Quelle. "ok"/"stale" gelten als abgedeckt. */
+/** Status einer einzelnen Länder-Quelle. "ok"/"stale" gelten als abgedeckt.
+ * Länder-Nutzung „Aus“ → "disabled" (Abdeckungslücke mit Aktion „Land aktivieren“). */
+export function disabledSourceCoverage(iso: string): GeozoneSourceCoverage {
+  return { iso, status: "disabled", note: COUNTRY_DISABLED_NOTE };
+}
+
 // "partial": Land nur teilweise geprüft (z. B. DE-Offline-Paket ohne Wohngrundstücke).
-export type GeozoneSourceStatus = "ok" | "stale" | "partial" | "missing" | "error" | "unsupported";
+// "disabled": Land in den Einstellungen deaktiviert (Länder-Nutzung „Aus“) – nicht abgefragt.
+export type GeozoneSourceStatus = "ok" | "stale" | "partial" | "missing" | "error" | "unsupported" | "disabled";
 
 export interface GeozoneSourceCoverage {
   iso: string;
@@ -129,7 +136,7 @@ export function uncoveredGeozoneSources(sources: GeozoneSourceCoverage[]): Geozo
 
 /** Schlechterer von zwei Status (für Länder mit mehreren Teilquellen). */
 export function worseSourceStatus(a: GeozoneSourceStatus, b: GeozoneSourceStatus): GeozoneSourceStatus {
-  const rank: Record<GeozoneSourceStatus, number> = { ok: 0, stale: 1, partial: 2, missing: 3, unsupported: 3, error: 4 };
+  const rank: Record<GeozoneSourceStatus, number> = { ok: 0, stale: 1, partial: 2, missing: 3, unsupported: 3, disabled: 3, error: 4 };
   return rank[b] > rank[a] ? b : a;
 }
 
@@ -180,6 +187,8 @@ export async function queryEd269CachedFeaturesWithStatusFrom(
   forceRefresh?: boolean,
 ): Promise<Ed269StatusResult> {
   try {
+    await awaitCountryUsage();
+    if (!isGeozoneSourceEnabled(iso)) return { zones: [], status: "disabled", note: COUNTRY_DISABLED_NOTE };
     const ds = await getEd269Dataset(iso, { forceRefresh });
     if (!ds) return { zones: [], status: "missing", note: "kein Datenbestand auf dem Gerät" };
     const fetchedAt = ds.fetchedAt > 0 ? ds.fetchedAt : undefined;

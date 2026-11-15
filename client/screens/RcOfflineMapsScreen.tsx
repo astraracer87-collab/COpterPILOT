@@ -1,7 +1,11 @@
 /**
- * Einstellungen → Offline-Karten & Hindernisse
- * Länder auswählen und festlegen, was auf dem Gerät gespeichert wird:
- * Karte, Satellitenbilder (optional, sehr groß), Geozonen, Hindernisse.
+ * Einstellungen → Karten & Offline
+ * Länder & Offline-Daten: je Land „Aus“ / „Online“ / „Offline“
+ * (client/lib/countryUsage.ts). Bei „Offline“ festlegen, was auf dem Gerät
+ * gespeichert wird: Karte, Satellitenbilder (optional, sehr groß), Geozonen
+ * (inkl. Teile wie DE-Wohngrundstücke, ES-Infrastruktur/Naturschutz),
+ * Hindernisse. Gespeicherte Größe je Land und gesamt; „Alle deaktivierten
+ * Länder bereinigen“. Datei-Importe bleiben auch bei „Aus“ erhalten.
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Switch, TextInput, View } from "react-native";
@@ -19,7 +23,6 @@ import { Spacing, Typography } from "@/constants/theme";
 import {
   DETAIL_LABELS,
   defaultConfig,
-  deleteCountry,
   estimateSize,
   formatMB,
   freeDiskMB,
@@ -31,7 +34,9 @@ import {
   packStatuses,
   pauseCountryDownload,
   startCountryDownload,
+  storedCountrySizes,
   type CountryOfflineConfig,
+  type CountryStoredSize,
   type DetailLevel,
   type PackProgress,
 } from "@/lib/offlineMaps";
@@ -46,6 +51,16 @@ import { RO_ROMATSA_DRONES_URL } from "../../shared/romanianGeozones";
 import { MT_TMCAD_MAP_URL } from "../../shared/malteseGeozones";
 import { resolveGeozoneSourceIso } from "../../shared/geozoneSourceMeta";
 import { loadLargePacksOnMobile, setLargePacksOnMobile } from "@/lib/geozoneSources/largePackSetting";
+import { COUNTRY_USAGE_LABELS, COUNTRY_USAGE_VALUES, getCountryUsage, loadCountryUsage, type CountryUsage } from "@/lib/countryUsage";
+import { useCountryUsageMap } from "@/lib/useCountryUsage";
+import {
+  applyCountryUsage,
+  cleanupDisabledCountries,
+  getOfflineSyncState,
+  onOfflineSyncChange,
+  syncOfflineCountries,
+  type OfflineSyncCountryState,
+} from "@/lib/countryUsageData";
 
 const LEVELS: DetailLevel[] = [11, 12, 13, 14, 15];
 const KIND_LABEL: Record<string, string> = { map: "Karte", sat: "Satellit", geo: "Geozonen" };
@@ -81,6 +96,16 @@ const IMPORT_HINTS: Record<string, { text: string; url?: string; linkLabel?: str
 };
 
 type ImportInfo = (Ed269ImportMeta & { count: number }) | null;
+
+const USAGE_HINT: Record<CountryUsage, string> = {
+  off: "Keine Abrufe und keine gespeicherten Daten. Liegt ein Flug in diesem Land, muss es aktiviert oder manuell geprüft werden.",
+  online: "Geozonen werden nur bei Bedarf für den betrachteten Bereich abgefragt (Landesdatensätze höchstens 24 Stunden zwischengespeichert). Ohne Internet keine Prüfung.",
+  offline: "Alle gewählten Daten werden gespeichert und automatisch aktuell gehalten (große Pakete nur im WLAN, außer mobile Daten sind erlaubt).",
+};
+
+function bytesToMB(b: number): number {
+  return b / 1024 / 1024;
+}
 
 function formatDateTimeDe(ts: number): string {
   const d = new Date(ts);
@@ -185,6 +210,17 @@ export default function OfflineMapsScreen() {
   };
   const stopFlags = useRef<Record<string, boolean>>({});
 
+  // Länder-Nutzung (Aus/Online/Offline), gespeicherte Größen, automatische Synchronisation
+  const usageMap = useCountryUsageMap();
+  const [sizes, setSizes] = useState<{ byIso: Record<string, CountryStoredSize>; totalBytes: number } | null>(null);
+  const [syncState, setSyncState] = useState<Record<string, OfflineSyncCountryState>>(() => getOfflineSyncState());
+  const [cleanupBusy, setCleanupBusy] = useState(false);
+  useEffect(() => {
+    loadCountryUsage().catch(() => {});
+    return onOfflineSyncChange(() => setSyncState(getOfflineSyncState()));
+  }, []);
+  const usageOf = (iso: string): CountryUsage => usageMap[iso] ?? getCountryUsage(iso) ?? "off";
+
   // Geozonen-Datei-Import je Land (Vektor-/Nur-Import-Länder)
   const [importInfo, setImportInfo] = useState<Record<string, ImportInfo>>({});
   const [importBusy, setImportBusy] = useState<string | null>(null);
@@ -211,7 +247,10 @@ export default function OfflineMapsScreen() {
     }
   };
   const removeImport = (iso: string) => {
-    Alert.alert("Import entfernen", "Die importierten Geozonen dieses Landes vom Gerät löschen?", [
+    Alert.alert(
+      "Import entfernen",
+      "Die importierten Geozonen dieses Landes vom Gerät löschen? Diese Daten lassen sich nicht erneut herunterladen – zum Wiederherstellen muss die Datei erneut importiert werden.",
+      [
       { text: "Abbrechen", style: "cancel" },
       {
         text: "Entfernen",
@@ -220,6 +259,7 @@ export default function OfflineMapsScreen() {
           await deleteEd269Dataset(iso);
           setImportMsg((prev) => ({ ...prev, [iso]: null }));
           loadImportInfo(iso);
+          refreshSizes();
         },
       },
     ]);
@@ -229,7 +269,14 @@ export default function OfflineMapsScreen() {
     setState((prev) => ({ ...prev, [iso]: fn(prev[iso] ?? { packs: {}, obstacles: null, running: false }) }));
   }, []);
 
+  const refreshSizes = useCallback(async () => {
+    try {
+      setSizes(await storedCountrySizes(offlineCountries().map((c) => c.iso)));
+    } catch {}
+  }, []);
+
   const refresh = useCallback(async () => {
+    refreshSizes();
     const list = await loadOfflineConfigs();
     const map: Record<string, CountryOfflineConfig> = {};
     for (const c of countries) map[c.iso] = list.find((x) => x.iso === c.iso) ?? defaultConfig(c.iso);
@@ -246,7 +293,7 @@ export default function OfflineMapsScreen() {
       }));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [patchState]);
+  }, [patchState, refreshSizes]);
 
   useEffect(() => {
     refresh();
@@ -301,20 +348,72 @@ export default function OfflineMapsScreen() {
     patchState(iso, (s) => ({ ...s, running: false }));
   };
 
-  const remove = (iso: string) => {
-    Alert.alert("Offline-Daten löschen", "Alle gespeicherten Karten, Geozonen und Hindernisse dieses Landes vom Gerät löschen?", [
-      { text: "Abbrechen", style: "cancel" },
-      {
-        text: "Löschen",
-        style: "destructive",
-        onPress: async () => {
-          stopFlags.current[iso] = true;
-          await deleteCountry(iso);
-          patchState(iso, () => ({ packs: {}, obstacles: null, running: false }));
-          refresh();
+  // Länder-Nutzung umschalten (mit Bestätigung, wenn Daten gelöscht werden)
+  const changeUsage = (iso: string, next: CountryUsage) => {
+    const prev = usageOf(iso);
+    if (prev === next) return;
+    const label = countries.find((x) => x.iso === iso)?.label ?? iso;
+    const size = sizes?.byIso[iso];
+    const deletable = size ? size.packBytes + size.datasetBytes + size.obstacleBytes : 0;
+    const apply = async () => {
+      if (next !== "offline") {
+        stopFlags.current[iso] = true;
+        await pauseCountryDownload(iso);
+      }
+      await applyCountryUsage(iso, next).catch(() => null);
+      if (next !== "offline") patchState(iso, () => ({ packs: {}, obstacles: null, running: false }));
+      if (next === "offline") setExpanded(iso);
+      refresh();
+    };
+    if (next === "off") {
+      Alert.alert(
+        "Land deaktivieren",
+        `${label}: Geozonen werden nicht mehr geladen und nicht mehr geprüft.` +
+          (deletable > 0 ? ` Gespeicherte Daten (ca. ${formatMB(bytesToMB(deletable))}) werden gelöscht.` : "") +
+          (size?.importBytes ? " Importierte Geozonen bleiben erhalten." : ""),
+        [
+          { text: "Abbrechen", style: "cancel" },
+          { text: "Deaktivieren", style: "destructive", onPress: () => void apply() },
+        ],
+      );
+      return;
+    }
+    if (next === "online" && prev === "offline" && deletable > 0) {
+      Alert.alert(
+        "Offline-Daten löschen",
+        `${label} wird nur noch online abgefragt. Gespeicherte Offline-Daten (ca. ${formatMB(bytesToMB(deletable))}) werden gelöscht.` +
+          (size?.importBytes ? " Importierte Geozonen bleiben erhalten." : ""),
+        [
+          { text: "Abbrechen", style: "cancel" },
+          { text: "Nur online", style: "destructive", onPress: () => void apply() },
+        ],
+      );
+      return;
+    }
+    void apply();
+  };
+
+  const cleanupDisabled = () => {
+    Alert.alert(
+      "Deaktivierte Länder bereinigen",
+      "Alle gespeicherten Daten deaktivierter Länder löschen? Mit einem aktiven Land geteilte Daten und importierte Geozonen bleiben erhalten.",
+      [
+        { text: "Abbrechen", style: "cancel" },
+        {
+          text: "Bereinigen",
+          style: "destructive",
+          onPress: async () => {
+            setCleanupBusy(true);
+            try {
+              await cleanupDisabledCountries();
+            } finally {
+              setCleanupBusy(false);
+              refresh();
+            }
+          },
         },
-      },
-    ]);
+      ],
+    );
   };
 
   const Seg = ({ value, onChange, disabled }: { value: DetailLevel; onChange: (v: DetailLevel) => void; disabled?: boolean }) => (
@@ -494,6 +593,18 @@ export default function OfflineMapsScreen() {
             value={largePacksMobile}
             onChange={(v) => { setLargePacksMobile(v); setLargePacksOnMobile(v).catch(() => {}); }}
           />
+          <ThemedText style={[styles.small, { color: theme.textSecondary, marginTop: Spacing.sm }]}>
+            Offline-Länder werden beim App-Start und alle 6 Stunden automatisch geprüft und aktualisiert.
+          </ThemedText>
+          <Pressable
+            onPress={() => { syncOfflineCountries("manual").then(() => refresh()).catch(() => {}); }}
+            disabled={Object.values(syncState).some((x) => x.running)}
+            style={[styles.btn, { backgroundColor: theme.backgroundSecondary, alignSelf: "flex-start", marginTop: Spacing.sm, opacity: Object.values(syncState).some((x) => x.running) ? 0.5 : 1 }]}
+            testID="sync-offline-countries"
+          >
+            {Object.values(syncState).some((x) => x.running) ? <ActivityIndicator size="small" color={theme.primary} /> : <Feather name="refresh-cw" size={16} color={theme.primary} />}
+            <ThemedText style={[styles.btnText, { color: theme.text }]}>Offline-Länder jetzt prüfen</ThemedText>
+          </Pressable>
         </Card>
 
         <ThemedText style={[styles.sectionTitle, { color: theme.textSecondary, marginTop: Spacing["2xl"] }]}>HINDERNISSE</ThemedText>
@@ -519,12 +630,27 @@ export default function OfflineMapsScreen() {
           </View>
         </Card>
 
-        <ThemedText style={[styles.sectionTitle, { color: theme.textSecondary, marginTop: Spacing["2xl"] }]}>OFFLINE-LÄNDER</ThemedText>
+        <ThemedText style={[styles.sectionTitle, { color: theme.textSecondary, marginTop: Spacing["2xl"] }]} testID="countries-section-title">LÄNDER & OFFLINE-DATEN</ThemedText>
         <ThemedText style={[styles.small, styles.intro, { color: theme.textSecondary }]}>
-          Gespeicherte Länder funktionieren ohne Internet. Karten und Luftbilder stammen von den amtlichen Vermessungsämtern –
-          wo es keine frei speicherbare amtliche Karte gibt, werden Geozonen und Hindernisse gespeichert und die Karte online angezeigt.
+          Je Land festlegen: Aus (keine Daten, keine Prüfung), Online (Abfrage bei Bedarf) oder Offline (alles gespeichert und
+          automatisch aktualisiert). Karten und Luftbilder stammen von den amtlichen Vermessungsämtern – wo es keine frei
+          speicherbare amtliche Karte gibt, werden Geozonen und Hindernisse gespeichert und die Karte online angezeigt.
           {freeMB != null ? ` Freier Speicher: ${formatMB(freeMB)}.` : ""}
         </ThemedText>
+        <View style={[styles.row, styles.intro, { justifyContent: "space-between", flexWrap: "wrap" }]}>
+          <ThemedText style={[styles.small, { color: theme.text, fontWeight: "700" }]} testID="countries-total-size">
+            {sizes ? `Gespeichert gesamt: ${formatMB(bytesToMB(sizes.totalBytes))}` : "Gespeicherte Daten werden ermittelt …"}
+          </ThemedText>
+          <Pressable
+            onPress={cleanupDisabled}
+            disabled={cleanupBusy}
+            style={[styles.btn, { backgroundColor: "rgba(255,59,48,0.12)", opacity: cleanupBusy ? 0.5 : 1 }]}
+            testID="cleanup-disabled-countries"
+          >
+            {cleanupBusy ? <ActivityIndicator size="small" color="#FF3B30" /> : <Feather name="trash-2" size={16} color="#FF3B30" />}
+            <ThemedText style={[styles.btnText, { color: "#FF3B30" }]}>Alle deaktivierten Länder bereinigen</ThemedText>
+          </Pressable>
+        </View>
         <Pressable
           onPress={() => navigation.navigate("DataSources")}
           hitSlop={6}
@@ -539,10 +665,15 @@ export default function OfflineMapsScreen() {
           const c = configs[country.iso];
           if (!c) return null;
           const st = state[country.iso];
-          const isSaved = saved.has(country.iso);
+          const usage = usageOf(country.iso);
+          const isSaved = saved.has(country.iso) && usage === "offline";
           const open = expanded === country.iso;
           const est = estimateSize(c);
-          const packs = Object.values(st?.packs ?? {});
+          const sync = syncState[country.iso];
+          const size = sizes?.byIso[country.iso];
+          // Fortschritt: Download aus den Einstellungen und automatische Synchronisation
+          const packs = Object.values({ ...(st?.packs ?? {}), ...(st?.running ? {} : Object.fromEntries(Object.entries(sync?.packs ?? {}).filter(([k]) => !k.endsWith(":obstacles")).map(([k, p]) => [k, { key: k, kind: (k.split(":")[1] as any) ?? "geo", percentage: p.percentage, bytes: 0, state: p.state, error: p.error } as PackProgress]))) });
+          const syncing = !!sync?.running && !st?.running;
           // Länder ohne Grundkarte haben evtl. nur Hindernisse (keine Pakete)
           const allDone =
             (packs.length > 0 || c.obstacles) &&
@@ -558,21 +689,54 @@ export default function OfflineMapsScreen() {
                 />
                 <View style={{ flex: 1 }}>
                   <ThemedText style={styles.rowLabel}>{country.label}</ThemedText>
-                  <ThemedText style={[styles.small, { color: theme.textSecondary }]}>
-                    {isSaved ? (st?.running ? "Wird geladen …" : allDone ? "Offline verfügbar" : "Teilweise gespeichert") : `ca. ${formatMB(est.totalMB)}`}
+                  <ThemedText style={[styles.small, { color: theme.textSecondary }]} testID={`country-status-${country.iso}`}>
+                    {usage === "off"
+                      ? size?.importBytes
+                        ? `Aus · Import bleibt erhalten (Land deaktiviert) · ${formatMB(bytesToMB(size.importBytes))}`
+                        : "Aus"
+                      : usage === "online"
+                        ? `Online – Abfrage bei Bedarf${size && size.totalBytes > 0 ? ` · gespeichert ${formatMB(bytesToMB(size.totalBytes))}` : ""}`
+                        : `${st?.running ? "Wird geladen …" : syncing ? "Wird automatisch aktualisiert …" : sync?.result?.status === "pending-wifi" && !allDone ? "Wartet auf WLAN" : isSaved ? (allDone ? "Offline verfügbar" : "Teilweise gespeichert") : `ca. ${formatMB(est.totalMB)}`}` +
+                          (size && size.totalBytes > 0 ? ` · gespeichert ${formatMB(bytesToMB(size.totalBytes))}` : "")}
                   </ThemedText>
                 </View>
                 <Feather name={open ? "chevron-up" : "chevron-down"} size={20} color={theme.textTertiary} />
               </Pressable>
 
+              <View style={[styles.seg, { marginTop: Spacing.sm }]} testID={`usage-${country.iso}`}>
+                {COUNTRY_USAGE_VALUES.map((u) => (
+                  <Pressable
+                    key={u}
+                    testID={`usage-${country.iso}-${u}`}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: usage === u }}
+                    onPress={() => changeUsage(country.iso, u)}
+                    style={[styles.segBtn, { backgroundColor: usage === u ? (u === "off" ? theme.textSecondary : theme.primary) : theme.backgroundSecondary }]}
+                  >
+                    <ThemedText style={[styles.segText, { color: usage === u ? "#FFFFFF" : theme.text }]}>{COUNTRY_USAGE_LABELS[u]}</ThemedText>
+                  </Pressable>
+                ))}
+              </View>
+
               {open ? (
                 <View style={{ marginTop: Spacing.md, gap: Spacing.md }}>
-                  {country.note ? (
+                  <ThemedText style={[styles.small, { color: theme.textSecondary }]} testID={`usage-hint-${country.iso}`}>
+                    {USAGE_HINT[usage]}
+                    {usage === "online" && country.iso === "CZ" ? " Tschechien: ohne Offline-Paket keine automatische Prüfung (nur Hinweis „manuell prüfen“)." : ""}
+                  </ThemedText>
+                  {usage === "off" && size?.importBytes ? (
+                    <ThemedText style={[styles.small, { color: theme.textSecondary }]} testID={`import-kept-${country.iso}`}>
+                      Import bleibt erhalten (Land deaktiviert) · {formatMB(bytesToMB(size.importBytes))}. Er gilt wieder, sobald das Land aktiviert wird.
+                    </ThemedText>
+                  ) : null}
+                  {usage === "offline" && country.note ? (
                     <View style={[styles.noteBox, { backgroundColor: theme.backgroundSecondary }]}>
                       <Feather name="info" size={16} color={theme.textSecondary} />
                       <ThemedText style={[styles.small, { flex: 1, color: theme.textSecondary }]}>{country.note}</ThemedText>
                     </View>
                   ) : null}
+                  {usage === "offline" ? (
+                  <>
                   <Row
                     label="Karte"
                     sub={country.hasMap ? `amtliche Karte · ca. ${formatMB(est.mapMB)}` : "für dieses Land nur online"}
@@ -625,7 +789,9 @@ export default function OfflineMapsScreen() {
                     onChange={(v) => update(country.iso, { geozones: v })}
                     disabled={!country.hasGeozones || country.geozoneKind === "import"}
                   />
-                  {country.geozoneKind === "vector" || country.geozoneKind === "import" ? (
+                  </>
+                  ) : null}
+                  {usage !== "off" && (country.geozoneKind === "vector" || country.geozoneKind === "import") ? (
                     <View style={{ gap: Spacing.sm }}>
                       {IMPORT_HINTS[country.iso] ? (
                         <Pressable
@@ -667,6 +833,8 @@ export default function OfflineMapsScreen() {
                       {importMsg[country.iso] ? <ThemedText style={styles.small}>{importMsg[country.iso]}</ThemedText> : null}
                     </View>
                   ) : null}
+                  {usage === "offline" ? (
+                  <>
                   {country.iso === "DE" && country.geozoneKind === "tilestore" ? (
                     <Row
                       label="Wohngebiete (Wohngrundstücke) offline speichern"
@@ -725,7 +893,7 @@ export default function OfflineMapsScreen() {
                     onChange={(v) => update(country.iso, { obstacles: v })}
                   />
 
-                  {isSaved && (packs.length > 0 || st?.obstacles) ? (
+                  {(isSaved || syncing) && (packs.length > 0 || st?.obstacles) ? (
                     <View style={[styles.progressBox, { backgroundColor: theme.backgroundSecondary }]}>
                       {packs.map((p) => (
                         <ThemedText key={p.key} style={styles.small}>
@@ -739,6 +907,8 @@ export default function OfflineMapsScreen() {
                           {p.key.includes(":sat:") ? ` (${p.key.split(":")[2].replace(/^de-dop-/, "").toUpperCase()})` : ""}:{" "}
                           {p.state === "error"
                             ? `Fehler – ${p.error ?? "erneut versuchen"}`
+                            : p.error && p.state === "inactive"
+                              ? p.error
                             : p.key.endsWith(":geo:vector")
                               ? p.percentage >= 100 ? "gespeichert" : "wird geladen …"
                               : `${Math.floor(p.percentage)} % · ${formatMB(p.bytes / 1024 / 1024)}`}
@@ -755,24 +925,30 @@ export default function OfflineMapsScreen() {
                   <ThemedText style={[styles.small, { color: theme.textSecondary }]}>Gesamt ca. {formatMB(est.totalMB)}</ThemedText>
 
                   <View style={styles.buttons}>
-                    {st?.running ? (
+                    {syncing ? (
+                      <View style={[styles.btn, { backgroundColor: theme.backgroundSecondary }]}>
+                        <ActivityIndicator size="small" color={theme.primary} />
+                        <ThemedText style={[styles.btnText, { color: theme.text }]}>Automatische Aktualisierung …</ThemedText>
+                      </View>
+                    ) : st?.running ? (
                       <Pressable onPress={() => pause(country.iso)} style={[styles.btn, { backgroundColor: theme.backgroundSecondary }]}>
                         <ActivityIndicator size="small" color={theme.primary} />
                         <ThemedText style={[styles.btnText, { color: theme.text }]}>Pausieren</ThemedText>
                       </Pressable>
                     ) : (
-                      <Pressable onPress={() => start(country.iso)} style={[styles.btn, { backgroundColor: theme.primary }]}>
+                      <Pressable onPress={() => start(country.iso)} style={[styles.btn, { backgroundColor: theme.primary }]} testID={`download-${country.iso}`}>
                         <Feather name="download" size={16} color="#FFFFFF" />
                         <ThemedText style={[styles.btnText, { color: "#FFFFFF" }]}>{isSaved ? "Aktualisieren / fortsetzen" : "Speichern"}</ThemedText>
                       </Pressable>
                     )}
-                    {isSaved ? (
-                      <Pressable onPress={() => remove(country.iso)} style={[styles.btn, { backgroundColor: "rgba(255,59,48,0.12)" }]}>
-                        <Feather name="trash-2" size={16} color="#FF3B30" />
-                        <ThemedText style={[styles.btnText, { color: "#FF3B30" }]}>Löschen</ThemedText>
-                      </Pressable>
-                    ) : null}
                   </View>
+                  {sync?.result?.message && !st?.running ? (
+                    <ThemedText style={[styles.small, { color: theme.textSecondary }]} testID={`sync-result-${country.iso}`}>
+                      Automatische Aktualisierung: {sync.result.message}
+                    </ThemedText>
+                  ) : null}
+                  </>
+                  ) : null}
                 </View>
               ) : null}
             </Card>

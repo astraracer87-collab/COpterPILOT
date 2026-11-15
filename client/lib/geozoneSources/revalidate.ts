@@ -45,6 +45,7 @@ import {
 } from "../geozoneTiles/tileStore";
 import { tileStorePartsOf } from "../geozoneTiles/tileStoreCore";
 import { loadLargePacksOnMobile, mayDownloadLargePack } from "./largePackSetting";
+import { awaitCountryUsage, isGeozoneSourceEnabled, onCountryUsageChange } from "../countryUsage";
 
 export type RevalidatePurpose = "check" | "map" | "manual";
 
@@ -59,6 +60,7 @@ export type RevalidateAction =
   | "pack-updated"
   | "no-store"
   | "import-only"
+  | "disabled"
   | "unsupported";
 
 export interface RevalidateResult {
@@ -68,9 +70,9 @@ export interface RevalidateResult {
 }
 
 export interface GeozoneDataChange {
-  /** Land (Datensatz-ISO); null = Kachelspeicher allgemein (DE/FR/CZ) */
+  /** Land (Datensatz-ISO); null = Kachelspeicher allgemein (DE/FR/CZ) bzw. alle Länder (Nutzung geändert) */
   iso: string | null;
-  kind: "ed269" | "tiles" | "de-temp";
+  kind: "ed269" | "tiles" | "de-temp" | "usage";
 }
 
 export interface RevalidateEnv {
@@ -223,6 +225,9 @@ async function revalidateTiles(iso: string, purpose: RevalidatePurpose): Promise
 async function revalidateOne(iso: string, purpose: RevalidatePurpose): Promise<RevalidateResult> {
   const meta = getGeozoneSourceMeta(iso);
   if (!meta || !meta.refresh) return { iso, action: "unsupported" };
+  // Länder-Nutzung „Aus“: keine Hintergrund-Aktualisierung
+  await awaitCountryUsage();
+  if (!isGeozoneSourceEnabled(iso)) return { iso, action: "disabled" };
   if (env.isOffline()) return { iso, action: "offline" };
   if (meta.offline === "tile-store") return revalidateTiles(meta.iso, purpose);
   if (meta.offline === "ed269-store" || meta.offline === "import") return revalidateEd269(meta.iso, purpose);
@@ -279,6 +284,8 @@ function wire(): void {
   onEd269Downloaded((iso) => emitGeozoneDataChanged({ iso: resolveGeozoneSourceIso(iso), kind: "ed269" }));
   onTileStoreChange(() => emitGeozoneDataChanged({ iso: null, kind: "tiles" }));
   onDeTempChange(() => emitGeozoneDataChanged({ iso: "DE", kind: "de-temp" }));
+  // Länder-Nutzung geändert (z. B. „Land aktivieren (online)“) → neu auswerten
+  onCountryUsageChange(() => emitGeozoneDataChanged({ iso: null, kind: "usage" }));
 }
 
 /** Benachrichtigung bei neuen Geozonen-Daten (ED-269-Download, Kachelspeicher, temporäre DE-Zonen). */
@@ -293,6 +300,7 @@ export function onGeozoneDataChanged(l: (e: GeozoneDataChange) => void): () => v
 /** Betrifft eine Änderung eines der Länder? (Kachelspeicher allgemein → jedes Kachel-Land) */
 export function isRelevantGeozoneChange(e: GeozoneDataChange, isos: readonly string[]): boolean {
   const set = new Set(isos.map((i) => resolveGeozoneSourceIso(i)));
+  if (e.kind === "usage") return set.size > 0;
   if (e.iso == null) return [...set].some((i) => getGeozoneSourceMeta(i)?.offline === "tile-store");
   return set.has(resolveGeozoneSourceIso(e.iso));
 }
