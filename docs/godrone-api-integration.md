@@ -323,3 +323,66 @@ curl -s --compressed \
          n: (.features|length),
          cats: ([.features[].properties.detailedCategory] | group_by(.) | map({(.[0]): length}) | add)}'
 ```
+
+---
+
+## 8. Anhang: Rendering & Beobachtungen (DE-Session, 2026-11-15)
+
+Eine zweite Browser-Analyse (Canvas-Mitschnitt, Netzwerk) hat das **Zeichnen**
+im Detail bestätigt. Der Stil steckt vollständig in den Feature-Properties – die
+App muss keine eigene Farbtabelle führen.
+
+### 8.1 Zeichenregeln (verifiziert)
+1. **Füllung** = `fillColor` mit `fillOpacity` als Alpha.
+2. **Rand** = `borderColor` mit `borderOpacity`/`borderWidth`. **Fehlt
+   `borderColor`, nimmt der Client `fillColor`.**
+3. `strokeColor`/`strokeWidth`/`strokeOpacity` werden im Normalzustand **nicht**
+   gezeichnet – vermutlich Hover/Auswahl (nicht abschließend verifiziert).
+4. Durchgehende Linien (kein Dash, keine Schraffur). Löcher = weitere Ringe des
+   Polygons (OL/Canvas-Standard).
+
+> ⚠️ **Zahlen kommen als Strings** (`fillOpacity:"0.18"`, `borderWidth:"2"`,
+> `hazardFactor:"60"`) → beim Styling **`parseFloat`/`to-number`**.
+
+### 8.2 Sichtbarkeit über `filters[]`
+Ein Feature erscheint **nur, wenn alle Filter seiner Kette `active:true`** sind
+(z. B. `Upper Airspace > Airspace > Class A`). Die Voreinstellung kommt vom
+Server; einige Ebenen sind default **aus** (z. B. `type:ras`, `type:tsa`,
+`other:atc_area`, Teile von „Upper Airspace"). → Beim Übernehmen die
+`active:false`-Features ausblenden statt hart zu filtern.
+
+### 8.3 Fertiges data-driven Styling
+**MapLibre/Mapbox GL** (GeoJSON direkt als Source, Look identisch zu GoDrone):
+```
+fill-color:   ["get","fillColor"]
+fill-opacity: ["to-number", ["get","fillOpacity"]]
+line-color:   ["coalesce", ["get","borderColor"], ["get","fillColor"]]
+line-width:   ["to-number", ["get","borderWidth"]]
+```
+**OpenLayers:**
+```js
+const rgba = (hex,a)=>{const [r,g,b]=asArray(hex);return [r,g,b,parseFloat(a)];};
+function zoneStyle(f){
+  const p=f.getProperties();
+  if (p.filters?.some(x=>x.active===false)) return null;        // ausgeblendet
+  return new Style({
+    fill:   new Fill({ color: rgba(p.fillColor, p.fillOpacity ?? 0) }),
+    stroke: new Stroke({ color: rgba(p.borderColor || p.fillColor, p.borderOpacity ?? 1),
+                         width: parseFloat(p.borderWidth ?? 1) }),
+    zIndex: parseInt(p.hazardFactor ?? 0, 10),                    // Gefährlicheres oben
+  });
+}
+```
+
+### 8.4 Kreise – Beobachtung
+In diesem Durchlauf (hereingezoomt) kamen **alle** Geometrien als `Polygon`,
+Kreiszonen bereits als **geschlossenes ~41-Punkt-Polygon** (plus `radius` in den
+Properties). Das deckt sich mit §3.4 (Punkt+`radius`) so: **wenn** schon ein
+Polygon geliefert wird, direkt nutzen; **nur** bei reinem `Point`+`radius` selbst
+auffächern. → Normalisierer: erst Geometrietyp prüfen, Kreisberechnung nur als
+Fallback. Für feinere Darstellung kann man aus Mittelpunkt+`radius` jederzeit
+einen glatteren Kreis erzeugen.
+
+### 8.5 `hazardFactor`-Stufen
+`20` = Information · `40` = Warning · `60` = Danger → eignet sich als `zIndex`
+(Gefährlicheres oben) und für die Sortierung im Info-Panel (`listOrderHint`).
