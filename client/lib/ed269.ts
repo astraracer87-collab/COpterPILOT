@@ -10,6 +10,7 @@ import { PT_GEOZONE_SOURCE_LABEL } from "../../shared/portugueseGeozones";
 import { ES_GEOZONE_SOURCE_LABEL } from "../../shared/spanishGeozones";
 import { PL_GEOZONE_SOURCE_LABEL } from "../../shared/polishGeozones";
 import { IT_GEOZONE_SOURCE_LABEL } from "../../shared/italianGeozones";
+import { CY_GEOZONE_SOURCE_LABEL } from "../../shared/cypriotGeozones";
 import { IS_GEOZONE_SOURCE_LABEL } from "../../shared/icelandicGeozones";
 import { GB_GEOZONE_SOURCE_LABEL } from "../../shared/ukGeozones";
 import type { GeozoneFeatureInfo } from "@/lib/geozones";
@@ -84,6 +85,7 @@ export const ED269_SOURCE_LABELS: Record<string, string> = {
   PL: PL_GEOZONE_SOURCE_LABEL,
   LT: "Oro navigacija (ED-269)",
   IT: IT_GEOZONE_SOURCE_LABEL,
+  CY: CY_GEOZONE_SOURCE_LABEL,
   IS: IS_GEOZONE_SOURCE_LABEL,
   GB: GB_GEOZONE_SOURCE_LABEL,
 };

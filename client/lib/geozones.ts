@@ -112,7 +112,7 @@ export {
   COUNTRY_WMS_MAX_NATIVE_ZOOM,
 } from "@/lib/geozoneZoom";
 
-export type CountryIsoWithGeozones = "DE" | "CH" | "LU" | "NL" | "FR" | "AT" | "BE" | "DK" | "EE" | "FI" | "NO" | "SE" | "IE" | "PT" | "ES" | "PL" | "LT" | "IT" | "GB" | "IS";
+export type CountryIsoWithGeozones = "DE" | "CH" | "LU" | "NL" | "FR" | "AT" | "BE" | "DK" | "EE" | "FI" | "NO" | "SE" | "IE" | "PT" | "ES" | "PL" | "LT" | "IT" | "GB" | "IS" | "CY";
 
 export interface CountryGeozoneConfig {
   iso: CountryIsoWithGeozones;
@@ -334,6 +334,16 @@ export const COUNTRY_GEOZONE_CONFIGS: Record<string, CountryGeozoneConfig> = {
   IS: {
     // Island (Samgöngustofa / ISAVIA): WFS-Zonen, ohne Anmeldung, ohne Höhengrenzen (gelten in jeder Höhe).
     iso: "IS",
+    wmsBaseUrl: "",
+    wmsVersion: "1.3.0",
+    layers: [],
+    featureInfoType: "ed269-cached",
+    alwaysVisibleLayerIds: [],
+    forceEnabledLayerIds: [],
+  },
+  CY: {
+    // Zypern (DCA / AMC Cyprus): öffentlicher ArcGIS-FeatureServer, ohne Anmeldung.
+    iso: "CY",
     wmsBaseUrl: "",
     wmsVersion: "1.3.0",
     layers: [],
