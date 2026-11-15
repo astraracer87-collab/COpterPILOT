@@ -53,6 +53,8 @@ export const DK_NATURE_ZONES_URL =
   "https://trafikstyrelsen.maps.arcgis.com/sharing/rest/content/items/ff657943724944faaf19807380f5e24a/data";
 export const DK_NATURE_ZONES_FALLBACK_URL =
   "https://services-eu1.arcgis.com/Zvx25KS6sGRl9LIx/arcgis/rest/services/NaturOmraader2024v2/FeatureServer/0/query?where=1%3D1&outFields=*&outSR=4326&f=geojson";
+// Estland: öffentlich, freie Nutzung von EANS bestätigt (2026-11-15).
+// Quelle: EANS (Lennuliiklusteeninduse AS) / Transpordiamet, utm.eans.ee
 export const EE_GEOZONES_URL = "https://utm.eans.ee/avm/utm/uas.geojson";
 export const BE_SKEYES_UAS_ZONES_URL = "https://api-cis.skeyes.be/public/uas-zones";
 export const BE_DRONEGUIDE_WFS_URL = "https://map.droneguide.be/ows";

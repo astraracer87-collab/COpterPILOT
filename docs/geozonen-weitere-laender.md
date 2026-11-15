@@ -521,8 +521,11 @@ Weder Transpordiamet noch EANS nennen eine Lizenz. Transpordiamet bietet die
 Datei aber ausdrücklich öffentlich zum Download an. Hinweis der Behörde:
 Die Karte „is a supplementary source of information on permanent safety
 restrictions in the Estonian airspace“, und NOTAM müssen zusätzlich auf
-`aim.eans.ee` geprüft werden. → **Nutzungsfreigabe bei utm@eans.ee
-schriftlich einholen** (wie bei Dronespace AT).
+`aim.eans.ee` geprüft werden.
+
+**Geklärt (2026-11-15):** EANS hat bestätigt, dass die Daten öffentlich sind
+und frei genutzt werden dürfen. **Umgesetzt** in `fetchEstonia()` /
+`shared/estonianGeozones.ts`.
 
 Attribution (Vorschlag): **„Quelle: EANS (Lennuliiklusteeninduse AS) /
 Transpordiamet, utm.eans.ee“**.
@@ -636,8 +639,13 @@ sikringskritisk) → `REQ_AUTHORISATION`, Natur `Aktiv = JA` → `NATURE`
   made with … the Danish Civil Aviation and Railway Authority.“
 
 Die neuere API-Seite und die Item-Metadaten sprechen für freie Nutzung mit
-Quellenangabe. Wegen der widersprüchlichen englischen Seite empfiehlt sich
-eine kurze schriftliche Bestätigung bei **dronezoner@trafikstyrelsen.dk**.
+Quellenangabe.
+
+**Geklärt (2026-11-15):** Trafikstyrelsen hat per E-Mail bestätigt, dass die
+Daten wie auf der API-Seite angegeben frei mit Quellenangabe nutzbar sind.
+Die Frage nach den militärischen Typen MMO/MGZ im `_old`-Datensatz liegt
+dort zur Prüfung vor; bis zur Antwort bleibt der alte Datensatz als
+Rückfallquelle. Naturschutz-URL auf `ff657943…` umgestellt.
 Attribution: **„Kilde: Trafikstyrelsen (dronezoner.dk)“**.
 
 ### 7.7 Schnelltest
@@ -682,7 +690,7 @@ curl -s --compressed "$B/ff657943724944faaf19807380f5e24a/data" | jq '{n:(.featu
 2. **EE (klein, hoher Nutzen):** Gleiche Plattform wie AT. `fetchAustria()`
    zu `fetchFrequentisAvm()` verallgemeinern, Zeitfenster setzen, `hidden`
    filtern, estnischen Restriction-Normalizer (§6.5) ergänzen. NOTAM sind
-   schon im Feed. Vorher Nutzungsfreigabe bei utm@eans.ee anfragen.
+   schon im Feed. ✅ Umgesetzt, Nutzung von EANS freigegeben.
 3. **FI (klein):** Neuer Fetch plus ein generischer Konverter für „reines
    ED-269“ (UASZone mit `geometry[]` → GeoFeature). Der Konverter aus
    `shared/belgianGeozones.ts` (`skeyesGeometryToGeoJson`, `skeyesContact`)
