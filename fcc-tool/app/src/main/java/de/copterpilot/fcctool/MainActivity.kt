@@ -57,7 +57,7 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         rebuildLog()
-        Log.listener = { e -> runOnUiThread { logContainer.addView(Ui.logLine(this, e)); scrollLog() } }
+        Log.listener = { e -> runOnUiThread { appendLogLine(e) } }
         refreshStatus()
     }
 
@@ -90,7 +90,7 @@ class MainActivity : Activity() {
         val cols = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         cols.addView(ScrollView(this).apply { isFillViewport = true; addView(content) },
-            LinearLayout.LayoutParams(0, MATCH_PARENT, 1.1f))
+            LinearLayout.LayoutParams(0, MATCH_PARENT, 1f))
         cols.addView(logCard(), LinearLayout.LayoutParams(0, MATCH_PARENT, 1f).apply { leftMargin = d(12f) })
         root.addView(cols, Ui.lp(MATCH_PARENT, 0, 1f, topDp = d(12f)))
         return root
@@ -99,20 +99,54 @@ class MainActivity : Activity() {
     private fun logCard(): View {
         val card = Ui.card(this)
         val head = Ui.row(this)
-        head.addView(Ui.title(this, "PROTOKOLL"), Ui.lp(0, WRAP_CONTENT, 1f))
-        head.addView(Ui.smallButton(this, "Leeren") { Log.clear(); logContainer.removeAllViews() })
+        val titleTv = Ui.title(this, "PROTOKOLL")
+        head.addView(titleTv, Ui.lp(0, WRAP_CONTENT, 1f))
+        head.addView(Ui.smallButton(this, "Leeren") { Log.clear(); rebuildLog() })
         card.addView(head)
         logContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        logScroll = ScrollView(this).apply { addView(logContainer) }
+        logScroll = ScrollView(this).apply { addView(logContainer); isClickable = true }
         card.addView(logScroll, Ui.lp(MATCH_PARENT, 0, 1f, topDp = Ui.dpi(this, 8f)))
+        // Dreimal aufs Protokoll tippen schaltet die ausführliche Ansicht um.
+        onTripleTap(logScroll) { toggleVerbose() }
+        onTripleTap(titleTv) { toggleVerbose() }
         return card
+    }
+
+    private fun toggleVerbose() {
+        Log.verbose = !Log.verbose
+        if (Log.verbose) Log.step("Ausführliches Protokoll AN – zeigt die rohen DUML-Antwortrahmen")
+        else Log.info("Ausführliches Protokoll aus")
+    }
+
+    /** Erkennt drei Tipps auf dieselbe Ansicht innerhalb kurzer Zeit (ohne Scrollen zu stören). */
+    private fun onTripleTap(view: View, action: () -> Unit) {
+        val taps = ArrayDeque<Long>()
+        view.setOnClickListener {
+            val now = System.currentTimeMillis()
+            taps.addLast(now)
+            while (taps.isNotEmpty() && now - taps.first() > 900) taps.removeFirst()
+            if (taps.size >= 3) { taps.clear(); action() }
+        }
     }
 
     private fun rebuildLog() {
         logContainer.removeAllViews()
-        Log.all().forEach { logContainer.addView(Ui.logLine(this, it)) }
+        val entries = Log.all()
+        if (entries.isEmpty()) logContainer.addView(logHint())
+        else entries.forEach { logContainer.addView(Ui.logLine(this, it)) }
         scrollLog()
     }
+
+    private fun appendLogLine(e: Log.Entry) {
+        logContainer.findViewWithTag<View>("hint")?.let { logContainer.removeView(it) }
+        logContainer.addView(Ui.logLine(this, e))
+        scrollLog()
+    }
+
+    private fun logHint() = Ui.label(this,
+        "Noch keine Einträge.\nDer Ablauf links schreibt hier jeden Schritt mit.\nDreimal tippen → ausführliche Ansicht.",
+        Ui.TEXT2, 12.5f).apply { tag = "hint" }
+
     private fun scrollLog() = logScroll.post { logScroll.fullScroll(View.FOCUS_DOWN) }
 
     private fun refreshStatus() {

@@ -38,9 +38,10 @@ Darunter **CE wiederherstellen** (eigener geführter Ablauf) und **Erweitert**
 - Wichtig: Wie beim Original-FreeFCC bedeutet „gesendet“ nur, dass der Befehl ohne Fehler
   rausging. Das Fluggerät schickt **keine Bestätigung** zurück, die hier ausgewertet wird.
   Die einzige verlässliche Kontrolle ist **DJI Fly → Übertragung**: im FCC-Modus reicht
-  die Reichweitenanzeige über 1 km hinaus. (Unter „Erweitert → Ausführliches Protokoll“
-  werden zusätzlich die rohen Antwortrahmen angezeigt, die je nach Teilnehmer schwanken –
-  nur zur Diagnose.)
+  die Reichweitenanzeige über 1 km hinaus.
+- **Ausführliche Ansicht:** dreimal auf das Protokoll tippen (oder „Erweitert → Ausführliches
+  Protokoll“) zeigt zusätzlich die rohen DUML-Antwortrahmen. Deren Anzahl schwankt je
+  nach Teilnehmer und ist nur zur Diagnose gedacht.
 
 ## Goggle über SD-Karte (Avata 2 usw.)
 
