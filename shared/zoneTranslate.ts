@@ -21,7 +21,7 @@
 // Bewusst frei von React-Native-Importen (unter tsx/Node testbar).
 
 import { ORIGINAL_TEXT_HEADING } from "./geozoneKit/messages";
-import { translateLineByPattern, translateNameByPattern, translateFieldLabel, isProperNameLabel, isGermanLabel } from "./zoneTranslatePatterns";
+import { translateLineByPattern, translateNameByPattern, translateFieldLabel, isProperNameLabel, isGermanLabel, transliterateCyrillic, translateNotamGloss, isProperDesignation } from "./zoneTranslatePatterns";
 
 type Dict = { lines: Record<string, string>; names: Record<string, string>; knownNames?: Set<string> };
 
@@ -64,7 +64,8 @@ const GERMAN_STRONG = new Set(
     "flughafen flugplatz sperrgebiet beschränkung beschränkungsgebiet gefahrengebiet kontrollzone luftraum uhr täglich derzeit dauerhaft " +
     "vorsorglich gültig außer innerhalb außerhalb zwischen während sowie bzw ggf liegen liegt vorher erforderlich " +
     "genehmigungspflichtig benachrichtigung anmeldung zuständige zuständig stelle flugsicherung luftfahrzeuge unbemannte " +
-    "meeresspiegel einflug eigene gefahr bekanntmachung mittels sensibles ständig zeitweise gesperrt sonstiges"
+    "meeresspiegel einflug eigene gefahr bekanntmachung mittels sensibles ständig zeitweise gesperrt sonstiges " +
+    "durchgehend beschränkter zusätzlich zivil geplant aktiv"
   )
     .split(/\s+/)
     .filter(Boolean),
@@ -172,23 +173,33 @@ const GERMAN_LEXICON =
   "feuerwehr auftrag aktiver bemannter geringer stunde kunstflug flugverkehrsdienste angekündigt unkontrollierten " +
   "landenden startenden dafür zeitlich beschränkungsgebieten archäologische untersuchung anfragen wasserflugzeug " +
   "steg niemals aber hindernisfreien flächen";
+// Typisch deutsche Wortbestandteile in Komposita („Funkpflichtzone“,
+// „Forschungsreaktor“, „Referenzhöhe“) – nur in Wörtern ab 7 Buchstaben.
+const GERMAN_MORPHEME =
+  /(flug|gebiet|verkehr|kraftwerk|anlage|platz|sperr|verbot|pflicht|genehmig|beschränk|gefahr|schutz|betrieb|bezirk|gelände|drohne|aktivität|kontroll|sicherheit|gesellschaft|behörde|übung|abwehr|reaktor|wärme|heiz|rüstung|leitung|straße|wache|polizei|gericht|gefängnis|kaserne|krankenhaus|botschaft|hafen|infrastruktur|radioaktiv|abfäll|fallschirm|segelflug|artillerie|schieß|spreng|militär|luftraum|nahverkehr|zivil|staatlich|naturschutz|höhe|zeiten|bereich|erhöht|besonder|sonstig|ballungs|transponder|kommunikation|tiefflug|abgetrennt|reserviert|präsident|eingeschränkt|vorsicht|auflage|einsatz|landeplatz|hubschrauber|luftsport|zone[nm]it)/;
 let germanWords: Set<string> | null = null;
 function isGermanWord(w: string): boolean {
   if (!germanWords) germanWords = new Set(GERMAN_LEXICON.split(" "));
-  return GERMAN_STRONG.has(w) || germanWords.has(w) || GERMAN_SUFFIX.test(w);
+  return GERMAN_STRONG.has(w) || germanWords.has(w) || GERMAN_SUFFIX.test(w) || (w.length >= 7 && GERMAN_MORPHEME.test(w));
 }
 
 /** Grobe Erkennung, ob ein Text schon deutsch ist (dann nicht übersetzen). */
 export function looksGerman(s: string): boolean {
-  const str = String(s ?? "");
-  if (/ß/.test(str)) return true;
-  const words = str.toLowerCase().match(/[a-zäöüßà-ÿā-žα-ωа-я]+/g);
+  const raw = String(s ?? "");
+  if (/ß/.test(raw)) return true;
+  // Klammerzusätze („(Restricted Area, AIP)“) zählen nicht mit, wenn Text übrig bleibt
+  const noParen = raw.replace(/\([^)]*\)/g, " ");
+  const str = /[a-zäöü]{3}/i.test(noParen) ? noParen : raw;
+  const words = str.match(/[A-Za-zÄÖÜäöüßÀ-ÿĀ-žΑ-ωА-я]+/g);
   if (!words) return false;
   let hits = 0;
   let weak = 0;
   let n = 0;
-  for (const w of words) {
-    if (w.length < 2) continue;
+  for (const word of words) {
+    if (word.length < 2) continue;
+    // Kennungen/Abkürzungen in Großschrift (EGR1U001, FRZ, RWY) zählen nicht
+    if (word.length > 1 && word === word.toUpperCase()) continue;
+    const w = word.toLowerCase();
     n++;
     if (isGermanWord(w)) hits++;
     else if (GERMAN_WEAK.has(w)) weak++;
@@ -228,6 +239,15 @@ const PROSE_STOP = new Set(
     "ir su be yra ne"
   ).split(" "),
 );
+/** Name/Bezeichnung ohne Fließtext („Vattenfall Vattenkraft AB“, „Torp Tower“). */
+export function isNameLike(s: string): boolean {
+  const t = s.trim();
+  if (!t || isProse(t) || t.split(/\s+/).length > 6) return false;
+  // NOTAM-Großschrift ist kein Name (dafür gibt es das NOTAM-Glossar)
+  if (!/[a-zà-ÿā-ž]/.test(t) && (t.match(/[A-ZÀ-ÝĀ-Ž]{3,}/g) ?? []).length > 2) return false;
+  return /^[A-ZÀ-ÝĀ-Ž0-9„"'(]/.test(t);
+}
+
 export function isProse(s: string): boolean {
   const words = s.match(/[A-Za-zÀ-ÿĀ-žΑ-ωА-я]{2,}/g) ?? [];
   let n = 0;
@@ -252,9 +272,18 @@ export interface LineInfo {
   kind: LineKind;
 }
 
+let linesLower: Map<string, string> | null = null;
+const looseKey = (k: string) => k.toLowerCase().replace(/[\s.;:,]+$/, "");
 const lookupLine = (k: string): string | null => {
   const d = dict();
-  return d.lines[k] ?? runtime.get(k) ?? null;
+  const hit = d.lines[k] ?? runtime.get(k);
+  if (hit) return hit;
+  // Groß-/Kleinschreibung und Satzzeichen am Ende egal („Electronic/optical hazards.“)
+  if (!linesLower) {
+    linesLower = new Map();
+    for (const [key, v] of Object.entries(d.lines)) linesLower.set(looseKey(key), v);
+  }
+  return linesLower.get(looseKey(k)) ?? null;
 };
 
 // Zeilen wie „Hinweis Traficom (fi): <Text>“ – das Etikett ist schon deutsch,
@@ -287,8 +316,12 @@ function ok(text: string, kind: LineKind, translated: boolean): LineInfo {
 function lineInfoUncached(k: string, depth: number): LineInfo {
   const direct = lookupLine(k);
   if (direct) return ok(direct, "dict", direct !== k);
-  if (isCodeOnly(k) || isContactOnly(k)) return ok(k, "code", false);
-  if (depth > 3) return { text: k, ok: false, translated: false, kind: "none" };
+  if (isCodeOnly(k) || isContactOnly(k)) {
+    // NOTAM-Kürzel („MAX HGT 300FT AGL“) trotzdem eindeutschen
+    const g = /[A-Z]{3}/.test(k) ? translateNotamGloss(k) : null;
+    return g ? ok(g, "pattern", true) : ok(k, "code", false);
+  }
+  if (depth > 6) return { text: k, ok: false, translated: false, kind: "none" };
 
   const b = k.match(BULLET);
   if (b) {
@@ -304,14 +337,19 @@ function lineInfoUncached(k: string, depth: number): LineInfo {
       const v = lineInfoUncached(value, depth + 1);
       if (v.ok) return { text: `${label}: ${v.text}`, ok: true, translated: v.translated, kind: v.translated ? "label" : "german" };
       // Namen, Kennungen, Kontakte, Höhen hinter deutschem Etikett bleiben unverändert
-      if (isProperNameLabel(label)) return ok(k, "german", false);
+      // Namen, Kennungen, Kontakte, Höhen hinter deutschem Etikett: Gattungswörter
+      // per Namensmuster eindeutschen, sonst unverändert
+      if (isProperNameLabel(label)) {
+        const n = translateZoneNameInfo(value);
+        return n.translated ? ok(`${label}: ${n.text}`, "label", true) : ok(k, "german", false);
+      }
       return { text: k, ok: false, translated: false, kind: "none" };
     }
     const de = translateFieldLabel(label);
     if (de) {
       const v = lineInfoUncached(value, depth + 1);
       if (v.ok) return ok(`${de}: ${v.text}`, "label", true);
-      if (isProperNameLabel(de)) return ok(`${de}: ${value}`, "label", true);
+      if (isProperNameLabel(de) || isNameLike(value)) return ok(`${de}: ${translateZoneNameInfo(value).text}`, "label", true);
       // Feldname übersetzt, Wert nicht: Zeile gilt als nicht übersetzt
       return { text: `${de}: ${value}`, ok: false, translated: true, kind: "none" };
     }
@@ -323,21 +361,25 @@ function lineInfoUncached(k: string, depth: number): LineInfo {
   });
   if (p != null) return ok(p, "pattern", p !== k);
   if (looksGerman(k)) return ok(k, "german", false);
+  // Bulgarische Eigennamen/Personen (kyrillisch, kein Fließtext): umschreiben
+  if (/[А-яЁё]/.test(k) && !isProse(k) && k.split(/\s+/).length <= 6) return ok(transliterateCyrillic(k), "pattern", true);
 
-  // Abschnittsweise: „ · “ und Satzgrenzen
-  const parts = splitSegments(k);
-  if (parts.length > 1) {
+  // Abschnittsweise: erst „ · “/„ | “/„ / “, dann Satzgrenzen
+  const parts = splitSegments(k, MAJOR_SEP);
+  const segs = parts.length > 1 ? parts : splitSegments(k, SENTENCE_SEP);
+  if (segs.length > 1) {
     const out: string[] = [];
     let all = true;
     let any = false;
-    for (const part of parts) {
+    for (const part of segs) {
       if (part.sep) {
         out.push(part.text);
         continue;
       }
       const r = lineInfoUncached(part.text, depth + 1);
       out.push(r.text);
-      if (!r.ok) all = false;
+      // Abschnitt ohne Fließtext (Organisation, Ortsname, Kennung) bleibt stehen
+      if (!r.ok && !isNameLike(part.text)) all = false;
       if (r.translated) any = true;
     }
     if (all) return ok(out.join(""), any ? "pattern" : "german", any);
@@ -346,11 +388,14 @@ function lineInfoUncached(k: string, depth: number): LineInfo {
   return { text: k, ok: false, translated: false, kind: "none" };
 }
 
-/** Zerlegt eine Zeile an „ · “, „ | “ und Satzenden (Trenner bleiben erhalten). */
-function splitSegments(k: string): { text: string; sep: boolean }[] {
+const MAJOR_SEP = /\s+[·|/]\s+/g;
+// Satzende: Punkt/!/?/; + Leerraum + Großbuchstabe/Ziffer/Klammer
+const SENTENCE_SEP = /(?<=[.!?;])\s+(?=[A-ZÀ-ÝĀ-Ž(„"'\[\d])/g;
+
+/** Zerlegt eine Zeile an Trennern (Trenner bleiben als eigene Teile erhalten). */
+function splitSegments(k: string, re: RegExp): { text: string; sep: boolean }[] {
   const out: { text: string; sep: boolean }[] = [];
-  // Satzende: Punkt/!/? + Leerraum + Großbuchstabe/Ziffer/Klammer; nicht nach Abkürzungen wie „ca.“
-  const re = /(\s+[·|]\s+|(?<=[.!?;])\s+(?=[A-ZÀ-ÝĀ-Ž(„"'\d]))/g;
+  re.lastIndex = 0;
   let last = 0;
   let mm: RegExpExecArray | null;
   while ((mm = re.exec(k))) {
@@ -478,8 +523,18 @@ export function translateZoneNameInfo(name: string): NameInfo {
   if (direct) r = { text: direct, ok: true, translated: direct !== k };
   else if (d.knownNames?.has(k) || isCodeOnly(k)) r = { text: k, ok: true, translated: false };
   else {
-    const p = translateNameByPattern(k, (s) => d.names[translationKey(s)] ?? null, (s) => !!d.knownNames?.has(translationKey(s)));
-    r = p ? { text: p.text, ok: true, translated: p.text !== k } : { text: k, ok: false, translated: false };
+    // Teilnamen rekursiv (Wörterbuch, Muster, Eigennamen) – nur echte Teilstücke
+    const sub = (s: string): string | null => {
+      const t = translationKey(s);
+      if (!t || t === k) return null;
+      const x = translateZoneNameInfo(t);
+      return x.ok ? x.text : null;
+    };
+    const p = translateNameByPattern(k, sub);
+    if (p) r = { text: p.text, ok: true, translated: p.text !== k };
+    // schon deutsch (Normalisierer) bzw. Kennung + Eigenname
+    else if (looksGerman(k) || isProperDesignation(k)) r = { text: k, ok: true, translated: false };
+    else r = { text: k, ok: false, translated: false };
   }
   if (nameCache.size >= CACHE_MAX) nameCache.clear();
   nameCache.set(k, r);
@@ -513,6 +568,7 @@ export function addRuntimeTranslations(entries: Record<string, string>, kind: "l
 /** Nur für Tests: mitgeliefertes Wörterbuch ersetzen. */
 export function __setBundledForTests(d: Dict | null): void {
   bundled = d;
+  linesLower = null;
   runtime.clear();
   cache.clear();
   nameCache.clear();
