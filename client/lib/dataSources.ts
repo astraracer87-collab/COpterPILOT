@@ -628,7 +628,7 @@ export function getDataSourceGroups(): DataSourceGroup[] {
       id: "traffic",
       title: "Live-Flugverkehr",
       intro:
-        "Öffentliche ADS-B- und FLARM-Empfängernetze; nur zur Information, kein Kollisionswarnsystem.",
+        "Öffentliche ADS-B- und FLARM-Empfängernetze sowie Flightradar24; nur zur Information, kein Kollisionswarnsystem.",
       entries: [
         {
           id: "adsbfi",
@@ -668,6 +668,17 @@ export function getDataSourceGroups(): DataSourceGroup[] {
           licenseUrl: "https://www.glidernet.org",
           attributions: ["Open Glider Network"],
           url: "https://live.glidernet.org",
+        },
+        {
+          id: "fr24",
+          provider: "Flightradar24 AB",
+          usage:
+            "Zusätzliche Live-Flugpositionen (ADS-B, MLAT, FLARM, geschätzt) aus dem Web-Feed von Flightradar24.",
+          license: "Nutzung mit Zustimmung von Flightradar24",
+          attributions: ["Flightradar24"],
+          url: "https://www.flightradar24.com",
+          note:
+            "Kostenlose Nutzung des öffentlichen Web-Feeds mit Zustimmung von Flightradar24 (keine bezahlte API).",
         },
       ],
     },

@@ -3,8 +3,13 @@ import {
   terrainSamplePoints,
   type TerrainEstimate,
 } from "../../shared/geozoneAltitudeFilter";
+import { fetchWithTimeout } from "./fetchWithTimeout";
 
 const OPEN_METEO_ELEVATION_URL = "https://api.open-meteo.com/v1/elevation";
+// Hängt Open-Meteo (z. B. schlechter Empfang am Flugplatz), sollen Aufrufer
+// nicht ewig warten — Timeout → catch → null bzw. Cache (bisheriges Verhalten
+// bei Fehlern).
+const ELEVATION_FETCH_TIMEOUT_MS = 8000;
 
 const MAX_CACHE_SIZE = 2000;
 const elevationCache = new Map<string, number>();
@@ -30,8 +35,10 @@ export async function fetchElevation(lat: number, lon: number): Promise<number |
   if (cached != null) return cached;
 
   try {
-    const response = await fetch(
-      `${OPEN_METEO_ELEVATION_URL}?latitude=${lat}&longitude=${lon}`
+    const response = await fetchWithTimeout(
+      `${OPEN_METEO_ELEVATION_URL}?latitude=${lat}&longitude=${lon}`,
+      {},
+      ELEVATION_FETCH_TIMEOUT_MS,
     );
     if (!response.ok) return null;
     const data = await response.json();
@@ -76,8 +83,10 @@ export async function fetchBatchElevations(
     const lons = batch.map((c) => c.lon.toFixed(4)).join(",");
 
     try {
-      const response = await fetch(
-        `${OPEN_METEO_ELEVATION_URL}?latitude=${lats}&longitude=${lons}`
+      const response = await fetchWithTimeout(
+        `${OPEN_METEO_ELEVATION_URL}?latitude=${lats}&longitude=${lons}`,
+        {},
+        ELEVATION_FETCH_TIMEOUT_MS,
       );
       if (!response.ok) continue;
       const data = await response.json();
@@ -111,18 +120,27 @@ export function getCachedElevationKey(lat: number, lon: number): string {
 export function clearElevationCache(): void {
   elevationCache.clear();
   terrainEstimateCache.clear();
+  // Leerer Cache → nächste Anreicherung darf sofort wieder abrufen.
+  lastFullEnrichTime = 0;
 }
 
+// Drosselung der Sammelabfrage für den Live-Verkehr (AGL): höchstens ein
+// Open-Meteo-Abruf je 15 s; dazwischen nur Cache (Position auf 3 Nachkomma-
+// stellen ≈ 110 m gerundet). Genutzt vom Verkehrs-Aggregator
+// (client/lib/traffic/aggregator.ts).
 let lastFullEnrichTime = 0;
-const FULL_ENRICH_INTERVAL_MS = 15000;
+export const FULL_ENRICH_INTERVAL_MS = 15000;
 
 export async function enrichAircraftWithElevation<T extends { latitude: number; longitude: number; geoAltitude: number | null; baroAltitude: number | null }>(
   aircraft: T[]
 ): Promise<(T & { aglAltitude: number | null; groundElevation: number | null })[]> {
   const now = Date.now();
   const useFullFetch = now - lastFullEnrichTime >= FULL_ENRICH_INTERVAL_MS;
+  // Alles schon im Cache → kein Abruf nötig und das Intervall nicht verbrauchen
+  // (sonst müssten neu hinzugekommene Positionen weitere 15 s warten).
+  const needsFetch = aircraft.some((ac) => getElevationFromCache(ac.latitude, ac.longitude) == null);
 
-  if (useFullFetch) {
+  if (useFullFetch && needsFetch) {
     const coords = aircraft.map((ac) => ({ lat: ac.latitude, lon: ac.longitude }));
     try {
       await fetchBatchElevations(coords);

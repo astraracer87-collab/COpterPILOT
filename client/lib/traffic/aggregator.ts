@@ -10,6 +10,13 @@
 // UND das quelleneigene Intervall abgelaufen ist. Damit respektiert der
 // Aggregator die Kadenz der Aufrufer, pollt nie schneller als der Server es tat,
 // und verursacht keinen Datenverkehr, solange kein Radar offen ist.
+//
+// Geländehöhe/AGL: getNearbyAircraft reichert die Ziele im Radius gedrosselt
+// (enrichAircraftWithElevation, max. ein Open-Meteo-Sammelabruf je 15 s,
+// Cache nach gerundeter Position) mit groundElevation/aglAltitude an. Damit
+// greifen Boden-Filter (rollende Flugzeuge) und AGL-Labels wieder. Offline /
+// Fehler → bleiben null (Verhalten wie vorher).
+import { enrichAircraftWithElevation, getElevationFromCache } from "../elevation";
 import type { AircraftState, DataSource, SourceStatus } from "../opensky";
 import { refineCategoryByType } from "./classify";
 import { angleDiff, bearingDeg, bearingFromTo, haversineKm, quickDistanceM } from "./geo";
@@ -32,13 +39,19 @@ export const ALL_DATA_SOURCES: DataSource[] = [
 ];
 
 // Aktive Quellen. Basis ist die Server-Auswahl (OGN, airplanes.live, adsb.lol).
-// FR24 entfällt clientseitig (inoffizieller Feed, nur mit Browser-UA nutzbar).
 // adsb.fi kommt als Ersatz dazu: der Server las fälschlich das Feld "ac",
 // adsb.fi liefert aber "aircraft" — deshalb lieferte es dort "0 Flugzeuge".
+// FR24 (inoffizieller Web-Feed, Nutzung mit Zustimmung von Flightradar24, siehe
+// docs/air-traffic-quellen.md) ist Zusatzquelle: Merge/Dedupe per ICAO-Hex bzw.
+// Registrierung, Fallback über sourceStatus; zur Laufzeit abschaltbar über
+// setTrafficSourceEnabled("fr24", false).
 // Muss synchron zu ENABLED_SOURCES in lib/trafficStatus.ts bleiben.
-export const ENABLED_DATA_SOURCES: ReadonlySet<DataSource> = new Set<DataSource>([
-  "ogn", "airplaneslive", "adsblol", "adsbfi",
-]);
+export const DEFAULT_ENABLED_DATA_SOURCES: readonly DataSource[] = [
+  "ogn", "airplaneslive", "adsblol", "adsbfi", "fr24",
+];
+const enabledSources = new Set<DataSource>(DEFAULT_ENABLED_DATA_SOURCES);
+/** Aktuell aktive Quellen (Live-Ansicht; Änderung über setTrafficSourceEnabled). */
+export const ENABLED_DATA_SOURCES: ReadonlySet<DataSource> = enabledSources;
 
 // Pro-Quelle Mindestabstand zwischen zwei Abfragen. Der Server fragte die
 // ADS-B-Aggregatoren alle 2 s ab (für ALLE Nutzer zusammen). Ein einzelnes
@@ -50,6 +63,8 @@ const SOURCE_INTERVALS: Record<DataSource, number> = {
   adsbone: 4000,
   opensky: 10_000,
   ogn: 5000,
+  // FR24 nennt keine Rate-Limits → defensiv wie die Webseite (~5–8 s je
+  // Ausschnitt), Bounding-Box auf FR24_MAX_DIST_NM gekappt (sources.ts).
   fr24: 8000,
 };
 const BACKOFF_MIN_MS = 5_000;
@@ -159,6 +174,35 @@ let lastSnapshotAt = 0;
 let lastCycleDurationMs = 0;
 const cycleDurations: number[] = [];
 const CYCLE_DURATION_WINDOW = 20;
+
+/** Ist die Quelle aktuell zum Abfragen freigegeben? */
+export function isTrafficSourceEnabled(src: DataSource): boolean {
+  return enabledSources.has(src);
+}
+
+/**
+ * Quelle zur Laufzeit an-/abschalten (z. B. FR24). Abschalten verwirft den
+ * letzten Snapshot der Quelle sofort (keine Phantom-Ziele) und setzt den
+ * Status auf "error" (= nicht aktiv, wie bei deaktivierten Quellen üblich).
+ * Anschalten macht die Quelle sofort fällig.
+ */
+export function setTrafficSourceEnabled(src: DataSource, enabled: boolean): void {
+  if (!ALL_DATA_SOURCES.includes(src)) return;
+  const sched = sourceSchedules[src];
+  if (enabled) {
+    if (enabledSources.has(src)) return;
+    enabledSources.add(src);
+    sourceStatus[src] = "ok";
+    sched.nextDueAt = 0;
+    sched.backoffStreak = 0;
+    sched.backoffUntilAt = 0;
+  } else {
+    if (!enabledSources.has(src)) return;
+    enabledSources.delete(src);
+    sourceStatus[src] = "error";
+    lastSourceStates[src] = [];
+  }
+}
 
 function noteSourceSuccess(src: DataSource): void {
   const s = sourceSchedules[src];
@@ -273,6 +317,8 @@ function evictStale(now: number): void {
 // --- Polling ------------------------------------------------------------------
 
 function ingest(src: DataSource, result: SourceResult): void {
+  // Während des Abrufs abgeschaltet → Ergebnis verwerfen.
+  if (!enabledSources.has(src)) return;
   const now = Date.now();
   sourceStatus[src] = result.status;
   const isRateLimited = Boolean(result.rateLimited);
@@ -343,6 +389,58 @@ function triggerDuePolls(force: boolean): Promise<void>[] {
   return pending;
 }
 
+// --- Geländehöhe / AGL ------------------------------------------------------------
+
+// Max. Ziele je Anreicherung (= ein Open-Meteo-Sammelabruf, MAX_BATCH 100).
+const ELEVATION_MAX_BATCH = 100;
+// Zwischen zwei Abrufen bewegt sich ein Ziel aus der 110-m-Cache-Zelle. Die
+// zuletzt ermittelte Geländehöhe wird weiterverwendet, solange es nicht weiter
+// als das vom Messpunkt entfernt ist (Boden-Filter betrifft langsame Ziele).
+const ELEVATION_REUSE_MAX_DIST_M = 1000;
+const groundSamples = new Map<string, { lat: number; lon: number; elev: number }>();
+let elevationInFlight: Promise<void> | null = null;
+
+function applyGroundElevation(ac: StoredAircraft): void {
+  let ground = getElevationFromCache(ac.latitude, ac.longitude);
+  if (ground != null) {
+    groundSamples.set(ac.icao24, { lat: ac.latitude, lon: ac.longitude, elev: ground });
+  } else {
+    const s = groundSamples.get(ac.icao24);
+    if (s && quickDistanceM(s.lat, s.lon, ac.latitude, ac.longitude) <= ELEVATION_REUSE_MAX_DIST_M) ground = s.elev;
+  }
+  ac.groundElevation = ground;
+  const msl = ac.geoAltitude ?? ac.baroAltitude;
+  ac.aglAltitude = ground != null && msl != null ? Math.max(0, msl - ground) : null;
+}
+
+/**
+ * Startet (nicht blockierend) die gedrosselte Anreicherung für die nächsten
+ * Ziele. Die Drossel (15 s) und der Positions-Cache liegen in
+ * enrichAircraftWithElevation; hier nur: kein paralleler Lauf, Batch-Limit.
+ * Ergebnisse landen beim nächsten Aufruf (Aufrufer pollen alle 2 s).
+ */
+function triggerElevationEnrichment(candidates: StoredAircraft[]): Promise<void> | null {
+  if (elevationInFlight || candidates.length === 0) return null;
+  const batch = candidates.slice(0, ELEVATION_MAX_BATCH);
+  elevationInFlight = enrichAircraftWithElevation(
+    batch.map((a) => ({ latitude: a.latitude, longitude: a.longitude, geoAltitude: a.geoAltitude, baroAltitude: a.baroAltitude })),
+  )
+    .then(() => {
+      for (const a of batch) {
+        const live = store.get(a.icao24);
+        if (live) applyGroundElevation(live);
+      }
+    })
+    .catch(() => { /* offline/Fehler → AGL bleibt null */ })
+    .finally(() => { elevationInFlight = null; });
+  return elevationInFlight;
+}
+
+/** Nur für Tests: auf eine laufende Gelände-Anreicherung warten. */
+export async function __awaitElevationEnrichmentForTests(): Promise<void> {
+  if (elevationInFlight) await elevationInFlight;
+}
+
 // --- Öffentliche API ----------------------------------------------------------
 
 export interface NearbyAircraftResult {
@@ -393,11 +491,22 @@ export async function getNearbyAircraft(
   const maxAgeMs = maxAge * 1000;
   const aircraft: (AircraftState & { distanceKm: number })[] = [];
   const trails: AircraftTrail[] = [];
+  const elevationCandidates: { ac: StoredAircraft; distKm: number }[] = [];
   if (valid) {
     for (const ac of store.values()) {
       const age = now - ac.lastSeen;
       if (age > maxAgeMs) continue;
       if (ac.onGround) continue;
+      const distKm = haversineKm(lat, lon, ac.latitude, ac.longitude);
+      const inRadius = distKm <= radius;
+      const inBbox = bbox != null
+        && ac.latitude >= bbox.latMin && ac.latitude <= bbox.latMax
+        && ac.longitude >= bbox.lonMin && ac.longitude <= bbox.lonMax;
+      if (inRadius || inBbox) {
+        // Geländehöhe aus dem Cache (synchron) → AGL für Boden-Filter/Labels.
+        applyGroundElevation(ac);
+        elevationCandidates.push({ ac, distKm });
+      }
       // Rollende Flugzeuge ohne onGround-Flag (AGL < 30 m, < 15 m/s) ausblenden.
       if (
         ac.category !== "helicopter" &&
@@ -414,11 +523,6 @@ export async function getNearbyAircraft(
         if (ac.trail.length > 0) ac.trail = [];
         continue;
       }
-      const distKm = haversineKm(lat, lon, ac.latitude, ac.longitude);
-      const inRadius = distKm <= radius;
-      const inBbox = bbox != null
-        && ac.latitude >= bbox.latMin && ac.latitude <= bbox.latMax
-        && ac.longitude >= bbox.lonMin && ac.longitude <= bbox.lonMax;
       if (inRadius || inBbox) {
         const { trail: _trail, ...rest } = ac;
         aircraft.push({
@@ -436,6 +540,10 @@ export async function getNearbyAircraft(
     }
   }
   aircraft.sort((a, b) => a.distanceKm - b.distanceKm);
+  if (elevationCandidates.length > 0) {
+    elevationCandidates.sort((a, b) => a.distKm - b.distKm);
+    triggerElevationEnrichment(elevationCandidates.map((c) => c.ac));
+  }
   // Harte Obergrenzen gegen Speicherdruck in der Karten-Darstellung.
   const limitedAircraft = aircraft.slice(0, MAX_NEARBY_AIRCRAFT);
   const distById = new Map<string, number>();
@@ -468,6 +576,10 @@ export interface AggregatorStatus {
   sourceStatus: Record<DataSource, SourceStatus>;
   sourceLastOk: Record<DataSource, number>;
   ogn: { connected: boolean; total: number };
+  /** Aktuell aktive (abgefragte) Quellen, siehe setTrafficSourceEnabled. */
+  enabledSources: DataSource[];
+  /** Mindestabstand je Quelle zwischen zwei Abfragen (ms). */
+  sourceIntervalsMs: Record<DataSource, number>;
 }
 
 export function getAggregatorStatus(): AggregatorStatus {
@@ -491,6 +603,8 @@ export function getAggregatorStatus(): AggregatorStatus {
     sourceLastOk: { ...sourceLastOk },
     // Kein Dauer-Stream mehr: "connected" = letzte OGN-Abfrage erfolgreich.
     ogn: { connected: sourceStatus.ogn === "ok" && sourceLastOk.ogn > 0, total: ognTotal },
+    enabledSources: ALL_DATA_SOURCES.filter((s) => enabledSources.has(s)),
+    sourceIntervalsMs: { ...SOURCE_INTERVALS },
   };
 }
 
@@ -498,6 +612,10 @@ export function getAggregatorStatus(): AggregatorStatus {
 export function __resetTrafficAggregatorForTests(): void {
   store.clear();
   clientRegions.clear();
+  groundSamples.clear();
+  elevationInFlight = null;
+  enabledSources.clear();
+  for (const s of DEFAULT_ENABLED_DATA_SOURCES) enabledSources.add(s);
   for (const s of ALL_DATA_SOURCES) {
     sourceStatus[s] = ENABLED_DATA_SOURCES.has(s) ? "ok" : "error";
     sourceLastOk[s] = 0;

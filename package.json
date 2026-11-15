@@ -11,7 +11,7 @@
     "build:lfa": "node scripts/build-lfa.mjs",
     "test": "jest && npm run test:lib",
     "test:jest": "jest",
-    "test:lib": "tsx --test \"client/lib/__tests__/*.test.ts\""
+    "test:lib": "tsx --test \"client/lib/__tests__/*.test.ts\" \"client/lib/traffic/__tests__/*.test.ts\""
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.2",

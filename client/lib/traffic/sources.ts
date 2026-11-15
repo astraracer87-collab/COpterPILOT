@@ -7,8 +7,14 @@
 // Rohes TCP gibt es in React Native hier nicht → stattdessen der öffentliche
 // HTTPS-Feed von live.glidernet.org (lxml.php), der pro Bounding-Box die
 // aktuellen OGN/FLARM-Positionen inkl. Kennzeichen/Wettbewerbskennung liefert.
+//
+// FR24: inoffizieller Web-Feed (data-cloud.flightradar24.com/zones/fcgi/feed.js),
+// Nutzung mit Zustimmung von Flightradar24 für diese kostenlose App – siehe
+// docs/air-traffic-quellen.md §3/§4. Zusatzquelle, die ADS-B-/OGN-Feeds bleiben
+// die Basis.
 import type { AircraftCategory, DataSource, SourceStatus } from "../opensky";
-import { parseAdsbCategory } from "./classify";
+import { parseAdsbCategory, refineCategoryByType } from "./classify";
+import { fetchWithTimeout as fetchWithTimeoutShared } from "../fetchWithTimeout";
 import type { RawState, SourceResult, Tile } from "./types";
 import { FT_M } from "../../../shared/heights";
 
@@ -19,6 +25,31 @@ export const ADSBONE_URL = "https://api.adsb.one/v2";
 export const AIRPLANESLIVE_URL = "https://api.airplanes.live/v2";
 export const ADSBLOL_URL = "https://api.adsb.lol/v2";
 export const OGN_LIVE_URL = "https://live.glidernet.org/lxml.php";
+export const FR24_FEED_URL = "https://data-cloud.flightradar24.com/zones/fcgi/feed.js";
+
+/**
+ * FR24 erwartet einen normalen Browser-User-Agent (der Feed-Endpunkt ist laut
+ * Live-Prüfung nicht Cloudflare-geschützt, ein Mobile-UA genügt). origin/referer
+ * wie die Webseite.
+ */
+const FR24_USER_AGENT =
+  "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36";
+const FR24_HEADERS: Record<string, string> = {
+  "User-Agent": FR24_USER_AGENT,
+  Accept: "application/json",
+  Origin: "https://www.flightradar24.com",
+  Referer: "https://www.flightradar24.com/",
+};
+/**
+ * Bounding-Box für FR24 klein halten (Doku §5: keine offiziellen Rate-Limits,
+ * defensiv abfragen). 60 NM ≈ 111 km Halbkante deckt den maximalen Radar-Radius
+ * (100 km) ab; größere Kacheln (bis 250 NM für die ADS-B-Point-APIs) werden für
+ * FR24 auf diesen Wert gekappt.
+ */
+export const FR24_MAX_DIST_NM = 60;
+/** FR24-Positionen älter als das gelten als nicht mehr live (Feldindex 10 = Zeit). */
+export const FR24_MAX_AGE_SEC = 120;
+const FR24_TIMEOUT_MS = 8000;
 
 /** OGN-Meldungen älter als das gelten als nicht mehr live. */
 export const OGN_MAX_AGE_SEC = 120;
@@ -49,14 +80,12 @@ function isAbortError(e: unknown): boolean {
   return typeof e === "object" && e !== null && (e as { name?: unknown }).name === "AbortError";
 }
 
-async function fetchWithTimeout(url: string, timeoutMs: number): Promise<Response> {
-  const ctl = new AbortController();
-  const t = setTimeout(() => ctl.abort(), timeoutMs);
-  try {
-    return await fetch(url, { signal: ctl.signal, headers: { "User-Agent": USER_AGENT } });
-  } finally {
-    clearTimeout(t);
-  }
+function fetchWithTimeout(
+  url: string,
+  timeoutMs: number,
+  headers: Record<string, string> = { "User-Agent": USER_AGENT },
+): Promise<Response> {
+  return fetchWithTimeoutShared(url, { headers }, timeoutMs);
 }
 
 /** Kachel (Mittelpunkt + Radius in NM) → Bounding-Box in Grad. */
@@ -302,6 +331,139 @@ async function fetchOgn(tiles: Tile[]): Promise<SourceResult> {
   return { states: Array.from(dedup.values()), status, rateLimited };
 }
 
+// ---- FlightRadar24 (feed.js, inoffizieller Web-Feed, mit Zustimmung von FR24)
+//
+// Antwort: JSON-Objekt; nicht-numerische Schlüssel (full_count, version, stats)
+// werden übersprungen, jeder mit einer Ziffer beginnende Schlüssel ist ein Flug
+// (Schlüssel = FR24-flight_id) mit Positions-Array, Feldindizes siehe Doku §3.4.
+
+const FR24 = {
+  HEX: 0, LAT: 1, LON: 2, TRACK: 3, ALT_FT: 4, GSPD_KT: 5, SQUAWK: 6,
+  RADAR: 7, TYPE: 8, REG: 9, TIME: 10, ORIG: 11, DEST: 12, FLIGHT: 13,
+  ON_GROUND: 14, VSPD_FPM: 15, CALLSIGN: 16, AIRLINE_ICAO: 18,
+} as const;
+
+export interface ParseFr24Options {
+  /** Abrufzeitpunkt (ms). Gesetzt → reportAgeMs aus Feld 10 + Alter-Filter. */
+  nowMs?: number;
+  /** Maximales Positionsalter in s (nur mit nowMs wirksam). */
+  maxAgeSec?: number;
+}
+
+function fr24Num(v: unknown): number | null {
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
+/** Parst eine FR24-feed.js-Antwort in RawState[] (nicht-numerische Keys werden übersprungen). */
+export function parseFr24Feed(data: Record<string, unknown>, opts: ParseFr24Options = {}): RawState[] {
+  const out: RawState[] = [];
+  if (!data || typeof data !== "object") return out;
+  const maxAgeSec = opts.maxAgeSec ?? FR24_MAX_AGE_SEC;
+  const seen = new Set<string>();
+  for (const [id, raw] of Object.entries(data)) {
+    if (!/^[0-9]/.test(id)) continue; // full_count/version/stats überspringen
+    if (!Array.isArray(raw) || raw.length < 17) continue;
+    const a = raw as unknown[];
+    const lat = fr24Num(a[FR24.LAT]);
+    const lon = fr24Num(a[FR24.LON]);
+    if (lat == null || lon == null || Math.abs(lat) > 90 || Math.abs(lon) > 180) continue;
+
+    let reportAgeMs: number | undefined;
+    const time = fr24Num(a[FR24.TIME]);
+    if (opts.nowMs != null && time != null && time > 0) {
+      const ageSec = opts.nowMs / 1000 - time;
+      if (ageSec > maxAgeSec) continue;
+      // Uhrabweichung Gerät↔FR24: negative Alter als "jetzt" werten.
+      reportAgeMs = Math.max(0, Math.round(ageSec * 1000));
+    }
+
+    const hexRaw = typeof a[FR24.HEX] === "string" ? (a[FR24.HEX] as string) : "";
+    const hex = hexRaw.toLowerCase().trim();
+    // Synthetische Radar-/Schätz-Targets ohne Hex → fr24-<flight_id>; merge.ts
+    // sortiert fr24-* bei Registrierungs-Dubletten ans Ende.
+    const icao24 = /^[0-9a-f]{3,}$/.test(hex) ? hex : `fr24-${id}`;
+    if (seen.has(icao24)) continue;
+    seen.add(icao24);
+
+    const type = str(a[FR24.TYPE]);
+    const registration = str(a[FR24.REG]);
+    const onGround = a[FR24.ON_GROUND] === 1 || a[FR24.ON_GROUND] === "1";
+    const altFt = fr24Num(a[FR24.ALT_FT]);
+    const gsKt = fr24Num(a[FR24.GSPD_KT]);
+    const track = fr24Num(a[FR24.TRACK]);
+    const vsFpm = fr24Num(a[FR24.VSPD_FPM]);
+    const typeUpper = type?.toUpperCase();
+    // FR24 kennt Bodenfahrzeuge (vehicles=1, Typ "GRND"/"GND") → Kategorie Boden.
+    // Sonst ab "unbekannt" über das Typkürzel einstufen (classify.ts deckt die
+    // FR24-aircraft_codes ab; plausible, unbekannte Kürzel → "Flugzeug").
+    const isGroundVehicle = typeUpper === "GRND" || typeUpper === "GND";
+
+    out.push({
+      icao24,
+      callsign: str(a[FR24.CALLSIGN]) ?? "",
+      originCountry: "",
+      longitude: lon,
+      latitude: lat,
+      baroAltitude: onGround ? 0 : feetToMeters(altFt),
+      geoAltitude: null,
+      onGround,
+      velocity: knotsToMs(gsKt),
+      trueTrack: track,
+      verticalRate: vsFpm != null ? fpmToMs(vsFpm) : null,
+      category: isGroundVehicle ? "ground" : refineCategoryByType("unknown", type, registration),
+      sources: ["fr24"],
+      registration,
+      aircraftType: type,
+      operator: str(a[FR24.AIRLINE_ICAO]),
+      originIata: str(a[FR24.ORIG]),
+      destIata: str(a[FR24.DEST]),
+      flightNumber: str(a[FR24.FLIGHT]),
+      ...(reportAgeMs != null ? { reportAgeMs } : {}),
+    });
+  }
+  return out;
+}
+
+/** FR24-Feed-URL für eine Kachel (bounds = Nord,Süd,West,Ost; Kachel gekappt). */
+export function buildFr24FeedUrl(tile: Tile): string {
+  const b = tileToBbox({ ...tile, distNm: Math.min(tile.distNm, FR24_MAX_DIST_NM) });
+  const bounds = `${b.latMax.toFixed(3)},${b.latMin.toFixed(3)},${b.lonMin.toFixed(3)},${b.lonMax.toFixed(3)}`;
+  const params = new URLSearchParams({
+    bounds, faa: "1", satellite: "1", mlat: "1", flarm: "1", adsb: "1",
+    gnd: "1", air: "1", vehicles: "1", estimated: "1", gliders: "1",
+    maxage: "14400", stats: "0", limit: "5000",
+  });
+  return `${FR24_FEED_URL}?${params.toString()}`;
+}
+
+async function fetchFr24Tile(tile: Tile): Promise<SourceResult> {
+  try {
+    const res = await fetchWithTimeout(buildFr24FeedUrl(tile), FR24_TIMEOUT_MS, FR24_HEADERS);
+    if (res.status === 429 || res.status === 403) return { states: [], status: "error", rateLimited: true };
+    if (!res.ok) return { states: [], status: "error" };
+    const data = (await res.json()) as unknown;
+    if (!data || typeof data !== "object" || Array.isArray(data)) return { states: [], status: "error" };
+    return { states: parseFr24Feed(data as Record<string, unknown>, { nowMs: Date.now() }), status: "ok" };
+  } catch (e) {
+    return { states: [], status: isAbortError(e) ? "timeout" : "error" };
+  }
+}
+
+async function fetchFr24(tiles: Tile[]): Promise<SourceResult> {
+  const results = await Promise.all(tiles.map((t) => fetchFr24Tile(t)));
+  const anyOk = results.some((r) => r.status === "ok");
+  const status: SourceStatus = anyOk ? "ok" : (results[0]?.status ?? "error");
+  const rateLimited = results.some((r) => r.rateLimited);
+  const dedup = new Map<string, RawState>();
+  for (const r of results) {
+    for (const s of r.states) {
+      if (!s.icao24) continue;
+      if (!dedup.has(s.icao24)) dedup.set(s.icao24, s);
+    }
+  }
+  return { states: Array.from(dedup.values()), status, rateLimited };
+}
+
 // ---- Dispatcher --------------------------------------------------------------
 
 export async function fetchSource(src: DataSource, tiles: Tile[]): Promise<SourceResult> {
@@ -312,11 +474,10 @@ export async function fetchSource(src: DataSource, tiles: Tile[]): Promise<Sourc
     case "airplaneslive": return fetchAdsbAllTiles(AIRPLANESLIVE_URL, "airplaneslive", "point", tiles);
     case "adsblol": return fetchAdsbAllTiles(ADSBLOL_URL, "adsblol", "point", tiles);
     case "ogn": return fetchOgn(tiles);
-    // OpenSky (anonym stark limitiert, auf dem Server bereits deaktiviert) und
-    // FR24 (inoffizieller Feed, nur mit Browser-User-Agent) werden clientseitig
-    // nicht abgefragt.
+    case "fr24": return fetchFr24(tiles);
+    // OpenSky (anonym stark limitiert, auf dem Server bereits deaktiviert) wird
+    // clientseitig nicht abgefragt.
     case "opensky":
-    case "fr24":
       return { states: [], status: "error" };
   }
 }

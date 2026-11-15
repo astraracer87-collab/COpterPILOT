@@ -60,6 +60,8 @@ test("getNearbyAircraft: fragt Quellen direkt ab, dedupliziert und liefert Statu
     calls.push(url);
     if (url.includes("glidernet")) return new Response(OGN_XML, { status: 200 });
     if (url.includes("airplanes.live")) return new Response("{}", { status: 429 });
+    if (url.includes("flightradar24")) return new Response(JSON.stringify({ full_count: 1, version: 4 }), { status: 200 });
+    if (url.includes("open-meteo")) return new Response("{}", { status: 500 });
     const body = { ac: [{ hex: "3c6743", flight: "DLH1", lat: 48.6, lon: 10.6, alt_baro: 30000, gs: 450 }] };
     return new Response(JSON.stringify(body), { status: 200 });
   }) as typeof fetch;
@@ -67,13 +69,16 @@ test("getNearbyAircraft: fragt Quellen direkt ab, dedupliziert und liefert Statu
     const res = await getNearbyAircraft(48.6, 10.6, 50, 60);
     assert.ok(calls.some((u) => u.startsWith("https://api.adsb.lol/v2/point/48.6000/10.6000/")));
     assert.ok(calls.some((u) => u.startsWith("https://live.glidernet.org/lxml.php?a=0&b=")));
-    assert.ok(!calls.some((u) => u.includes("flightradar24") || u.includes("opensky")));
+    assert.ok(!calls.some((u) => u.includes("opensky")));
+    // FR24 ist seit 2026-11-15 Zusatzquelle (docs/air-traffic-quellen.md §4).
+    assert.ok(calls.some((u) => u.startsWith("https://data-cloud.flightradar24.com/zones/fcgi/feed.js?bounds=")));
     const ids = res.aircraft.map((a) => a.icao24);
     assert.equal(new Set(ids).size, ids.length, "keine Dubletten");
     assert.ok(ids.includes("3c6743"));
     assert.equal(res.sourceStatus.adsblol, "ok");
     assert.equal(res.sourceStatus.airplaneslive, "error");
-    assert.equal(res.sourceStatus.fr24, "error");
+    assert.equal(res.sourceStatus.fr24, "ok");
+    assert.equal(res.sourceStatus.opensky, "error");
     const st = getAggregatorStatus();
     assert.equal(st.started, true);
     assert.ok(st.sourceLastOk.ogn > 0);

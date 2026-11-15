@@ -33,6 +33,7 @@ export const ENABLED_SOURCES: DataSource[] = [
   "airplaneslive",
   "adsblol",
   "adsbfi",
+  "fr24",
 ];
 
 export const ALL_SOURCES: DataSource[] = ENABLED_SOURCES;
