@@ -35,8 +35,8 @@ Pro Land gibt es ein eigenes Detaildokument (`docs/<land>-…-integration.md`).
 | **CZ** | ANS CR / ŘLP | keine | custom (`getGJ.php`) + ArcGIS-WMS | 🔑 Endpoint-Parameter fehlen | `czech-ans-api-integration.md` |
 | **SK** | LPS SR | keine | ArcGIS MapServer-Query (GeoJSON) | ✅ einsatzbereit (178 Zonen, AIXM-Schema) | `slovakia-lps-api-integration.md` |
 | **LV** | LGS / AIS Latvia | keine | AIXM 5.1 / Mobile-App | 🔑 Daten-Endpoint fehlt | `latvia-lgs-api-integration.md` |
-| **GR** | HASP (dagr) | – | vermutl. ArcGIS | 🌐 403 bot-geblockt | `greece-romania-geozones-notes.md` |
-| **RO** | ROMATSA | – | unbekannt | 🌐 000 geo-geblockt | `greece-romania-geozones-notes.md` |
+| **GR** | HASP/HCAA (DAGR) | – | nur WMS-Raster (WFS aus) | 🔑 kein Vektor-Feed → ED-269 bei HCAA erfragen | `greece-romania-geozones-notes.md` |
+| **RO** | ROMATSA | keine | GeoServer WFS + JSON | ✅ live abgerufen (DE-IP): 1.272 + 226 Zonen | `greece-romania-geozones-notes.md` |
 
 **Zusammenfassung:** 13× ✅ einsatzbereit · 8× 🔑 Zugang/Detail offen ·
 2× 🌐 nur in dieser Umgebung blockiert.

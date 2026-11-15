@@ -20,9 +20,7 @@ Gerätetest gegenprüfen und je eine Fixture einchecken.
 
 1. **PL – PANSA** ✅ ERLEDIGT (von DE-IP, 2026-11-15): 1.774 Zonen als KML abgerufen, Fixtures vorhanden. Offen nur noch: KML→GeoJSON-Adapter bauen.
 2. **ES – ENAIRE** ✅ ERLEDIGT (von DE-IP, 2026-11-15): Live-Endpunkt `insignias/.../NSF/Drones_ZG_Aero_V3/MapServer` gefunden, Fixtures vorhanden (Doc korrigiert). Offen nur noch: Normalisierer bauen.
-3. **RO – ROMATSA** (`docs/greece-romania-geozones-notes.md`)
-   - Prüfen: `flightplan.romatsa.ro/init/drones` von EU-IP überhaupt erreichbar? Dann Datenendpunkt (Netzwerk-Tab) ermitteln.
-   - Host aus US-Egress nicht erreichbar (000).
+3. **RO – ROMATSA** ✅ ERLEDIGT (von DE-IP): öffentliches WFS + statisches JSON, 1.272 + 226 Zonen, Fixtures vorhanden. Offen: Normalisierer bauen.
 
 ## B. Geozonen – Endpunkt/Parameter fehlt (Browser-Capture oder Betreiber)
 
@@ -39,9 +37,7 @@ kopieren** und ins jeweilige Doc eintragen; alternativ Betreiber um ED-269 bitte
 6. **LV – LGS** (`docs/latvia-lgs-api-integration.md`)
    - Fehlt: Datenendpunkt der Mobil-App `m.airspace.lv/mob/map` (Angular).
    - Alternativ: ED-269/AIXM 5.1 bei LGS/AIS (`ais.lgs.lv`).
-7. **GR – HASP** (🌐, `docs/greece-romania-geozones-notes.md`)
-   - Fehlt: Datenanfragen von `dagr.hasp.gov.gr` (Seite aus US-Egress 403 bot-geblockt).
-   - Wahrscheinlich Esri/ArcGIS → dann wie CY/SI lösbar.
+7. **GR – HASP/HCAA** ⚠️ geklärt (von DE-IP): MapServer, **nur WMS-Raster** (WFS deaktiviert) → kein öffentlicher Vektor-Feed. Nächster Schritt: ED-269/AIXM bei HASP/HCAA erfragen; alternativ WMS-Raster-Overlay.
 
 ## C. Geozonen – Login/Zugang beim Betreiber klären
 
