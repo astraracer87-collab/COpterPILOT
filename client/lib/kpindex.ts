@@ -1,3 +1,5 @@
+import { fetchWithTimeout } from "./fetchWithTimeout";
+
 export interface KpIndexData {
   value: number;
   timestamp: string;
@@ -10,7 +12,7 @@ const KP_API_URL = "https://services.swpc.noaa.gov/products/noaa-planetary-k-ind
 const KP_FORECAST_API_URL = "https://services.swpc.noaa.gov/products/noaa-planetary-k-index-forecast.json";
 
 export async function fetchKpIndex(): Promise<KpIndexData> {
-  const response = await fetch(KP_API_URL);
+  const response = await fetchWithTimeout(KP_API_URL);
 
   if (!response.ok) {
     throw new Error(`KP-Index API Fehler: ${response.status}`);
@@ -96,7 +98,7 @@ export interface KpTimeEntry {
 }
 
 export async function fetchKpTimeline(): Promise<KpTimeEntry[]> {
-  const response = await fetch(KP_FORECAST_API_URL);
+  const response = await fetchWithTimeout(KP_FORECAST_API_URL);
   if (!response.ok) throw new Error(`KP-Forecast API Fehler: ${response.status}`);
   const data: any[] = await response.json();
   const results: KpTimeEntry[] = [];

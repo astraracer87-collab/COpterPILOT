@@ -11,6 +11,7 @@ import { ES_GEOZONE_SOURCE_LABEL } from "../../shared/spanishGeozones";
 import { PL_GEOZONE_SOURCE_LABEL } from "../../shared/polishGeozones";
 import { IT_GEOZONE_SOURCE_LABEL } from "../../shared/italianGeozones";
 import { SK_GEOZONE_SOURCE_LABEL } from "../../shared/slovakGeozones";
+import { RO_GEOZONE_SOURCE_LABEL } from "../../shared/geozoneImport";
 import { LV_GEOZONE_SOURCE_LABEL } from "../../shared/latvianGeozones";
 import { BG_GEOZONE_SOURCE_LABEL } from "../../shared/bulgarianGeozones";
 import { SI_GEOZONE_SOURCE_LABEL } from "../../shared/slovenianGeozones";
@@ -62,6 +63,19 @@ export function ed269LowerReference(p: Record<string, any>): AltitudeReference {
   return normalizeAltitudeReference(raw);
 }
 
+/**
+ * Explizite max. Flughöhe AGL ohne Genehmigung (m) aus den Normalisierer-
+ * Properties (maxFlightHeightAglM bzw. openCategoryMaxAglMeters, z. B. SE/HR
+ * CTR 50 m). undefined, wenn nicht gesetzt — die Volumen-Obergrenze (upper)
+ * wird bewusst NICHT als Flughöhen-Limit interpretiert.
+ */
+export function ed269MaxFlightHeightAglM(p: Record<string, any>): number | undefined {
+  const raw = p.maxFlightHeightAglM ?? p.openCategoryMaxAglMeters;
+  if (raw == null || raw === "") return undefined;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
 export const ED269_RESTRICTION_LABELS: Record<string, string> = {
   PROHIBITED: "Verboten",
   RESTRICTED: "Beschränkt",
@@ -98,6 +112,7 @@ export const ED269_SOURCE_LABELS: Record<string, string> = {
   CY: CY_GEOZONE_SOURCE_LABEL,
   IS: IS_GEOZONE_SOURCE_LABEL,
   GB: GB_GEOZONE_SOURCE_LABEL,
+  RO: RO_GEOZONE_SOURCE_LABEL,
 };
 
 // Wandelt einen ED-269-Höhenwert in Meter um. Versteht Klartext-Marker (SFC/GND
@@ -344,6 +359,7 @@ export function parseEd269ToGeozoneInfo(
       applicationText: p.applicationText ? String(p.applicationText) : undefined,
       links: links.length > 0 ? links : undefined,
       lowerReference: ed269LowerReference(p),
+      maxFlightHeightAglM: ed269MaxFlightHeightAglM(p),
     });
   }
   return out;

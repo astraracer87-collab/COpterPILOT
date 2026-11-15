@@ -108,6 +108,9 @@ export interface ZoneAltitudeClassificationInput {
   lowerMeters?: number | null;
   upperMeters?: number | null;
   lowerReference?: AltitudeReference | string | null;
+  // Explizite max. Flughöhe AGL ohne Genehmigung (z. B. SE CTR 50 m). Einzige
+  // strukturierte Quelle für eine Höhen-Freigabe (NICHT upperMeters).
+  maxFlightHeightAglM?: number | null;
 }
 
 export interface GeozoneAltitudeClassification {
@@ -124,13 +127,6 @@ export interface GeozoneAltitudeClassification {
 const NO_FLY_TEXT_RE =
   /(flugverbot|verboten|gesperrt|sperrgebiet|interdit|interdiction|prohibit|forbidden|no[\s-]?fly|geen\s+drone|verboden|überflug ist strafbar)/i;
 
-// Genehmigungspflicht-Schlüsselwörter (DE/FR/EN/NL). Eine Zone, die eine
-// Freigabe/Genehmigung verlangt, wird NICHT durch Unterschreiten einer Decke
-// unkritisch — die Genehmigung gilt in jeder Höhe. Solche Zonen bleiben
-// "unknown" (heutiges Verhalten -> AV-/Genehmigungs-Flow greift).
-const REQ_AUTH_TEXT_RE =
-  /(genehmigung|bewilligung|freigabe|zustimmung|erlaubnispflichtig|authoris|authoriz|autorisation|toestemming|vergunning)/i;
-
 // Expliziter Max-Flughöhe-Satz mit Zahl, mehrsprachig:
 //   DE  "Maximale Flughöhe 100 m" / "max. Höhe 50 m" / "Höhenbeschränkung 80 m"
 //   FR  "hauteur maximale de vol de 50 m" / "altitude maximale 100 m"
@@ -146,14 +142,6 @@ const MAX_HEIGHT_TEXT_PATTERNS: RegExp[] = [
   /max\.?\s*(?:height|altitude)\s*(?:of\s*)?(\d{1,3})\s*m/i,
   /maximale?\s*(?:vlieg)?hoogte\s*(?:van\s*)?(\d{1,3})\s*m/i,
 ];
-
-// Max-Flughöhe-Wortlaut OHNE Zahl (Decke kommt dann aus upperMeters).
-const MAX_HEIGHT_WORDING_RE =
-  /(maximale?\s*flugh[öo]he|h[öo]henbeschr[äa]nkung|hauteur\s+maximale|altitude\s+maximale|maximum\s+(?:flight\s+)?(?:height|altitude)|maximale?\s*(?:vlieg)?hoogte)/i;
-
-// Bezugs-Token, die eine Decke als MSL/Flugfläche (Luftraumstruktur wie CTR/TMA)
-// ausweisen. Solche Decken sind KEINE Drohnen-Flughöhen-Limits.
-const MSL_CEILING_RE = /\b(msl|amsl|qnh|std|fl\s?\d|flight\s*level)\b/i;
 
 function parseMaxHeightFromText(text: string): number | null {
   for (const re of MAX_HEIGHT_TEXT_PATTERNS) {
@@ -184,13 +172,33 @@ export function classifyGeozoneAltitude(
   }
 
   // Strukturierte, autoritative Genehmigungspflicht aus dem restriction-Feld der
-  // Quelle (ED-269/CH RESTRICTED etc.). Sie ist ein verlässliches Regulierungs-
-  // Signal und sticht IMMER — auch einen genannten Max-Flughöhe-Wert.
+  // Quelle (ED-269 REQ_AUTHORISATION bzw. Schreibvarianten mit AUTHORIS/AUTHORIZ).
+  // Sie ist ein verlässliches Regulierungs-Signal und sticht IMMER — auch einen
+  // genannten Max-Flughöhe-Wert. ED-269 RESTRICTED/CONDITIONAL/NATURE zählen
+  // NICHT als Genehmigungspflicht; sie werden aber ebenso wenig über ihre
+  // Volumen-Obergrenze freigegeben (die Beschränkung gilt INNERHALB des Volumens).
   const restrictionRequiresAuth =
     restriction === "REQ_AUTHORISATION" ||
     restriction.includes("AUTHORIS") ||
     restriction.includes("AUTHORIZ") ||
     restriction.includes("REQ_AUTH");
+
+  // 2b) Explizites strukturiertes Feld "max. Flughöhe AGL ohne Genehmigung"
+  //     (maxFlightHeightAglM, z. B. SE CTR/TIZ/ATZ 50 m, aus den Normalisierern
+  //     als openCategoryMaxAglMeters/maxFlightHeightAglM). Das ist eine echte
+  //     Flughöhen-Erlaubnis, KEINE Volumen-Obergrenze. Strukturierte
+  //     Genehmigungspflicht sticht weiterhin (z. B. HR CTR: auch < 50 m
+  //     App-Freigabe nötig).
+  const maxAgl = zone.maxFlightHeightAglM;
+  if (
+    !restrictionRequiresAuth &&
+    typeof maxAgl === "number" &&
+    Number.isFinite(maxAgl) &&
+    maxAgl > 0
+  ) {
+    const ceil = Math.round(maxAgl);
+    return { kind: "altitudeLimit", ceilingM: ceil, label: `bis ${ceil} m` };
+  }
 
   // 2a) Expliziter Max-Flughöhe-Satz mit Zahl (z. B. DGAC "Maximale Flughöhe
   //     100 m"). Eine konkret genannte, offizielle Höchst-Flughöhe ist eine
@@ -209,40 +217,15 @@ export function classifyGeozoneAltitude(
     }
   }
 
-  // Genehmigungspflichtige Zonen NIE über eine Decke freigeben: die Genehmigung
-  // gilt in jeder Höhe (Sicherheits-Guard). -> "unknown", AV-Flow greift.
-  // Greift für die unschärferen Pfade 2b/2c (Wortlaut ohne Zahl / strukturierte
-  // Decke); hier zählt auch das textuelle Genehmigungs-Schlagwort.
-  const requiresAuthorisation =
-    restrictionRequiresAuth || REQ_AUTH_TEXT_RE.test(text);
-
-  // 2b) Max-Flughöhe-Wortlaut ohne Zahl, aber mit strukturierter Decke
-  //     (upperMeters). Greift z. B. wenn das Label nur "Höhenbeschränkung"
-  //     trägt und die Zahl separat als upperMeters vorliegt.
-  const upper = zone.upperMeters;
-  const hasFiniteUpper = typeof upper === "number" && Number.isFinite(upper) && upper > 0;
-  if (!requiresAuthorisation && hasFiniteUpper && MAX_HEIGHT_WORDING_RE.test(text)) {
-    return { kind: "altitudeLimit", ceilingM: upper as number, label: `bis ${Math.round(upper as number)} m` };
-  }
-
-  // 2c) Strukturierte "von Grund bis X m AGL"-Beschränkungszone (CH/NL/LU/
-  //     ED-269 RESTRICTED): Untergrenze am Boden, endliche AGL-Decke, KEIN
-  //     Flugverbot und KEINE Genehmigungspflicht -> Decke = upperMeters.
-  //     MSL/Flugflächen-Decken (Luftraumstrukturen wie CTR/TMA) sind bewusst
-  //     ausgenommen — ihre Oberkante ist keine Drohnen-Flughöhe.
-  const lower = zone.lowerMeters;
-  const groundBasedFloor = lower == null || !Number.isFinite(lower) || lower <= 0;
-  const lowerRef = normalizeAltitudeReference(zone.lowerReference);
-  const mslCeiling = lowerRef === "MSL" || MSL_CEILING_RE.test(text);
-  if (
-    !requiresAuthorisation &&
-    hasFiniteUpper &&
-    groundBasedFloor &&
-    !mslCeiling
-  ) {
-    const ceil = Math.round(upper as number);
-    return { kind: "altitudeLimit", ceilingM: ceil, label: `bis ${ceil} m` };
-  }
+  // KEINE Freigabe über die Volumen-Obergrenze (upperMeters): Nach ED-269
+  // beschreibt [lower, upper] das Volumen, IN dem die Beschränkung gilt. Eine
+  // Zone GND–150 m (CONDITIONAL/RESTRICTED/NATURE/leer) betrifft also gerade den
+  // Bereich unterhalb von 150 m — sie ist kein "Höhenlimit bis 150 m". Früher
+  // gab es hier die Pfade 2b (Wortlaut ohne Zahl + upperMeters) und 2c (GND–X m
+  // -> Decke X), die genau das invertierten und Zonen fälschlich als
+  // unkritisch markierten. Freigabe nur noch über 2a (expliziter Text mit Zahl)
+  // oder das strukturierte Feld maxFlightHeightAglM. Zonen, deren UNTERgrenze
+  // über der geplanten Höhe liegt, behandelt isZoneReachable separat.
 
   // 3) Keine verwertbaren Höhen-/Beschränkungsdaten -> heutiges Verhalten.
   return { kind: "unknown", ceilingM: null, label: null };

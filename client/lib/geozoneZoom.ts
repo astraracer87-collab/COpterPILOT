@@ -76,6 +76,21 @@ export function isRasterTiledVectorCountry(iso: string): boolean {
   return RASTER_TILED_VECTOR_ISOS.has((iso || "").toUpperCase());
 }
 
+/**
+ * Wird eine Vektor-Zone auf der Radar-Karte NICHT gezeichnet (nur unsichtbar für
+ * Tap-Abfragen behalten)? Einziger Grund: dauerhafte Zonen eines Raster-Kachel-
+ * Landes. Die deutschen 100-m-Windkraft-Pufferzonen (featureId "energy-zone:*")
+ * werden unabhängig vom Zoom IMMER gezeichnet — früher wurden sie ab Zoom 12
+ * zugunsten serverseitiger Anlagen-Kacheln ausgeblendet, die es in der
+ * RC-Version nicht gibt (Review-Fix 7).
+ */
+export function isVectorZoneDrawSuppressed(
+  zone: { informationalOnly?: boolean; country?: string | null },
+  isTemp: boolean,
+): boolean {
+  return !zone.informationalOnly && !isTemp && isRasterTiledVectorCountry(zone.country ?? "");
+}
+
 // Länder, deren Vektor-Geozonen-Datensatz klein genug ist, um beim Herauszoomen
 // den GESAMTEN Landesbestand zu laden (ohne bbox-Radius-Begrenzung), statt nur die
 // Zonen nahe der Bildmitte. Sonst erschienen beim Rauszoomen nur zentrumsnahe

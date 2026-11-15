@@ -14,6 +14,7 @@ import type { EnergyFacility100mPoint } from "../../shared/germanEnergyInfrastru
 import { getCategoryLabel, type AircraftCategory, type DataSource } from "@/lib/opensky";
 import { geozoneIsActiveAt } from "@/lib/ed269";
 import { buildGeozoneCacheTileUrl, buildGeozoneTileUrls, getGeozoneTileAttribution, buildVectorGeozoneTileUrl, isRasterTiledVectorCountry, queryGeozoneFeatureInfo, queryEd269CachedFeatures, getCountryGeozoneConfig, getViewportCountries, separateTempRestrictions, GEOZONE_TILE_MIN_ZOOM, getVectorMinZoom, loadsFullCountryVectorZones, GEOZONE_VECTOR_MAX_RADIUS_KM, GEOZONE_VECTOR_MAX_FEATURES, type GeozoneFeatureInfo } from "@/lib/geozones";
+import { isVectorZoneDrawSuppressed } from "@/lib/geozoneZoom";
 import { agencyTagColor } from "@/lib/agencyTag";
 import { simplifyRingGroup, smoothRingGroup } from "@/lib/ringSimplify";
 import { findNearbyCtrAirports, CTR_AIRPORTS } from "@/lib/ctrData";
@@ -26,7 +27,6 @@ import { splitCountriesByAccess, countryName } from "../../shared/countryEntitle
 import { useAuth } from "@/lib/auth";
 import { windFacilitiesAsGeozones, supplementalLinesAsGeozones, supplementalInfrastructureAsGeozones, infrastructureMapGeometry } from "@/lib/energyInfrastructureZones";
 import { getGermanWindFacility100mPoints } from "../../shared/germanEnergyInfrastructure";
-import { getApiUrl } from "@/lib/query-client";
 import { useTiledGeozoneIsos } from "@/lib/geozoneTiles/useTiledGeozones";
 import CtrInfoCard from "@/components/CtrInfoCard";
 import AirportWeatherSheet from "@/components/AirportWeatherSheet";
@@ -560,20 +560,6 @@ export const MAIN_MAP_HTML = `<!DOCTYPE html>
     }
   }
 
-  var energyTileLayer = null, energyTileUrl = "";
-  function setEnergyTiles(url){
-    url = url || "";
-    if (url === energyTileUrl) return;
-    energyTileUrl = url;
-    if (energyTileLayer) { map.removeLayer(energyTileLayer); energyTileLayer = null; }
-    if (!url) return;
-    energyTileLayer = L.tileLayer(url, {
-      minZoom: 12, maxZoom: 19, maxNativeZoom: 16, tileSize: 256,
-      opacity: 1, zIndex: 6, keepBuffer: 1, updateWhenIdle: true,
-      attribution: "Anlagendaten: MaStR · DIPUL · OpenStreetMap"
-    }).addTo(map);
-  }
-
   // Nur Treffer, die ein verfügbarer amtlicher Anlagenlayer als fehlend bestätigt.
   var energyLayer = L.layerGroup().addTo(map);
   var energySig = "";
@@ -1017,7 +1003,6 @@ export const MAIN_MAP_HTML = `<!DOCTYPE html>
       if (!map || !baseLayer) throw new Error("Map oder Grundkarte ist nicht initialisiert");
       setBase(s.base, s.dark);
       setGeo(s.geo || []);
-      setEnergyTiles(s.energyTileUrl || "");
       setUser(s.user);
       setRings(s.user, s.circles || {}, s.fov);
       setHz(s.hz);
@@ -1673,9 +1658,10 @@ export default function TrafficMapView({
         // unsichtbares Polygon für die Tap-Abfrage (vzHitsAt) erhalten — `hide`
         // unterdrückt das doppelte Zeichnen. Temporäre Zonen sind NICHT in den
         // (24 h gecachten) Kacheln und werden weiterhin orange gezeichnet.
-        const hide = (!z.informationalOnly && !isTemp && isRasterTiledVectorCountry(z.country ?? "")) ||
-          (z.featureId?.startsWith("energy-zone:") === true && countryIso === "DE" &&
-            energyTilesEnabled !== false && settledZoom >= 12);
+        // Die deutschen 100-m-Windkraft-Pufferzonen (energy-zone:*) werden IMMER
+        // gezeichnet: Früher wurden sie ab Zoom 12 zugunsten serverseitiger
+        // Anlagen-Kacheln ausgeblendet — die gibt es in der RC-Version nicht mehr.
+        const hide = isVectorZoneDrawSuppressed(z, isTemp);
         return {
           r: polys,
           p: infrastructureMapGeometry(z.infrastructureGeometry).points,
@@ -1820,8 +1806,6 @@ export default function TrafficMapView({
       air: airportMarkers,
       energy: [],
       windBuffers: [],
-      // RC-Version: Anlagen-Kacheln kamen vom Server; Hindernis-Ebene ersetzt sie.
-      energyTileUrl: "",
     };
     return JSON.stringify(state);
   }, [fit, latitude, longitude, targetZoom, mapStyle, isDark, lockPan, geozonesVisible, geozoneTileUrls, countryIso, renderableMarkers, renderableTrails, scanRadiusM, taRadiusM, alarmRadiusM, fovCoords, hzPolys, vzPolys, ctrBands, airportMarkers, energyInfrastructure, windRestrictionPoints, energyTilesEnabled, energyTilesShowSupplemental]);

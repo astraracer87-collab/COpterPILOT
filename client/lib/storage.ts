@@ -607,6 +607,9 @@ export interface PlanningData {
    *  angegeben, ob dort startverhindernde Geozonen liegen. Läuft separat von
    *  der automatischen Geozonen-/§21h-Erkennung. */
   officialMapCrossCheck?: { blocking: boolean; note?: string };
+  /** NOTAM-Abfrage bei der Planung fehlgeschlagen (z. B. HTTP 401): Status
+   *  unbekannt -> zählt im Ergebnis NICHT als sauberes "keine NOTAMs". */
+  notamStatusUnknown?: boolean;
 }
 
 export interface PreflightData {
@@ -724,6 +727,10 @@ export interface FlightSession {
   countryIso?: string;
   mapUrl?: string;
   hasRestrictions: boolean;
+  /** Ergebnis der Einschränkungs-Stufe (PlanningRestrictions): "approved" =
+   *  Genehmigung/AV/Ausnahme deckt alle Zonen, "limited" = Flug mit Auflagen,
+   *  undefined bei hasRestrictions=true = Status ungeklärt (→ mind. CAUTION). */
+  restrictionStatus?: "approved" | "limited";
   restrictionNotes?: string;
   detectedGeozones?: string[];
   savedGeozoneFeatures?: SavedGeozoneFeature[];
@@ -2465,6 +2472,44 @@ export function find21hRuleForLayer(layerLabel?: string | null): Paragraph21hRul
 export function is21hLayerAvEligible(layerLabel?: string | null): boolean {
   const rule = find21hRuleForLayer(layerLabel);
   return rule !== null && rule.avEligible === true;
+}
+
+/**
+ * Ist die Zone eine DEUTSCHE Geozone? DE-Zonen (dipul-WFS, DE-Kachelspeicher,
+ * dipul-WMS-GetFeatureInfo) tragen historisch KEIN `country`-Feld; alle anderen
+ * Quellen setzen es (ED-269: ISO des Datensatzes, CZ-Kachelspeicher: "CZ",
+ * queryGeozonesInArea taggt jede Zone mit dem abgefragten Land). Fehlt das Feld,
+ * entscheidet `fallbackIso` (Standortland), Standard "DE" (Legacy-Daten).
+ */
+export function isGermanGeozone(
+  zone: { country?: string | null },
+  fallbackIso: string | null = "DE",
+): boolean {
+  const iso = (zone.country || fallbackIso || "").toUpperCase();
+  return iso === "DE";
+}
+
+/**
+ * EINZIGE Stelle für "§ 21h-Regel einer Zone": liefert die Regel nur für
+ * deutsche Zonen. Verhindert, dass die substring-basierte Label-Erkennung
+ * ("bahn", "ctr", "energie", "natura" …) auf ausländische Zonen mit deutschen
+ * Kategorie-Bezeichnungen greift (z. B. CZ-Kachelspeicher "Bahnanlagen",
+ * "Kontrollzonen / ATZ").
+ */
+export function de21hRule(
+  zone: { layerLabel?: string | null; country?: string | null },
+  fallbackIso: string | null = "DE",
+): Paragraph21hRule | null {
+  if (!isGermanGeozone(zone, fallbackIso)) return null;
+  return find21hRuleForLayer(zone.layerLabel);
+}
+
+/** Kann eine Landes-Allgemeinverfügung (§ 21h) die Zone decken? Nur DE + avEligible. */
+export function isDe21hZoneAvEligible(
+  zone: { layerLabel?: string | null; country?: string | null },
+  fallbackIso: string | null = "DE",
+): boolean {
+  return de21hRule(zone, fallbackIso)?.avEligible === true;
 }
 
 export interface AdditionalDoc {

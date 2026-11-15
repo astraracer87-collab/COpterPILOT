@@ -956,7 +956,7 @@ export function detectCountryFromCoordinates(lat: number, lon: number): string |
 // LAYER_GROUPS + ED-269-Vektorländer in web/src/lib/geozoneLayers.ts. Web und
 // Mobile leiten ihre "eigene Karte vs. offizielle Staatskarte"-Entscheidung
 // gemeinsam hieraus ab, damit beide Plattformen konsistent bleiben.
-export const OWN_MAP_DATA_COUNTRIES = ["DE", "FR", "CH", "LU", "NL", "AT", "BE", "DK", "EE", "FI", "NO", "IE", "SE", "PT", "ES", "PL", "LT", "IT", "GB", "IS", "CY", "HR", "SI", "BG", "LV", "CZ", "SK"];
+export const OWN_MAP_DATA_COUNTRIES = ["DE", "FR", "CH", "LU", "NL", "AT", "BE", "DK", "EE", "FI", "NO", "IE", "SE", "PT", "ES", "PL", "LT", "IT", "GB", "IS", "CY", "HR", "SI", "BG", "LV", "CZ", "SK", "RO"];
 
 // True, wenn wir für das Land eigene Geozonen-Daten haben (eigene Karte mit
 // Overlay). Sonst wird die offizielle Staatskarte bzw. der EASA-Fallback gezeigt.
@@ -968,10 +968,11 @@ export function hasOwnMap(iso?: string | null): boolean {
 }
 
 // Länder, deren Geozonen nur mit eigenem Zugang ladbar sind (IT: d-flight)
-// bzw. nur als gespeichertes Offline-Paket vorliegen (CZ: ŘLP-ED-318-Kacheln).
+// bzw. nur als gespeichertes Offline-Paket vorliegen (CZ: ŘLP-ED-318-Kacheln;
+// RO: nur per Datei-Import, ROMATSA-Server für Android nicht erreichbar).
 // Ohne Zugang/Paket gelten sie als „ohne eigene Daten“, damit der Hinweis zur
 // manuellen Prüfung erscheint.
-const ACCESS_GATED_COUNTRIES = new Set(["IT", "CZ"]);
+const ACCESS_GATED_COUNTRIES = new Set(["IT", "CZ", "RO"]);
 const accessAvailable = new Set<string>();
 
 /** Meldet, ob für ein zugangsgebundenes Land ein Zugang eingetragen ist. */

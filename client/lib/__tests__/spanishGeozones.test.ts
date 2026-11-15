@@ -2,6 +2,7 @@ import { describe, it, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
+import { strToU8, zipSync } from "fflate";
 
 import {
   ES_GEOZONE_ATTRIBUTION,
@@ -15,11 +16,13 @@ import {
   esReasonText,
   esRestriction,
   esTimeUtc,
+  normalizeSpanishEd318,
   normalizeSpanishFeatures,
   parseEsAltitude,
   type EsRawFeature,
 } from "../../../shared/spanishGeozones";
 import {
+  ES_AIP_ZGUAS_BASE,
   ES_ENAIRE_FS,
   ES_ENAIRE_WFS,
   ES_FALLBACK_LAYER_IDS,
@@ -27,6 +30,7 @@ import {
   loadSpain,
   spainQueryUrl,
   spainWfsUrl,
+  spainZonesFromZip,
 } from "../geozoneDirect/spainSource";
 import { parseEd269ToGeozoneInfo, ed269IsActiveAt } from "../ed269";
 
@@ -375,5 +379,195 @@ describe("Spanien – fetchSpain (gemockter Abruf)", () => {
   it("wirft, wenn kein Layer Daten liefert (WAF 403)", async () => {
     mockFetch(() => ({ status: 403, body: {} }));
     await assert.rejects(fetchSpain(), /ENAIRE lieferte keine Zonen/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AIP-ZIPs (ED-318) – Primärquelle
+// ⚠️ Handgebaute ED-318-Fixture, den echten CZ-/SE-ED-318-Dateien nachgebaut
+// (FeatureCollection, geometry.layer, Sprach-Arrays, zoneAuthority[],
+// limitedApplicability). aip.enaire.es ist aus der Sandbox geo-gesperrt –
+// sobald echte ES-Dateien vorliegen, diese Fixture durch sie ersetzen.
+// ---------------------------------------------------------------------------
+const sq = (lon: number, lat: number, d = 0.01) => [[[lon, lat], [lon + d, lat], [lon + d, lat + d], [lon, lat + d], [lon, lat]]];
+const esEd318Aero = {
+  type: "FeatureCollection",
+  name: "ZGUAS_Aero",
+  metadata: { provider: [{ text: "ENAIRE", lang: "es-ES" }], issued: "2026-10-26T00:00:00Z", validFrom: "2026-10-30T00:00:00Z" },
+  features: [
+    {
+      type: "Feature",
+      geometry: { type: "Polygon", coordinates: sq(-3.58, 40.47), layer: { upper: 120, upperReference: "AGL", lower: 0, lowerReference: "AGL", uom: "m" } },
+      properties: {
+        identifier: "LEMD_CTR_UAS",
+        country: "ESP",
+        name: [{ text: "Madrid/Barajas CTR", lang: "es-ES" }, { text: "Madrid/Barajas CTR", lang: "en-GB" }],
+        type: "REQ_AUTHORIZATION",
+        variant: "COMMON",
+        reason: ["AIR_TRAFFIC"],
+        message: [{ text: "Coordinación previa con el proveedor ATS.", lang: "es-ES" }, { text: "Prior coordination with ATS.", lang: "en-GB" }],
+        zoneAuthority: [{ name: [{ text: "ENAIRE", lang: "es-ES" }], purpose: "AUTHORIZATION", email: "ais@enaire.es", intervalBefore: "P5D" }],
+      },
+    },
+    {
+      // Untergrenze 3000 ft AMSL → für Drohnen unerreichbar? nein (< 3800 m MSL) → bleibt
+      type: "Feature",
+      geometry: { type: "Point", coordinates: [-4.5, 36.7], extent: { subType: "Circle", radius: 2000 }, layer: { upper: 5000, upperReference: "AMSL", lower: 3000, lowerReference: "AMSL", uom: "ft" } },
+      properties: { identifier: "LER70", country: "ESP", name: "LER70 Málaga", type: "PROHIBITED", reason: ["OTHER"], otherReasonInfo: "MILITARY" },
+    },
+    {
+      // Untergrenze 1000 ft AGL → irrelevant → entfällt
+      type: "Feature",
+      geometry: { type: "Polygon", coordinates: sq(-5.9, 37.4), layer: { upper: 95, upperReference: "STD", lower: 1000, lowerReference: "AGL", uom: "ft" } },
+      properties: { identifier: "LEHIGH", name: "Alto", type: "PROHIBITED" },
+    },
+    {
+      // abgelaufen → entfällt
+      type: "Feature",
+      geometry: { type: "Polygon", coordinates: sq(-0.4, 39.5), layer: { upper: 120, upperReference: "AGL", lower: 0, lowerReference: "AGL", uom: "m" } },
+      properties: { identifier: "LEOLD", name: "Evento pasado", type: "PROHIBITED", limitedApplicability: [{ startDateTime: "2025-05-01T00:00:00Z", endDateTime: "2025-05-02T00:00:00Z" }] },
+    },
+  ],
+};
+const esEd318Infra = {
+  type: "FeatureCollection",
+  features: [
+    {
+      type: "Feature",
+      geometry: { type: "Polygon", coordinates: sq(-5.69, 39.8), layer: { upper: 120, upperReference: "AGL", lower: 0, lowerReference: "AGL", uom: "m" } },
+      properties: {
+        identifier: "ZGUAS_INF_CN_ALMARAZ",
+        name: [{ text: "Central nuclear de Almaraz", lang: "es-ES" }],
+        // kein type → Layer-Default (Infra: REQ_AUTHORISATION)
+        reason: ["SENSITIVE"],
+        zoneAuthority: [{ name: "Ministerio del Interior", purpose: "AUTHORIZATION", phone: "+34 900 000 000" }],
+        limitedApplicability: [{ startDateTime: "2026-01-01T00:00:00Z", endDateTime: "2027-12-31T23:59:00Z", schedule: [
+          { day: ["MON"], startTime: "07:00Z", endTime: "19:00Z" },
+          { day: ["FRI"], startTime: "07:00Z", endTime: "19:00Z" },
+        ] }],
+      },
+    },
+    {
+      // gleiche Kennung wie in Aero → layerübergreifendes Dedupe
+      type: "Feature",
+      geometry: { type: "Polygon", coordinates: sq(-3.58, 40.47), layer: { upper: 120, upperReference: "AGL", lower: 0, lowerReference: "AGL", uom: "m" } },
+      properties: { identifier: "LEMD_CTR_UAS", name: "dup", type: "REQ_AUTHORIZATION" },
+    },
+  ],
+};
+// Urbano als ED-269-artiges Array mit geometry[] (Toleranz)
+const esEd318Urbano = [
+  {
+    identifier: "ZGUAS_URB_28079",
+    country: "ESP",
+    name: "Madrid – zona urbana",
+    message: "Comunicación previa al Ministerio del Interior.",
+    geometry: [{ uomDimensions: "M", lowerLimit: 0, lowerVerticalReference: "AGL", upperLimit: 120, upperVerticalReference: "AGL", horizontalProjection: { type: "Polygon", coordinates: sq(-3.71, 40.41) } }],
+  },
+];
+
+function esZip(files: Record<string, unknown>): Uint8Array {
+  const entries: Record<string, Uint8Array> = {};
+  for (const [name, body] of Object.entries(files)) entries[name] = strToU8(`﻿${JSON.stringify(body)}`);
+  return zipSync(entries);
+}
+
+describe("Spanien – AIP-ZIPs (ED-318, primär)", () => {
+  const realFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+  const calls: string[] = [];
+  const mockBin = (route: (url: URL) => { status?: number; bytes?: Uint8Array; body?: any } | null) => {
+    calls.length = 0;
+    globalThis.fetch = (async (input: any) => {
+      const url = new URL(String(input));
+      calls.push(url.toString());
+      const r = route(url);
+      const status = r?.status ?? (r ? 200 : 404);
+      return {
+        ok: status >= 200 && status < 300,
+        status,
+        arrayBuffer: async () => (r?.bytes ?? new Uint8Array()).slice().buffer,
+        text: async () => JSON.stringify(r?.body ?? {}),
+      } as any;
+    }) as typeof fetch;
+  };
+  const zips: Record<string, Uint8Array> = {
+    "ZGUAS_Aero.zip": esZip({ "ZGUAS_Aero.json": esEd318Aero }),
+    "ZGUAS_Infra.zip": esZip({ "infra/ZGUAS_Infra_1.json": esEd318Infra, "readme.txt": "x" }),
+    "ZGUAS_Urbano.zip": esZip({ "ZGUAS_Urbano.json": esEd318Urbano }),
+  };
+
+  it("lädt die drei ZIPs, normalisiert ED-318 und braucht kein ArcGIS", async () => {
+    mockBin((url) => (url.hostname === "aip.enaire.es" ? { bytes: zips[url.pathname.split("/").pop()!] } : null));
+    const out = await loadSpain(NOW);
+    assert.ok(calls.every((c) => c.startsWith(ES_AIP_ZGUAS_BASE)), calls.join("\n"));
+    assert.deepEqual(out.map((f) => f.properties.identifier).sort(), ["LEMD_CTR_UAS", "LER70", "ZGUAS_INF_CN_ALMARAZ", "ZGUAS_URB_28079"]);
+    const lemd = out.find((f) => f.properties.identifier === "LEMD_CTR_UAS")!.properties as any;
+    assert.equal(lemd.sourceLayer, "ZGUAS_Aero");
+    assert.equal(lemd.restriction, "REQ_AUTHORISATION");
+    assert.equal(lemd.name, "Madrid/Barajas CTR");
+    assert.match(lemd.message, /^Flug nur mit Genehmigung\. Genehmigung bei ENAIRE \(mind\. 5 Tage vorher beantragen\)\./);
+    assert.match(lemd.message, /Coordinación previa/); // spanischer Originaltext
+    assert.equal(lemd.contactEmail, "ais@enaire.es");
+    assert.equal(lemd.source, ES_GEOZONE_SOURCE_LABEL);
+    assert.equal(lemd._country, "es");
+    const ler = out.find((f) => f.properties.identifier === "LER70")!;
+    assert.equal(ler.geometry.type, "Polygon"); // Kreis
+    assert.equal((ler.properties as any).lowerReference, "MSL");
+    assert.equal((ler.properties as any).reason, "MILITARY");
+    const alm = out.find((f) => f.properties.identifier === "ZGUAS_INF_CN_ALMARAZ")!.properties as any;
+    assert.equal(alm.restriction, "REQ_AUTHORISATION"); // Layer-Default
+    assert.equal(alm.legalBasis, "Real Decreto 517/2024, Art. 39");
+    assert.deepEqual(alm.applicability[0].schedule, [{ day: ["MON", "FRI"], startTime: "07:00Z", endTime: "19:00Z" }]);
+    const urb = out.find((f) => f.properties.identifier === "ZGUAS_URB_28079")!.properties as any;
+    assert.equal(urb.restriction, "CONDITIONAL"); // Urbano-Default
+    assert.equal(urb.upperMeters, 120);
+    const info = parseEd269ToGeozoneInfo(out as any, "ES");
+    assert.equal(info.length, 4);
+  });
+
+  it("einzelnes ZIP fehlt → übrige reichen, kein ArcGIS", async () => {
+    mockBin((url) => (url.pathname.endsWith("ZGUAS_Infra.zip") ? { status: 500 } : url.hostname === "aip.enaire.es" ? { bytes: zips[url.pathname.split("/").pop()!] } : null));
+    const out = await loadSpain(NOW);
+    assert.ok(!calls.some((c) => c.includes("servais.enaire.es")));
+    assert.ok(out.some((f) => f.properties.identifier === "LEMD_CTR_UAS"));
+  });
+
+  it("alle ZIPs gesperrt (403) → ArcGIS-Rückfall", async () => {
+    mockBin((url) => {
+      if (url.hostname === "aip.enaire.es") return { status: 403 };
+      if (url.pathname.endsWith("/FeatureServer")) return { status: 403 };
+      if (url.pathname.endsWith("/FeatureServer/0/query")) return { body: arc.aeroPage2 };
+      if (url.pathname.endsWith("/FeatureServer/1/query")) return { body: arc.urbano };
+      if (url.pathname.endsWith("/FeatureServer/2/query")) return { body: arc.infra };
+      return null;
+    });
+    const out = await loadSpain(NOW);
+    assert.ok(calls.some((c) => c.includes("/FeatureServer/0/query")));
+    assert.ok(out.some((f) => f.properties.identifier === "ZGUAS_URB_28079"));
+  });
+
+  it("spainZonesFromZip: liest jede .json im ZIP, ignoriert anderes", () => {
+    const raw = spainZonesFromZip(zips["ZGUAS_Infra.zip"], "ZGUAS_Infraestructuras");
+    assert.equal(raw.length, 2);
+    assert.ok(raw.every((r) => r.layer === "ZGUAS_Infraestructuras"));
+    assert.throws(() => spainZonesFromZip(strToU8("{}"), "ZGUAS_Aero"), /keine ZIP/);
+  });
+
+  it("normalizeSpanishEd318: Höhenfilter, Ablauf, Dedupe", () => {
+    const out = normalizeSpanishEd318(
+      [
+        ...esEd318Aero.features.map((zone) => ({ layer: "ZGUAS_Aero" as const, zone })),
+        ...esEd318Infra.features.map((zone) => ({ layer: "ZGUAS_Infraestructuras" as const, zone })),
+      ],
+      NOW,
+    );
+    const ids = out.map((f) => f.properties.identifier);
+    assert.ok(!ids.includes("LEHIGH"));
+    assert.ok(!ids.includes("LEOLD"));
+    assert.equal(ids.filter((i) => i === "LEMD_CTR_UAS").length, 1);
+    assert.equal(out.find((f) => f.properties.identifier === "LEMD_CTR_UAS")!.properties.sourceLayer, "ZGUAS_Aero");
   });
 });

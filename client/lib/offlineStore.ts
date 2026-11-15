@@ -22,6 +22,9 @@ export interface OfflinePackMeta {
   cachedAt: number;
   featureCount: number;
   notamCount: number;
+  /** NOTAM-Abfrage beim Download fehlgeschlagen (kein Stand vorhanden):
+   *  notamCount 0 heißt dann "unbekannt", NICHT "keine NOTAMs". */
+  notamsUnavailable?: boolean;
   sizeBytes: number;
 }
 
@@ -30,6 +33,8 @@ export interface OfflinePackData {
   cachedAt: number;
   features: unknown[];
   notams: unknown[];
+  /** Siehe OfflinePackMeta.notamsUnavailable. */
+  notamsUnavailable?: boolean;
 }
 
 export function isPackStale(meta: { cachedAt: number } | null | undefined): boolean {
@@ -104,6 +109,7 @@ export async function writePack(iso: string, name: string, data: OfflinePackData
     cachedAt: data.cachedAt,
     featureCount: Array.isArray(data.features) ? data.features.length : 0,
     notamCount: Array.isArray(data.notams) ? data.notams.length : 0,
+    ...(data.notamsUnavailable ? { notamsUnavailable: true } : {}),
     sizeBytes,
   };
 

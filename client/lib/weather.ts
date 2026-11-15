@@ -1,4 +1,5 @@
 import { isWithinDwdCoverage } from "../../shared/countryDetection";
+import { fetchWithTimeout } from "./fetchWithTimeout";
 
 // Mögliche Wetterquellen. "openmeteo" deckt das Ausland ab (Open-Meteo wählt
 // dort automatisch lokale Modelle wie AROME in Frankreich); "dipul" (DFS,
@@ -150,7 +151,7 @@ async function fetchOpenMeteoForecast(
     forecast_hours: String(Math.max(1, Math.min(168, hours))),
     timezone: "UTC",
   });
-  const res = await fetch(`https://api.open-meteo.com/v1/forecast?${params.toString()}`);
+  const res = await fetchWithTimeout(`https://api.open-meteo.com/v1/forecast?${params.toString()}`);
   if (!res.ok) throw new WeatherFetchError("Open-Meteo nicht erreichbar");
   const data = await res.json();
   const h = data?.hourly;
@@ -281,7 +282,8 @@ export async function fetchWeather(latitude: number, longitude: number, duration
     return fetchOpenMeteoForecast(latitude, longitude, forecasts.length);
   }
   try {
-    response = await fetch(proxyUrl, {
+    // Timeout: ein hängender DFS-/dipul-Dienst darf den Open-Meteo-Rückfall nicht blockieren.
+    response = await fetchWithTimeout(proxyUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(requestBody),
@@ -421,7 +423,7 @@ async function fetchDipulForecast(
     ],
   };
 
-  const response = await fetch(getWeatherProxyUrl(), {
+  const response = await fetchWithTimeout(getWeatherProxyUrl(), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(requestBody),
@@ -659,7 +661,7 @@ export async function fetchHourlyForecasts(
           airHumidity: { unit: "%", heights: HOURLY_HUMIDITY_HEIGHTS.map(v => ({ reference: "AGL", unit: "m", value: v })) },
         }],
       };
-      const response = await fetch(getWeatherProxyUrl(), {
+      const response = await fetchWithTimeout(getWeatherProxyUrl(), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestBody),

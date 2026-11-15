@@ -267,6 +267,15 @@ describe("tiled vector geozones (DE/FR/CZ) and Liechtenstein", () => {
     expect(defaultConfig("DE").wohngebiete).toBe(true);
   });
 
+  it("Romania: geozones only via file import (no download attempt)", async () => {
+    const ro = offlineCountries().find((c) => c.iso === "RO")!;
+    expect(ro.geozoneKind).toBe("import");
+    expect(ro.hasGeozones).toBe(true);
+    expect(estimateSize(defaultConfig("RO")).geoMB).toBe(0);
+    await startCountryDownload({ ...defaultConfig("RO"), obstacles: false }, () => {}, () => {}, () => false);
+    expect(mockRefreshEd269).not.toHaveBeenCalled();
+  });
+
   it("estimates DE with and without Wohngebiete", () => {
     const base = { ...defaultConfig("DE"), map: false, obstacles: false };
     const withWohn = estimateSize(base);

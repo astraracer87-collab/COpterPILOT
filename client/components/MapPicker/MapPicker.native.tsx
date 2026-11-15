@@ -37,7 +37,6 @@ import type {
 } from "../../../shared/germanEnergyInfrastructure";
 import { useAuth } from "@/lib/auth";
 import { supplementalInfrastructureAsGeozones, infrastructureMapGeometry } from "@/lib/energyInfrastructureZones";
-import { getApiUrl } from "@/lib/query-client";
 import { useTiledGeozoneIsos } from "@/lib/geozoneTiles/useTiledGeozones";
 
 function hexToRgba(hex: string, alpha: number): string {
@@ -218,20 +217,6 @@ const MAP_HTML = `<!DOCTYPE html>
     }
   }
 
-  var energyTileLayer = null, energyTileUrl = "";
-  function setEnergyTiles(url){
-    url = url || "";
-    if (url === energyTileUrl) return;
-    energyTileUrl = url;
-    if (energyTileLayer) { map.removeLayer(energyTileLayer); energyTileLayer = null; }
-    if (!url) return;
-    energyTileLayer = L.tileLayer(url, {
-      minZoom: 12, maxZoom: 19, maxNativeZoom: 16, tileSize: 256,
-      opacity: 1, zIndex: 6, keepBuffer: 1, updateWhenIdle: true,
-      attribution: "Anlagendaten: MaStR · DIPUL · OpenStreetMap"
-    }).addTo(map);
-  }
-
   // ---- Vektor-Geozonen (ED-269, z. B. AT/BE/DK) ----
   // Im Standortwähler reine Anzeige: nicht-interaktiv, damit ein Tap auf einer
   // Zone weiterhin den Standort auswählt (kein Popup-Abfangen).
@@ -404,7 +389,6 @@ const MAP_HTML = `<!DOCTYPE html>
     try {
       setBase(s.base, s.dark);
       setGeo(s.geo || []);
-      setEnergyTiles(s.energyTileUrl || "");
       setVz(s.vz || []);
       setMarker(s.marker);
       setRadius(s.radius);
@@ -552,14 +536,8 @@ const MapPicker = forwardRef<MapPickerRef, MapPickerProps>(
       () => viewportCountries.filter((iso) => !lockedSet.has(iso)),
       [viewportCountries, lockedSet],
     );
-    const showGermanEnergyTiles =
-      !lockedSet.has("DE") &&
-      (useViewportCountries
-        ? visibleViewportCountries.includes("DE")
-        : countryIso?.toUpperCase() === "DE");
-    // RC-Version: die Anlagen-Kacheln kamen vom Server. Leitungen, Windräder und
-    // Masten zeigt stattdessen die Hindernis-Ebene (leafletRc.ts).
-    const energyTileUrl = showGermanEnergyTiles ? "" : "";
+    // RC-Version: keine serverseitigen Anlagen-Kacheln. Leitungen, Windräder und
+    // Masten zeigt die Hindernis-Ebene (leafletRc.ts).
 
     // Deckkraft des WMS-Overlays je nach Basiskarte: über Standard kräftiger,
     // über OSM/Satellit/Hybrid leicht reduziert, damit der Untergrund durchscheint.
@@ -771,7 +749,6 @@ const MapPicker = forwardRef<MapPickerRef, MapPickerProps>(
           ? { pts: routeWaypoints.map((w) => [w.latitude, w.longitude] as [number, number]), drag: !!onWaypointDragEnd }
           : null,
         ctr: ctrBandAirports.map((a) => ({ icao: a.icao, name: a.name, lat: a.lat, lon: a.lon, rings: a.rings })),
-        energyTileUrl,
         // Deutsche Anlagen werden als reguläre Zonenfläche in der Kachelebene
         // gezeigt, nicht zusätzlich als farbige Objekt-Pins.
         windBuffers: [],
@@ -779,7 +756,7 @@ const MapPicker = forwardRef<MapPickerRef, MapPickerProps>(
         user: deviceLocation,
       };
       return JSON.stringify(state);
-    }, [initialRegion, mapStyle, isDark, geoTiles, vzPolys, showSelectedMarker, selectedLocation, radiusMeters, radiusStrokeColor, radiusFillColor, routeWaypoints, onWaypointDragEnd, ctrBandAirports, energyTileUrl, windFacilityPoints, energyInfrastructureItems, deviceLocation]);
+    }, [initialRegion, mapStyle, isDark, geoTiles, vzPolys, showSelectedMarker, selectedLocation, radiusMeters, radiusStrokeColor, radiusFillColor, routeWaypoints, onWaypointDragEnd, ctrBandAirports, windFacilityPoints, energyInfrastructureItems, deviceLocation]);
 
     useEffect(() => {
       if (!ready) return;

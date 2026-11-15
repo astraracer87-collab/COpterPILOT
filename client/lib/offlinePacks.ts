@@ -74,7 +74,8 @@ export async function downloadOfflinePack(iso: string): Promise<OfflinePackMeta>
   try {
     const res = await fetchNotams(lat, lon);
     notams = Array.isArray(res.notams) ? res.notams : [];
-    if (res.error && notams.length === 0) notamsFailed = true;
+    // Fehlgeschlagene Abfrage (z. B. HTTP 401) ist NICHT "keine NOTAMs".
+    if (res.failed || (res.error && notams.length === 0)) notamsFailed = true;
   } catch {
     notamsFailed = true;
   }
@@ -85,11 +86,17 @@ export async function downloadOfflinePack(iso: string): Promise<OfflinePackMeta>
 
   // Teil-Fehlschlag darf vorhandene gültige Daten nicht überschreiben: für jede
   // fehlgeschlagene Quelle den alten Paket-Stand beibehalten statt leeren.
+  let notamsUnavailable = false;
   if (featuresFailed || notamsFailed) {
     const prev = await readPackData(up);
     if (prev) {
       if (featuresFailed) features = Array.isArray(prev.features) ? prev.features : [];
-      if (notamsFailed) notams = Array.isArray(prev.notams) ? prev.notams : [];
+      if (notamsFailed) {
+        notams = Array.isArray(prev.notams) ? prev.notams : [];
+        notamsUnavailable = prev.notamsUnavailable === true || notams.length === 0;
+      }
+    } else if (notamsFailed) {
+      notamsUnavailable = true;
     }
   }
 
@@ -98,6 +105,7 @@ export async function downloadOfflinePack(iso: string): Promise<OfflinePackMeta>
     cachedAt: Date.now(),
     features,
     notams,
+    ...(notamsUnavailable ? { notamsUnavailable: true } : {}),
   });
 }
 

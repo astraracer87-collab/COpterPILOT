@@ -4,11 +4,14 @@ import { NavigationContainer } from "@react-navigation/native";
 import { navigationRef } from "@/navigation/navigationRef";
 import { startZoneTranslation } from "@/lib/zoneTranslationStore";
 import { initDflightAccessFlag } from "@/lib/geozoneDirect/dflightAuth";
+import { initEd269ImportFlags } from "@/lib/geozoneDirect/ed269Store";
 import { startGeozoneTileStore } from "@/lib/geozoneTiles/tileStore";
 
 // Übersetzungs-Cache der Behördentexte laden (offline) und neue Texte nachziehen
 startZoneTranslation();
 initDflightAccessFlag();
+// Nur per Datei importierbare Länder (RO): „eigene Daten“, sobald ein Import vorliegt
+initEd269ImportFlags();
 // Offline-Geozonen DE/FR/CZ (Kachelspeicher): Bestand bekannt machen, AIRAC-Aktualisierung
 startGeozoneTileStore();
 import { GestureHandlerRootView } from "react-native-gesture-handler";

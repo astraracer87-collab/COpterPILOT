@@ -16,10 +16,30 @@ import {
   fetchEd269CountryFeatures,
   getBelgianBundledFeatures,
   isEd269DirectCountry,
+  roundFeatureCoords,
   type GeoFeature,
 } from "./ed269Sources";
+import { finalizeDirectFeatures } from "./directFetchUtil";
+import { GEOZONE_IMPORT_ONLY_ISOS } from "../../../shared/geozoneImport";
+import { setCountryAccessAvailable } from "../../../shared/countryDetection";
 
 // Upstream-Daten ändern sich selten; der Server hat täglich synchronisiert.
+
+// Datei-Import (Einstellungen → Offline-Karten → „Geozonen-Datei importieren“):
+// - importEd269Dataset() legt den Bestand genauso ab wie einen Download (Karte,
+//   Zonencheck und Offline-Nutzung funktionieren identisch), mit `imported`.
+// - Eine fehlgeschlagene automatische Aktualisierung lässt den Import stehen;
+//   eine ERFOLGREICHE Online-Aktualisierung ersetzt ihn (aktuellere amtliche Daten).
+// - Länder ohne erreichbaren Feed (GEOZONE_IMPORT_ONLY_ISOS, z. B. RO) werden
+//   nie aus dem Netz geladen; sie gelten erst mit Import als „eigene Daten“
+//   (setCountryAccessAvailable → hasOwnMap).
+function isImportOnly(iso: string): boolean {
+  return GEOZONE_IMPORT_ONLY_ISOS.includes(String(iso || "").toUpperCase());
+}
+
+function isStoreCountry(iso: string): boolean {
+  return isEd269DirectCountry(iso) || isImportOnly(iso);
+}
 
 // Liechtenstein steckt im Schweizer BAZL-Datensatz.
 function cacheKey(iso: string | null | undefined): string {
@@ -48,7 +68,11 @@ export type Ed269Dataset = {
   fetchedAt: number;
   version: number;
   features: GeoFeature[];
+  /** Gesetzt, wenn der Bestand aus einem Datei-Import stammt. */
+  imported?: Ed269ImportMeta;
 };
+
+export type Ed269ImportMeta = { source: string; importedAt: number; fileName: string };
 
 type FsModule = {
   documentDirectory: string | null;
@@ -97,6 +121,8 @@ function remember(iso: string, ds: Ed269Dataset): void {
     const oldest = memory.keys().next().value;
     if (oldest === undefined) break;
     memory.delete(oldest);
+    // beim nächsten Zugriff wieder von der Datei lesen
+    diskChecked.delete(oldest);
   }
 }
 
@@ -200,7 +226,7 @@ export async function getEd269Dataset(
   opts?: { forceRefresh?: boolean },
 ): Promise<Ed269Dataset | null> {
   const iso = cacheKey(rawIso);
-  if (!isEd269DirectCountry(iso)) return null;
+  if (!isStoreCountry(iso)) return null;
   const now = Date.now();
 
   let ds = recall(iso) ?? null;
@@ -214,6 +240,9 @@ export async function getEd269Dataset(
       else ds = newer;
     }
   }
+
+  // Nur-Import-Länder: nie aus dem Netz laden.
+  if (isImportOnly(iso)) return ds;
 
   if (opts?.forceRefresh) {
     const fresh = await download(iso);
@@ -262,9 +291,80 @@ export async function refreshEd269Dataset(iso: string): Promise<boolean> {
 }
 
 /** Stand des Gerätecaches (für Status-/Debug-Anzeigen). */
-export function getEd269DatasetStatus(iso: string): { fetchedAt: number | null; count: number } {
+export function getEd269DatasetStatus(iso: string): { fetchedAt: number | null; count: number; imported?: Ed269ImportMeta } {
   const ds = recall(cacheKey(iso));
-  return { fetchedAt: ds && ds.fetchedAt > 0 ? ds.fetchedAt : null, count: ds?.features.length ?? 0 };
+  return {
+    fetchedAt: ds && ds.fetchedAt > 0 ? ds.fetchedAt : null,
+    count: ds?.features.length ?? 0,
+    ...(ds?.imported ? { imported: ds.imported } : {}),
+  };
+}
+
+/** Kann für dieses Land eine Geozonen-Datei importiert werden? */
+export function canImportEd269Dataset(iso: string): boolean {
+  return isStoreCountry(cacheKey(iso));
+}
+
+/** Gespeicherten Bestand lesen (Speicher/Datei), OHNE Netzzugriff. */
+export async function loadStoredEd269Dataset(rawIso: string): Promise<Ed269Dataset | null> {
+  const iso = cacheKey(rawIso);
+  if (!isStoreCountry(iso)) return null;
+  const mem = recall(iso);
+  if (mem) return mem;
+  const ds = await readFromDisk(iso);
+  diskChecked.add(iso);
+  if (ds) remember(iso, ds);
+  return ds;
+}
+
+/**
+ * Importierte Geozonen (bereits in App-Feature-Form, siehe
+ * shared/geozoneImport.ts) als Landesbestand speichern – ersetzt einen
+ * vorhandenen Bestand. bbox, Koordinaten-Rundung und `_country` wie beim
+ * Download.
+ */
+export async function importEd269Dataset(
+  rawIso: string,
+  features: GeoFeature[],
+  meta: Ed269ImportMeta,
+): Promise<Ed269Dataset> {
+  const iso = cacheKey(rawIso);
+  if (!isStoreCountry(iso)) throw new Error(`Für ${String(rawIso).toUpperCase()} ist kein Geozonen-Import vorgesehen.`);
+  const finalized = roundFeatureCoords(finalizeDirectFeatures(features, iso));
+  if (finalized.length === 0) throw new Error("Keine Geozonen zum Speichern.");
+  const ds: Ed269Dataset = { iso, fetchedAt: meta.importedAt, version: STORE_FORMAT_VERSION, features: finalized, imported: meta };
+  remember(iso, ds);
+  diskChecked.add(iso);
+  lastFailureAt.delete(iso);
+  await writeToDisk(ds);
+  if (isImportOnly(iso)) setCountryAccessAvailable(iso, true);
+  for (const hook of downloadHooks) {
+    try {
+      void Promise.resolve(hook(iso, finalized)).catch(() => {});
+    } catch {}
+  }
+  return ds;
+}
+
+/** Gespeicherten Bestand eines Landes entfernen (z. B. Import löschen). */
+export async function deleteEd269Dataset(rawIso: string): Promise<void> {
+  const iso = cacheKey(rawIso);
+  memory.delete(iso);
+  diskChecked.delete(iso);
+  const fs = getFs();
+  if (fs) await fs.deleteAsync(filePath(fs, iso), { idempotent: true }).catch(() => {});
+  if (isImportOnly(iso)) setCountryAccessAvailable(iso, false);
+}
+
+/** Beim App-Start: Nur-Import-Länder mit gespeichertem Bestand als „eigene Daten“ markieren. */
+export async function initEd269ImportFlags(): Promise<void> {
+  for (const iso of GEOZONE_IMPORT_ONLY_ISOS) {
+    try {
+      setCountryAccessAvailable(iso, !!(await loadStoredEd269Dataset(iso)));
+    } catch {
+      setCountryAccessAvailable(iso, false);
+    }
+  }
 }
 
 /** Nur für Tests: Speicher-Cache leeren. */

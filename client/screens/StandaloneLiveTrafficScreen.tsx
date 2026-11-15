@@ -11,7 +11,7 @@ import { captureRef } from "react-native-view-shot";
 import TrafficMapView, { TrafficMarker, AircraftTrail, WindData } from "@/components/TrafficMapView";
 import type { ViewportBbox } from "@/lib/opensky";
 import { fetchDipulWind, fetchWeather, ForecastData } from "@/lib/weather";
-import { fetchNotams, NotamData, getNotamSeverity, getNotamCountryLabel, getCountryLabel } from "@/lib/notams";
+import { fetchNotams, NotamData, getNotamSeverity, getNotamCountryLabel, getCountryLabel, notamCountOrUnknown, NOTAM_STATUS_UNKNOWN_TEXT } from "@/lib/notams";
 import { fetchKpIndex, KpIndexData, fetchKpTimeline, getKpForHour, KpTimeEntry, getKpAssessment } from "@/lib/kpindex";
 import { fetchElevation } from "@/lib/elevation";
 import { calculateSolarTimes } from "@/lib/solar";
@@ -46,7 +46,7 @@ import { GEOZONE_LAYERS, GEOZONE_REGULATORY_INFO, GeozoneRegulatoryInfo, Geozone
 import { GEOZONE_CATEGORIES, COMBINED_COUNTRY_TOGGLES } from "../../shared/geozoneCategories";
 import { getActiveOrUpcomingNearbyMilLowFlight } from "@/lib/milLowFlight";
 import { useFocusEffect } from "@react-navigation/native";
-import { getSettings, saveSettings, getSelectedDrone, getDroneMaxAltitudeM, getPilotProfile, PilotProfile, find21hRuleForLayer, is21hLayerAvEligible, isErlaubnisExpired, Bundesland } from "@/lib/storage";
+import { getSettings, saveSettings, getSelectedDrone, getDroneMaxAltitudeM, getPilotProfile, PilotProfile, de21hRule, isDe21hZoneAvEligible, isErlaubnisExpired, Bundesland } from "@/lib/storage";
 import { detectBundeslandFromCoordinates } from "@/lib/countryMaps";
 import { computeGeozoneTabSeverity, GeozoneTabSeverity, isProhibitionZone, isGeozoneActiveFromDetails } from "@/lib/geozoneSeverity";
 import { Geozone21hRules } from "@/components/Geozone21hRules";
@@ -210,6 +210,8 @@ export default function StandaloneLiveTrafficScreen() {
   const [sidePanelTempRestrictions, setSidePanelTempRestrictions] = useState<GeozoneFeatureInfo[]>([]);
   const [sidePanelDipulRestrictions, setSidePanelDipulRestrictions] = useState<DipulTempRestriction[]>([]);
   const [sidePanelNotams, setSidePanelNotams] = useState<NotamData[]>([]);
+  // NOTAM-Abfrage fehlgeschlagen (z. B. HTTP 401) -> Status unbekannt, nicht "keine".
+  const [sidePanelNotamUnknown, setSidePanelNotamUnknown] = useState(false);
   const [sidePanelWeather, setSidePanelWeather] = useState<ForecastData | null>(null);
   const [sidePanelForecasts, setSidePanelForecasts] = useState<ForecastData[]>([]);
   const [sidePanelKp, setSidePanelKp] = useState<KpIndexData | null>(null);
@@ -280,8 +282,8 @@ export default function StandaloneLiveTrafficScreen() {
     // Kontrollzonen/CTR und Flugplätze haben prohibitionCategory=false, weil die
     // FVK-Freigabe einholbar ist → „bedingt zulässig" (orange), NICHT rot.
     const mapsToAvRule = (z: GeozoneFeatureInfo) => {
-      if (z.informationalOnly || (z.country && z.country !== "DE")) return false;
-      const rule = find21hRuleForLayer(z.layerLabel);
+      if (z.informationalOnly) return false;
+      const rule = de21hRule(z);
       return rule !== null && (rule.prohibitionCategory ?? true);
     };
     const severity = computeGeozoneTabSeverity(displayedGeozones, {
@@ -290,7 +292,7 @@ export default function StandaloneLiveTrafficScreen() {
       // AV-fähig ist (Wohngrundstücke, Bundesfern-/Wasserstraßen, Bahn). Luft-
       // sicherheits-/zustimmungspflichtige Zonen (Flugplätze/HEMS, CTR, Industrie/
       // Energie, Behörden) sind NIE AV-gedeckt -> bleiben "bedingt zulässig".
-      isCoveredByAV: (z) => hasValidBundeslandErlaubnis && is21hLayerAvEligible(z.layerLabel),
+      isCoveredByAV: (z) => hasValidBundeslandErlaubnis && isDe21hZoneAvEligible(z),
       // Deutsche §21h-„untersagt"-Zonen zählen zusätzlich als Flugverbot —
       // außer Kontrollzonen/CTR + Flugplätze (prohibitionCategory: false).
       mapsToAvRule,
@@ -315,13 +317,14 @@ export default function StandaloneLiveTrafficScreen() {
       : undefined;
     const hasValidBundeslandErlaubnis =
       hasA2 && !!erlaubnisForBundesland && !isErlaubnisExpired(erlaubnisForBundesland);
-    const mapsToAvRule = (z: GeozoneFeatureInfo) => find21hRuleForLayer(z.layerLabel) !== null;
+    // Nur DEUTSCHE Zonen (de21hRule): CZ-Kategorien wie "Bahnanlagen" sind kein § 21h.
+    const mapsToAvRule = (z: GeozoneFeatureInfo) => de21hRule(z) !== null;
     return (z: GeozoneFeatureInfo): boolean => {
       if (z.informationalOnly) return false;
       if (!isGeozoneActiveFromDetails(z.details)) return false;
       const prohibition = isProhibitionZone(z) || mapsToAvRule(z);
       // Nur AV-fähige §21h-Kategorien gelten als von der Landes-AV gedeckt.
-      const coveredByAV = hasValidBundeslandErlaubnis && is21hLayerAvEligible(z.layerLabel);
+      const coveredByAV = hasValidBundeslandErlaubnis && isDe21hZoneAvEligible(z);
       return prohibition && !coveredByAV;
     };
   }, [pilotProfile, latitude, longitude]);
@@ -582,7 +585,7 @@ export default function StandaloneLiveTrafficScreen() {
           fetchWeather(qLat, qLon, 1440).catch(() => null),
           fetchKpIndex().catch(() => null),
           fetchKpTimeline().catch(() => [] as KpTimeEntry[]),
-          fetchNotams(qLat, qLon).catch(() => ({ notams: [] as NotamData[], total: 0, queriedCodes: [] as string[] })),
+          fetchNotams(qLat, qLon).catch(() => ({ notams: [] as NotamData[], total: 0, queriedCodes: [] as string[], failed: true })),
           queryGeozonesInArea(qLat, qLon, raRadiusKm, detectedCountryIso).catch((e) => { console.warn("[checkAlerts] geozone query failed:", e?.message || e); return [] as GeozoneFeatureInfo[]; }),
           fetchNearbyTempRestrictionsRaw(qLat, qLon, raRadiusKm).catch(() => ({ active: [] as DipulTempRestriction[], upcoming: [] as DipulTempRestriction[] })),
           detectedCountryIso === "LU" ? fetchLuTsaAsNotams(qLat, qLon, raRadiusKm).catch(() => []) : Promise.resolve([]),
@@ -616,7 +619,10 @@ export default function StandaloneLiveTrafficScreen() {
         const wStatus: "ok" | "caution" | "critical" | "unknown" = !f ? "unknown" : isCritical ? "critical" : isCaution ? "caution" : "ok";
         setWeatherStatus(wStatus);
         const weatherCritical = isCritical;
-        const notamCritical = combinedNotams.some((n) => getNotamSeverity(n) === "high") || tempRestrictions.length > 0 || allDipul.some((d) => d.status === "active");
+        // Fehlgeschlagene NOTAM-Abfrage ist KEIN "alles frei": Hinweis-Flag setzen.
+        const notamUnknown = notamCountOrUnknown(notamResult) === null;
+        setSidePanelNotamUnknown(notamUnknown);
+        const notamCritical = notamUnknown || combinedNotams.some((n) => getNotamSeverity(n) === "high") || tempRestrictions.length > 0 || allDipul.some((d) => d.status === "active");
         const geozoneCritical = permZones.length > 0;
         setAlertFlags({ wetter: weatherCritical, notam: notamCritical, geozone: geozoneCritical });
         if (f) setSidePanelWeather(f);
@@ -664,7 +670,7 @@ export default function StandaloneLiveTrafficScreen() {
         setGeozoneDataStatus(geozonesLoaded ? "loaded" : "error");
       } else if (panel === "notam") {
         const [result, zones, dipulResult, luTsaNotams] = await Promise.all([
-          fetchNotams(latitude, longitude),
+          fetchNotams(latitude, longitude).catch(() => ({ notams: [] as NotamData[], total: 0, queriedCodes: [] as string[], failed: true })),
           queryGeozonesInArea(latitude, longitude, raRadiusKm, detectedCountryIso).catch(() => [] as GeozoneFeatureInfo[]),
           fetchNearbyTempRestrictionsRaw(latitude, longitude, raRadiusKm).catch(() => ({ active: [] as DipulTempRestriction[], upcoming: [] as DipulTempRestriction[] })),
           detectedCountryIso === "LU" ? fetchLuTsaAsNotams(latitude, longitude, raRadiusKm).catch(() => []) : Promise.resolve([]),
@@ -672,6 +678,7 @@ export default function StandaloneLiveTrafficScreen() {
         const { tempRestrictions } = separateTempRestrictions(zones);
         const combinedNotams = [...result.notams, ...luTsaNotams as unknown as NotamData[]];
         const milNearby = getActiveOrUpcomingNearbyMilLowFlight(dipulResult, latitude, longitude, raRadiusKm);
+        setSidePanelNotamUnknown(notamCountOrUnknown(result) === null);
         setSidePanelNotams(combinedNotams);
         setSidePanelTempRestrictions(tempRestrictions);
         setSidePanelDipulRestrictions([
@@ -1461,6 +1468,7 @@ export default function StandaloneLiveTrafficScreen() {
               tempRestrictions={sidePanelTempRestrictions}
               dipulRestrictions={sidePanelDipulRestrictions}
               notams={sidePanelNotams}
+              notamStatusUnknown={sidePanelNotamUnknown}
               weather={sidePanelWeather}
               forecasts={sidePanelForecasts}
               kpIndex={sidePanelKp}
@@ -2004,7 +2012,7 @@ function openGeozoneContact(c: GeozoneContact) {
   }).catch(() => {});
 }
 
-function SidePanelView({ panel, loading, geozones, windFacilityWarnings = [], geozoneDataStatus = "loading", isZoneSerious, tempRestrictions, dipulRestrictions, notams, weather, forecasts, kpIndex, kpTimeline = [], wind, isDark, safeTop, onClose, radarData, weatherStatus = "unknown", latitude: propLat, longitude: propLon, countryIso }: {
+function SidePanelView({ panel, loading, geozones, windFacilityWarnings = [], geozoneDataStatus = "loading", isZoneSerious, tempRestrictions, dipulRestrictions, notams, notamStatusUnknown = false, weather, forecasts, kpIndex, kpTimeline = [], wind, isDark, safeTop, onClose, radarData, weatherStatus = "unknown", latitude: propLat, longitude: propLon, countryIso }: {
   panel: "geozone" | "notam" | "wetter" | "radar";
   loading: boolean;
   geozones: GeozoneFeatureInfo[];
@@ -2014,6 +2022,8 @@ function SidePanelView({ panel, loading, geozones, windFacilityWarnings = [], ge
   tempRestrictions: GeozoneFeatureInfo[];
   dipulRestrictions: DipulTempRestriction[];
   notams: NotamData[];
+  /** NOTAM-Abfrage fehlgeschlagen: Status unbekannt statt "keine NOTAMs". */
+  notamStatusUnknown?: boolean;
   weather: ForecastData | null;
   forecasts: ForecastData[];
   kpIndex: KpIndexData | null;
@@ -2177,7 +2187,7 @@ function SidePanelView({ panel, loading, geozones, windFacilityWarnings = [], ge
                   // § 21h-Zone mit dokumentierten Auflagen ist BEDINGT zulässig
                   // (kein absolutes Flugverbot). Absolute Sperren (ED-R, Militär
                   // etc.) haben keine §21h-Auflagen-Regel und bleiben rot/„Flugverbot".
-                  const z21hRule = !z.informationalOnly && (!z.country || z.country === "DE") ? find21hRuleForLayer(z.layerLabel) : null;
+                  const z21hRule = !z.informationalOnly ? de21hRule(z) : null;
                   const zIsConditional = zIsSerious && z21hRule !== null;
                   const zIsHardBan = zIsSerious && z21hRule === null;
                   // Aktive §21h-Zone, die NICHT schwerwiegend ist -> durch eine
@@ -2588,7 +2598,10 @@ function SidePanelView({ panel, loading, geozones, windFacilityWarnings = [], ge
                   </View>
                 ));
               })() : null}
-              {notams.length === 0 && dipulRestrictions.length === 0 && tempRestrictions.length === 0 ? (
+              {notamStatusUnknown ? (
+                <Text testID="radar-notam-unknown" style={[sidePanelStyles.emptyText, { color: "#FF9500" }]}>{NOTAM_STATUS_UNKNOWN_TEXT}</Text>
+              ) : null}
+              {!notamStatusUnknown && notams.length === 0 && dipulRestrictions.length === 0 && tempRestrictions.length === 0 ? (
                 <Text style={[sidePanelStyles.emptyText, { color: mutedColor }]}>Keine NOTAMs oder temporären Einschränkungen</Text>
               ) : null}
             </View>

@@ -323,3 +323,53 @@ export function composeRestrictionNotes(
     .join(" — ");
   return joined || undefined;
 }
+
+// --- Einschränkungs-Ergebnis in der Flug-Session ----------------------------
+//
+// PlanningRestrictions übergibt hasRestrictions/restrictionStatus/restrictionNotes
+// an PlanningDetails. Diese Werte müssen in der Session landen (neue UND
+// bestehende Session), damit PlanningResult das Gesamturteil korrekt bildet und
+// die Notizen (Ausnahmen, Nacht, Energie-Infrastruktur, Pilot) im Protokoll stehen.
+export interface RestrictionRouteParams {
+  hasRestrictions?: boolean;
+  restrictionStatus?: ManualRestrictionStatus;
+  restrictionNotes?: string;
+}
+
+export interface RestrictionSessionPatch {
+  hasRestrictions?: boolean;
+  restrictionStatus?: ManualRestrictionStatus;
+  restrictionNotes?: string;
+}
+
+// Kam die Navigation aus der Einschränkungs-Stufe (hasRestrictions ist boolean),
+// werden alle drei Felder explizit gesetzt — auch undefined, damit ein veralteter
+// "approved"-Status einer früheren Planung nicht stehen bleibt. Fehlen die Params
+// (Direkteinstieg/Bearbeiten), bleibt die Session unverändert ({}).
+export function buildRestrictionSessionPatch(
+  params: RestrictionRouteParams,
+): RestrictionSessionPatch {
+  if (typeof params.hasRestrictions === "boolean") {
+    return {
+      // Manuelle Angabe "Einschränkungen vorhanden" (Länder ohne eigene Daten)
+      // zählt ebenfalls als Einschränkung, auch wenn keine Zone erkannt wurde.
+      hasRestrictions: params.hasRestrictions || params.restrictionStatus === "limited",
+      restrictionStatus: params.restrictionStatus,
+      restrictionNotes: params.restrictionNotes,
+    };
+  }
+  const patch: RestrictionSessionPatch = {};
+  if (params.restrictionStatus) patch.restrictionStatus = params.restrictionStatus;
+  if (params.restrictionNotes) patch.restrictionNotes = params.restrictionNotes;
+  return patch;
+}
+
+// PlanningResult: liest die gespeicherten Werte für assessWeather.
+export function restrictionAssessmentInput(
+  session: { hasRestrictions?: boolean; restrictionStatus?: ManualRestrictionStatus } | null | undefined,
+): { hasRestrictions: boolean; restrictionStatus?: ManualRestrictionStatus } {
+  return {
+    hasRestrictions: session?.hasRestrictions === true,
+    restrictionStatus: session?.restrictionStatus,
+  };
+}

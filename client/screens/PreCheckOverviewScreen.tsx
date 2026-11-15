@@ -27,8 +27,9 @@ import { useShowDataSources } from "@/lib/dataSource";
 import { attributionLabel } from "@/lib/sourceAttribution";
 import { Spacing, Typography, BorderRadius } from "@/constants/theme";
 import type { FlightCheckParamList } from "@/navigation/FlightCheckNavigator";
+import { uncoveredGeozoneSources, sourceCoverageWarning, type GeozoneSourceCoverage } from "@/lib/geozoneCoverage";
 import {
-  queryGeozonesInArea,
+  queryGeozonesInAreaWithCoverage,
   GeozoneFeatureInfo,
   separateTempRestrictions,
   fetchNearbyTempRestrictions,
@@ -47,7 +48,7 @@ import { geozoneIsActiveAt, ed269InactiveInfoText } from "@/lib/ed269";
 import {
   getPilotProfile,
   PilotProfile,
-  is21hLayerAvEligible,
+  isDe21hZoneAvEligible,
   isErlaubnisExpired,
   Bundesland,
   updateFlightSession,
@@ -137,6 +138,8 @@ export default function PreCheckOverviewScreen() {
   const [tempRestrictions, setTempRestrictions] = useState<GeozoneFeatureInfo[]>([]);
   const [notams, setNotams] = useState<DipulTempRestrictionsResult>({ active: [], upcoming: [] });
   const [geozoneLoading, setGeozoneLoading] = useState(true);
+  // Länder ohne verwertbare Geozonen-Daten (Review-Fix 4).
+  const [coverageGaps, setCoverageGaps] = useState<GeozoneSourceCoverage[]>([]);
   const [notamLoading, setNotamLoading] = useState(true);
   const [geozoneError, setGeozoneError] = useState(false);
   const [notamError, setNotamError] = useState(false);
@@ -270,9 +273,11 @@ export default function PreCheckOverviewScreen() {
   const loadGeozones = useCallback(async () => {
     setGeozoneLoading(true);
     setGeozoneError(false);
+    setCoverageGaps([]);
     try {
-      const results = await queryGeozonesInArea(latitude, longitude, searchRadiusKm);
-      const separated = separateTempRestrictions(results);
+      const area = await queryGeozonesInAreaWithCoverage(latitude, longitude, searchRadiusKm);
+      setCoverageGaps(uncoveredGeozoneSources(area.sources));
+      const separated = separateTempRestrictions(area.zones);
       setGeozones(separated.geozones);
       setTempRestrictions(separated.tempRestrictions);
     } catch {
@@ -385,7 +390,8 @@ export default function PreCheckOverviewScreen() {
     if (!hasValidBundeslandErlaubnis) return false;
     // Nur AV-fähige § 21h-Kategorien; Luftsicherheits-/zustimmungspflichtige
     // Zonen (Flugplätze/HEMS, CTR, Industrie/Energie, Behörden) sind nie gedeckt.
-    return is21hLayerAvEligible(gz.layerLabel);
+    // Nur DEUTSCHE Zonen — eine Landes-AV deckt keine ausländischen Zonen.
+    return isDe21hZoneAvEligible(gz);
   };
 
   // Zeitgesteuerte ED-269-Zonen (z. B. MTMA Mo–Do): Beim Pre-Check zählt eine
@@ -399,14 +405,21 @@ export default function PreCheckOverviewScreen() {
   const uncoveredGeozones = geozones.filter((gz) => !isGeozoneCoveredByAV(gz));
   const hasAnyGeozones = geozones.length > 0 || tempRestrictions.length > 0;
   const totalNotams = notams.active.length + notams.upcoming.length;
-  const hasAnyRestrictions = hasAnyGeozones || notams.active.length > 0;
+  // Abdeckungslücke (Review-Fix 4): kein Datensatz / Abruffehler / Land ohne
+  // automatische Prüfung. Ein kompletter Ladefehler zählt ebenso — der Status
+  // ist unbekannt und darf nicht als "keine Zonen" (GO) durchgehen.
+  const hasCoverageGap = !geozoneLoading && (geozoneError || coverageGaps.length > 0);
+  const coverageGapWarnings = geozoneError
+    ? []
+    : coverageGaps.map((g) => sourceCoverageWarning(g, countryName(g.iso) || g.iso));
+  const hasAnyRestrictions = hasAnyGeozones || notams.active.length > 0 || hasCoverageGap;
 
   const loading = geozoneLoading || notamLoading;
 
   // Ack nur fordern wenn tatsächlich Daten vorliegen.
-  // Bei Lade-/Fetch-Fehlern bleibt der Status unbekannt — dann muss der Pilot
-  // manuell bestätigen, damit kein stiller Bypass entsteht.
-  const requiresGeozoneAck = hasAnyGeozones || geozoneError;
+  // Bei Lade-/Fetch-Fehlern bzw. Abdeckungslücken bleibt der Status unbekannt —
+  // dann muss der Pilot manuell bestätigen, damit kein stiller Bypass entsteht.
+  const requiresGeozoneAck = hasAnyGeozones || geozoneError || hasCoverageGap;
   const requiresNotamAck = totalNotams > 0 || notamError;
   const canContinue = (geozoneChecked || !requiresGeozoneAck) && (notamChecked || !requiresNotamAck);
 
@@ -415,12 +428,20 @@ export default function PreCheckOverviewScreen() {
   const handleContinue = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
+    // Bei Abdeckungslücke kein "approved" (auch wenn alle GEFUNDENEN Zonen
+    // AV-gedeckt sind) — Status ungeklärt -> mindestens CAUTION.
     const restrictionStatus: "approved" | "limited" | undefined =
-      !hasAnyRestrictions
+      !hasAnyRestrictions || hasCoverageGap
         ? undefined
         : allCoveredByAV
           ? "approved"
           : "limited";
+    const restrictionNotes = hasCoverageGap
+      ? (coverageGapWarnings.length > 0
+          ? coverageGapWarnings
+          : ["Geozonen-Status unbekannt (Abfrage fehlgeschlagen) – manuell geprüft."]
+        ).join(" — ")
+      : undefined;
 
     if (sessionId) {
       await updateFlightSession(sessionId, {
@@ -434,6 +455,7 @@ export default function PreCheckOverviewScreen() {
       longitude,
       hasRestrictions: hasAnyRestrictions,
       restrictionStatus,
+      restrictionNotes,
       droneId,
       sessionId,
     });
@@ -823,7 +845,22 @@ export default function PreCheckOverviewScreen() {
               <ActivityIndicator size="small" color={theme.primary} />
               <ThemedText style={[styles.loadingText, { color: theme.textSecondary }]}>Geozonen werden geprüft...</ThemedText>
             </View>
-          ) : geozoneError ? (
+          ) : null}
+
+          {!geozoneLoading && !geozoneError && coverageGapWarnings.length > 0 ? (
+            <Card testID="precheck-coverage-gap" style={[styles.errorCard, { borderLeftColor: "#FF9500", borderLeftWidth: 3 }]}>
+              <Feather name="alert-triangle" size={16} color="#FF9500" />
+              <View style={{ flex: 1 }}>
+                {coverageGapWarnings.map((w, i) => (
+                  <ThemedText key={`gap-${i}`} style={[styles.errorText, { color: theme.textSecondary }]}>
+                    {w}
+                  </ThemedText>
+                ))}
+              </View>
+            </Card>
+          ) : null}
+
+          {geozoneLoading ? null : geozoneError ? (
             <Card style={[styles.errorCard, { borderLeftColor: "#FF9500", borderLeftWidth: 3 }]}>
               <Feather name="alert-triangle" size={16} color="#FF9500" />
               <ThemedText style={[styles.errorText, { color: theme.textSecondary }]}>
@@ -835,12 +872,14 @@ export default function PreCheckOverviewScreen() {
             </Card>
           ) : !hasAnyGeozones ? (
             <>
+            {!hasCoverageGap ? (
             <Card style={[styles.statusCard, { borderLeftColor: "#34C759", borderLeftWidth: 3 }]}>
               <Feather name="check-circle" size={18} color="#34C759" />
               <ThemedText style={[styles.statusText, { color: "#34C759" }]}>
                 Keine Geozonen-Einschränkungen
               </ThemedText>
             </Card>
+            ) : null}
             {timeInactiveGeozones.length > 0 ? (
               <ThemedText style={[styles.geozoneDetails, { color: theme.textTertiary }]} testID="precheck-time-inactive-hint">
                 {timeInactiveGeozones.map((gz) => `${gz.name}: ${ed269InactiveInfoText(gz, plannedFlightDate ? "planned" : "now")}`).join("\n")}
@@ -947,7 +986,11 @@ export default function PreCheckOverviewScreen() {
                 {geozoneChecked ? <Feather name="check" size={14} color="#fff" /> : null}
               </View>
               <ThemedText style={styles.checkText}>
-                {geozoneError ? "Geozonen-Status unbekannt — manuell geprüft" : "Geozonen geprüft und zur Kenntnis genommen"}
+                {geozoneError
+                  ? "Geozonen-Status unbekannt — manuell geprüft"
+                  : hasCoverageGap
+                    ? "Zonen ohne Daten manuell geprüft und zur Kenntnis genommen"
+                    : "Geozonen geprüft und zur Kenntnis genommen"}
               </ThemedText>
             </Pressable>
           ) : null}

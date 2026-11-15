@@ -36,7 +36,6 @@ import { nativeMapBasemapProps } from "@/lib/mapBasemap";
 import { entitlementGrantsCountry } from "../../shared/countryEntitlements";
 import { useAuth } from "@/lib/auth";
 import { infrastructureMapGeometry } from "@/lib/energyInfrastructureZones";
-import { getApiUrl } from "@/lib/query-client";
 import {
   getEnergyInfrastructureCountry,
   getGermanWindFacility100mPoints,
@@ -121,8 +120,6 @@ export default function PlanningZoneFocusScreen() {
       country?.assetComparisonStatusKeyByKind,
     );
   }, [hasGermanEnergyAccess, energyQuery.data]);
-  // RC-Version: Anlagen-Kacheln kamen vom Server und entfallen.
-  const energyTileUrl = hasGermanEnergyAccess ? "" : "";
   const [selectedEnergyItem, setSelectedEnergyItem] = useState<GermanEnergyInfrastructureItem | null>(null);
 
   const groups = useMemo(() => geometryGroups(zone), [zone]);
@@ -202,17 +199,6 @@ export default function PlanningZoneFocusScreen() {
           rotateEnabled={false}
           pitchEnabled={false}
         >
-          {!hasGeometry && energyTileUrl ? (
-            <UrlTile
-              urlTemplate={energyTileUrl}
-              zIndex={1}
-              minimumZ={12}
-              maximumZ={19}
-              maximumNativeZ={16}
-              tileSize={256}
-              shouldReplaceMapContent={false}
-            />
-          ) : null}
           {!hasGeometry
             ? wmsUrls.map((url, i) => (
                 <UrlTile

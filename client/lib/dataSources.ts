@@ -39,6 +39,7 @@ import { IT_GEOZONE_ATTRIBUTION } from "../../shared/italianGeozones";
 import { FI_GEOZONE_ATTRIBUTION } from "../../shared/finnishGeozones";
 import { PL_ATTRIBUTION } from "../../shared/polishGeozones";
 import { IS_GEOZONE_ATTRIBUTION } from "../../shared/icelandicGeozones";
+import { RO_GEOZONE_SOURCE_LABEL, RO_ROMATSA_DRONES_URL } from "../../shared/geozoneImport";
 import {
   ENERGY_INFRASTRUCTURE_COUNTRIES,
   getEnergyInfrastructureCountry,
@@ -554,6 +555,14 @@ export const GEOZONE_SOURCE_META: Record<string, GeozoneSourceMeta> = {
     attributions: [SK_DU_ATTRIBUTION, SK_GEOZONE_ATTRIBUTION],
     writtenPermission: true,
     url: "https://letectvo.nsat.sk/bezpilotne-letectvo/zemepisne-oblasti-uas/",
+  },
+  RO: {
+    provider: "ROMATSA (Romanian Air Traffic Services Administration)",
+    usage:
+      "Drohnen-Geozonen nur per Datei-Import: Restricted_zones_for_UAS.json am PC herunterladen und in den Offline-Einstellungen importieren (die ROMATSA-Server sind für Android nicht erreichbar).",
+    attributions: [RO_GEOZONE_SOURCE_LABEL],
+    url: RO_ROMATSA_DRONES_URL,
+    note: "Kein automatischer Abruf; Stand = Datum des Imports.",
   },
   HR: {
     provider:

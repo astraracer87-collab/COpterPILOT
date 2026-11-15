@@ -16,6 +16,8 @@ import { useTheme } from "@/hooks/useTheme";
 import { Spacing, Typography, Colors, BorderRadius } from "@/constants/theme";
 import { updateFlightSession, getFlightSession, getDrone, getDrones, DroneProfile } from "@/lib/storage";
 import { assessWeather, ExpertTip } from "@/lib/assessment";
+import { restrictionAssessmentInput } from "@/lib/manualRestrictionFlow";
+import { NOTAM_STATUS_UNKNOWN_TEXT } from "@/lib/notams";
 import { recommendDroneForExceedance, DroneRecommendation } from "@/lib/droneRecommendation";
 import { suggestCategory, CategoryAdvice } from "@/lib/categoryAdvice";
 import { calculateSolarTimes, formatSolarTime, getDaylightPhase, SolarTimes, computeSunElevation } from "@/lib/solar";
@@ -47,6 +49,12 @@ export default function PlanningResultScreen() {
   // hebt den Status auf mindestens "caution" an, ersetzt aber NICHT die
   // automatische Geozonen-/§21h-Erkennung.
   const [crossCheck, setCrossCheck] = useState<{ blocking: boolean; note?: string } | null>(null);
+  // Ergebnis der Einschränkungs-Stufe (Geozonen/§21h/AV/Ausnahmen), in der
+  // Session gespeichert von PlanningDetails. Fließt ins Gesamturteil ein.
+  const [restriction, setRestriction] = useState<{ hasRestrictions: boolean; restrictionStatus?: "approved" | "limited" }>({ hasRestrictions: false });
+  // Speichern erst, wenn die Session (inkl. Einschränkungs-Ergebnis) geladen ist.
+  const [sessionLoaded, setSessionLoaded] = useState(false);
+  const [notamUnknown, setNotamUnknown] = useState(false);
 
   const { 
     droneId, 
@@ -105,7 +113,7 @@ export default function PlanningResultScreen() {
             pressure: 1013,
           }],
         };
-        return assessWeather(weatherData, limits, false, undefined, undefined, maxAltitude, assessmentContext);
+        return assessWeather(weatherData, limits, restriction.hasRestrictions, restriction.restrictionStatus, undefined, maxAltitude, assessmentContext);
       })()
     : (() => {
         // Ohne Wetterdaten: trotzdem Nachtflug-Check ausführen
@@ -121,7 +129,7 @@ export default function PlanningResultScreen() {
             rain: 0, snow: 0, cloudCover: 0, pressure: 1013,
           }],
         };
-        const partial = assessWeather(dummyWeather, limits, false, undefined, undefined, maxAltitude, assessmentContext);
+        const partial = assessWeather(dummyWeather, limits, restriction.hasRestrictions, restriction.restrictionStatus, undefined, maxAltitude, assessmentContext);
         return { ...partial, status: partial.status === "nogo" ? "nogo" as const : "caution" as const };
       })();
 
@@ -144,16 +152,23 @@ export default function PlanningResultScreen() {
   }, [droneId, isFpvFlight, latitude, longitude, plannedDate]);
 
   useEffect(() => {
-    getFlightSession(sessionId).then((session) => {
-      setCrossCheck(session?.planning?.officialMapCrossCheck ?? null);
-    });
+    getFlightSession(sessionId)
+      .then((session) => {
+        setCrossCheck(session?.planning?.officialMapCrossCheck ?? null);
+        setRestriction(restrictionAssessmentInput(session));
+        setNotamUnknown(session?.planning?.notamStatusUnknown === true);
+      })
+      .catch(() => {})
+      .finally(() => setSessionLoaded(true));
   }, [sessionId]);
 
   // Eine startverhindernde Gegenprüfung hebt den Gesamtstatus auf mindestens
   // "caution" an (nie über No-Go hinaus reduziert).
   const crossCheckBlocking = crossCheck?.blocking === true;
+  // Unbekannter NOTAM-Status (Abfrage fehlgeschlagen) ist kein sauberes Ergebnis:
+  // ebenfalls mindestens "caution".
   const effectiveStatus: "go" | "caution" | "nogo" =
-    crossCheckBlocking && assessment.status === "go" ? "caution" : assessment.status;
+    (crossCheckBlocking || notamUnknown) && assessment.status === "go" ? "caution" : assessment.status;
 
   const handleSave = async () => {
     setSaving(true);
@@ -164,8 +179,10 @@ export default function PlanningResultScreen() {
       await updateFlightSession(sessionId, {
         status: effectiveStatus,
         reasons: [
+          // Jede Warnung (caution ODER warning) ist ein CAUTION-Grund — vorher
+          // landeten "caution"-Warnungen als GO-Grund im Protokoll.
           ...assessment.warnings.map(w => ({
-            type: (w.severity === "warning" ? "caution" : "go") as "caution" | "go",
+            type: "caution" as const,
             message: w.message,
           })),
           ...(crossCheckBlocking
@@ -176,6 +193,7 @@ export default function PlanningResultScreen() {
                   : "Offizielle Karte: startverhindernde Geozonen gemeldet.",
               }]
             : []),
+          ...(notamUnknown ? [{ type: "caution" as const, message: NOTAM_STATUS_UNKNOWN_TEXT }] : []),
         ],
         planning: {
           ...(existing?.planning ?? {}),
@@ -456,6 +474,23 @@ export default function PlanningResultScreen() {
           </Card>
         ) : null}
 
+        {notamUnknown ? (
+          <Card
+            style={[styles.crossCheckCard, { borderLeftColor: theme.statusCaution }]}
+            testID="card-notam-unknown"
+          >
+            <View style={styles.crossCheckHeader}>
+              <Feather name="alert-triangle" size={18} color={theme.statusCaution} />
+              <ThemedText style={[styles.crossCheckTitle, { color: theme.statusCaution }]}>
+                NOTAMs
+              </ThemedText>
+            </View>
+            <ThemedText style={[styles.crossCheckText, { color: theme.textSecondary }]}>
+              {NOTAM_STATUS_UNKNOWN_TEXT}
+            </ThemedText>
+          </Card>
+        ) : null}
+
         {categoryAdvice ? (
           <Card style={[styles.categoryCard, { borderLeftColor: categoryAdvice.color === "green" ? theme.statusGo : categoryAdvice.color === "yellow" ? theme.statusCaution : theme.statusNoGo }]}>
             <View style={styles.categoryHeader}>
@@ -621,7 +656,7 @@ export default function PlanningResultScreen() {
             <Button
               title={saving ? "Speichern..." : "Planung speichern"}
               onPress={handleSave}
-              disabled={saving}
+              disabled={saving || !sessionLoaded}
             />
           </>
         )}

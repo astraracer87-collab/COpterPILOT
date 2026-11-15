@@ -24,6 +24,7 @@
 // Bewusst frei von React-Native-Importen (unter tsx/Node testbar).
 import { normalizeEd269Restriction } from "./ed269Restriction";
 import { isoDurationText } from "./swedishGeozones";
+import { ed318GroupVolumes, ed318ParseZone, ed318PolygonsGeometry } from "./ed318Pure";
 
 export const ES_GEOZONE_SOURCE_LABEL = "ENAIRE (ED-318)";
 export const ES_GEOZONE_ATTRIBUTION = "© ENAIRE";
@@ -658,4 +659,91 @@ export function esArcgisPage(body: any): { features: any[]; exceeded: boolean } 
   const features = Array.isArray(body?.features) ? body.features : [];
   const exceeded = body?.exceededTransferLimit === true || body?.properties?.exceededTransferLimit === true;
   return { features, exceeded };
+}
+
+// ---------------------------------------------------------------------------
+// ED-318-Dateien aus den AIP-ZIP-Downloads (aip.enaire.es/…/ZGUAS/) –
+// Primärquelle seit 2026-11; die ArcGIS-/WFS-Normalisierung oben bleibt
+// Rückfall. Gleiche Nachbearbeitung wie buildFeature (deutsche Kurzfassung,
+// Layer-Default-Beschränkung, Höhenfilter, Ablauf, Dedupe über Identifier).
+// ---------------------------------------------------------------------------
+
+/** Download-Datei → Layer (ENAIRE-Verzeichnis ZGUAS/, Stand 2026-11). */
+export const ES_AIP_ZIP_LAYERS: { file: string; layer: EsLayer }[] = [
+  { file: "ZGUAS_Aero.zip", layer: "ZGUAS_Aero" },
+  { file: "ZGUAS_Infra.zip", layer: "ZGUAS_Infraestructuras" },
+  { file: "ZGUAS_Urbano.zip", layer: "ZGUAS_Urbano" },
+];
+
+/** Eine rohe ED-318-Zone (GeoJSON-Feature oder UASZone-Objekt) mit Layer. */
+export type EsEd318Raw = { layer: EsLayer; zone: any };
+
+/**
+ * ED-318-Zonen (alle drei ZIPs) → App-Features in derselben Form wie
+ * normalizeSpanishFeatures. Spanische Texte bleiben im Original (Präferenz es).
+ * Gleiche Kennung + gleiches Höhenband (auch layerübergreifend) = eine Zone;
+ * abweichende Geometrien werden zum MultiPolygon zusammengeführt.
+ */
+export function normalizeSpanishEd318(raw: EsEd318Raw[], now: Date = new Date()): EsFeature[] {
+  const byKey = new Map<string, EsFeature>();
+  const order: string[] = [];
+  raw.forEach(({ layer, zone }, idx) => {
+    const z = ed318ParseZone(zone, now, ["es", "en"]);
+    if (!z || z.applicability === null) return;
+    const restriction = z.restriction ?? esRestriction(z.rawType, layer);
+    const authorities: EsAuthority[] = z.authorities;
+    const msgEs = cleanText(z.message);
+    const conditions = cleanText(z.restrictionConditions);
+    const message = [
+      germanSummary(restriction, authorities),
+      msgEs,
+      conditions && conditions !== msgEs && !msgEs.includes(conditions) ? conditions : "",
+      authorities.map(authorityLine).join("\n"),
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+    const groups = ed318GroupVolumes(z.volumes).filter((g) => esLowerIsRelevant(g.lower));
+    groups.forEach((g, gi) => {
+      const vert = `${g.lower?.meters ?? "-"}${g.lower?.reference ?? ""}/${g.upper?.meters ?? "-"}${g.upper?.reference ?? ""}`;
+      const idBase = z.identifier || `${layer}-${idx}`;
+      const key = `${idBase}|${vert}`;
+      const geometry = esEnsureLonLat(ed318PolygonsGeometry(g.polygons) as { type: string; coordinates: any });
+      const prev = byKey.get(key);
+      if (prev) {
+        if (JSON.stringify(prev.geometry.coordinates) !== JSON.stringify(geometry.coordinates)) {
+          prev.geometry = mergeGeometries(prev.geometry, geometry);
+        }
+        return;
+      }
+      const out: Record<string, any> = {
+        identifier: z.identifier || undefined,
+        zoneId: `ES-${idBase}${groups.length > 1 ? `#${gi + 1}` : ""}`,
+        name: cleanText(z.name) || z.identifier || "Zona geográfica UAS",
+        restriction,
+        originalType: z.rawType ?? null,
+        message,
+        reason: esReasonText([...z.reasons.filter((r) => r.toUpperCase() !== "OTHER"), ...(z.otherReasonInfo ? [z.otherReasonInfo] : [])]) || undefined,
+        restrictionConditions: conditions || undefined,
+        regulationExemption: z.regulationExemption || undefined,
+        country: z.country || "ESP",
+        legalBasis: ES_LAYER_LEGAL_BASIS[layer],
+        source: ES_GEOZONE_SOURCE_LABEL,
+        attribution: ES_GEOZONE_ATTRIBUTION,
+        sourceLayer: layer,
+      };
+      if (z.applicability) out.applicability = z.applicability;
+      applyAltitudes(out, g.lower, g.upper);
+      if (authorities.length > 0) {
+        out.zoneAuthority = authorities.map(({ email: _e, ...rest }) => rest);
+        const mail =
+          (authorities.find((a) => (a.purpose === "AUTHORIZATION" || a.purpose === "AUTHORISATION") && a.email) ??
+            authorities.find((a) => a.email))?.email;
+        if (mail) out.contactEmail = mail;
+      }
+      for (const k of Object.keys(out)) if (out[k] === undefined) delete out[k];
+      byKey.set(key, { type: "Feature", geometry, properties: out });
+      order.push(key);
+    });
+  });
+  return order.map((k) => byKey.get(k)!);
 }

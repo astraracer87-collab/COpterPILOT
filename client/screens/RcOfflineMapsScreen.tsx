@@ -39,9 +39,29 @@ import { openLink } from "@/lib/webBrowser";
 import { clearGoogleKey, getGoogleKey, setGoogleKey } from "@/lib/googleTiles";
 import { clearDeeplKey, getDeeplKey, setDeeplKey } from "@/lib/zoneTranslationStore";
 import { clearDflightCredentials, getDflightCredentials, setDflightCredentials } from "@/lib/geozoneDirect/dflightAuth";
+import { deleteEd269Dataset, loadStoredEd269Dataset, type Ed269ImportMeta } from "@/lib/geozoneDirect/ed269Store";
+import { GEOZONE_IMPORT_FORMAT_LABELS, pickAndImportGeozoneFile } from "@/lib/geozoneDirect/geozoneFileImport";
+import { RO_ROMATSA_DRONES_URL } from "../../shared/geozoneImport";
 
 const LEVELS: DetailLevel[] = [11, 12, 13, 14, 15];
 const KIND_LABEL: Record<string, string> = { map: "Karte", sat: "Satellit", geo: "Geozonen" };
+
+// Hinweis je Land, warum/wie eine Geozonen-Datei importiert wird (Nur-Import-Länder).
+const IMPORT_HINTS: Record<string, { text: string; url?: string }> = {
+  RO: {
+    text:
+      "ROMATSA-Server sind für Android nicht erreichbar (veraltete Verschlüsselung). Lade Restricted_zones_for_UAS.json am PC von flightplan.romatsa.ro/init/drones herunter und importiere sie hier.",
+    url: RO_ROMATSA_DRONES_URL,
+  },
+};
+
+type ImportInfo = (Ed269ImportMeta & { count: number }) | null;
+
+function formatDateTimeDe(ts: number): string {
+  const d = new Date(ts);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()}, ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
 
 type CountryState = {
   packs: Record<string, PackProgress>;
@@ -136,6 +156,46 @@ export default function OfflineMapsScreen() {
     }
   };
   const stopFlags = useRef<Record<string, boolean>>({});
+
+  // Geozonen-Datei-Import je Land (Vektor-/Nur-Import-Länder)
+  const [importInfo, setImportInfo] = useState<Record<string, ImportInfo>>({});
+  const [importBusy, setImportBusy] = useState<string | null>(null);
+  const [importMsg, setImportMsg] = useState<Record<string, string | null>>({});
+  const loadImportInfo = useCallback(async (iso: string) => {
+    try {
+      const ds = await loadStoredEd269Dataset(iso);
+      setImportInfo((prev) => ({ ...prev, [iso]: ds?.imported ? { ...ds.imported, count: ds.features.length } : null }));
+    } catch {}
+  }, []);
+  useEffect(() => {
+    if (expanded) loadImportInfo(expanded);
+  }, [expanded, loadImportInfo]);
+  const importFile = async (iso: string) => {
+    setImportBusy(iso);
+    setImportMsg((prev) => ({ ...prev, [iso]: null }));
+    const r = await pickAndImportGeozoneFile(iso);
+    setImportBusy(null);
+    if (r.ok) {
+      setImportMsg((prev) => ({ ...prev, [iso]: `${r.count} Zonen importiert (${GEOZONE_IMPORT_FORMAT_LABELS[r.format]}).` }));
+      loadImportInfo(iso);
+    } else if (!r.canceled) {
+      setImportMsg((prev) => ({ ...prev, [iso]: r.error ?? "Import fehlgeschlagen." }));
+    }
+  };
+  const removeImport = (iso: string) => {
+    Alert.alert("Import entfernen", "Die importierten Geozonen dieses Landes vom Gerät löschen?", [
+      { text: "Abbrechen", style: "cancel" },
+      {
+        text: "Entfernen",
+        style: "destructive",
+        onPress: async () => {
+          await deleteEd269Dataset(iso);
+          setImportMsg((prev) => ({ ...prev, [iso]: null }));
+          loadImportInfo(iso);
+        },
+      },
+    ]);
+  };
 
   const patchState = useCallback((iso: string, fn: (s: CountryState) => CountryState) => {
     setState((prev) => ({ ...prev, [iso]: fn(prev[iso] ?? { packs: {}, obstacles: null, running: false }) }));
@@ -519,12 +579,56 @@ export default function OfflineMapsScreen() {
                           : country.geozoneKind === "tilestore"
                             ? `alle Zonen des Landes als Vektordaten, gekachelt · ca. ${formatMB(est.geoMB - est.wohnMB)}` +
                               ` (Download ca. ${formatMB(TILE_STORE_DOWNLOAD_MB[country.iso] ?? 0)})`
-                            : "für dieses Land keine Geozonen-Daten"
+                            : country.geozoneKind === "import"
+                              ? "kein automatischer Abruf möglich – nur per Datei-Import (unten)"
+                              : "für dieses Land keine Geozonen-Daten"
                     }
                     value={c.geozones}
                     onChange={(v) => update(country.iso, { geozones: v })}
-                    disabled={!country.hasGeozones}
+                    disabled={!country.hasGeozones || country.geozoneKind === "import"}
                   />
+                  {country.geozoneKind === "vector" || country.geozoneKind === "import" ? (
+                    <View style={{ gap: Spacing.sm }}>
+                      {IMPORT_HINTS[country.iso] ? (
+                        <Pressable
+                          disabled={!IMPORT_HINTS[country.iso].url}
+                          onPress={() => IMPORT_HINTS[country.iso].url && openLink(IMPORT_HINTS[country.iso].url!, "ROMATSA").catch(() => {})}
+                          style={[styles.noteBox, { backgroundColor: theme.backgroundSecondary }]}
+                        >
+                          <Feather name="alert-triangle" size={16} color={theme.textSecondary} />
+                          <ThemedText style={[styles.small, { flex: 1, color: theme.textSecondary }]}>{IMPORT_HINTS[country.iso].text}</ThemedText>
+                        </Pressable>
+                      ) : null}
+                      {importInfo[country.iso] ? (
+                        <ThemedText style={[styles.small, { color: theme.textSecondary }]} testID={`geozone-import-info-${country.iso}`}>
+                          Geozonen importiert am {formatDateTimeDe(importInfo[country.iso]!.importedAt)} aus {importInfo[country.iso]!.fileName}
+                          {` · ${importInfo[country.iso]!.count} Zonen (${importInfo[country.iso]!.source})`}
+                          {country.geozoneKind === "vector" ? " · eine erfolgreiche Online-Aktualisierung ersetzt den Import" : ""}
+                        </ThemedText>
+                      ) : null}
+                      <View style={styles.buttons}>
+                        <Pressable
+                          onPress={() => importFile(country.iso)}
+                          disabled={importBusy != null}
+                          style={[styles.btn, { backgroundColor: theme.backgroundSecondary, opacity: importBusy != null ? 0.5 : 1 }]}
+                          testID={`geozone-import-${country.iso}`}
+                        >
+                          {importBusy === country.iso ? <ActivityIndicator size="small" color={theme.primary} /> : <Feather name="upload" size={16} color={theme.primary} />}
+                          <ThemedText style={[styles.btnText, { color: theme.text }]}>Geozonen-Datei importieren</ThemedText>
+                        </Pressable>
+                        {importInfo[country.iso] ? (
+                          <Pressable onPress={() => removeImport(country.iso)} style={[styles.btn, { backgroundColor: "rgba(255,59,48,0.12)" }]}>
+                            <Feather name="x-circle" size={16} color="#FF3B30" />
+                            <ThemedText style={[styles.btnText, { color: "#FF3B30" }]}>Import entfernen</ThemedText>
+                          </Pressable>
+                        ) : null}
+                      </View>
+                      <ThemedText style={[styles.small, { color: theme.textTertiary }]}>
+                        ED-269, ED-318 oder GeoJSON (.json, .geojson oder .zip).
+                      </ThemedText>
+                      {importMsg[country.iso] ? <ThemedText style={styles.small}>{importMsg[country.iso]}</ThemedText> : null}
+                    </View>
+                  ) : null}
                   {country.iso === "DE" && country.geozoneKind === "tilestore" ? (
                     <Row
                       label="Wohngebiete (Wohngrundstücke) offline speichern"

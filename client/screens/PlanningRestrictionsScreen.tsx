@@ -19,13 +19,15 @@ import { attributionLabel } from "@/lib/sourceAttribution";
 import { Spacing, Typography, BorderRadius, Colors } from "@/constants/theme";
 import type { FlightPlanningParamList } from "@/navigation/FlightPlanningNavigator";
 import { geozoneIsActiveAt, ed269InactiveInfoText } from "@/lib/ed269";
-import { queryGeozonesInArea, GeozoneFeatureInfo, DipulGeozoneSourceStatus, separateTempRestrictions, getCountryGeozoneConfig, getCountriesInRadius, DipulTempRestriction, DipulTempRestrictionsResult, fetchNearbyTempRestrictionsRaw, loadRadarSettings, saveRadarSettings, HU_GEOZONE_RASTER_HINT } from "@/lib/geozones";
+import { uncoveredGeozoneSources, geozoneCoverageWarning, sourceCoverageWarning, type GeozoneSourceCoverage } from "@/lib/geozoneCoverage";
+import { countryName } from "../../shared/countryEntitlements";
+import { queryGeozonesInAreaWithCoverage, GeozoneFeatureInfo, DipulGeozoneSourceStatus, separateTempRestrictions, getCountryGeozoneConfig, getCountriesInRadius, DipulTempRestriction, DipulTempRestrictionsResult, fetchNearbyTempRestrictionsRaw, loadRadarSettings, saveRadarSettings, HU_GEOZONE_RASTER_HINT } from "@/lib/geozones";
 import { getTilePartMeta } from "@/lib/geozoneTiles/tileStore";
 import { TILE_STORE_ATTRIBUTION } from "@/lib/geozoneTiles/tileStoreCore";
 import { fetchElevation } from "@/lib/elevation";
 import { partitionByReachability, DEFAULT_REACHABLE_ALTITUDE_M, assessGeozoneAltitudeConflict } from "../../shared/geozoneAltitudeFilter";
 import { findMilLowFlightAreasContaining, findMilLowFlightAreasIntersectingRadius, MIL_LOW_FLIGHT_LABEL, MIL_LOW_FLIGHT_SOURCE_URL, MIL_LOW_FLIGHT_ACTIVATION_TEXT, MIL_LOW_FLIGHT_DATA_STAND, classifyMilLowFlightHits, getStatusLabel as getMilStatusLabel, getStatusColor as getMilStatusColor } from "@/lib/milLowFlight";
-import { getPilotProfile, savePilotProfile, PilotProfile, find21hRuleForLayer, is21hLayerAvEligible, isErlaubnisExpired, getDrone, DroneProfile, BUNDESLAND_AV_INFO, Bundesland, GENERAL_UAS_RESOURCES, AdditionalDoc, getFlightSession, getSettings } from "@/lib/storage";
+import { getPilotProfile, savePilotProfile, PilotProfile, de21hRule, isDe21hZoneAvEligible, isErlaubnisExpired, getDrone, DroneProfile, BUNDESLAND_AV_INFO, Bundesland, GENERAL_UAS_RESOURCES, AdditionalDoc, getFlightSession, getSettings } from "@/lib/storage";
 import { WildlifeRescueInfoModal } from "@/components/WildlifeRescueInfo";
 import { windFacilitiesAsGeozones, supplementalLinesAsGeozones, supplementalInfrastructureAsGeozones } from "@/lib/energyInfrastructureZones";
 import { getGermanWindFacility100mPoints, getRadarEnergyInfrastructureItems, getEnergyInfrastructureCountry } from "../../shared/germanEnergyInfrastructure";
@@ -123,6 +125,8 @@ export default function PlanningRestrictionsScreen() {
   const [tempRestrictions, setTempRestrictions] = useState<GeozoneFeatureInfo[]>([]);
   const [dipulTempRestrictions, setDipulTempRestrictions] = useState<DipulTempRestrictionsResult>({ active: [], upcoming: [] });
   const [dipulSourceStatus, setDipulSourceStatus] = useState<DipulGeozoneSourceStatus | null>(null);
+  // Abdeckungslücken der Geozonen-Abfrage (Länder ohne verwertbare Daten).
+  const [coverageGaps, setCoverageGaps] = useState<GeozoneSourceCoverage[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [pilotProfile, setPilotProfile] = useState<PilotProfile | null>(null);
@@ -168,8 +172,9 @@ export default function PlanningRestrictionsScreen() {
       setLoading(true);
       setError(false);
       setDipulSourceStatus(null);
+      setCoverageGaps([]);
       try {
-        const results = await queryGeozonesInArea(
+        const area = await queryGeozonesInAreaWithCoverage(
           latitude,
           longitude,
           localRadiusKm || 1,
@@ -177,6 +182,10 @@ export default function PlanningRestrictionsScreen() {
           (status) => { if (!cancelled) setDipulSourceStatus(status); },
         );
         if (cancelled) return;
+        const results = area.zones;
+        // Länder ohne verwertbare Daten (Fehler, fehlender Datensatz, keine
+        // automatische Prüfung) — darf NICHT als "keine Zonen" gelten.
+        setCoverageGaps(uncoveredGeozoneSources(area.sources));
         const separated = separateTempRestrictions(results);
         setRawGeozones(separated.geozones);
         setTempRestrictions(separated.tempRestrictions);
@@ -187,7 +196,7 @@ export default function PlanningRestrictionsScreen() {
         // Geländehöhe nur laden, wenn MSL-bezogene Vektorzonen (AT/BE/DK) vorliegen.
         const needsTerrain = separated.geozones.some(
           (gz) => gz.lowerReference === "MSL"
-            && ["AT", "BE", "DK", "NL", "EE", "CH", "LI", "FI", "NO", "SE", "IE", "LU", "PT", "ES", "PL", "LT", "IT", "GB", "IS", "CY", "HR", "SI", "BG", "LV", "SK"].includes(String(gz.country || countryIso || "").toUpperCase()),
+            && ["AT", "BE", "DK", "NL", "EE", "CH", "LI", "FI", "NO", "SE", "IE", "LU", "PT", "ES", "PL", "LT", "IT", "GB", "IS", "CY", "HR", "SI", "BG", "LV", "SK", ...(hasOwnMap("RO") ? ["RO"] : [])].includes(String(gz.country || countryIso || "").toUpperCase()),
         );
         if (needsTerrain) {
           fetchElevation(latitude, longitude)
@@ -225,7 +234,8 @@ export default function PlanningRestrictionsScreen() {
   // geplanten Höhe (Standard 120 m AGL) ausblenden. WMS-Länder bleiben unberührt.
   // Der Schalter "Alle Geozonen anzeigen" hebt den Filter auf.
   const { geozones, hiddenAboveGeozones } = useMemo(() => {
-    const VECTOR_ISOS = ["AT", "BE", "DK", "NL", "EE", "CH", "LI", "FI", "NO", "SE", "IE", "LU", "PT", "ES", "PL", "LT", "IT", "GB", "IS", "CY", "HR", "SI", "BG", "LV", "SK"];
+    // RO (nur Datei-Import) zählt erst mit gespeichertem Bestand als Vektor-Land.
+    const VECTOR_ISOS = ["AT", "BE", "DK", "NL", "EE", "CH", "LI", "FI", "NO", "SE", "IE", "LU", "PT", "ES", "PL", "LT", "IT", "GB", "IS", "CY", "HR", "SI", "BG", "LV", "SK", ...(hasOwnMap("RO") ? ["RO"] : [])];
     const isFilterable = (gz: GeozoneFeatureInfo) =>
       VECTOR_ISOS.includes(String(gz.country || countryIso || "").toUpperCase());
     if (showAllGeozones) return { geozones: rawGeozones, hiddenAboveGeozones: [] as GeozoneFeatureInfo[] };
@@ -280,8 +290,8 @@ export default function PlanningRestrictionsScreen() {
     // Nur § 21h-Kategorien, die eine Landes-AV rechtlich abdecken kann
     // (Wohngrundstücke, Bundesfern-/Wasserstraßen, Bahn). Luftsicherheits-/
     // zustimmungspflichtige Zonen (Flugplätze/HEMS, CTR, Industrie/Energie,
-    // Behörden) sind NIE AV-gedeckt.
-    return is21hLayerAvEligible(gz.layerLabel);
+    // Behörden) sind NIE AV-gedeckt. Nur DEUTSCHE Zonen (Landes-AV).
+    return isDe21hZoneAvEligible(gz);
   };
 
   // Höhenbewusste Vorab-Klassifizierung: reine Höhen-Limit-Zonen mit Decke
@@ -338,16 +348,32 @@ export default function PlanningRestrictionsScreen() {
   );
   const milLowFlightHotHits = milLowFlightClassified.hot;
   const milLowFlightInactiveHits = milLowFlightClassified.inactive;
+  // Abdeckungslücken (Review-Fix 4): Für diese Länder liegen keine Geozonen-
+  // Daten vor -> Zonen müssen manuell geprüft werden. Hat der Pilot die
+  // offizielle Karte des Standortlandes bereits im Standort-Schritt geprüft
+  // (manueller Flow, hasOwnMap === false), ist die Lücke dieses Landes erledigt.
+  const unresolvedCoverageGaps = coverageGaps.filter(
+    (g) => !(hasManualRestriction && g.iso === (countryIso || "").toUpperCase()),
+  );
+  // Ein kompletter Abfragefehler (error) ist ebenfalls eine Lücke für das
+  // Standortland — vorher führte er ohne Zonen zu hasRestrictions=false (GO).
+  const errorGap = error && !hasManualRestriction;
+  const hasCoverageGap = !loading && (errorGap || unresolvedCoverageGaps.length > 0);
+  const coverageGapWarnings = errorGap
+    ? [geozoneCoverageWarning(countryName(countryIso) || countryIso || "den Standort")]
+    : unresolvedCoverageGaps.map((g) => sourceCoverageWarning(g, countryName(g.iso) || g.iso));
   const hasAnyRestrictions =
     activeGeozones.length > 0 ||
     tempRestrictions.length > 0 ||
     milLowFlightHotHits.length > 0 ||
-    hasAdditionalEnergyInfrastructure;
+    hasAdditionalEnergyInfrastructure ||
+    hasCoverageGap;
   const hasUncoveredRestrictions =
     nonExemptedUncoveredGeozones.length > 0 ||
     tempRestrictions.length > 0 ||
     milLowFlightHotHits.length > 0 ||
-    hasAdditionalEnergyInfrastructure;
+    hasAdditionalEnergyInfrastructure ||
+    hasCoverageGap;
   const allCoveredByAV = hasAnyRestrictions && !hasUncoveredRestrictions;
 
   const hasBundeslandAv = hasValidBundeslandErlaubnis;
@@ -444,6 +470,7 @@ export default function PlanningRestrictionsScreen() {
       exemptionNote,
       nightNote,
       energyInfrastructureNote,
+      ...(hasCoverageGap ? coverageGapWarnings : []),
       userNotes,
     ]);
     navigation.navigate("PlanningDetails", {
@@ -457,7 +484,8 @@ export default function PlanningRestrictionsScreen() {
       restrictionStatus: deriveDetailsRestrictionStatus({
         restrictionChoice,
         allCoveredByAV,
-        allUncoveredExempted,
+        // Ausnahmen decken keine Abdeckungslücke: ohne Daten keine Auto-Freigabe.
+        allUncoveredExempted: allUncoveredExempted && !hasCoverageGap,
       }),
       restrictionNotes,
       ...forwardCrossCheckParams({ officialMapCrossCheck }),
@@ -491,6 +519,7 @@ export default function PlanningRestrictionsScreen() {
       exemptionNote,
       nightNote,
       energyInfrastructureNote,
+      ...(hasCoverageGap ? coverageGapWarnings : []),
       userNotes,
       alphaTangoNote,
     ]);
@@ -622,6 +651,7 @@ export default function PlanningRestrictionsScreen() {
     if (hasEdrRotBlock) warnings.push("Rote ED-R Zone(n) im Umkreis");
     if (tempRestrictions.length > 0) warnings.push(`${tempRestrictions.length} temporäre Beschränkung(en)`);
     if (nonExemptedUncoveredGeozones.length > 0) warnings.push(`${nonExemptedUncoveredGeozones.length} Geozone(n) ohne AV`);
+    if (hasCoverageGap) warnings.push(...coverageGapWarnings);
     if (hasMilLowFlightWarning) {
       const names = Array.from(milRouteAreaIds)
         .map((id) => milRouteIntersections.find((it) => it.area.id === id)?.area.name
@@ -867,6 +897,47 @@ export default function PlanningRestrictionsScreen() {
             <ThemedText style={[styles.statusText, { color: theme.statusCaution || "#FF9500" }]}>
               {attributionLabel(isAdmin, "Geozonen konnten nicht geladen werden. Bitte prüfe manuell auf dipul.de", "Geozonen konnten nicht geladen werden. Bitte später erneut versuchen.")}
             </ThemedText>
+          </Card>
+        ) : null}
+
+        {hasCoverageGap ? (
+          <Card testID="coverage-gap-warning" style={[styles.statusCard, { borderLeftColor: theme.statusCaution || "#FF9500" }]}>
+            <Feather name="alert-triangle" size={20} color={theme.statusCaution || "#FF9500"} />
+            <View style={styles.statusTextContainer}>
+              <ThemedText style={[styles.statusTitle, { color: theme.statusCaution || "#FF9500" }]}>
+                Geozonen nicht vollständig geprüft
+              </ThemedText>
+              {coverageGapWarnings.map((w, i) => (
+                <ThemedText key={`gap-${i}`} style={[styles.statusDesc, { color: theme.textSecondary }]}>
+                  {w}
+                </ThemedText>
+              ))}
+              {/* Ohne eigene Zonen-Liste gibt es sonst keine Auswahl — die manuelle
+                  Bestätigung ist Pflicht, ein "keine Zonen" darf nicht still GO ergeben. */}
+              {errorGap || uncoveredGeozones.length === 0 || allUncoveredExempted ? (
+                <View style={{ marginTop: Spacing.sm, gap: Spacing.xs }}>
+                  {([
+                    ["approved", "Manuell geprüft – Flug zulässig/genehmigt", theme.statusGo || "#34C759"],
+                    ["limited", "Manuell geprüft – Flug mit Einschränkungen", theme.statusCaution || "#FF9500"],
+                    ["nofly", "Flug nicht möglich", theme.statusNoGo || "#FF3B30"],
+                  ] as const).map(([value, label, color]) => (
+                    <Pressable
+                      key={value}
+                      testID={`coverage-choice-${value}`}
+                      onPress={() => { setRestrictionChoice(value); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+                      style={[styles.choiceOption, { borderColor: restrictionChoice === value ? color : theme.border }]}
+                    >
+                      <Feather name={restrictionChoice === value ? "check-circle" : "circle"} size={18} color={restrictionChoice === value ? color : theme.textTertiary} />
+                      <View style={styles.choiceTextContainer}>
+                        <ThemedText style={[styles.choiceTitle, restrictionChoice === value ? { color, fontWeight: "700" } : undefined]}>
+                          {label}
+                        </ThemedText>
+                      </View>
+                    </Pressable>
+                  ))}
+                </View>
+              ) : null}
+            </View>
           </Card>
         ) : null}
 
@@ -1467,7 +1538,7 @@ export default function PlanningRestrictionsScreen() {
               </ThemedText>
             </View>
             {coveredGeozones.map((gz, idx) => {
-              const rule = !gz.informationalOnly && (!gz.country || gz.country === "DE") ? find21hRuleForLayer(gz.layerLabel) : null;
+              const rule = !gz.informationalOnly ? de21hRule(gz) : null;
               return (
                 <Card key={`cov-${idx}`} style={[styles.geozoneCard, { borderLeftWidth: 3, borderLeftColor: theme.statusGo || "#34C759" }]}>
                   <View style={styles.geozoneCardHeader}>

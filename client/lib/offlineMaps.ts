@@ -29,6 +29,7 @@ import { detectCountryFromCoordinates } from "../../shared/countryDetection";
 import { detectBundeslandFromCoordinates } from "@/lib/countryMaps";
 import { isEd269DirectCountry } from "@/lib/geozoneDirect/ed269Sources";
 import { refreshEd269Dataset } from "@/lib/geozoneDirect/ed269Store";
+import { GEOZONE_IMPORT_ONLY_ISOS } from "../../shared/geozoneImport";
 import { deleteTileStore, downloadTileStore, getTilePartMeta, loadTileStoreMeta } from "@/lib/geozoneTiles/tileStore";
 import { TILE_STORE_ATTRIBUTION, isTileStoreIso, type TileStorePart } from "@/lib/geozoneTiles/tileStoreCore";
 import { OBSTACLE_TILE_ZOOM, deleteObstacleTiles, hasObstacleTile, loadObstacleTile, tilesForBounds } from "@/lib/obstacles";
@@ -136,7 +137,8 @@ function fillTemplate(t: string, x: number, y: number, z: number): string {
 // Konfiguration
 // ---------------------------------------------------------------------------
 
-export type GeozoneOfflineKind = "tiles" | "vector" | "tilestore" | "none";
+// "import": kein Online-Feed erreichbar (RO) – nur per Datei-Import in den ED-269-Gerätecache
+export type GeozoneOfflineKind = "tiles" | "vector" | "tilestore" | "import" | "none";
 
 export interface OfflineCountryInfo {
   iso: string;
@@ -159,6 +161,7 @@ export function geozoneOfflineKind(iso: string): GeozoneOfflineKind {
   if (geozoneTemplates(iso).length > 0) return "tiles";
   // Liechtenstein steckt im Schweizer BAZL-Datensatz (ed269Store: li -> ch)
   if (isEd269DirectCountry(iso) || String(iso).toUpperCase() === "LI") return "vector";
+  if (GEOZONE_IMPORT_ONLY_ISOS.includes(String(iso).toUpperCase())) return "import";
   return "none";
 }
 

@@ -149,7 +149,7 @@ export default function OfflineMapsScreen() {
                 )}
                 {meta ? (
                   <ThemedText style={[styles.metaLine, { color: theme.textTertiary }]}>
-                    {meta.featureCount} Zonen · {meta.notamCount} NOTAMs · {formatSize(meta.sizeBytes)}
+                    {meta.featureCount} Zonen · {meta.notamsUnavailable ? "NOTAMs nicht verfügbar" : `${meta.notamCount} NOTAMs`} · {formatSize(meta.sizeBytes)}
                   </ThemedText>
                 ) : null}
               </View>

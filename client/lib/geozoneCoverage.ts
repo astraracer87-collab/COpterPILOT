@@ -12,7 +12,7 @@
 import { detectCountryFromCoordinates } from "./countryMaps";
 import { parseEd269ToGeozoneInfo } from "./ed269";
 import type { GeozoneFeatureInfo } from "./geozones";
-import { getEd269Dataset } from "./geozoneDirect/ed269Store";
+import { getEd269Dataset, ED269_REFRESH_AFTER_MS } from "./geozoneDirect/ed269Store";
 import { queryEd269Features } from "./geozoneDirect/ed269Query";
 
 // Sowohl die Radius- (getCountriesInRadius) als auch die Viewport-Abdeckung
@@ -55,9 +55,106 @@ export async function queryEd269CachedFeaturesFrom(
   // Download erzwingen (z. B. beim Laden eines Offline-Pakets).
   forceRefresh?: boolean,
 ): Promise<GeozoneFeatureInfo[]> {
+  const r = await queryEd269CachedFeaturesWithStatusFrom(
+    _baseUrl, lat, lon, radiusKm, iso, limit, fullCountry, maxValidityDays, forceRefresh,
+  );
+  return r.zones;
+}
+
+// ---------------------------------------------------------------------------
+// Abdeckungs-Information (Review-Fix 4): "keine Zonen" darf nicht mit "keine
+// Daten" verwechselt werden. Ein fehlender Datensatz, ein Abruffehler oder ein
+// Land ohne automatische Prüfung ergibt KEIN grünes Ergebnis, sondern eine
+// Abdeckungslücke, die der Pilot manuell prüfen muss.
+// ---------------------------------------------------------------------------
+
+/** Status einer einzelnen Länder-Quelle. "ok"/"stale" gelten als abgedeckt. */
+// "partial": Land nur teilweise geprüft (z. B. DE-Offline-Paket ohne Wohngrundstücke).
+export type GeozoneSourceStatus = "ok" | "stale" | "partial" | "missing" | "error" | "unsupported";
+
+export interface GeozoneSourceCoverage {
+  iso: string;
+  status: GeozoneSourceStatus;
+  /** Zeitpunkt des Datenbestands (ms), sofern bekannt. */
+  fetchedAt?: number;
+  /** Optionaler Hinweis (deutsch), z. B. "Offline-Paket fehlt". */
+  note?: string;
+}
+
+export type GeozoneCoverage = "complete" | "partial" | "unavailable";
+
+export interface GeozoneAreaResult {
+  zones: GeozoneFeatureInfo[];
+  coverage: GeozoneCoverage;
+  sources: GeozoneSourceCoverage[];
+}
+
+export interface Ed269StatusResult {
+  zones: GeozoneFeatureInfo[];
+  status: GeozoneSourceStatus;
+  fetchedAt?: number;
+  note?: string;
+}
+
+/** Quelle liefert verwertbare Daten (auch veraltete gelten als vorhanden). */
+export function isSourceCovered(status: GeozoneSourceStatus): boolean {
+  return status === "ok" || status === "stale";
+}
+
+/** Fasst die Quellen zu einer Gesamt-Abdeckung zusammen. Keine Quelle = unavailable. */
+export function summarizeGeozoneCoverage(sources: GeozoneSourceCoverage[]): GeozoneCoverage {
+  if (sources.length === 0) return "unavailable";
+  const covered = sources.filter((s) => isSourceCovered(s.status)).length;
+  if (covered === sources.length) return "complete";
+  const someData = covered > 0 || sources.some((s) => s.status === "partial");
+  return someData ? "partial" : "unavailable";
+}
+
+/** Quellen ohne verwertbare Daten (missing/error/unsupported). */
+export function uncoveredGeozoneSources(sources: GeozoneSourceCoverage[]): GeozoneSourceCoverage[] {
+  return sources.filter((s) => !isSourceCovered(s.status));
+}
+
+/** Schlechterer von zwei Status (für Länder mit mehreren Teilquellen). */
+export function worseSourceStatus(a: GeozoneSourceStatus, b: GeozoneSourceStatus): GeozoneSourceStatus {
+  const rank: Record<GeozoneSourceStatus, number> = { ok: 0, stale: 1, partial: 2, missing: 3, unsupported: 3, error: 4 };
+  return rank[b] > rank[a] ? b : a;
+}
+
+/** Deutscher Warntext für eine Abdeckungslücke. */
+export function geozoneCoverageWarning(countryLabel: string, note?: string): string {
+  const base = `Geozonen-Daten für ${countryLabel} nicht verfügbar – Zonen bitte manuell prüfen.`;
+  return note ? `${base} (${note})` : base;
+}
+
+/** Warntext je Quelle: "partial" -> unvollständig (mit Hinweis), sonst nicht verfügbar. */
+export function sourceCoverageWarning(source: GeozoneSourceCoverage, countryLabel: string): string {
+  if (source.status === "partial") {
+    return `Geozonen-Daten für ${countryLabel} unvollständig${source.note ? `: ${source.note}` : ""} – Zonen bitte manuell prüfen.`;
+  }
+  return geozoneCoverageWarning(countryLabel);
+}
+
+// Wie queryEd269CachedFeaturesFrom, liefert aber zusätzlich den Status der
+// Quelle: kein Datensatz -> "missing", Ausnahme -> "error", älter als das
+// Aktualisierungsintervall -> "stale", sonst "ok". Wirft nie.
+export async function queryEd269CachedFeaturesWithStatusFrom(
+  _baseUrl: string,
+  lat: number,
+  lon: number,
+  radiusKm: number,
+  iso: string,
+  limit?: number,
+  fullCountry?: boolean,
+  maxValidityDays?: number,
+  forceRefresh?: boolean,
+): Promise<Ed269StatusResult> {
   try {
     const ds = await getEd269Dataset(iso, { forceRefresh });
-    if (!ds) return [];
+    if (!ds) return { zones: [], status: "missing", note: "kein Datenbestand auf dem Gerät" };
+    const fetchedAt = ds.fetchedAt > 0 ? ds.fetchedAt : undefined;
+    const status: GeozoneSourceStatus =
+      Date.now() - (ds.fetchedAt || 0) > ED269_REFRESH_AFTER_MS ? "stale" : "ok";
     let bbox: [number, number, number, number] | undefined;
     if (!fullCountry) {
       const kmToDegLat = 1 / 111.32;
@@ -74,10 +171,10 @@ export async function queryEd269CachedFeaturesFrom(
           ? maxValidityDays
           : undefined,
     });
-    return parseEd269ToGeozoneInfo(feats, iso);
+    return { zones: parseEd269ToGeozoneInfo(feats, iso), status, fetchedAt };
   } catch (e: any) {
     console.warn("[Geozones] ED-269 query error:", e?.message || e);
-    return [];
+    return { zones: [], status: "error", note: String(e?.message || e) };
   }
 }
 

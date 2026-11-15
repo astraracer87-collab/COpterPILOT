@@ -50,4 +50,9 @@ export interface GeozoneFeatureInfo {
   links?: { label: string; url: string }[];
   /** Unknown reference retains the existing AGL fallback in height filtering. */
   lowerReference?: "MSL" | "AGL";
+  /** Explicit maximum flight height AGL (m) allowed without authorisation, e.g.
+   * SE CTR/TIZ/ATZ 50 m (normalisers: openCategoryMaxAglMeters). The only
+   * structured field that may clear a zone by altitude — upperMeters is the top
+   * of the restricted volume, NOT a height limit (ED-269). */
+  maxFlightHeightAglM?: number;
 }

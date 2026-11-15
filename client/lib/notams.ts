@@ -212,6 +212,23 @@ function getNearbyAirportCodes(lat: number, lon: number): string[] {
     .map((a) => a.icao);
 }
 
+/** Hinweistext, wenn die NOTAM-Abfrage fehlgeschlagen ist (z. B. HTTP 401 ohne Token). */
+export const NOTAM_STATUS_UNKNOWN_TEXT =
+  "NOTAM-Status unbekannt – bitte manuell prüfen (z. B. DFS AIS / EAD)";
+
+/**
+ * Anzahl aktiver NOTAMs oder `null`, wenn der Status unbekannt ist. Eine
+ * fehlgeschlagene Abfrage (HTTP-Fehler, Zeitüberschreitung ohne Cache,
+ * Netzwerkfehler) liefert `notams: []` + `failed: true` — das darf NIE als
+ * "keine NOTAMs im Umkreis" (grün) gewertet werden.
+ */
+export function notamCountOrUnknown(
+  result: { notams: unknown[]; failed?: boolean } | null | undefined,
+): number | null {
+  if (!result || result.failed) return null;
+  return result.notams.length;
+}
+
 export async function fetchNotams(
   lat: number,
   lon: number,
@@ -222,6 +239,8 @@ export async function fetchNotams(
   total: number;
   queriedCodes: string[];
   error?: string;
+  /** true: Abfrage fehlgeschlagen, KEINE verwertbaren Daten (auch kein Cache/Offline). */
+  failed?: boolean;
 }> {
   try {
     if (isOfflineNow()) {
@@ -264,6 +283,7 @@ export async function fetchNotams(
         total: 0,
         queriedCodes: uniqueCodes,
         error: `HTTP ${response.status}`,
+        failed: true,
       };
     }
 
@@ -312,6 +332,7 @@ export async function fetchNotams(
         total: 0,
         queriedCodes: [],
         error: "Zeitüberschreitung",
+        failed: true,
       };
     }
     return {
@@ -319,6 +340,7 @@ export async function fetchNotams(
       total: 0,
       queriedCodes: [],
       error: err.message || "Unbekannter Fehler",
+      failed: true,
     };
   }
 }

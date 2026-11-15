@@ -10,6 +10,23 @@ ein eigener Live-Abruf (siehe §6).
 
 Vergleich: NL/AT/IT/LU/IE/PL/BE/PT-Dokumente in `docs/`.
 
+> **Stand 2026-11-15 (Umsetzung):** Primärquelle sind jetzt die offiziellen
+> **ED-318-Downloads im AIP** – `https://aip.enaire.es/recursos/descargas/ZGUAS/`
+> mit `ZGUAS_Aero.zip` (≈ 2,5 MB), `ZGUAS_Infra.zip` (≈ 18 MB) und
+> `ZGUAS_Urbano.zip` (≈ 27 KB); jede `.json` im ZIP wird als EUROCAE ED-318
+> gelesen (`shared/ed318Pure.ts` → `normalizeSpanishEd318` in
+> `shared/spanishGeozones.ts`, Abruf `client/lib/geozoneDirect/spainSource.ts`,
+> Timeout 240 s je ZIP). Liefert **kein** ZIP gültige Zonen, folgt der bisherige
+> **ArcGIS-/WFS-Pfad** (§3) als Rückfall; liefert auch der nichts → Fehler (der
+> vorhandene Gerätebestand bleibt). Nachbearbeitung wie bisher (deutsche
+> Kurzfassung, Layer-Default-Beschränkung, Höhenfilter > 500 ft AGL bzw.
+> > 3800 m MSL, Ablauf, Dedupe über `identifier`).
+> ⚠️ **Nicht live verifiziert:** `aip.enaire.es` ist aus der Sandbox ebenfalls
+> geo-gesperrt (403). Verzeichnisliste vom Nutzer bestätigt; der ZIP-Inhalt ist
+> nach dem ED-318-Schema angenommen. Die Test-Fixture (im Test gezippt) ist den
+> echten CZ-/SE-ED-318-Dateien nachgebaut und muss durch echte ES-Dateien
+> ersetzt werden, sobald sie von einer ES-IP geladen wurden.
+
 ---
 
 ## 1. Kurzfassung

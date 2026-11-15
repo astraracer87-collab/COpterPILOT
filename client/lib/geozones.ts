@@ -6,10 +6,17 @@ import {
   buildGeozoneWmsTileTemplates,
 } from "@/lib/geozoneTileUrl";
 import {
-  queryEd269CachedFeaturesFrom,
+  queryEd269CachedFeaturesWithStatusFrom,
   getCountriesInRadius as getCountriesInRadiusFrom,
   getViewportCountries as getViewportCountriesFrom,
+  summarizeGeozoneCoverage,
+  worseSourceStatus,
+  type Ed269StatusResult,
+  type GeozoneAreaResult,
+  type GeozoneSourceCoverage,
+  type GeozoneSourceStatus,
 } from "@/lib/geozoneCoverage";
+export type { GeozoneAreaResult, GeozoneSourceCoverage, GeozoneSourceStatus, GeozoneCoverage } from "@/lib/geozoneCoverage";
 import { isLoggedInSync } from "@/lib/auth";
 import { isOfflineNow } from "@/lib/network";
 import { getOfflinePackFeatures } from "@/lib/offlineStore";
@@ -17,8 +24,9 @@ import {
   hasTiledGeozones,
   queryTiledGeozones,
   queryTiledGeozonesAtPoint,
+  getTilePartMeta,
 } from "@/lib/geozoneTiles/tileStore";
-import { bboxAround } from "@/lib/geozoneTiles/tileStoreCore";
+import { bboxAround, DIPUL_WOHN_LAYER } from "@/lib/geozoneTiles/tileStoreCore";
 import {
   queryChRestIdentifyFrom,
   queryDipulWfsFeaturesFrom,
@@ -124,7 +132,7 @@ export {
   COUNTRY_WMS_MAX_NATIVE_ZOOM,
 } from "@/lib/geozoneZoom";
 
-export type CountryIsoWithGeozones = "DE" | "CH" | "LU" | "NL" | "FR" | "AT" | "BE" | "DK" | "EE" | "FI" | "NO" | "SE" | "IE" | "PT" | "ES" | "PL" | "LT" | "IT" | "GB" | "IS" | "CY" | "HR" | "SI" | "HU" | "BG" | "LV" | "CZ" | "SK";
+export type CountryIsoWithGeozones = "DE" | "CH" | "LU" | "NL" | "FR" | "AT" | "BE" | "DK" | "EE" | "FI" | "NO" | "SE" | "IE" | "PT" | "ES" | "PL" | "LT" | "IT" | "GB" | "IS" | "CY" | "HR" | "SI" | "HU" | "BG" | "LV" | "CZ" | "SK" | "RO";
 
 export interface CountryGeozoneConfig {
   iso: CountryIsoWithGeozones;
@@ -422,6 +430,18 @@ export const COUNTRY_GEOZONE_CONFIGS: Record<string, CountryGeozoneConfig> = {
   SK: {
     // Slowakei: Drohnenzonen des Dopravný úrad (KML) plus Lufträume der LPS SR (ArcGIS), ohne Anmeldung.
     iso: "SK",
+    wmsBaseUrl: "",
+    wmsVersion: "1.3.0",
+    layers: [],
+    featureInfoType: "ed269-cached",
+    alwaysVisibleLayerIds: [],
+    forceEnabledLayerIds: [],
+  },
+  RO: {
+    // Rumänien (ROMATSA): Server für Android nicht erreichbar (veraltete TLS-
+    // DH-Parameter) – Zonen NUR per Datei-Import (Offline-Einstellungen) im
+    // ED-269-Gerätecache. Ohne Import hasOwnMap("RO") = false.
+    iso: "RO",
     wmsBaseUrl: "",
     wmsVersion: "1.3.0",
     layers: [],
@@ -875,26 +895,43 @@ export async function queryEd269CachedFeatures(
   maxValidityDays?: number,
   opts?: { layers?: string[] },
 ): Promise<GeozoneFeatureInfo[]> {
+  const r = await queryEd269CachedFeaturesWithStatus(lat, lon, radiusKm, iso, limit, fullCountry, maxValidityDays, opts);
+  return r.zones;
+}
+
+// Wie queryEd269CachedFeatures, liefert aber zusätzlich den Quellen-Status
+// (ok/stale/missing/error) für die Abdeckungs-Information der Flächenabfrage.
+export async function queryEd269CachedFeaturesWithStatus(
+  lat: number,
+  lon: number,
+  radiusKm: number,
+  iso: string,
+  limit?: number,
+  fullCountry?: boolean,
+  maxValidityDays?: number,
+  opts?: { layers?: string[] },
+): Promise<Ed269StatusResult> {
   // DE/FR/CZ mit Offline-Kachelspeicher: nur die Kacheln des Ausschnitts lesen
   // (nie das ganze Land, keine NOTAM-artige Gesamtabfrage).
   if (hasTiledGeozones(iso)) {
-    if (fullCountry || maxValidityDays) return [];
-    return (await queryTiledGeozones(iso, bboxAround(lat, lon, radiusKm), { limit, layers: opts?.layers })) ?? [];
+    if (fullCountry || maxValidityDays) return { zones: [], status: "ok" };
+    const tiled = await queryTiledGeozones(iso, bboxAround(lat, lon, radiusKm), { limit, layers: opts?.layers });
+    return tiled ? { zones: tiled, status: "ok" } : { zones: [], status: "missing", note: "Offline-Paket nicht lesbar" };
   }
   // Offline: zuerst das gespeicherte Paket nutzen (die Geometrie-/Radius-
   // Filterung erledigt ohnehin queryGeozonesInArea nachgelagert). Nur wenn kein
   // Paket existiert, fällt der Netzwerkpfad durch (liefert offline i. d. R. []).
   if (isOfflineNow()) {
     const off = await getOfflinePackFeatures(iso);
-    if (off && off.length) return off as GeozoneFeatureInfo[];
+    if (off && off.length) return { zones: off as GeozoneFeatureInfo[], status: "ok" };
   }
-  try {
-    return await queryEd269CachedFeaturesFrom("", lat, lon, radiusKm, iso, limit, fullCountry, maxValidityDays);
-  } catch (err) {
-    const off = await getOfflinePackFeatures(iso);
-    if (off && off.length) return off as GeozoneFeatureInfo[];
-    throw err;
+  const r = await queryEd269CachedFeaturesWithStatusFrom("", lat, lon, radiusKm, iso, limit, fullCountry, maxValidityDays);
+  if (r.status === "missing" || r.status === "error") {
+    // Kein Gerätebestand / Abruf fehlgeschlagen: gespeichertes Offline-Paket als Rückfall.
+    const off = await getOfflinePackFeatures(iso).catch(() => null);
+    if (off && off.length) return { zones: off as GeozoneFeatureInfo[], status: "stale", note: "aus Offline-Paket" };
   }
+  return r;
 }
 
 export const TEMP_RESTRICTION_LAYER_LABEL = "Temporäre Beschränkungen";
@@ -1631,14 +1668,48 @@ export function getCountriesInRadius(lat: number, lon: number, radiusKm: number,
   return getCountriesInRadiusFrom(Object.keys(COUNTRY_GEOZONE_CONFIGS), lat, lon, radiusKm, primaryIso);
 }
 
+export const DE_WOHN_OFFLINE_MISSING_NOTE = "Wohngrundstücke offline nicht gespeichert – nicht geprüft";
+export const DE_WOHN_LIVE_FAILED_NOTE = "Wohngrundstücke konnten nicht live geladen werden – nicht geprüft";
+
+/**
+ * DE-Kachelpaket ohne "wohn"-Teil, Gerät online: Wohngrundstücke live über den
+ * DIPUL-WFS ergänzen. Schlägt das fehl, wird die DE-Abdeckung als "partial"
+ * gemeldet (nie still "keine Wohngrundstücke").
+ */
+async function queryDipulWohnLive(
+  lat: number,
+  lon: number,
+  radiusKm: number,
+  report?: (s: { status: GeozoneSourceStatus; note?: string }) => void,
+): Promise<GeozoneFeatureInfo[]> {
+  const wohnLayers = GEOZONE_LAYERS.filter((l) => l.wmsLayer === DIPUL_WOHN_LAYER);
+  try {
+    const r = await queryDipulWfsFeaturesFrom("", wohnLayers, lat, lon, radiusKm);
+    if (r.failedLayers.includes(DIPUL_WOHN_LAYER)) report?.({ status: "partial", note: DE_WOHN_LIVE_FAILED_NOTE });
+    return r.zones;
+  } catch {
+    report?.({ status: "partial", note: DE_WOHN_LIVE_FAILED_NOTE });
+    return [];
+  }
+}
+
 async function queryGeozonesForCountry(
   lat: number,
   lon: number,
   radiusKm: number,
   iso: string,
   onDipulSourceStatus?: (status: DipulGeozoneSourceStatus) => void,
+  // Abdeckungs-Information (Review-Fix 4): meldet missing/error/unsupported/
+  // stale. Ohne Meldung gilt die Quelle als "ok" (bzw. "error", wenn die
+  // Funktion wirft).
+  report?: (s: { status: GeozoneSourceStatus; fetchedAt?: number; note?: string }) => void,
 ): Promise<GeozoneFeatureInfo[]> {
   const config = getCountryGeozoneConfig(iso);
+  const ed269 = (vIso: string) =>
+    queryEd269CachedFeaturesWithStatus(lat, lon, radiusKm, vIso, GEOZONE_VECTOR_MAX_FEATURES).then((r) => {
+      report?.(r);
+      return r.zones;
+    });
 
   // Offline-Kachelspeicher (DE/FR/CZ) hat Vorrang – auch online.
   if (hasTiledGeozones(config.iso)) {
@@ -1647,9 +1718,18 @@ async function queryGeozonesForCountry(
       if (config.iso !== "DE") return tiled;
       // Modellflugplätze/Hängegleiter gibt es nicht im dipul-WFS: online per WMS ergänzen
       onDipulSourceStatus?.({ mode: "vector", approximateLayers: [] });
-      if (isOfflineNow()) return tiled;
-      const extra = await queryWmsFeatureInfoLayers(DIPUL_WMS_ONLY_LAYERS, lat, lon, radiusKm, "DE").catch(() => []);
-      return [...tiled, ...extra];
+      // Wohngrundstücke sind ein abwählbarer Paket-Teil ("wohn"). Fehlt er,
+      // wurden sie bisher NIE geprüft — auch online nicht (Review-Fix 6).
+      const hasWohnPart = getTilePartMeta("DE", "wohn")?.complete === true;
+      if (isOfflineNow()) {
+        if (!hasWohnPart) report?.({ status: "partial", note: DE_WOHN_OFFLINE_MISSING_NOTE });
+        return tiled;
+      }
+      const [extra, wohn] = await Promise.all([
+        queryWmsFeatureInfoLayers(DIPUL_WMS_ONLY_LAYERS, lat, lon, radiusKm, "DE").catch(() => []),
+        hasWohnPart ? Promise.resolve([] as GeozoneFeatureInfo[]) : queryDipulWohnLive(lat, lon, radiusKm, report),
+      ]);
+      return [...tiled, ...extra, ...wohn];
     }
   }
 
@@ -1657,28 +1737,37 @@ async function queryGeozonesForCountry(
     return queryDipulGeozones(lat, lon, radiusKm, onDipulSourceStatus);
   }
 
-  // CZ: Zonen nur aus dem Offline-Paket
-  if (config.featureInfoType === "tiles") return [];
+  // CZ: Zonen nur aus dem Offline-Paket -> ohne Paket keine automatische Prüfung.
+  if (config.featureInfoType === "tiles") {
+    report?.({ status: "missing", note: "Offline-Paket nicht geladen" });
+    return [];
+  }
 
   if (config.iso === "CH") {
     // BAZL-Vektorzonen plus Zusatz-Ebenen (Ruhezonen, Wohngebiete) per REST
     const [vector, extra] = await Promise.all([
-      queryEd269CachedFeatures(lat, lon, radiusKm, "CH", GEOZONE_VECTOR_MAX_FEATURES).catch(() => []),
+      ed269("CH").catch(() => { report?.({ status: "error" }); return [] as GeozoneFeatureInfo[]; }),
       queryChRestIdentify(lat, lon, radiusKm).catch(() => []),
     ]);
     return [...vector, ...extra];
   }
 
   if (config.iso === "LU") {
-    const vector = await queryEd269CachedFeatures(lat, lon, radiusKm, "LU", GEOZONE_VECTOR_MAX_FEATURES).catch(() => []);
-    return vector.length > 0 ? vector : queryLuOgcFeatures(lat, lon, radiusKm);
+    // Vektor-Bestand; ohne Bestand greift der Live-OGC-Rückfall (wirft bei Fehler).
+    const r = await queryEd269CachedFeaturesWithStatus(lat, lon, radiusKm, "LU", GEOZONE_VECTOR_MAX_FEATURES)
+      .catch(() => ({ zones: [] as GeozoneFeatureInfo[], status: "error" as const }));
+    if (r.zones.length > 0) {
+      report?.(r);
+      return r.zones;
+    }
+    return queryLuOgcFeatures(lat, lon, radiusKm);
   }
 
   if (config.iso === "NL") {
     // GoDrone-Vektorzonen plus Natur-Ebenen (Natura 2000 / NNN) aus PDOK
     const nlWmsLayers = config.layers.filter((l) => l.defaultEnabled).map((l) => l.wmsLayer);
     const [vector, nature] = await Promise.all([
-      queryEd269CachedFeatures(lat, lon, radiusKm, iso, GEOZONE_VECTOR_MAX_FEATURES).catch(() => []),
+      ed269(iso).catch(() => { report?.({ status: "error" }); return [] as GeozoneFeatureInfo[]; }),
       queryNlWfsFeatures(lat, lon, radiusKm, nlWmsLayers).catch(() => []),
     ]);
     return [...vector, ...nature];
@@ -1688,8 +1777,11 @@ async function queryGeozonesForCountry(
     return queryFrWmsFeatures(lat, lon, radiusKm);
   }
 
-  // Reine Bild-Overlays (z. B. HU): keine abfragbaren Zonen.
-  if (config.featureInfoType === "none") return [];
+  // Reine Bild-Overlays (z. B. HU): keine abfragbaren Zonen -> keine automatische Prüfung.
+  if (config.featureInfoType === "none") {
+    report?.({ status: "unsupported", note: "keine automatische Zonenabfrage" });
+    return [];
+  }
 
   if (config.featureInfoType === "ed269-cached") {
     // Planungs-/PDF-Pfad: der volle (Planungs-)Radius bleibt erhalten, aber die
@@ -1699,11 +1791,14 @@ async function queryGeozonesForCountry(
     // ein weiter Radius in einem dichten Land (z. B. Großraum Kopenhagen) kann
     // so aber nicht mehr eine landesweite Massenantwort ziehen, die in den
     // 12-s-Client-Abort läuft und die Zonen still verschwinden lässt.
-    return queryEd269CachedFeatures(lat, lon, radiusKm, iso, GEOZONE_VECTOR_MAX_FEATURES);
+    return ed269(iso);
   }
 
   const layers = getAllLayerNames(iso);
-  if (layers.length === 0) return [];
+  if (layers.length === 0) {
+    report?.({ status: "unsupported", note: "keine abfragbaren Ebenen" });
+    return [];
+  }
 
   const kmToDegLat = 1 / 111.32;
   const kmToDegLon = 1 / (111.32 * Math.cos(degToRad(lat)));
@@ -1722,6 +1817,7 @@ async function queryGeozonesForCountry(
   const bboxLatDelta = dLat * 2.5;
   const bboxLonDelta = dLon * 2.5;
 
+  let failedSamples = 0;
   const results = await Promise.all(
     sampleOffsets.map(([oLat, oLon]) => {
       const sLat = lat + oLat * dLat;
@@ -1731,9 +1827,14 @@ async function queryGeozonesForCountry(
         mapSize, mapSize,
         bboxLatDelta, bboxLonDelta,
         iso,
-      ).catch(() => [] as GeozoneFeatureInfo[]);
+      ).catch(() => {
+        failedSamples++;
+        return [] as GeozoneFeatureInfo[];
+      });
     })
   );
+  // Alle Abtastpunkte fehlgeschlagen -> Quelle nicht erreichbar (nicht "keine Zonen").
+  if (failedSamples === sampleOffsets.length) report?.({ status: "error", note: "Abfrage fehlgeschlagen" });
 
   const seen = new Set<string>();
   const unique: GeozoneFeatureInfo[] = [];
@@ -1756,42 +1857,106 @@ export async function queryGeozonesInArea(
   countryIso?: string,
   onDipulSourceStatus?: (status: DipulGeozoneSourceStatus) => void,
 ): Promise<GeozoneFeatureInfo[]> {
+  const r = await queryGeozonesInAreaWithCoverage(lat, lon, radiusKm, countryIso, onDipulSourceStatus);
+  return r.zones;
+}
+
+/**
+ * Wie queryGeozonesInArea, liefert aber zusätzlich, für welche Länder die
+ * Abfrage tatsächlich Daten hatte (Review-Fix 4). Ein Abruffehler, ein
+ * fehlender Datensatz (z. B. CZ ohne Offline-Paket, IT ohne d-flight-Login,
+ * RO ohne Import) oder ein Land ohne automatische Prüfung (HU) erscheint als
+ * Quelle mit status missing/error/unsupported und senkt `coverage` auf
+ * "partial"/"unavailable" — statt still als "keine Zonen" (grün) zu gelten.
+ */
+export async function queryGeozonesInAreaWithCoverage(
+  lat: number,
+  lon: number,
+  radiusKm: number,
+  countryIso?: string,
+  onDipulSourceStatus?: (status: DipulGeozoneSourceStatus) => void,
+): Promise<GeozoneAreaResult> {
   const countries = getCountriesInRadius(lat, lon, radiusKm, countryIso);
-  if (countries.length === 0) return [];
+  if (countries.length === 0) {
+    // Standort außerhalb aller unterstützten Länder: keine automatische Prüfung.
+    const iso = (countryIso || "").toUpperCase();
+    const sources: GeozoneSourceCoverage[] = iso ? [{ iso, status: "unsupported" }] : [];
+    return { zones: [], coverage: "unavailable", sources };
+  }
   const primary = countries[0];
   const neighbors = countries.slice(1);
+  const sources = new Map<string, GeozoneSourceCoverage>();
+  const reporterFor = (iso: string) => (s: { status: GeozoneSourceStatus; fetchedAt?: number; note?: string }) => {
+    const prev = sources.get(iso) ?? { iso, status: "ok" as GeozoneSourceStatus };
+    const status = worseSourceStatus(prev.status, s.status);
+    sources.set(iso, {
+      iso,
+      status,
+      fetchedAt: s.fetchedAt ?? prev.fetchedAt,
+      note: status === s.status ? (s.note ?? prev.note) : prev.note,
+    });
+  };
+  for (const iso of countries) sources.set(iso, { iso, status: "ok" });
 
-  const withTimeout = (promise: Promise<GeozoneFeatureInfo[]>, ms: number): Promise<GeozoneFeatureInfo[]> =>
-    Promise.race([promise, new Promise<GeozoneFeatureInfo[]>((resolve) => setTimeout(() => resolve([]), ms))]);
+  // Nicht-deutsche Zonen ohne country-Feld mit dem abgefragten Land taggen,
+  // damit länderspezifische Regeln (§ 21h/AV, siehe de21hRule) sie sicher
+  // zuordnen. Deutsche Zonen bleiben unverändert (historisch ohne Feld).
+  const tag = (iso: string, zones: GeozoneFeatureInfo[]) =>
+    iso === "DE" ? zones : zones.map((z) => (z.country ? z : { ...z, country: iso }));
 
-  const primaryResult = await queryGeozonesForCountry(lat, lon, radiusKm, primary, onDipulSourceStatus).catch((e) => {
+  const NEIGHBOR_TIMEOUT = Symbol("timeout");
+  const withTimeout = <T,>(promise: Promise<T>, ms: number): Promise<T | typeof NEIGHBOR_TIMEOUT> =>
+    Promise.race([promise, new Promise<typeof NEIGHBOR_TIMEOUT>((resolve) => setTimeout(() => resolve(NEIGHBOR_TIMEOUT), ms))]);
+
+  const primaryResult = tag(primary, await queryGeozonesForCountry(lat, lon, radiusKm, primary, onDipulSourceStatus, reporterFor(primary)).catch((e) => {
     if (e instanceof DipulWfsAccessError) throw e;
     console.warn(`[Geozones] Primary query failed for ${primary}:`, e?.message || e);
+    reporterFor(primary)({ status: "error", note: String(e?.message || e) });
     return [] as GeozoneFeatureInfo[];
-  });
+  }));
 
   let neighborResults: GeozoneFeatureInfo[] = [];
   if (neighbors.length > 0) {
     const settled = await Promise.allSettled(
-      neighbors.map((iso) =>
-        withTimeout(
-          queryGeozonesForCountry(lat, lon, radiusKm, iso, onDipulSourceStatus).catch((e) => {
+      neighbors.map(async (iso) => {
+        const res = await withTimeout(
+          queryGeozonesForCountry(lat, lon, radiusKm, iso, onDipulSourceStatus, reporterFor(iso)).catch((e) => {
             console.warn(`[Geozones] Neighbor query failed for ${iso}:`, e?.message || e);
+            reporterFor(iso)({ status: "error", note: String(e?.message || e) });
             return [] as GeozoneFeatureInfo[];
           }),
           8000,
-        ),
-      ),
+        );
+        if (res === NEIGHBOR_TIMEOUT) {
+          reporterFor(iso)({ status: "error", note: "Zeitüberschreitung" });
+          return [] as GeozoneFeatureInfo[];
+        }
+        return tag(iso, res);
+      }),
     );
     for (const s of settled) {
       if (s.status === "fulfilled") neighborResults.push(...s.value);
     }
   }
 
+  const sourceList = countries.map((iso) => sources.get(iso)!);
+  return {
+    zones: filterAndGroupAreaZones([...primaryResult, ...neighborResults], lat, lon, radiusKm),
+    coverage: summarizeGeozoneCoverage(sourceList),
+    sources: sourceList,
+  };
+}
+
+function filterAndGroupAreaZones(
+  all: GeozoneFeatureInfo[],
+  lat: number,
+  lon: number,
+  radiusKm: number,
+): GeozoneFeatureInfo[] {
   const seen = new Set<string>();
   const unique: GeozoneFeatureInfo[] = [];
   const radiusM = radiusKm * 1000;
-  for (const z of [...primaryResult, ...neighborResults]) {
+  for (const z of all) {
     const key = `${z.layerLabel}|${z.name}|${z.details}`;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -1831,7 +1996,12 @@ export async function queryGeozoneFeatureInfo(
     const tiled = await queryTiledGeozonesAtPoint(config.iso, lat, lon, { layers: deLayers });
     if (tiled) {
       if (config.iso !== "DE" || isOfflineNow()) return tiled;
-      const wmsOnly = DIPUL_WMS_ONLY_LAYERS.filter((l) => layers.includes(l));
+      // Paket ohne "wohn"-Teil: Wohngrundstücke am Tipp-Punkt live (dipul-WMS)
+      // ergänzen, statt sie stillschweigend wegzulassen (Review-Fix 6).
+      const liveExtra = getTilePartMeta("DE", "wohn")?.complete === true
+        ? DIPUL_WMS_ONLY_LAYERS
+        : [...DIPUL_WMS_ONLY_LAYERS, DIPUL_WOHN_LAYER];
+      const wmsOnly = liveExtra.filter((l) => layers.includes(l));
       if (wmsOnly.length === 0) return tiled;
       const extra = await queryGeozoneFeatureInfo(wmsOnly, lat, lon, mapWidth, mapHeight, latDelta, lonDelta, "DE", true).catch(() => []);
       return [...tiled, ...extra];

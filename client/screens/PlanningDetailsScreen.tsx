@@ -19,7 +19,7 @@ import { getDrone, getFlightSession, WeatherSnapshot, DroneProfile, WeatherLimit
 import { fetchWeatherForecastWithSource, fetchHourlyForecasts, WeatherData, HourlyForecastSlot } from "@/lib/weather";
 import { assessWeather, AssessmentWarning } from "@/lib/assessment";
 import { fetchKpIndex, KpIndexData, getKpLabel } from "@/lib/kpindex";
-import { fetchNotams } from "@/lib/notams";
+import { fetchNotams, notamCountOrUnknown, NOTAM_STATUS_UNKNOWN_TEXT } from "@/lib/notams";
 import { calculateSolarTimes, isTimeDuringDaylight, isTimeDuringCivilTwilight } from "@/lib/solar";
 import { computeHorizontalVlosLimitM } from "@/lib/vlos";
 import HourlyForecastTable from "@/components/HourlyForecastTable";
@@ -27,6 +27,7 @@ import type { FlightPlanningParamList } from "@/navigation/FlightPlanningNavigat
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { consumeFlightPlanningMode, getFlightPlanningMode } from "@/lib/flightPlanningMode";
 import { CommonActions } from "@react-navigation/native";
+import { buildRestrictionSessionPatch } from "@/lib/manualRestrictionFlow";
 
 type NavigationProp = NativeStackNavigationProp<FlightPlanningParamList, "PlanningDetails">;
 type RouteParams = RouteProp<FlightPlanningParamList, "PlanningDetails">;
@@ -40,6 +41,10 @@ export default function PlanningDetailsScreen() {
   const insets = useSafeAreaInsets();
   
   const { droneId, latitude, longitude, locationName, countryIso, mapUrl, sessionId: initialSessionId, radiusKm: initialRadiusKm, recommendedVlosM: initialRecommendedVlosM, vlosExceeded, vlosCharDimensionM, vlosAltitudeCorrection: initialVlosAltitudeCorrection, vlosHorizontalLimitM: initialVlosHorizontalLimitM, routeWaypoints, alphaTangoMissingAcknowledged, officialMapCrossCheck } = route.params;
+  // Ergebnis der Einschränkungs-Stufe (Geozonen/§21h/AV/Ausnahmen + Notizen).
+  // Wird in der Flug-Session persistiert und in PlanningResult für das
+  // Gesamturteil verwendet (vorher ging es hier verloren → falsches GO).
+  const restrictionPatch = buildRestrictionSessionPatch(route.params);
   
   const plannedDate = route.params.plannedDate || (() => {
     const today = new Date();
@@ -82,6 +87,8 @@ export default function PlanningDetailsScreen() {
   }, [planningRadiusKm, vlosHorizontalLimitM, vlosExceeded]);
   const [kpData, setKpData] = useState<KpIndexData | null>(null);
   const [notamCount, setNotamCount] = useState<number | null>(null);
+  // NOTAM-Abfrage fehlgeschlagen (z. B. HTTP 401): Status unbekannt, NICHT "keine".
+  const [notamUnknown, setNotamUnknown] = useState(false);
   const [verbandsregelDE, setVerbandsregelDE] = useState(false);
 
   const dateObj = useMemo(() => {
@@ -244,13 +251,14 @@ export default function PlanningDetailsScreen() {
         fetchWeatherForecastWithSource(latitude, longitude, startIso),
         fetchHourlyForecasts(latitude, longitude, startIso, endIso).catch(() => ({ slots: [] as HourlyForecastSlot[], source: "dipul" as const })),
         fetchKpIndex().catch(() => null),
-        fetchNotams(latitude, longitude).catch(() => ({ notams: [], total: 0, queriedCodes: [] })),
+        fetchNotams(latitude, longitude).catch(() => ({ notams: [], total: 0, queriedCodes: [], failed: true })),
       ]);
       setForecastWeather(result.weather);
       setWeatherSource(result.source);
       setWeatherTooFarAhead(!!result.tooFarAhead);
       if (kpResult) setKpData(kpResult);
-      setNotamCount(notamResult.notams.length);
+      setNotamCount(notamCountOrUnknown(notamResult));
+      setNotamUnknown(notamCountOrUnknown(notamResult) === null);
       if (result.weather) {
         setHourlySlots(hourlyResult.slots);
         setHourlySource(hourlyResult.source);
@@ -325,13 +333,14 @@ export default function PlanningDetailsScreen() {
         fetchWeatherForecastWithSource(latitude, longitude, startIso),
         fetchHourlyForecasts(latitude, longitude, startIso, endIso).catch(() => ({ slots: [] as HourlyForecastSlot[], source: "dipul" as const })),
         fetchKpIndex().catch(() => null),
-        fetchNotams(latitude, longitude).catch(() => ({ notams: [], total: 0, queriedCodes: [] })),
+        fetchNotams(latitude, longitude).catch(() => ({ notams: [], total: 0, queriedCodes: [], failed: true })),
       ]);
       setForecastWeather(result.weather);
       setWeatherSource(result.source);
       setWeatherTooFarAhead(!!result.tooFarAhead);
       setKpData(kpResult);
-      setNotamCount(notamResult.notams.length);
+      setNotamCount(notamCountOrUnknown(notamResult));
+      setNotamUnknown(notamCountOrUnknown(notamResult) === null);
       if (result.weather) {
         setHourlySlots(hourlyResult.slots);
         setHourlySource(hourlyResult.source);
@@ -415,6 +424,7 @@ export default function PlanningDetailsScreen() {
         const existingPlanning = existingSession?.planning;
         
         await updateFlightSession(sessionId, {
+          ...restrictionPatch,
           planning: {
             plannedDate,
             plannedTime,
@@ -439,6 +449,7 @@ export default function PlanningDetailsScreen() {
             alphaTangoMissingAcknowledged:
               alphaTangoMissingAcknowledged || existingPlanning?.alphaTangoMissingAcknowledged,
             officialMapCrossCheck: officialMapCrossCheck ?? existingPlanning?.officialMapCrossCheck,
+            notamStatusUnknown: notamUnknown || undefined,
           },
         });
       } else {
@@ -450,7 +461,8 @@ export default function PlanningDetailsScreen() {
           locationName,
           countryIso,
           mapUrl,
-          hasRestrictions: false,
+          ...restrictionPatch,
+          hasRestrictions: restrictionPatch.hasRestrictions ?? false,
           status: "caution",
           planning: {
             plannedDate,
@@ -471,6 +483,7 @@ export default function PlanningDetailsScreen() {
             droneAlphaTangoId: droneData.alphaTangoId,
             alphaTangoMissingAcknowledged,
             officialMapCrossCheck,
+            notamStatusUnknown: notamUnknown || undefined,
           },
         });
         sessionId = session.id;
@@ -973,21 +986,28 @@ export default function PlanningDetailsScreen() {
             style={({ pressed }) => [styles.quickActionBtn, { backgroundColor: theme.backgroundSecondary, opacity: pressed ? 0.7 : 1 }]}
           >
             <View style={[styles.quickActionIcon, {
-              backgroundColor: notamCount === null
-                ? theme.backgroundDefault
-                : notamCount === 0
-                  ? theme.statusGoBackground
-                  : theme.statusCautionBackground,
+              backgroundColor: notamUnknown
+                ? theme.statusCautionBackground
+                : notamCount === null
+                  ? theme.backgroundDefault
+                  : notamCount === 0
+                    ? theme.statusGoBackground
+                    : theme.statusCautionBackground,
             }]}>
               <Feather
-                name={notamCount === null ? "alert-circle" : notamCount === 0 ? "check-circle" : "alert-circle"}
+                name={notamUnknown ? "alert-triangle" : notamCount === null ? "alert-circle" : notamCount === 0 ? "check-circle" : "alert-circle"}
                 size={20}
-                color={notamCount === null ? theme.textTertiary : notamCount === 0 ? theme.statusGo : theme.statusCaution}
+                color={notamUnknown ? theme.statusCaution : notamCount === null ? theme.textTertiary : notamCount === 0 ? theme.statusGo : theme.statusCaution}
               />
             </View>
             <ThemedText style={styles.quickActionTitle}>NOTAMs</ThemedText>
-            <ThemedText style={[styles.quickActionSub, { color: theme.textTertiary }]}>
-              {notamCount === null ? "Standortbezogen" : notamCount === 0 ? "Keine im Umkreis" : `${notamCount} aktiv`}
+            <ThemedText
+              testID="notam-quick-status"
+              style={[styles.quickActionSub, { color: notamUnknown ? theme.statusCaution : theme.textTertiary }]}
+            >
+              {notamUnknown
+                ? NOTAM_STATUS_UNKNOWN_TEXT
+                : notamCount === null ? "Standortbezogen" : notamCount === 0 ? "Keine im Umkreis" : `${notamCount} aktiv`}
             </ThemedText>
           </Pressable>
           <Pressable
