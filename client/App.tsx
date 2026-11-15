@@ -8,6 +8,7 @@ import { initEd269ImportFlags } from "@/lib/geozoneDirect/ed269Store";
 import { startGeozoneTileStore } from "@/lib/geozoneTiles/tileStore";
 import { startCountryUsage } from "@/lib/countryUsageData";
 import { CountryUsagePrompt } from "@/components/CountryUsagePrompt";
+import { SetupGuideOverlay } from "@/components/SetupGuideOverlay";
 import { DownloadActivityBar } from "@/components/DownloadActivityBar";
 import { BlockingWorkOverlay } from "@/components/BlockingWorkOverlay";
 import { rootTouchHandlers, runAfterStartup } from "@/lib/backgroundWork";
@@ -188,6 +189,8 @@ function AuthGate({
     <NavigationContainer ref={navigationRef}>
       <RootStackNavigator />
       <CountryUsagePrompt />
+      {/* Einrichtungsassistent: wird aus Einstellungen → Einrichtungsassistent gestartet */}
+      <SetupGuideOverlay />
       {/* App-weite Download-Anzeige (über der Navigation, Safe-Area) */}
       <DownloadActivityBar />
     </NavigationContainer>
