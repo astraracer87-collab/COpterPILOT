@@ -36,34 +36,35 @@ class KeepaliveService : Service() {
     override fun onDestroy() {
         running = false
         worker?.interrupt()
-        Log.add("Keepalive gestoppt")
+        Log.step("FCC halten gestoppt")
         super.onDestroy()
     }
 
     private fun loop() {
         val full = Profile.load(this, "fcc")
         val keep = Profile.load(this, "fcc_keepalive")
-        Log.add("Keepalive gestartet")
+        Log.step("FCC halten gestartet (erneuert alle 2 s)")
         var appliedFull = false
         var count = 0
         while (running) {
             try {
-                val link = Engine.tcpLink(this)
+                val link = Engine.tcpLink(this, quiet = true)
                 if (link != null) {
                     if (!appliedFull) {
-                        Engine.runProfile(link, full)
+                        val o = Engine.runProfile(link, full)
                         Engine.setMode(this, "FCC")
+                        Log.ok("FCC gesetzt (${o.sent}/${o.total} Befehle gesendet)")
                         appliedFull = true
                     } else {
-                        val n = Engine.runProfile(link, keep, verbose = false)
-                        if (++count % 30 == 0) Log.add("Keepalive läuft (${count}×, letzte Runde $n Antworten)")
+                        Engine.runProfile(link, keep)
+                        if (++count % 30 == 0) Log.detail("FCC halten läuft (${count} Zyklen)")
                     }
                 }
                 Thread.sleep(if (link == null) 10_000 else 2_000)
             } catch (_: InterruptedException) {
                 break
             } catch (e: Exception) {
-                Log.add("Keepalive-Fehler: ${e.message}")
+                Log.warn("FCC halten: ${e.message}")
                 try { Thread.sleep(5_000) } catch (_: InterruptedException) { break }
             }
         }

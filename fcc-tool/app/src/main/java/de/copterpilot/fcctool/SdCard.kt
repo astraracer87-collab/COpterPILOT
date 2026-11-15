@@ -44,7 +44,7 @@ object SdCard {
                 ?: return Result(false, null, "Datei ließ sich nicht öffnen")
 
             val actual = queryName(ctx, created) ?: variant.fileName
-            Log.add("SD-Karte: Datei „$actual“ geschrieben (${variant.content.size} Byte)")
+            Log.ok("SD-Karte: Datei „$actual“ geschrieben (${variant.content.size} Byte)")
             if (actual != variant.fileName) {
                 Result(true, actual,
                     "Geschrieben, aber als „$actual“ statt „${variant.fileName}“. " +
@@ -53,7 +53,7 @@ object SdCard {
                 Result(true, actual, "Datei „$actual“ auf die Karte geschrieben.")
             }
         } catch (e: Exception) {
-            Log.add("SD-Karte: Fehler ${e.message}")
+            Log.err("SD-Karte: Fehler ${e.message}")
             Result(false, null, "Fehler: ${e.message}")
         }
     }

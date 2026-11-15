@@ -8,35 +8,55 @@ Funkregion von CE auf FCC umzustellen (z. B. Air 3S an der RC Pro 2).
 > FCC-Sendeleistung nicht zulässig (Funkrecht, BNetzA). Versicherungsschutz und
 > DJI Care Refresh können entfallen. Nutzung auf eigene Verantwortung.
 
-## Funktionen
+## Bedienung
 
-| Knopf | Was passiert |
-|---|---|
-| Port suchen + Version abfragen | Probiert `127.0.0.1` Port 8901–8904 (RC Pro 2 / RC Plus) und 40009 (RC 2), schickt eine Versionsabfrage und merkt sich den Port, der antwortet. |
-| Teilnehmer suchen (nur lesen) | Versionsabfrage an alle 32 DUML-Gerätetypen (Index 0 und 1). Zeigt, wer antwortet. Ändert nichts. |
-| FCC einmal anwenden | Sendet `profiles/fcc.json` (21 Rahmen, 2 Runden). |
-| FCC halten (Keepalive) | Hintergrunddienst: einmal das volle Profil, danach alle 2 s `fcc_keepalive.json` (4 Rahmen). Startet nach dem Einschalten der Fernsteuerung automatisch neu, bis er wieder ausgeschaltet wird. |
-| CE wiederherstellen | Stoppt den Keepalive und sendet `ce_restore.json`. Ohne Keepalive ist FCC nach einem Neustart ohnehin weg. |
-| SD-Karte wählen und Datei schreiben | Schreibt die FCC-Datei auf die microSD-Karte der Brille (siehe unten). |
-| USB-Geräte anzeigen | (Erweitert) Listet angeschlossene USB-Geräte mit ihren Schnittstellen. |
-| USB: Teilnehmer suchen (nur lesen) | (Erweitert) Für Brille/Drohne per USB-C-Kabel (DJI-Hersteller-ID `0x2ca3`): öffnet jede Bulk-Schnittstelle (CDC: 115200 8N1) und macht die Versionsabfrage. |
+Die App führt Schritt für Schritt durch den Ablauf. Oben rechts zeigt ein Feld den
+Status (bereit / FCC aktiv / CE), rechts läuft ein farbiges Protokoll mit, das jeden
+Schritt und sein Ergebnis beschreibt (ohne Zeitstempel).
 
-Oben ein Statusfeld (Modus CE/FCC, gemerkter Port, Keepalive an/aus), darunter die
-drei Hauptknöpfe, die Brillen-Funktion und ein ausklappbarer Bereich „Erweitert“.
-Das Protokoll rechts kann markiert und kopiert werden.
+Startbildschirm, zwei große Modus-Knöpfe:
 
-## Brille über SD-Karte (Avata 2 usw.)
+- **Fluggerät an dieser Fernsteuerung** (z. B. Air 3S an der RC Pro 2) – geführter Ablauf:
+  1. Fluggerät einschalten und verbinden
+  2. FCC aktivieren (die App sucht die Verbindung selbst und sendet die Befehle)
+  3. FCC dauerhaft halten (optional) oder überspringen
+  4. In DJI Fly prüfen
+- **Fluggerät an Goggle** (z. B. Avata 2) – geführter SD-Karten-Ablauf (siehe unten).
 
-Die Brille lässt sich nicht über USB umstellen – die Funkgegenstelle am Boden wird
+Darunter **CE wiederherstellen** (eigener geführter Ablauf) und **Erweitert**
+(ausführliches Protokoll, Verbindung/Teilnehmer suchen, USB-Tests).
+
+### Was die Verbindung und die „Befehle gesendet“ bedeuten
+
+- Die App sucht den lokalen DUML-Port automatisch: `127.0.0.1` Port 8901–8904
+  (RC Pro 2 / RC Plus) bzw. 40009 (RC 2). Das passiert vor jedem Vorgang selbst, der
+  gemerkte Port wird wiederverwendet, solange er erreichbar ist. Ein eigener Knopf dafür
+  ist nur unter „Erweitert“.
+- FCC sendet `profiles/fcc.json`: 21 Befehle × 2 Runden = **42 Befehle**. Das Halten
+  sendet nur `fcc_keepalive.json`: 4 Befehle. Daher „42“ beim Aktivieren und „4“ beim
+  Halten – das ist die Zahl der gesendeten Befehle, nicht ein Fehler.
+- Wichtig: Wie beim Original-FreeFCC bedeutet „gesendet“ nur, dass der Befehl ohne Fehler
+  rausging. Das Fluggerät schickt **keine Bestätigung** zurück, die hier ausgewertet wird.
+  Die einzige verlässliche Kontrolle ist **DJI Fly → Übertragung**: im FCC-Modus reicht
+  die Reichweitenanzeige über 1 km hinaus. (Unter „Erweitert → Ausführliches Protokoll“
+  werden zusätzlich die rohen Antwortrahmen angezeigt, die je nach Teilnehmer schwanken –
+  nur zur Diagnose.)
+
+## Goggle über SD-Karte (Avata 2 usw.)
+
+Die Goggle lässt sich nicht über USB umstellen – die Funkgegenstelle am Boden wird
 stattdessen über eine Datei auf ihrer microSD-Karte auf FCC gestellt (öffentlich
-beschriebene „ham file“-Methode). Die App übernimmt nur das Schreiben dieser Datei:
+beschriebene „ham file“-Methode). Der Ablauf „Fluggerät an Goggle“ führt durch:
 
-1. microSD-Karte aus der Brille nehmen und in die Fernsteuerung stecken.
-2. In der App Variante wählen:
+1. **Goggle-Modell wählen:**
    - **Goggles 2 / 3 / N3 / Integra:** leere Datei `ham_cfg_support` (ohne Endung)
    - **Goggles V1 / V2:** Textdatei `naco_pwr.txt` mit Inhalt `pwr_2`
-3. „SD-Karte wählen und Datei schreiben“, im Auswahldialog die SD-Karte als Ordner wählen.
-4. Karte zurück in die Brille, Brille einschalten.
+2. **SD-Karte in die Fernsteuerung:** Goggle ausschalten, microSD herausnehmen, in die
+   Fernsteuerung stecken, im Schritt bestätigen.
+3. **FCC-Datei schreiben:** im Auswahldialog die SD-Karte als Speicherort wählen.
+4. **SD-Karte zurück in die Goggle.**
+5. **Einschaltreihenfolge:** zuerst die Goggle einschalten (Karte steckt drin), danach
+   das Fluggerät, dann in DJI Fly prüfen.
 
 Hinweise:
 - Die App schreibt über den Android-Dateidienst (Storage Access Framework), ohne
@@ -52,17 +72,25 @@ Hinweise:
 2. Die RC Pro 2 installiert Apps nur über Umwege: microSD-Karte in der RC formatieren,
    APK draufkopieren und mit einem Dateimanager/Paketinstaller öffnen (z. B. die
    Helfer-Apps aus dem FreeFCC-Projekt: PackageInstaller, FileManager, ATV-Launcher).
-3. App starten, Hinweis bestätigen, Drohne einschalten und mit DJI Fly verbinden.
-4. Zuerst „Port suchen + Version abfragen“, dann „FCC einmal anwenden“ oder „FCC halten“.
-5. Prüfen in DJI Fly → Übertragung: im FCC-Modus reicht die Signalanzeige über 1 km hinaus.
+3. App starten, Hinweis bestätigen und dem passenden Modus-Knopf folgen.
+
+## CE wiederherstellen
+
+FCC liegt nur im Arbeitsspeicher und ist nach dem Ausschalten des Fluggeräts ohnehin weg.
+Der Ablauf „CE wiederherstellen“ schaltet erst das Halten aus, sendet dann den CE-Befehl
+(`ce_restore.json`) und weist darauf hin, dass CE **am zuverlässigsten nach einem Neustart
+des Fluggeräts** greift. Hilft das nicht, zusätzlich die Fernsteuerung neu starten. Das
+erklärt, warum ein reines „CE senden“ ohne Neustart nicht immer sofort wirkt.
 
 ## Stand / Einschränkungen
 
 - Nicht auf echter Hardware getestet. Die Rahmenfolge stammt aus FreeFCC, dort ist sie
   für RC 2 und RC Pro 2 berichtet (u. a. Mini 4/5 Pro, Air 3S, Mavic 4 Pro).
 - Höhen-, Distanz- und Geozonen-Grenzen ändern sich dadurch nicht.
-- Avata 2: Die Funkgegenstelle am Boden ist die Brille. Für sie gibt es noch keine
-  bekannte Befehlsfolge – der USB-Test zeigt nur, ob sie überhaupt antwortet.
+- Erfolg wird nicht vom Fluggerät zurückgemeldet – immer in DJI Fly gegenprüfen.
+- Avata 2: Die Funkgegenstelle am Boden ist die Goggle; sie wird über die SD-Karte
+  umgestellt, nicht über USB. Der USB-Test unter „Erweitert“ zeigt nur, ob ein per Kabel
+  angeschlossenes Gerät überhaupt antwortet.
 
 ## Bauen
 

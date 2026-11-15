@@ -1,26 +1,6 @@
 package de.copterpilot.fcctool
 
 import android.content.Context
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-
-/** Protokoll für Bildschirm und Dienst. */
-object Log {
-    private val lines = ArrayDeque<String>()
-    private val fmt = SimpleDateFormat("HH:mm:ss.SSS", Locale.GERMANY)
-    @Volatile var listener: ((String) -> Unit)? = null
-
-    @Synchronized fun add(msg: String) {
-        val line = "${fmt.format(Date())}  $msg"
-        lines.addLast(line)
-        while (lines.size > 2000) lines.removeFirst()
-        listener?.invoke(line)
-    }
-
-    @Synchronized fun all(): String = lines.joinToString("\n")
-    @Synchronized fun clear() = lines.clear()
-}
 
 object Engine {
     /** Nur ein Vorgang gleichzeitig auf der Funkverbindung (Knopf und Keepalive). */
@@ -37,73 +17,77 @@ object Engine {
     fun lastMode(ctx: Context): String = ctx.getSharedPreferences(PREFS, 0).getString(KEY_MODE, "") ?: ""
     fun setMode(ctx: Context, mode: String) = ctx.getSharedPreferences(PREFS, 0).edit().putString(KEY_MODE, mode).apply()
 
+    data class Outcome(val sent: Int, val total: Int, val errors: Int, val responses: Int) {
+        val allSent get() = errors == 0 && sent == total && total > 0
+    }
+
     /**
-     * Sucht den lokalen DUML-Port: zuerst einer, der auf die Versionsabfrage antwortet,
-     * sonst der erste erreichbare (8901–8904 vor 40009, wie FreeFCC).
+     * Sucht den lokalen DUML-Port. Zuerst einer, der auf die Versionsabfrage antwortet,
+     * sonst der erste erreichbare (8901–8904 vor 40009). Läuft automatisch vor jedem
+     * Vorgang, der Nutzer muss das nicht von Hand anstoßen.
      */
-    fun detectPort(ctx: Context): Int? = synchronized(lock) {
+    fun detectPort(ctx: Context, quiet: Boolean = false): Int? = synchronized(lock) {
+        if (!quiet) Log.step("Suche Verbindung zur Fernsteuerung …")
         var firstOpen: Int? = null
         for (port in TcpLink.CANDIDATE_PORTS) {
-            if (!TcpLink.canConnect(port)) { Log.add("Port $port: geschlossen"); continue }
+            if (!TcpLink.canConnect(port)) { Log.detail("Port $port: geschlossen"); continue }
             if (firstOpen == null) firstOpen = port
             val answers = try {
                 TcpLink(port).exchange(Duml.build(0x82, 0x00, 0x40, 0x00, 0x01), 400)
-            } catch (e: Exception) { Log.add("Port $port: Fehler ${e.message}"); emptyList() }
-            Log.add("Port $port: offen, ${answers.size} Antwort(en)")
-            answers.forEach { Log.add("   $it") }
-            if (answers.isNotEmpty()) { savePort(ctx, port); return port }
+            } catch (e: Exception) { Log.detail("Port $port: ${e.message}"); emptyList() }
+            Log.detail("Port $port: offen, ${answers.size} Antwort(en)")
+            answers.forEach { Log.detail("   $it") }
+            if (answers.isNotEmpty()) { savePort(ctx, port); if (!quiet) Log.ok("Verbunden (Port $port)"); return port }
         }
-        firstOpen?.also { savePort(ctx, it) }
+        if (firstOpen != null) { savePort(ctx, firstOpen); if (!quiet) Log.ok("Verbunden (Port $firstOpen)") }
+        else if (!quiet) Log.err("Keine Verbindung. Ist das Fluggerät an und mit dieser Fernsteuerung verbunden?")
+        firstOpen
     }
 
-    fun tcpLink(ctx: Context): TcpLink? {
-        val p = savedPort(ctx).takeIf { it != 0 } ?: detectPort(ctx)
-        if (p == null) Log.add("Kein lokaler DUML-Port gefunden. Läuft die App auf der Fernsteuerung, Drohne eingeschaltet und verbunden?")
+    /** Liefert eine TCP-Verbindung über den gemerkten bzw. frisch gesuchten Port. */
+    fun tcpLink(ctx: Context, quiet: Boolean = false): TcpLink? {
+        val saved = savedPort(ctx).takeIf { it != 0 && TcpLink.canConnect(it) }
+        val p = saved ?: detectPort(ctx, quiet)
         return p?.let { TcpLink(it) }
     }
 
-    /** Sendet ein Profil; gibt die Zahl der Antworten zurück. */
-    fun runProfile(link: Link, p: Profile, verbose: Boolean = true): Int = synchronized(lock) {
-        if (verbose) Log.add("▶ ${p.name} über ${link.label} (${p.frames.size} Rahmen × ${p.rounds})")
-        var answers = 0
+    /** Sendet ein Profil und meldet, wie viele Befehle fehlerfrei rausgingen. */
+    fun runProfile(link: Link, p: Profile): Outcome = synchronized(lock) {
+        var sent = 0; var errors = 0; var responses = 0
+        val total = p.frames.size * p.rounds
         for (round in 1..p.rounds) {
             for (step in p.frames) {
                 val frame = Duml.build(p.sender, step.dst, p.cmdType, step.cmdSet, step.cmdId, step.payload)
                 try {
                     val r = link.exchange(frame, p.readWindowMs)
-                    answers += r.size
-                    if (verbose) {
-                        Log.add("→ ${step.note.ifEmpty { "set ${step.cmdSet} id ${step.cmdId}" }}: ${r.size} Antwort(en)")
-                        r.forEach { Log.add("   $it") }
-                    }
+                    sent++; responses += r.size
+                    Log.detail("→ ${step.note}: ${r.size} Antwort(en)")
+                    r.forEach { Log.detail("   $it") }
                 } catch (e: Exception) {
-                    Log.add("✗ ${step.note}: ${e.message}")
+                    errors++
+                    Log.detail("✗ ${step.note}: ${e.message}")
                 }
                 if (p.interFrameMs > 0) Thread.sleep(p.interFrameMs)
             }
             if (round < p.rounds && p.interRoundMs > 0) Thread.sleep(p.interRoundMs)
         }
-        if (verbose) Log.add("■ ${p.name} fertig, $answers Antwort(en) insgesamt")
-        answers
+        Outcome(sent, total, errors, responses)
     }
 
     /**
-     * Nur lesender Test: Versionsabfrage (GENERAL 0x00/0x01) an alle 32 Gerätetypen,
-     * Index 0 und 1. Zeigt, welche Teilnehmer über diese Verbindung erreichbar sind.
+     * Nur lesender Test: Versionsabfrage an alle 32 Gerätetypen (Index 0 und 1).
+     * Zeigt, welche Teilnehmer über diese Verbindung erreichbar sind.
      */
     fun scan(link: Link, sender: Int) = synchronized(lock) {
-        Log.add("▶ Teilnehmersuche über ${link.label}, Absender ${Duml.dev(sender)}")
+        Log.step("Teilnehmersuche über ${link.label} (Absender ${Duml.dev(sender)})")
         val seen = LinkedHashSet<Int>()
         for (idx in 0..1) for (type in 0..31) {
             val dst = type or (idx shl 5)
             val r = try { link.exchange(Duml.build(sender, dst, 0x40, 0x00, 0x01), 150) }
-            catch (e: Exception) { Log.add("✗ ${Duml.dev(dst)}: ${e.message}"); emptyList() }
-            for (f in r) {
-                Log.add("   $f")
-                if (f.isResponse) seen += f.sender
-            }
+            catch (e: Exception) { Log.detail("✗ ${Duml.dev(dst)}: ${e.message}"); emptyList() }
+            for (f in r) { Log.detail("   $f"); if (f.isResponse) seen += f.sender }
         }
-        Log.add("■ Antwortende Teilnehmer: " +
-            if (seen.isEmpty()) "keine" else seen.joinToString { Duml.dev(it) })
+        if (seen.isEmpty()) Log.warn("Keine Teilnehmer geantwortet")
+        else Log.ok("Antwortende Teilnehmer: " + seen.joinToString { Duml.dev(it) })
     }
 }

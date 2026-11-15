@@ -105,4 +105,53 @@ object Ui {
         LinearLayout.LayoutParams(w, h, weight).apply { if (topDp > 0) topMargin = topDp }
 
     fun dpi(ctx: Context, v: Float) = dp(ctx, v)
+
+    /** Großer, zweizeiliger Modus-Knopf (Titel + Erklärung), farbiger Rand links. */
+    fun modeButton(ctx: Context, title: String, subtitle: String, accent: Int, onClick: () -> Unit): View {
+        val box = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            val bg = GradientDrawable().apply {
+                setColor(SURFACE); cornerRadius = dp(ctx, 14f).toFloat(); setStroke(dp(ctx, 1f), BORDER)
+            }
+            background = RippleDrawable(ColorStateList.valueOf(Color.argb(40, 255, 255, 255)), bg, null)
+            val p = dp(ctx, 16f); setPadding(p, p, p, p)
+            isClickable = true; isFocusable = true
+            setOnClickListener { onClick() }
+        }
+        box.addView(TextView(ctx).apply {
+            text = title; setTextColor(accent); textSize = 18f; typeface = Typeface.DEFAULT_BOLD
+        })
+        box.addView(TextView(ctx).apply {
+            text = subtitle; setTextColor(TEXT2); textSize = 13f
+            setPadding(0, dp(ctx, 4f), 0, 0)
+        })
+        return box
+    }
+
+    fun logColor(level: Log.Level): Int = when (level) {
+        Log.Level.STEP -> Color.rgb(88, 166, 255)
+        Log.Level.OK -> GREEN
+        Log.Level.WARN -> AMBER
+        Log.Level.ERR -> Color.rgb(248, 113, 113)
+        Log.Level.INFO -> TEXT
+        Log.Level.DETAIL -> TEXT2
+    }
+
+    fun logPrefix(level: Log.Level): String = when (level) {
+        Log.Level.STEP -> "▸ "
+        Log.Level.OK -> "✓ "
+        Log.Level.WARN -> "! "
+        Log.Level.ERR -> "✗ "
+        Log.Level.INFO -> "  "
+        Log.Level.DETAIL -> "    "
+    }
+
+    fun logLine(ctx: Context, e: Log.Entry) = TextView(ctx).apply {
+        text = logPrefix(e.level) + e.text
+        setTextColor(logColor(e.level))
+        typeface = if (e.level == Log.Level.DETAIL) Typeface.MONOSPACE else Typeface.DEFAULT
+        textSize = if (e.level == Log.Level.DETAIL) 10.5f else 12.5f
+        if (e.level == Log.Level.STEP || e.level == Log.Level.OK) typeface = Typeface.DEFAULT_BOLD
+        setPadding(0, dp(ctx, 2f), 0, dp(ctx, 2f))
+    }
 }

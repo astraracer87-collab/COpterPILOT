@@ -17,7 +17,6 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
-import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -27,14 +26,13 @@ class MainActivity : Activity() {
     private val io = Executors.newSingleThreadExecutor()
     private val usb by lazy { getSystemService(UsbManager::class.java) }
     private var pendingUsb: ((UsbDevice) -> Unit)? = null
-
-    private lateinit var logView: TextView
-    private lateinit var logScroll: ScrollView
-    private lateinit var statusBadge: TextView
-    private lateinit var connText: TextView
-    private lateinit var keepText: TextView
-    private lateinit var advancedPanel: LinearLayout
+    private var onSdWritten: (() -> Unit)? = null
     private var sdVariant = SdCard.Variant.HAM
+
+    private lateinit var content: LinearLayout       // linke Spalte, wird je Bildschirm neu gefüllt
+    private lateinit var logContainer: LinearLayout
+    private lateinit var logScroll: ScrollView
+    private lateinit var statusPill: TextView
 
     private val usbPermission = object : BroadcastReceiver() {
         override fun onReceive(c: Context, i: Intent) {
@@ -42,13 +40,14 @@ class MainActivity : Activity() {
             else @Suppress("DEPRECATION") i.getParcelableExtra(UsbManager.EXTRA_DEVICE)
             val ok = i.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)
             val action = pendingUsb; pendingUsb = null
-            if (dev != null && ok && action != null) action(dev) else Log.add("USB-Zugriff nicht erlaubt")
+            if (dev != null && ok && action != null) action(dev) else Log.err("USB-Zugriff nicht erlaubt")
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(buildUi())
+        setContentView(buildFrame())
+        showHome()
         val f = IntentFilter(ACTION_USB_PERMISSION)
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(usbPermission, f, RECEIVER_NOT_EXPORTED)
         else registerReceiver(usbPermission, f)
@@ -57,223 +56,317 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        logView.text = Log.all()
-        Log.listener = { line -> runOnUiThread { logView.append("\n$line"); scrollDown() } }
+        rebuildLog()
+        Log.listener = { e -> runOnUiThread { logContainer.addView(Ui.logLine(this, e)); scrollLog() } }
         refreshStatus()
     }
 
     override fun onPause() { Log.listener = null; super.onPause() }
-
     override fun onDestroy() { unregisterReceiver(usbPermission); io.shutdownNow(); super.onDestroy() }
 
-    // ---------------------------------------------------------------- Oberfläche
+    // ------------------------------------------------------------- Grundgerüst
 
-    private fun buildUi(): View {
+    private fun buildFrame(): View {
+        val d = { v: Float -> Ui.dpi(this, v) }
         val root = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setBackgroundColor(Ui.BG)
-            val p = Ui.dpi(this@MainActivity, 14f); setPadding(p, p, p, p)
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Ui.BG); setPadding(d(14f), d(12f), d(14f), d(14f))
         }
 
-        // Linke Spalte: Status + Hauptaktionen + Brille
-        val left = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        left.addView(headerBar())
-        left.addView(statusCard(), Ui.lp(topDp = Ui.dpi(this, 12f)))
-        left.addView(actionCard(), Ui.lp(topDp = Ui.dpi(this, 12f)))
-        left.addView(gogglesCard(), Ui.lp(topDp = Ui.dpi(this, 12f)))
-        left.addView(advancedToggle(), Ui.lp(topDp = Ui.dpi(this, 12f)))
-        root.addView(ScrollView(this).apply {
-            isFillViewport = true; addView(left)
-        }, LinearLayout.LayoutParams(0, MATCH_PARENT, 1.05f))
-
-        // Rechte Spalte: Protokoll (immer sichtbar im Querformat)
-        root.addView(logCard(), LinearLayout.LayoutParams(0, MATCH_PARENT, 1f).apply {
-            leftMargin = Ui.dpi(this@MainActivity, 12f)
+        // Kopfzeile mit Status rechts
+        val header = Ui.row(this)
+        header.addView(TextView(this).apply {
+            text = "FCC Tool"; setTextColor(Ui.TEXT); textSize = 20f; typeface = Typeface.DEFAULT_BOLD
         })
+        header.addView(TextView(this).apply {
+            text = "  ·  DJI RC Pro 2"; setTextColor(Ui.TEXT2); textSize = 13f
+        })
+        header.addView(View(this), Ui.lp(0, WRAP_CONTENT, 1f))
+        statusPill = Ui.badge(this)
+        header.addView(statusPill)
+        root.addView(header)
+
+        // Zwei Spalten, beide auf gleicher Höhe unter der Kopfzeile
+        val cols = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        cols.addView(ScrollView(this).apply { isFillViewport = true; addView(content) },
+            LinearLayout.LayoutParams(0, MATCH_PARENT, 1.1f))
+        cols.addView(logCard(), LinearLayout.LayoutParams(0, MATCH_PARENT, 1f).apply { leftMargin = d(12f) })
+        root.addView(cols, Ui.lp(MATCH_PARENT, 0, 1f, topDp = d(12f)))
         return root
     }
 
-    private fun headerBar() = Ui.row(this).apply {
-        addView(TextView(this@MainActivity).apply {
-            text = "FCC Tool"; setTextColor(Ui.TEXT); textSize = 22f; typeface = Typeface.DEFAULT_BOLD
-        })
-        addView(TextView(this@MainActivity).apply {
-            text = "  ·  DJI RC Pro 2"; setTextColor(Ui.TEXT2); textSize = 14f
-        })
-    }
-
-    private fun statusCard() = Ui.card(this).apply {
-        addView(Ui.title(this@MainActivity, "STATUS"))
-        val top = Ui.row(this@MainActivity)
-        statusBadge = Ui.badge(this@MainActivity)
-        top.addView(statusBadge)
-        connText = Ui.label(this@MainActivity, "", Ui.TEXT2, 13f)
-        top.addView(connText, Ui.lp(0, WRAP_CONTENT, 1f).apply { leftMargin = Ui.dpi(this@MainActivity, 12f) })
-        addView(top)
-        keepText = Ui.label(this@MainActivity, "", Ui.TEXT2, 13f)
-        addView(keepText, Ui.lp(topDp = Ui.dpi(this@MainActivity, 10f)))
-    }
-
-    private fun actionCard() = Ui.card(this).apply {
-        addView(Ui.title(this@MainActivity, "DROHNE AN DIESER FERNSTEUERUNG (z. B. AIR 3S)"))
-        addView(Ui.bigButton(this@MainActivity, "FCC aktivieren", Ui.GREEN) { applyFcc() })
-        addView(Ui.bigButton(this@MainActivity, "FCC dauerhaft halten", Ui.BLUE) { toggleKeepalive() },
-            Ui.lp(topDp = Ui.dpi(this@MainActivity, 10f)))
-        addView(Ui.bigButton(this@MainActivity, "CE wiederherstellen", Ui.AMBER) { restoreCe() },
-            Ui.lp(topDp = Ui.dpi(this@MainActivity, 10f)))
-    }
-
-    private fun gogglesCard() = Ui.card(this).apply {
-        addView(Ui.title(this@MainActivity, "BRILLE ÜBER SD-KARTE (AVATA 2 USW.)"))
-        addView(Ui.label(this@MainActivity,
-            "SD-Karte der Brille in die Fernsteuerung stecken, Variante wählen, Datei schreiben, " +
-            "Karte zurück in die Brille, Brille einschalten.", Ui.TEXT2, 12f))
-        val variantBtn = Ui.smallButton(this@MainActivity, "") {}
-        fun setVar() { variantBtn.text = "Variante: ${sdVariant.label}" }
-        variantBtn.setOnClickListener { chooseVariant { setVar() } }
-        setVar()
-        addView(variantBtn, Ui.lp(topDp = Ui.dpi(this@MainActivity, 10f)))
-        addView(Ui.bigButton(this@MainActivity, "SD-Karte wählen und Datei schreiben", Ui.BLUE) { pickSdCard() },
-            Ui.lp(topDp = Ui.dpi(this@MainActivity, 10f)))
-    }
-
-    private fun advancedToggle(): View {
-        advancedPanel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; visibility = View.GONE }
-        advancedPanel.addView(Ui.smallButton(this, "Port suchen + Version abfragen") {
-            bg { Engine.detectPort(this)?.let { Log.add("Verwende Port $it"); runOnUiThread { refreshStatus() } } }
-        })
-        advancedPanel.addView(Ui.smallButton(this, "Teilnehmer suchen (nur lesen)") {
-            bg { Engine.tcpLink(this)?.let { Engine.scan(it, 0x82) } }
-        }, Ui.lp(topDp = Ui.dpi(this, 8f)))
-        advancedPanel.addView(Ui.smallButton(this, "USB-Geräte anzeigen") { listUsb() },
-            Ui.lp(topDp = Ui.dpi(this, 8f)))
-        advancedPanel.addView(Ui.smallButton(this, "USB: Teilnehmer suchen (Brille per Kabel)") {
-            withDjiUsb { dev -> bg { usbScan(dev) } }
-        }, Ui.lp(topDp = Ui.dpi(this, 8f)))
-
+    private fun logCard(): View {
         val card = Ui.card(this)
         val head = Ui.row(this)
-        val titleTv = Ui.label(this, "ERWEITERT  ▸", Ui.TEXT2, 12f, bold = true).apply { letterSpacing = 0.08f }
-        head.addView(titleTv, Ui.lp(0, WRAP_CONTENT, 1f))
-        head.setOnClickListener {
-            val show = advancedPanel.visibility == View.GONE
-            advancedPanel.visibility = if (show) View.VISIBLE else View.GONE
-            titleTv.text = if (show) "ERWEITERT  ▾" else "ERWEITERT  ▸"
-        }
+        head.addView(Ui.title(this, "PROTOKOLL"), Ui.lp(0, WRAP_CONTENT, 1f))
+        head.addView(Ui.smallButton(this, "Leeren") { Log.clear(); logContainer.removeAllViews() })
         card.addView(head)
-        card.addView(advancedPanel, Ui.lp(topDp = Ui.dpi(this, 10f)))
+        logContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        logScroll = ScrollView(this).apply { addView(logContainer) }
+        card.addView(logScroll, Ui.lp(MATCH_PARENT, 0, 1f, topDp = Ui.dpi(this, 8f)))
         return card
     }
 
-    private fun logCard() = Ui.card(this).apply {
-        val head = Ui.row(this@MainActivity)
-        head.addView(Ui.title(this@MainActivity, "PROTOKOLL"), Ui.lp(0, WRAP_CONTENT, 1f))
-        head.addView(Ui.smallButton(this@MainActivity, "Leeren") { Log.clear(); logView.text = "" })
-        addView(head)
-        logView = TextView(this@MainActivity).apply {
-            setTextColor(Ui.TEXT); typeface = Typeface.MONOSPACE; textSize = 11f
-            setTextIsSelectable(true)
-        }
-        logScroll = ScrollView(this@MainActivity).apply {
-            addView(HorizontalScrollView(this@MainActivity).apply { addView(logView) })
-        }
-        addView(logScroll, Ui.lp(MATCH_PARENT, 0, 1f, topDp = Ui.dpi(this@MainActivity, 8f)))
+    private fun rebuildLog() {
+        logContainer.removeAllViews()
+        Log.all().forEach { logContainer.addView(Ui.logLine(this, it)) }
+        scrollLog()
     }
-
-    private fun scrollDown() = logScroll.post { logScroll.fullScroll(View.FOCUS_DOWN) }
+    private fun scrollLog() = logScroll.post { logScroll.fullScroll(View.FOCUS_DOWN) }
 
     private fun refreshStatus() {
         val keep = KeepaliveService.isEnabled(this)
-        val mode = Engine.lastMode(this)
         when {
-            keep || mode == "FCC" -> Ui.setBadge(statusBadge, "FCC", Ui.GREEN)
-            mode == "CE" -> Ui.setBadge(statusBadge, "CE", Ui.BLUE)
-            else -> Ui.setBadge(statusBadge, "unbekannt", Ui.TEXT2)
+            keep || Engine.lastMode(this) == "FCC" -> Ui.setBadge(statusPill, "FCC aktiv", Ui.GREEN)
+            Engine.lastMode(this) == "CE" -> Ui.setBadge(statusPill, "CE", Ui.BLUE)
+            else -> Ui.setBadge(statusPill, "bereit", Ui.TEXT2)
         }
-        val port = Engine.savedPort(this)
-        connText.text = if (port != 0) "Port $port gemerkt" else "Noch kein Port gesucht"
-        keepText.text = if (keep) "„FCC halten“ ist AN – erneuert alle 2 s, auch nach Neustart"
-            else "„FCC halten“ ist aus"
     }
 
-    // ---------------------------------------------------------------- Aktionen
+    private fun showLeft(view: View) { content.removeAllViews(); content.addView(view, Ui.lp()) }
 
-    private fun applyFcc() = confirm("FCC-Profil jetzt an die Drohne senden?") {
-        bg {
-            Engine.tcpLink(this)?.let {
-                Engine.runProfile(it, Profile.load(this, "fcc")); Engine.setMode(this, "FCC")
-                runOnUiThread { refreshStatus() }
+    // ------------------------------------------------------------- Startbildschirm
+
+    private fun showHome() {
+        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        col.addView(Ui.label(this, "Wofür soll FCC aktiviert werden?", Ui.TEXT, 15f, bold = true))
+        col.addView(Ui.modeButton(this,
+            "Fluggerät an dieser Fernsteuerung",
+            "z. B. Air 3S an der RC Pro 2 – direkt über die Fernsteuerung",
+            Ui.GREEN) { showDroneWizard() }, Ui.lp(topDp = Ui.dpi(this, 12f)))
+        col.addView(Ui.modeButton(this,
+            "Fluggerät an Goggle",
+            "z. B. Avata 2 – über eine Datei auf der SD-Karte der Goggle",
+            Ui.BLUE) { showGoggleWizard() }, Ui.lp(topDp = Ui.dpi(this, 12f)))
+
+        val footer = Ui.row(this).apply { gravity = Gravity.CENTER_VERTICAL }
+        footer.addView(Ui.smallButton(this, "CE wiederherstellen") { showCeWizard() })
+        footer.addView(Ui.smallButton(this, "Erweitert") { showAdvanced() },
+            Ui.lp(topDp = 0).apply { leftMargin = Ui.dpi(this@MainActivity, 8f) })
+        col.addView(footer, Ui.lp(topDp = Ui.dpi(this, 16f)))
+        showLeft(col)
+        refreshStatus()
+    }
+
+    // ------------------------------------------------------------- Schritt-Assistent
+
+    private class WizStep(
+        val title: String,
+        val desc: String,
+        val primary: String,
+        val run: (advance: () -> Unit) -> Unit,
+        val secondary: Pair<String, (advance: () -> Unit) -> Unit>? = null,
+    )
+
+    private fun showWizard(heading: String, steps: List<WizStep>) {
+        val host = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        var current = 0
+
+        fun draw() {
+            host.removeAllViews()
+            val top = Ui.row(this)
+            top.addView(Ui.smallButton(this, "‹ Zurück") { showHome() })
+            top.addView(Ui.label(this, "   $heading", Ui.TEXT, 16f, bold = true), Ui.lp(0, WRAP_CONTENT, 1f))
+            top.addView(Ui.label(this, "Schritt ${(current + 1).coerceAtMost(steps.size)}/${steps.size}", Ui.TEXT2, 12f))
+            host.addView(top)
+
+            steps.forEachIndexed { i, s ->
+                when {
+                    i < current -> host.addView(doneRow(s.title), Ui.lp(topDp = Ui.dpi(this, 8f)))
+                    i == current -> host.addView(activeCard(i + 1, s) { current++; draw(); refreshStatus() },
+                        Ui.lp(topDp = Ui.dpi(this, 8f)))
+                    else -> host.addView(upcomingRow(i + 1, s.title), Ui.lp(topDp = Ui.dpi(this, 6f)))
+                }
             }
+            if (current >= steps.size) host.addView(Ui.bigButton(this, "Fertig", Ui.GREEN) { showHome() },
+                Ui.lp(topDp = Ui.dpi(this, 10f)))
         }
+        draw()
+        showLeft(host)
     }
 
-    private fun restoreCe() = bg {
-        if (KeepaliveService.isEnabled(this)) runOnUiThread { KeepaliveService.stop(this) }
-        Engine.tcpLink(this)?.let {
-            Engine.runProfile(it, Profile.load(this, "ce_restore")); Engine.setMode(this, "CE")
-        }
-        runOnUiThread { refreshStatus() }
+    private fun doneRow(title: String) = Ui.row(this).apply {
+        addView(Ui.label(this@MainActivity, "✓", Ui.GREEN, 15f, bold = true))
+        addView(Ui.label(this@MainActivity, "  $title", Ui.TEXT2, 13f))
     }
 
-    private fun toggleKeepalive() {
-        if (KeepaliveService.isEnabled(this)) { KeepaliveService.stop(this); refreshStatus() }
-        else confirm("FCC dauerhaft halten? Die App sendet dann alle 2 Sekunden und startet nach dem Einschalten der Fernsteuerung automatisch.") {
-            KeepaliveService.setEnabled(this, true); KeepaliveService.start(this); refreshStatus()
-        }
+    private fun upcomingRow(n: Int, title: String) = Ui.row(this).apply {
+        alpha = 0.5f
+        addView(Ui.label(this@MainActivity, "$n", Ui.TEXT2, 13f, bold = true))
+        addView(Ui.label(this@MainActivity, "  $title", Ui.TEXT2, 13f))
     }
 
-    // ---------------------------------------------------------------- Brille / SD
+    private fun activeCard(n: Int, s: WizStep, advance: () -> Unit): View {
+        val card = Ui.card(this)
+        card.addView(Ui.label(this, "SCHRITT $n", Ui.logColor(Log.Level.STEP), 12f, bold = true).apply { letterSpacing = 0.08f })
+        card.addView(Ui.label(this, s.title, Ui.TEXT, 17f, bold = true), Ui.lp(topDp = Ui.dpi(this, 4f)))
+        card.addView(Ui.label(this, s.desc, Ui.TEXT2, 13f), Ui.lp(topDp = Ui.dpi(this, 6f)))
+        card.addView(Ui.bigButton(this, s.primary, Ui.BLUE) { s.run(advance) }, Ui.lp(topDp = Ui.dpi(this, 12f)))
+        s.secondary?.let { (label, act) ->
+            card.addView(Ui.smallButton(this, label) { act(advance) }, Ui.lp(topDp = Ui.dpi(this, 8f)))
+        }
+        return card
+    }
+
+    // ------------------------------------------------------------- Ablauf: Drohne
+
+    private fun showDroneWizard() {
+        val steps = ArrayList<WizStep>()
+        steps += WizStep("Fluggerät einschalten und verbinden",
+            "Schalte das Fluggerät ein und warte, bis es in DJI Fly mit dieser Fernsteuerung verbunden ist.",
+            "Ist verbunden – weiter", { adv -> adv() })
+        steps += WizStep("FCC aktivieren",
+            "Die App sucht die Verbindung und sendet die FCC-Befehle an das Fluggerät.",
+            "FCC jetzt aktivieren", { adv ->
+                bg {
+                    Log.step("FCC wird aktiviert")
+                    val link = Engine.tcpLink(this)
+                    if (link == null) Log.err("Nicht möglich – keine Verbindung. Fluggerät eingeschaltet und verbunden?")
+                    else {
+                        val o = Engine.runProfile(link, Profile.load(this, "fcc"))
+                        Engine.setMode(this, "FCC")
+                        if (o.allSent) Log.ok("FCC gesendet (${o.sent}/${o.total} Befehle). Kontrolle: DJI Fly → Übertragung.")
+                        else Log.warn("Gesendet mit ${o.errors} Fehlern (${o.sent}/${o.total}). Ggf. erneut versuchen.")
+                        runOnUiThread { adv() }
+                    }
+                }
+            })
+        steps += WizStep("FCC dauerhaft halten (optional)",
+            "DJI Fly kann die Region nach kurzer Zeit auf CE zurücksetzen. „Halten“ sendet FCC alle 2 Sekunden neu und startet nach dem Einschalten der Fernsteuerung automatisch wieder.",
+            "FCC dauerhaft halten", { adv ->
+                KeepaliveService.setEnabled(this, true); KeepaliveService.start(this); adv()
+            }, "Überspringen" to { adv: () -> Unit -> adv() })
+        steps += WizStep("In DJI Fly prüfen",
+            "Öffne in DJI Fly die Übertragungsansicht. Im FCC-Modus reicht die Reichweitenanzeige über 1 km hinaus. " +
+            "Hat sich nichts geändert: Fernsteuerung aus- und wieder einschalten und FCC erneut aktivieren.",
+            "Fertig", { adv -> adv() })
+        showWizard("Fluggerät an dieser Fernsteuerung", steps)
+    }
+
+    // ------------------------------------------------------------- Ablauf: Goggle
+
+    private fun showGoggleWizard() {
+        val steps = ArrayList<WizStep>()
+        steps += WizStep("Goggle-Modell wählen",
+            "Je nach Goggle wird eine andere Datei geschrieben. Aktuell: ${sdVariant.label}.",
+            "Weiter", { adv -> adv() },
+            "Modell ändern" to { _: () -> Unit -> chooseVariant { showGoggleWizard() } })
+        steps += WizStep("SD-Karte in die Fernsteuerung",
+            "Schalte die Goggle aus, nimm ihre microSD-Karte heraus und stecke sie in die Fernsteuerung.",
+            "SD-Karte ist eingelegt – weiter", { adv -> adv() })
+        steps += WizStep("FCC-Datei schreiben",
+            "Die App schreibt die Datei „${sdVariant.fileName}“ auf die Karte. Gleich die SD-Karte als Speicherort auswählen.",
+            "Datei schreiben", { adv -> onSdWritten = adv; pickSdCard() })
+        steps += WizStep("SD-Karte zurück in die Goggle",
+            "Nimm die Karte aus der Fernsteuerung und stecke sie wieder in die Goggle.",
+            "Erledigt – weiter", { adv -> adv() })
+        steps += WizStep("Einschaltreihenfolge",
+            "1. Goggle einschalten (Karte steckt drin).\n2. Danach das Fluggerät einschalten.\n3. In DJI Fly die Übertragungsansicht prüfen – im FCC-Modus reicht die Reichweite über 1 km.\n\nWirkt es nicht, ist die Datei-Methode bei diesem Goggle-Modell evtl. nicht (mehr) wirksam.",
+            "Fertig", { adv -> adv() })
+        showWizard("Fluggerät an Goggle", steps)
+    }
+
+    // ------------------------------------------------------------- Ablauf: CE zurück
+
+    private fun showCeWizard() {
+        val steps = ArrayList<WizStep>()
+        steps += WizStep("FCC halten ausschalten",
+            "Zuerst wird das dauerhafte Halten beendet, damit FCC nicht sofort wieder gesetzt wird.",
+            "Weiter", { adv -> if (KeepaliveService.isEnabled(this)) KeepaliveService.stop(this); refreshStatus(); adv() })
+        steps += WizStep("CE-Befehl senden",
+            "Die App setzt die Funkregion per Befehl auf CE zurück.",
+            "CE jetzt senden", { adv ->
+                bg {
+                    Log.step("CE wird gesendet")
+                    val link = Engine.tcpLink(this)
+                    if (link == null) Log.err("Keine Verbindung – Fluggerät eingeschaltet und verbunden?")
+                    else {
+                        val o = Engine.runProfile(link, Profile.load(this, "ce_restore"))
+                        Engine.setMode(this, "CE")
+                        Log.ok("CE gesendet (${o.sent}/${o.total}).")
+                    }
+                    runOnUiThread { adv() }
+                }
+            })
+        steps += WizStep("Fluggerät neu starten",
+            "Am zuverlässigsten greift CE nach einem Neustart: Schalte das Fluggerät aus und wieder ein " +
+            "(wenn es weiter FCC zeigt, zusätzlich die Fernsteuerung). Danach in DJI Fly prüfen, dass die Reichweite wieder dem CE-Wert entspricht.",
+            "Fertig", { adv -> adv() })
+        showWizard("CE wiederherstellen", steps)
+    }
+
+    // ------------------------------------------------------------- Erweitert
+
+    private fun showAdvanced() {
+        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        col.addView(Ui.row(this).apply {
+            addView(Ui.smallButton(this@MainActivity, "‹ Zurück") { showHome() })
+            addView(Ui.label(this@MainActivity, "   Erweitert", Ui.TEXT, 16f, bold = true))
+        })
+        val card = Ui.card(this)
+        val verboseBtn = Ui.smallButton(this, "") {}
+        fun setV() { verboseBtn.text = if (Log.verbose) "Ausführliches Protokoll: AN" else "Ausführliches Protokoll: aus" }
+        verboseBtn.setOnClickListener { Log.verbose = !Log.verbose; setV() }; setV()
+        card.addView(verboseBtn)
+        card.addView(Ui.smallButton(this, "Verbindung suchen + Version abfragen") {
+            bg { Engine.detectPort(this); runOnUiThread { refreshStatus() } }
+        }, Ui.lp(topDp = Ui.dpi(this, 8f)))
+        card.addView(Ui.smallButton(this, "Teilnehmer suchen (nur lesen)") {
+            bg { Engine.tcpLink(this)?.let { Engine.scan(it, 0x82) } }
+        }, Ui.lp(topDp = Ui.dpi(this, 8f)))
+        card.addView(Ui.smallButton(this, "USB-Geräte anzeigen") { listUsb() }, Ui.lp(topDp = Ui.dpi(this, 8f)))
+        card.addView(Ui.smallButton(this, "USB: Teilnehmer suchen (Goggle per Kabel)") {
+            withDjiUsb { dev -> bg { usbScan(dev) } }
+        }, Ui.lp(topDp = Ui.dpi(this, 8f)))
+        col.addView(card, Ui.lp(topDp = Ui.dpi(this, 8f)))
+        showLeft(col)
+    }
+
+    // ------------------------------------------------------------- SD-Karte / Dialoge
 
     private fun chooseVariant(after: () -> Unit) {
         val items = SdCard.Variant.entries.map { it.label }.toTypedArray()
-        AlertDialog.Builder(this).setTitle("Welche Brille?")
-            .setItems(items) { _, i -> sdVariant = SdCard.Variant.entries[i]; after() }
-            .show()
+        AlertDialog.Builder(this).setTitle("Welches Goggle-Modell?")
+            .setItems(items) { _, i -> sdVariant = SdCard.Variant.entries[i]; after() }.show()
     }
 
     private fun pickSdCard() {
-        AlertDialog.Builder(this)
-            .setTitle("SD-Karte wählen")
-            .setMessage("Gleich den Speicher der Brillen-SD-Karte auswählen (oben ggf. auf das Menü tippen und die SD-Karte wählen), dann „${if (Build.VERSION.SDK_INT>=29) "DIESEN ORDNER VERWENDEN" else "AUSWÄHLEN"}“.")
-            .setPositiveButton("Weiter") { _, _ ->
-                try {
-                    startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE), REQ_SD)
-                } catch (e: Exception) { Log.add("Kein Dateiauswahl-Dienst gefunden: ${e.message}") }
-            }
-            .setNegativeButton("Abbrechen", null)
-            .show()
+        try { startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE), REQ_SD) }
+        catch (e: Exception) { Log.err("Kein Dateiauswahl-Dienst gefunden: ${e.message}") }
     }
 
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == REQ_SD && resultCode == RESULT_OK) {
-            val uri: Uri = data?.data ?: return
-            bg {
-                val r = SdCard.writeInto(this, uri, sdVariant)
-                runOnUiThread {
-                    AlertDialog.Builder(this)
-                        .setTitle(if (r.ok) "SD-Karte beschrieben" else "Nicht geschrieben")
-                        .setMessage(r.message + if (r.ok) "\n\nJetzt die Karte zurück in die Brille stecken und die Brille einschalten." else "")
-                        .setPositiveButton("OK", null).show()
-                }
+        if (requestCode != REQ_SD) return
+        if (resultCode != RESULT_OK) { Log.info("SD-Auswahl abgebrochen"); return }
+        val uri: Uri = data?.data ?: return
+        val advance = onSdWritten; onSdWritten = null
+        bg {
+            val r = SdCard.writeInto(this, uri, sdVariant)
+            runOnUiThread {
+                AlertDialog.Builder(this)
+                    .setTitle(if (r.ok) "Datei geschrieben" else "Nicht geschrieben")
+                    .setMessage(r.message)
+                    .setPositiveButton("OK") { _, _ -> if (r.ok) advance?.invoke() }.show()
             }
         }
     }
 
-    // ---------------------------------------------------------------- USB
+    // ------------------------------------------------------------- USB
 
     private fun listUsb() {
         val list = usb.deviceList.values
-        if (list.isEmpty()) Log.add("Keine USB-Geräte angeschlossen")
-        list.forEach { Log.add("USB: " + UsbLink.describe(it)) }
+        if (list.isEmpty()) Log.warn("Keine USB-Geräte angeschlossen")
+        list.forEach { Log.info("USB: " + UsbLink.describe(it)) }
     }
 
     private fun withDjiUsb(action: (UsbDevice) -> Unit) {
         val dev = usb.deviceList.values.firstOrNull { it.vendorId == UsbLink.DJI_VENDOR_ID }
             ?: usb.deviceList.values.firstOrNull()
-        if (dev == null) { Log.add("Kein USB-Gerät gefunden (Brille per USB-C anschließen)"); return }
-        if (dev.vendorId != UsbLink.DJI_VENDOR_ID) Log.add("Hinweis: kein DJI-Gerät (0x2ca3), versuche ${UsbLink.describe(dev)}")
+        if (dev == null) { Log.warn("Kein USB-Gerät gefunden (Goggle per USB-C anschließen)"); return }
+        if (dev.vendorId != UsbLink.DJI_VENDOR_ID) Log.info("Hinweis: kein DJI-Gerät (0x2ca3), versuche ${UsbLink.describe(dev)}")
         if (usb.hasPermission(dev)) { action(dev); return }
         pendingUsb = action
         val pi = PendingIntent.getBroadcast(this, 0, Intent(ACTION_USB_PERMISSION).setPackage(packageName), PendingIntent.FLAG_MUTABLE)
@@ -281,24 +374,17 @@ class MainActivity : Activity() {
     }
 
     private fun usbScan(dev: UsbDevice) {
-        Log.add("USB: " + UsbLink.describe(dev))
+        Log.info("USB: " + UsbLink.describe(dev))
         val cands = UsbLink.candidates(dev)
-        if (cands.isEmpty()) { Log.add("Keine Schnittstelle mit Bulk-Endpunkten gefunden"); return }
+        if (cands.isEmpty()) { Log.warn("Keine Schnittstelle mit Bulk-Endpunkten gefunden"); return }
         for (intf in cands) {
-            val link = try { UsbLink.open(usb, dev, intf) } catch (e: Exception) { Log.add("✗ Schnittstelle ${intf.id}: ${e.message}"); continue }
+            val link = try { UsbLink.open(usb, dev, intf) } catch (e: Exception) { Log.err("Schnittstelle ${intf.id}: ${e.message}"); continue }
             try { Engine.scan(link, 0x2A); Engine.scan(link, 0x82) } finally { link.close() }
         }
     }
 
-    // ---------------------------------------------------------------- Dialoge
-
     private fun bg(task: () -> Unit) = io.execute {
-        try { task() } catch (e: Exception) { Log.add("Fehler: ${e.javaClass.simpleName}: ${e.message}") }
-    }
-
-    private fun confirm(msg: String, ok: () -> Unit) {
-        AlertDialog.Builder(this).setMessage(msg)
-            .setPositiveButton("Ja") { _, _ -> ok() }.setNegativeButton("Abbrechen", null).show()
+        try { task() } catch (e: Exception) { Log.err("Fehler: ${e.javaClass.simpleName}: ${e.message}") }
     }
 
     private fun prefs() = getSharedPreferences("fcc", 0)
@@ -314,8 +400,7 @@ class MainActivity : Activity() {
             )
             .setCancelable(false)
             .setPositiveButton("Verstanden") { _, _ -> prefs().edit().putBoolean("disclaimer_ok", true).apply() }
-            .setNegativeButton("Beenden") { _, _ -> finish() }
-            .show()
+            .setNegativeButton("Beenden") { _, _ -> finish() }.show()
     }
 
     companion object {
