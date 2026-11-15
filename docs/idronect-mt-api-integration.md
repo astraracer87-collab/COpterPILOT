@@ -146,3 +146,46 @@ das herauszufinden:
   dem Bundle abgeleitet.
 - Alternativ: ED-269/öffentlichen Export bei iDronect/Transport Malta erfragen.
 - **Status MT: weiterhin offen** (Filter-Parameter fehlt).
+
+---
+
+## 7. ✅ GELÖST: Browser-Export der gerenderten Zonen (DE-Session, 2026-11-15)
+
+Da der direkte DDP-Aufruf nicht greift (`Zones.getFilteredZones({})` → **0**,
+der echte Filter blieb unbekannt), werden die Zonen **aus dem bereits
+gerenderten Kartenzustand** gelesen – ohne eigene Serveranfragen.
+
+- Die Meteor-App lädt die Zonen **einmal beim Start** via
+  `Zones.getFilteredZones` und legt sie als **deck.gl-Layer**
+  `GeoJsonLayers` → Eintrag `operator-zones` (GeoJSON-FeatureCollection) im
+  React-Zustand ab. Beim Verschieben wird **nichts** nachgeladen.
+- **Stand 15.11.2026: 195 Polygone** (~400 KB; Malta, Gozo, Comino).
+
+**Werkzeuge im Repo:** [`docs/tools/malta/`](tools/malta/)
+- `export_tmcad_geozonen.js` – Browser-Konsolen-Skript: liest den
+  `operator-zones`-Layer aus und lädt `malta_geozonen_roh_<datum>.geojson`.
+- `normalisieren.py` – vereinheitlicht auf das gemeinsame Schema (Land `MT`,
+  ohne archivierte Zonen), erzeugt GeoJSON + CSV + Diff zum Vorlauf.
+- `README.md` – Schritt-für-Schritt-Ablauf (Karte öffnen → F12-Konsole →
+  Skript → normalisieren).
+
+### Roh-Felder (`operator-zones`)
+| Feld | Bedeutung |
+|---|---|
+| `zoneId` | eindeutige ID |
+| `name` | Bezeichnung **inkl. Kontakt-E-Mail** (bei Weitergabe ggf. entfernen) |
+| `type` | Zonentyp-Code (bisher nur `1`) |
+| `forbidden` | Flugverbot (1/true) – 76 Zonen |
+| `minHeight` / `maxHeight` | Höhengrenzen (60–8800; **Einheit unklar, vermutlich ft → prüfen**) |
+| `maxPilots`, `cost` | Kapazität / Gebühr |
+| `center`, `radius` | Kreiszonen: Mittelpunkt „lon,lat" + Radius (m); Polygon ist bereits angenähert |
+| `archived`, `color`, `visible` | Status/Darstellung |
+
+### Status & rechtlicher Hinweis
+- **Status MT: Daten beschaffbar** (manueller Browser-Export, monatlich/vor
+  Einsätzen; Diff-Datei zeigt Änderungen).
+- Das Skript liest nur öffentlich Angezeigtes. Für **automatisierten**
+  Serverbezug (`Zones.getFilteredZones` per Skript/Headless) vorher eine
+  **Datenfreigabe bei Transport Malta CAD** einholen (analog GR/SK). Erst dann
+  Schritt 2 automatisieren.
+- `name` enthält Kontakt-E-Mails → Datenschutz bei Weitergabe beachten.
