@@ -320,6 +320,25 @@ export const COUNTRY_MAP_PROVIDERS: CountryMapProvider[] = [
     ],
   },
   {
+    // NGI/IGN Belgien: CartoWeb-Topokarte (Web-Mercator, Zoom 7–17). Speichern
+    // und Kopieren für diese App schriftlich vom NGI genehmigt (Product Owner,
+    // 2026-11). Luftbilder sind in Belgien regional (Flandern/Wallonien) und
+    // nicht enthalten.
+    iso: "BE",
+    label: "Belgien",
+    bounds: [2.54, 49.49, 6.41, 51.51],
+    map: {
+      id: "be-ngi-cartoweb-topo",
+      tiles: "https://cartoweb.wmts.ngi.be/1.0.0/topo/default/3857/{z}/{y}/{x}.png",
+      tileSize: 256,
+      minzoom: 7,
+      maxzoom: 17,
+      attribution: "Karte © NGI/IGN Belgien (CartoWeb)",
+      bounds: [2.54, 49.49, 6.41, 51.51],
+      kbPerTile: 15,
+    },
+  },
+  {
     // ČÚZK (Tschechien): Základní topografické mapy und Ortofoto ČR als
     // Web-Mercator-Kacheln, Open Data CC BY 4.0. Kacheln erst ab Zoom 6.
     iso: "CZ",
@@ -365,6 +384,38 @@ export const COUNTRY_MAP_PROVIDERS: CountryMapProvider[] = [
         attribution: "Ortofotomapa © GUGiK",
         bounds: [14.12, 49.0, 24.15, 54.84],
         kbPerTile: 13,
+      },
+    ],
+  },
+  {
+    // Kroatien (DGU, Državna geodetska uprava): TK25 und Digitales Orthofoto
+    // per WMS in EPSG:3857. Speichern und Kopieren für diese App schriftlich von
+    // der DGU genehmigt (Product Owner, 2026-11) – BEDINGUNG: Das „GEOPORTAL“-
+    // Wasserzeichen im Orthofoto muss sichtbar bleiben. Kacheln werden daher
+    // nie verändert, beschnitten oder überdeckt gespeichert/angezeigt.
+    iso: "HR",
+    label: "Kroatien",
+    bounds: [13.49, 42.39, 19.45, 46.55],
+    map: {
+      id: "hr-dgu-tk25",
+      tiles: wms13("https://geoportal.dgu.hr/services/tk/ows", "TK25_NOVI", "image/png"),
+      tileSize: 256,
+      minzoom: 8,
+      maxzoom: 17,
+      attribution: "TK25 © Državna geodetska uprava (DGU)",
+      bounds: [13.49, 42.39, 19.45, 46.55],
+      kbPerTile: 60,
+    },
+    satellite: [
+      {
+        id: "hr-dgu-dof",
+        tiles: wms13("https://geoportal.dgu.hr/services/dof/ows", "DOF_LIDAR_2022_2023", "image/png"),
+        tileSize: 256,
+        minzoom: 8,
+        maxzoom: 18,
+        attribution: "DOF © Državna geodetska uprava (DGU) – Wasserzeichen „GEOPORTAL“ laut Genehmigung",
+        bounds: [13.49, 42.39, 19.45, 46.55],
+        kbPerTile: 60,
       },
     ],
   },

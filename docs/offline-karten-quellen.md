@@ -50,8 +50,8 @@ in mehreren Zoomstufen, Bild sichtgeprüft.
 | PL | Topografische Karte | WMTS nur EPSG:2180/4326, BDOT-WMS mit 401 | – | – | nein (nicht 3857) | 2026-11-15 |
 | IS | LMÍ / Náttúrufræðistofnun Grundkarte (`nytt_grunnkort_samsett_naer_fjaer`, GeoServer-WMS) | `gis.lmi.is/geoserver/wms?…CRS=EPSG:3857&BBOX={bbox-epsg-3857}` | 0–18 | CC BY 4.0 | ja (WMTS nur EPSG:3057 → WMS) | 2026-11-15 |
 | LU | geoportail.lu | – | – | – | nein (keine frei speicherbare Kachelkarte) | bestehend |
-| BE | NGI/IGN CartoWeb (`topo`, 3857, z7–17) | `cartoweb.wmts.ngi.be/1.0.0/topo/default/3857/{z}/{y}/{x}.png` | 7–17 | **CC BY-NC**, Kopieren/Robots untersagt, kommerziell kostenpflichtig | **nein** | 2026-11-15 (Kachel 200, Lizenz verbietet) |
-| HR | DGU TK25 (WMS) / DOF (WMS) | `geoportal.dgu.hr/services/tk/ows`, `…/dof/ows` | – | keine klare offene Lizenz, TK25 laut Verordnung entgeltpflichtig; DOF mit „GEOPORTAL“-Wasserzeichen | nein | 2026-11-15 |
+| BE | NGI/IGN CartoWeb (`topo`, 3857, z7–17) | `cartoweb.wmts.ngi.be/1.0.0/topo/default/3857/{z}/{y}/{x}.png` | 7–17 | CC BY-NC; **schriftliche Genehmigung des NGI zum Speichern und Kopieren liegt vor** (Product Owner, 2026-11) | ja | 2026-11-15 |
+| HR | DGU TK25_NOVI / DOF_LIDAR_2022_2023 (WMS, EPSG:3857) | `geoportal.dgu.hr/services/tk/ows`, `…/dof/ows` | 8–17 / 8–18 | **schriftliche Genehmigung der DGU** zum Speichern/Kopieren (Product Owner, 2026-11); **Auflage: „GEOPORTAL“-Wasserzeichen im Orthofoto bleibt sichtbar** – Kacheln werden unverändert gespeichert und angezeigt | ja | 2026-11-15 |
 | PT | DGT Ortos2021 | WMTS nur PTTM_06 (EPSG:3763); WMS liefert in EPSG:3857 nur leere Kacheln | – | DGT offen | nein (technisch nicht möglich) | 2026-11-15 |
 | CY | DLS Orthoimagery 2019 WebMercator | `eservices.dls.moi.gov.cy/…/Orthoimagery_2019_WebMercator/MapServer/tile/{z}/{y}/{x}` | ≥12 (z8 404) | Orthofotos werden verkauft, keine offene Lizenz | nein | 2026-11-15 (Kachel 200, Lizenz fehlt) |
 | SK | ÚGKK ZBGIS | `zbgis.skgeodesy.sk` | – | – | nein (vom Prüfrechner nicht erreichbar, TLS-Abbruch → nicht verifiziert) | 2026-11-15 |

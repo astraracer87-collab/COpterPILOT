@@ -25,6 +25,8 @@ const EXPECTED_MAP = [
   "EE",
   "CZ",
   "IS",
+  "BE",
+  "HR",
 ];
 const EXPECTED_SAT = [
   "DE",
@@ -37,6 +39,7 @@ const EXPECTED_SAT = [
   "EE",
   "CZ",
   "PL",
+  "HR",
 ];
 const FORBIDDEN =
   /openstreetmap\.org|cartocdn|arcgisonline\.com|googleapis|google\.com/i;
@@ -54,14 +57,12 @@ test("provider list: official basemaps/orthophotos per country", () => {
   for (const iso of [
     "LU",
     "PL",
-    "BE",
     "DK",
     "SE",
     "FI",
     "GB",
     "IT",
     "HU",
-    "HR",
     "SI",
     "SK",
     "PT",
