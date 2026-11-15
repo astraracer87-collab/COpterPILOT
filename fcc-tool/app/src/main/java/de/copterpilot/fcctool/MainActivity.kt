@@ -29,7 +29,7 @@ class MainActivity : Activity() {
     private var sdAction: ((Uri) -> Unit)? = null
     private var sdVariant = SdCard.Variant.HAM
 
-    private lateinit var body: android.widget.FrameLayout   // Inhaltsbereich unter der Kopfzeile
+    private lateinit var body: LinearLayout   // Inhaltsbereich unter der Kopfzeile (vertikal)
     private lateinit var logContainer: LinearLayout
     private lateinit var logScroll: ScrollView
     private lateinit var statusPill: TextView
@@ -87,7 +87,7 @@ class MainActivity : Activity() {
         header.addView(statusPill)
         root.addView(header)
 
-        body = android.widget.FrameLayout(this)
+        body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         root.addView(body, Ui.lp(MATCH_PARENT, 0, 1f, topDp = d(12f)))
         return root
     }
@@ -100,14 +100,16 @@ class MainActivity : Activity() {
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         row.addView(ScrollView(this).apply {
             isFillViewport = true
-            addView(col, android.widget.FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+            addView(col, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
         }, LinearLayout.LayoutParams(0, MATCH_PARENT, 1.1f))
         row.addView(logCardView, LinearLayout.LayoutParams(0, MATCH_PARENT, 1f).apply { leftMargin = Ui.dpi(this@MainActivity, 12f) })
-        body.removeAllViews(); body.addView(row, android.widget.FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+        body.removeAllViews()
+        body.addView(row, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
     }
 
     private fun buildLogCard(): View {
         val card = Ui.card(this)
+        card.minimumHeight = Ui.dpi(this, 320f)
         val head = Ui.row(this)
         val titleTv = Ui.title(this, "PROTOKOLL")
         head.addView(titleTv, Ui.lp(0, WRAP_CONTENT, 1f))
@@ -192,7 +194,8 @@ class MainActivity : Activity() {
         col.addView(mid, Ui.lp(MATCH_PARENT, 0, 1f))
 
         col.addView(Ui.smallButton(this, "Erweitert") { showAdvanced() }, Ui.lp(topDp = Ui.dpi(this, 12f)))
-        body.removeAllViews(); body.addView(col, android.widget.FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+        body.removeAllViews()
+        body.addView(col, LinearLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
         refreshStatus()
     }
 

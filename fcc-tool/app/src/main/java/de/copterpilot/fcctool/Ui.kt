@@ -150,6 +150,7 @@ object Ui {
             }
             background = RippleDrawable(ColorStateList.valueOf(Color.argb(40, 255, 255, 255)), bg, null)
             val p = dp(ctx, 16f); setPadding(p, p, p, p)
+            minimumHeight = dp(ctx, 150f)
             isClickable = true; isFocusable = true
             setOnClickListener { onClick() }
         }
