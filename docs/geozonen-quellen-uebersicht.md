@@ -27,7 +27,7 @@ Pro Land gibt es ein eigenes Detaildokument (`docs/<land>-…-integration.md`).
 | **CY** | DCA Cyprus / ArcGIS | keine | ArcGIS FeatureServer (KML-Stil) | ✅ einsatzbereit (gr. Popups parsen) | `cyprus-dca-api-integration.md` |
 | **HR** | Croatia Control (AMC) | keine | SignalR-Hub (WKT) | ✅ einsatzbereit (anonym) | `croatia-amc-api-integration.md` |
 | **BG** | CAA Bulgaria | keine | GeoServer WFS (ED-269-nah) | ✅ einsatzbereit | `bulgaria-caa-api-integration.md` |
-| **SI** | CAA Slovenia / Slovenia Control | keine | ArcGIS FeatureServer (dünn) | ✅ einsatzbereit (Stand 2021 prüfen) | `slovenia-caa-api-integration.md` |
+| **SI** | CAA Slovenia / Slovenia Control | keine | ArcGIS FeatureServer (Web Map dyn.) | ✅ einsatzbereit (aktuelle Mai-2026-Karte, Skript) | `slovenia-caa-api-integration.md` |
 | **LU** | Geoportail Luxembourg | keine (CC0) | ED-269 / OGC Features | 🔑 Modul `luGeozones.ts` gebaut (nicht eingebunden), Feed defekt → auf OGC umstellen | `luxembourg-geozones-integration.md` |
 | **IT** | d-flight | Login (Keycloak) + CSRF | ED-269 Download | 🔑 CSRF gelöst, Download-Format erfassen | `dflight-it-api-integration.md` |
 | **PL** | PANSA DroneMap | API-Key (`x-api-key`) → Bearer | KML | ✅ live abgerufen (DE-IP): 1.774 Zonen | `pansa-pl-api-integration.md` |
@@ -49,7 +49,7 @@ Pro Land gibt es ein eigenes Detaildokument (`docs/<land>-…-integration.md`).
 (Export/Skript: MT, GR) · 2× 🔑 Zugang offen (IT Login-Fetch, HU raster-only
 → Login/Export). Neu verifiziert (DE-Session): EE, FR, DK, CH (+LI), NO, SE, LV;
 RO/PL/ES live abgerufen; GB offizieller AIXM-Datensatz. Fertige Export-Skripte
-unter `docs/tools/<land>/` für PL, SE, SK, ES, RO, CY, GR, MT.
+unter `docs/tools/<land>/` für PL, SE, SK, ES, RO, CY, CZ, SI, GR, MT.
 
 ---
 

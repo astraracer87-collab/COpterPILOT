@@ -88,3 +88,41 @@ Login, keine Verschlüsselung (die AES-`getGJ.php` war nur das Karten-Rendering)
   (`"GND"`/`"### ft AMSL"`/`"### m AGL"` → Meter), `ident`/`publication` → Name.
   GRID_* sind Tessellierungen (viele Zellen) – nur bei Bedarf.
 - **Status CZ: einsatzbereit** (offizieller ED-318-Download).
+
+---
+
+## 9. Alternative: Live-`getGJ.php` (AES) + Skript (DE-Session, 2026-11-15)
+
+Der offizielle **ED-318-Download** (§8, `aim.rlp.cz`) bleibt die **saubere
+Primärquelle**. Zusätzlich ist jetzt der Live-Weg der Karte vollständig
+erschlossen — nützlich für **tagesaktuelle NOTAMs, Aktivierungen und fremde
+Drohnenflüge**, die im statischen ED-318 fehlen.
+
+**Werkzeug im Repo:** [`docs/tools/czech/dronemap_cz.py`](tools/czech/dronemap_cz.py)
+(`requests`, `cryptography`): baut den Parameterblock, verschlüsselt CryptoJS-
+kompatibel, POSTet `getGJ.php`, entschlüsselt die Antwort, normalisiert (Kreise→
+Polygone). Passphrasen per Env `DRONEMAP_KEY_REQ`/`DRONEMAP_KEY_RESP`.
+
+- **Endpunkt:** `POST https://dronemap.gov.cz/getGJ.php?ct=&iv=&s=` (Parameter =
+  AES-verschlüsselter JSON-Block `{tm:"a<von><bis>", dummy, moduleName:"dron"}`).
+  `tm` steuert den Zeitraum (1 Tag ≈ 865 Objekte, 1 Woche ≈ 906).
+- **Krypto:** CryptoJS AES-256-CBC Passphrase-Modus (`EVP_BytesToKey`/MD5/8-Byte-
+  Salt), Container `{ct,iv,s}`. Zwei Passphrasen als globale Vars **`ds_gj`**
+  (Request) / **`ds_as`** (Antwort), je 24 Zeichen — **aus der Browser-Konsole**
+  holen (F12 → `ds_gj`/`ds_as`), **nicht** in die App hart einbauen; bei
+  Entschlüsselungsfehler Alarm (Passphrasen können wechseln).
+- **Antwort:** GeoJSON-FeatureCollection WGS84; Kreise als `Point`+`radius` (m).
+- **`druh_id` (Zonenart)** – drohnenrelevant u. a.: `99` P UAS (für Drohnen
+  gesperrt, 32), `113` GEO (UAS-Geozone), `2` P / `1` D / `3` R, `7` CTR/MCTR
+  (`UASCondID` `7-1`=innen/`7-2`=außen, `…M`=militärisch), `112` ATZ, `80` SLZ,
+  `76`/`107` Heliports. **`86` = fremde Drohnenflüge** (live Flugmeldungen, keine
+  Geozone → eigener Layer oder weglassen).
+- **Regeltexte** je Zonenart in `dronemap.gov.cz/dev-js/dronTTTexts.js` (Objekt
+  `droneTexts`, CZ/EN, Schlüssel `<druh_id>[_noaup][_höhe][_gewicht]`) → Popup.
+- **Höhen** `bott`/`ceil` in **Fuß**; AGL vs. AMSL ist **nicht** als Feld
+  geliefert → offen (AIP/Regeltexte prüfen). TMA/TRA/TSA meist ≫120 m → ausgrauen.
+- WMS-Zusatzlayer (`Gridy`, `chranena_uzemi`, `ODOS`, `zdroje_vody`) auf
+  `aimgis.rlp.cz/server/services/<Dienst>/MapServer/WMSServer` als Raster-Overlay.
+
+→ **Empfehlung:** statische Zonen aus **ED-318** (§8), Live-Ergänzung (NOTAM/
+Aktivierung) optional aus `getGJ.php`. Quelle „ŘLP ČR – dronemap.gov.cz".
