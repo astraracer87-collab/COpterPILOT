@@ -20,11 +20,12 @@
 
 export type Lookup = (s: string) => string | null;
 
-type Kind = "text" | "id" | "num" | "hgt" | "dist" | "time" | "date" | "coord" | "q" | "contact" | "tr" | "rest" | "sched" | "name" | "svc" | "mail" | "bgid";
+type Kind = "text" | "id" | "num" | "hgt" | "dist" | "time" | "date" | "coord" | "q" | "contact" | "tr" | "rest" | "sched" | "name" | "svc" | "mail" | "bgid" | "org" | "place";
 
 const COORD1 = String.raw`\d{4,7}(?:[.,]\d+)?\s?[NS]\s?,?\s?\d{5,8}(?:[.,]\d+)?\s?[EW]`;
 const TYPE_RE: Record<Kind, string> = {
-  text: String.raw`.+?`,
+  // freier Text, aber nie über eine Satzgrenze („. X“) hinweg
+  text: String.raw`(?:(?!\.\s+[A-ZÀ-Ý]).)+?`,
   id: String.raw`[A-Z0-9][A-Z0-9./_\-]*`,
   num: String.raw`\d+(?:[.,]\d+)?`,
   hgt: String.raw`(?:\d{1,6}(?:[.,]\d+)?\s?(?:FT|M|FEET|METERS?|MTRS?)\.?(?:\s?(?:AGL|AMSL|MSL|SFC|GND|ALT|STD))?|FL\s?\d{2,3}|GND|SFC|UNL(?:TD)?|\d{1,6}\s?(?:AGL|AMSL|MSL))`,
@@ -40,6 +41,8 @@ const TYPE_RE: Record<Kind, string> = {
   name: String.raw`.+?`,
   mail: String.raw`[\w.+-]+@[\w-]+(?:[.,][\w-]+)+(?:\s*(?:[;/,]|and)?\s*[\w.+-]+@[\w-]+(?:\.[\w-]+)+)*`,
   bgid: String.raw`\d{7}`,
+  org: String.raw`(?:(?!\.\s+[A-ZÀ-Ý]).)+?`,
+  place: String.raw`[^:·]+?`,
   svc: String.raw`[A-Z][\w/ ]*?(?:Information|Radar|APP|Approach|Zone|Range|Military|Mil|ATC|Control|Tower|TWR|Ops)`,
 };
 
@@ -118,7 +121,11 @@ function literalRe(s: string): string {
       out += "?";
     } else if (/\s/.test(ch)) {
       while (i + 1 < s.length && /\s/.test(s[i + 1])) i++;
-      out += "\\s*";
+      // „ ?“ = Leerzeichen optional, sonst Pflicht
+      if (s[i + 1] === "?") {
+        out += "\\s*";
+        i++;
+      } else out += "\\s+";
     } else {
       out += escapeRe(ch);
     }
@@ -128,7 +135,7 @@ function literalRe(s: string): string {
 }
 
 /** Vorlage → RegExp (Leerraum flexibel, Groß-/Kleinschreibung egal, Satzzeichen am Ende optional). */
-function compile(id: string, src: string, de: string, opts: { cs?: boolean; prefix?: boolean } = {}): Compiled {
+function compile(id: string, src: string, de: string, opts: { cs?: boolean; prefix?: boolean; name?: boolean } = {}): Compiled {
   const slots: { name: string; kind: Kind }[] = [];
   let re = "";
   let last = 0;
@@ -139,13 +146,12 @@ function compile(id: string, src: string, de: string, opts: { cs?: boolean; pref
     const kind = (m[2] as Kind) || "text";
     if (!(kind in TYPE_RE)) throw new Error(`Vorlage ${id}: unbekannter Platzhaltertyp ${kind}`);
     slots.push({ name: m[1], kind });
-    re += `(${TYPE_RE[kind]})`;
+    // Namen dürfen Punkte enthalten („St. Jakob“, „I. třídy“)
+    re += `(${opts.name && kind === "text" ? ".+?" : TYPE_RE[kind]})`;
     last = m.index + m[0].length;
   }
   re += literalRe(src.slice(last));
   const must = mandatoryWord(src);
-  // Leerraum zwischen zwei Wortzeichen ist Pflicht
-  re = re.replace(/([\wÀ-ž])\\s\*(?=[\wÀ-ž])/g, "$1\\s+");
   const tail = opts.prefix ? "" : String.raw`\s*[.!;:,]*\s*$`;
   return { id, re: new RegExp(`^\\s*${re}${tail}`, opts.cs ? "u" : "iu"), slots, de, must };
 }
@@ -184,10 +190,27 @@ function fill(c: Compiled, m: RegExpExecArray, lookup: Lookup): string | null {
       if (v == null) return null;
     } else if (kind === "name") {
       v = transliterateCyrillic(raw);
+    } else if (kind === "org") {
+      v = (raw ? lookup(raw) : "") ?? cleanOrgDe(raw);
+      v = v.replace(/[.;]$/, "");
     }
     out = out.split(`{${name}}`).join(v);
   }
   return out;
+}
+
+/** Stelle/Organisation (Eigenname) mit englischen Bindewörtern lesbar machen. */
+export function cleanOrgDe(s: string): string {
+  return s
+    .trim()
+    .replace(/^the\s+/i, "")
+    .replace(/\bwhen open\b/gi, "wenn besetzt")
+    .replace(/\bat other times\b/gi, "sonst")
+    .replace(/\bNos?\.\s/g, "Nr. ")
+    .replace(/\bExt\b\.?/g, "Durchwahl")
+    .replace(/\bor\b/g, "oder")
+    .replace(/\band\b/g, "und")
+    .replace(/\bvia\b/g, "über");
 }
 
 // ---------------------------------------------------------------------------
@@ -337,7 +360,7 @@ export function isGermanLabel(label: string): boolean {
 
 /** Etiketten, deren Wert ein Name/eine Kennung/ein Kontakt ist (nie übersetzt). */
 const PROPER_LABEL_RE =
-  /^(Name|Kennung.*|Zuständig\w*.*|Rufzeichen|Kontakt\w*|Zonenverwalter|Antragsteller.*|Koordination|Position.*|Funk.*|Obergrenze|Untergrenze|Höhe.*|Vertikale Grenze.*|Geländehöhe.*|Reservierte Höhe.*|Zeitplan.*|Zeiten|Zeitraum|Gültig\w*|Quelle\w*|Quell-NOTAM|NOTAM[- ]?ID|Telefon\w*|E-Mail|Website|Webseite|UAS-Portal|Antragsformular|Bedingungen\/Antrag|Information(?:en)?|Betreiber|Code|ICAO|Gebietsnummer|Ordner|Rechtsgrundlage|Rechtsquelle|Gesetz.*|Teil von|Luftraumklasse|Radius|Beschreibung)$/;
+  /^(Name|Kennung.*|Zuständig\w*.*|Rufzeichen|Kontakt\w*|Zonenverwalter|Antragsteller.*|Koordination|Position.*|Funk.*|Obergrenze|Untergrenze|Höhe.*|Vertikale Grenze.*|Geländehöhe.*|Reservierte Höhe.*|Zeitplan.*|Zeiten|Zeitraum|Gültig\w*|Quelle\w*|Quell-NOTAM|NOTAM[- ]?ID|Telefon\w*|E-Mail|Website|Webseite|UAS-Portal|Antragsformular|Bedingungen\/Antrag|Information(?:en)?|Betreiber|Code|ICAO|Gebietsnummer|Ordner|Rechtsgrundlage|Rechtsquelle|Gesetz.*|Teil von|Luftraumklasse|Radius|Beschreibung|Bezeichnung|Luftraum|Vorab-Mitteilung|Genehmigung bei|Gebiet|Flugplatz)$/;
 
 export function isProperNameLabel(label: string): boolean {
   return PROPER_LABEL_RE.test(label.trim());
@@ -370,7 +393,8 @@ const NAME_RULES: Compiled[] = [];
 
 /** Regeln registrieren: [quelle, deutsch] (ID = Sprache + laufende Nummer). */
 function rules(lang: string, list: [string, string][], target: Compiled[] = LINE_RULES, opts: { cs?: boolean } = {}): void {
-  list.forEach(([src, de], i) => target.push(compile(`${lang}${i + 1}`, src, de, opts)));
+  const name = target === NAME_RULES;
+  list.forEach(([src, de], i) => target.push(compile(`${lang}${i + 1}`, src, de, { ...opts, name })));
 }
 
 export function translateLineByPattern(line: string, lookup: Lookup): string | null {
@@ -407,17 +431,21 @@ export function translateNameByPattern(
 // Luftraum-Kennungen und Gebietsarten am Namensanfang/-ende: der Rest ist ein
 // Eigenname („EGR1U025A HALTON“, „END130 Eina B“, „ATZ VARAZDIN“, „POPOV (TRA)“).
 const DESIGNATOR_START =
-  /^(?:[A-Z]{2,5}\s?[A-Z]?\s?\d+[A-Z0-9]*|EL-UAS-[\w-]+|(?:ATZ|CTR|TMA|TIZ|TIA|URG|ULG|UTR|TRA|TSA|RMZ|TMZ|MCTR|MATZ|CTA|FIZ|NOTAM|LZ|EP|EK|EN|ES|EF|EY|EV|EE|LH|LK|LJ|LD|LB|LR|LO|LS|LI|LE|LP|EG|EI|EB|EH)\b)/;
-const DESIGNATOR_END = /(?:\s|-)(?:CTR|TMA|ATZ|TIZ|TIA|URG|ULG|UTR|RMZ|TMZ|AWY|\((?:TRA|TSA|D|R|P|TRA\/TSA)\))$/;
+  /^(?:[LEB][A-Z]{3}\s(?=\S)|[A-Z]{2,5}\s?[A-Z]?\s?\d+[A-Z0-9]*|EL-UAS-[\w-]+|(?:ATZ|CTR|TMA|TIZ|TIA|URG|ULG|UTR|TRA|TSA|RMZ|TMZ|MCTR|MATZ|CTA|FIZ|NOTAM|LZ|EP|EK|EN|ES|EF|EY|EV|EE|LH|LK|LJ|LD|LB|LR|LO|LS|LI|LE|LP|EG|EI|EB|EH)\b)/;
+const DESIGNATOR_END = /(?:\s|-)(?:CTR|TMA|ATZ|TIZ|TIA|URG|ULG|UTR|RMZ|TMZ|AWY|MATZ|MCTR|\((?:TRA|TSA|D|R|P|TRA\/TSA)\))$/;
 // Gattungswörter in Großschrift, die übersetzt gehören (sonst gilt Großschrift als Eigenname)
 const GENERIC_UPPER =
   /\b(ZONA|ZONE|AREA|CAMPO|TIRO|CENTRAL|NUCLEAR|URBANA|EJERCICIO|EXHIBICI[OÓ]N|A[EÉ]REA|PROTECCI[OÓ]N|FERROVIARIA|CONTROL|AIRPORT|AIRFIELD|HOSPITAL|PRISON|EMBASSY|BARRACKS|RESERVE|PARK|PORT|HARBOUR|LUCHTHAVEN|GEVANGENIS|ZIEKENHUIS|FLUGPLATZ|AEROPUERTO|AEROPORTO|HELIPORT|POWER|STATION|RANGE|EXERCISE|PRISION|PRISIÓN|CÁRCEL|CARCEL|ESTRECHO|PELIGROSA|RESTRINGIDA|PROHIBIDA)\b/;
 
 /** Name ist eine Bezeichnung aus Kennung + Eigenname (keine Übersetzung nötig). */
+// Spanische/italienische Gattungswörter: auch hinter einer Kennung übersetzen
+const GENERIC_ROMANCE = /\b(ZONA|CAMPO|TIRO|EXHIBICI[OÓ]N|PROTECCI[OÓ]N|FERROVIARIA|CENTRAL NUCLEAR|SETTORE|PARCO)\b/;
+
 export function isProperDesignation(name: string): boolean {
   const n = name.trim();
-  if (GENERIC_UPPER.test(n)) return false;
+  if (GENERIC_ROMANCE.test(n)) return false;
   if (DESIGNATOR_START.test(n) || DESIGNATOR_END.test(n)) return true;
+  if (GENERIC_UPPER.test(n)) return false;
   // reine Großschrift (Ortsname, Firmenname) ohne Gattungswörter
   return !/[a-zà-ÿā-ž]/.test(n) && n.split(/\s+/).length <= 6;
 }
@@ -463,8 +491,8 @@ addFieldLabels({
   "Activity": "Aktivität",
   "Activation": "Aktivierung",
   "SUA Authority": "Zuständige Stelle (SUA)",
-  "SUAAIS": "Funk/Dienst (SUAAIS)",
-  "SUACS": "Funk/Dienst (SUACS)",
+  "SUAAIS": "SUAAIS",
+  "SUACS": "SUACS",
   "SI": "Rechtsgrundlage (SI)",
   "NSF": "NSF (Non-Standard Flight)",
   "Note": "Bemerkung",
@@ -568,6 +596,8 @@ addFieldLabels({
   "Έντυπο Αίτησης": "Antragsformular",
   "Όροι Πρόσβασης": "Zugangsbedingungen",
   "Τηλέφωνο": "Telefon",
+  "Τηλέφωνο Επικοινωνίας": "Telefon",
+  "Διαχειριστής Ζώνης": "Zonenverwalter",
 });
 
 // --- NOTAM-Englisch: Glossar (längere Wendungen zuerst) --------------------
@@ -575,7 +605,6 @@ const NM = String.raw`([A-Z0-9ÆØÅÄÖÜ][A-Z0-9ÆØÅÄÖÜ'\-/ ]*?)`; // Nam
 const AREA_ID = String.raw`([A-Z]{1,4}\s?[RDP]?\s?\d+[A-Z]{0,2}(?:\s+\(?[A-Z0-9'\-]+\)?){0,3}?|'[^']+'|[A-Z0-9]+ '[^']+'|TSA \d+[A-Z]?|TRA [A-Z0-9 ]+?)`;
 gloss([
   [String.raw`\[SCHEDULE:`, "[Zeitplan:"],
-  [String.raw`'([^']+)'`, "'{1}'"],
   // Gebiete mit Kennung/Namen
   [String.raw`\b(?:TEMPO|TEMPORARY) RESTRICTED AREA ${AREA_ID}(?= (?:ACTIVATED|ESTABLISHED|FOR)\b)`, "temporäres Beschränkungsgebiet {1}"],
   [String.raw`\b(?:TEMPO|TEMPORARY) DANGER AREA ${AREA_ID}(?= (?:ACTIVATED|ESTABLISHED|FOR)\b)`, "temporäres Gefahrengebiet {1}"],
@@ -584,6 +613,7 @@ gloss([
   [String.raw`\bDANGER AREA ${AREA_ID}(?= (?:ACTIVATED|ESTABLISHED)\b)`, "Gefahrengebiet {1}"],
   [String.raw`\bPROHIBITED AREA ${AREA_ID}(?= (?:ACTIVATED|ESTABLISHED)\b)`, "Sperrgebiet {1}"],
   [String.raw`^(LED\d+[A-Z]?|TSA \d+[A-Z]?|[A-Z]{2}[RDP]\d+[A-Z]?) ACTIVATED`, "{1} aktiviert"],
+  [String.raw`'([^']+)'`, "'{1}'"],
   [String.raw`\b(?:TEMPO|TEMPORARY) RESTRICTED AREA\b`, "temporäres Beschränkungsgebiet"],
   [String.raw`\b(?:TEMPO|TEMPORARY) DANGER AREA\b`, "temporäres Gefahrengebiet"],
   [String.raw`\b(?:TEMPO|TEMPORARY) RESERVED AREA\b`, "temporär reserviertes Gebiet"],
@@ -605,9 +635,7 @@ gloss([
   [String.raw`\bDRONE OPERATOR CONTACT TEL:?`, "Kontakt Drohnenbetreiber, Tel.:"],
   [String.raw`\bDRONE WILL BE LANDED IN CASE OF HEMS ACTIVITY\b`, "Die Drohne wird bei Einsätzen von Rettungshubschraubern (HEMS) gelandet"],
   [String.raw`\bWILL TAKE PLACE\b`, "findet statt"],
-  [String.raw`(?<=[\u0002\u0004])\s+([A-Z][A-Z0-9ÆØÅÄÖÜ'\- ]*?)(?=,?\s+PSN\b)`, " – {1}"],
-  [String.raw`\b(?:AT|IN) PSN:?`, "an Position"],
-  [String.raw`\b(?:AT|IN) ${NM}(?=,?\s+PSN\b)`, "bei {1}"],
+
   [String.raw`\bON ([A-Z][A-Z .'\-]*)$`, "am {1}"],
   [String.raw`\bREAL TIME ACTIVATION BY ${NM}(?=\s*$)`, "Echtzeitaktivierung durch {1}"],
   [String.raw`\bVIA ([A-Z]{4} (?:TWR|APP|TWR/APP|ACC))\b`, "über {1}"],
@@ -624,7 +652,14 @@ gloss([
   // Wo
   [String.raw`\b(?:IN|AT) THE ${NM} AREA\b`, "im Gebiet {1}"],
   [String.raw`\b(?:IN|AT) ${NM} AREA\b`, "im Gebiet {1}"],
-  [String.raw`\b(EAST|WEST|NORTH|SOUTH) OF ([A-Z]{1,4}\d+[A-Z]?)\b`, "{1}|{2}"],
+  [String.raw`\b(?:AT|IN) PSN:?`, "an Position"],
+  [String.raw`\b(?:AT|IN) ${NM}(?=,?\s+PSN\b)`, "bei {1}"],
+  [String.raw`\bEAST OF ([A-Z]{1,4}\d+[A-Z]?)\b`, "östlich von {1}"],
+  [String.raw`\bWEST OF ([A-Z]{1,4}\d+[A-Z]?)\b`, "westlich von {1}"],
+  [String.raw`\bNORTH OF ([A-Z]{1,4}\d+[A-Z]?)\b`, "nördlich von {1}"],
+  [String.raw`\bSOUTH OF ([A-Z]{1,4}\d+[A-Z]?)\b`, "südlich von {1}"],
+  [String.raw`(?<=[\u0002\u0004])\s+([A-Z][A-Z0-9ÆØÅÄÖÜ'\- ]*?)(?=,?\s+PSN\b)`, " – {1}"],
+
   [String.raw`\bWI(?:THIN)? (\d+(?:[.,]\d+)?\s?(?:NM|KM|M)) RADIUS (?:CENTRED|CENTERED)(?: ON)?\b`, "im Umkreis von {1} um"],
   [String.raw`\bWI(?:THIN)? RADIUS OF (\d+(?:[.,]\d+)?\s?(?:NM|KM|M)) (?:CENTRED|CENTERED)(?: ON)?\b`, "im Umkreis von {1} um"],
   [String.raw`\bWITHIN THE LATERAL LIMITS:?`, "innerhalb der seitlichen Grenzen:"],
@@ -707,6 +742,7 @@ rules("no", [
   ["MIL-aktivitet", "Militärische Aktivität"],
   ["MIL activity", "Militärische Aktivität"],
   ["MIL-aktivitet Real time activation, {n:num} MIN notice. / MIL activity Real time activation, {m:num} MIN notice", "Militärische Aktivität, Echtzeitaktivierung mit {n} Min. Vorlauf"],
+  ["MIL-aktivitet Real time activation, {n:num} MIN notice", "Militärische Aktivität, Echtzeitaktivierung mit {n} Min. Vorlauf"],
   ["MIL activity Real time activation, {n:num} MIN notice", "Militärische Aktivität, Echtzeitaktivierung mit {n} Min. Vorlauf"],
   ["MIL-aktivitet. AMC manageable område. / MIL activity. AMC manageable area", "Militärische Aktivität. AMC-verwaltetes Gebiet."],
   ["Real time activation, {n:num} MIN notice", "Echtzeitaktivierung mit {n} Min. Vorlauf"],
@@ -752,13 +788,13 @@ rules("gb", [
   ["AMC - Manageable. ASM Protocols apply", "AMC-verwaltet (Luftraummanagement); ASM-Verfahren gelten."],
   ["AMC – Manageable above {h:hgt}", "Oberhalb {h} AMC-verwaltet (Luftraummanagement)."],
   ["ASM Protocols apply", "ASM-Verfahren (Luftraummanagement) gelten."],
-  ["Unmanned aircraft flights? (?:is )?not permitted unless permission has been granted by {w}", "Flüge mit unbemannten Luftfahrzeugen nur mit Genehmigung von: {w}."],
+  ["Unmanned aircraft flights? (?:is )?not permitted unless permission has been granted by {w:org}", "Flüge mit unbemannten Luftfahrzeugen nur mit Genehmigung von: {w}."],
   ["{p:id} email: {c:contact}", "{p} E-Mail: {c}"],
-  ["NSA {p} email: {c:contact}", "NSA {p} – E-Mail: {c}"],
+  ["NSA {p} email: {c:rest}", "NSA {p} – E-Mail: {c}"],
   ["HMPPS email: {c:contact}", "HMPPS (Strafvollzugsbehörde) – E-Mail: {c}"],
   ["FRZ Active H24. {x:tr}", "Flugbeschränkungszone (FRZ) durchgehend aktiv (H24). {x}"],
   ["FRZ and associated RPZs Active H24. {x:tr}", "Flugbeschränkungszone (FRZ) mit zugehörigen Runway Protection Zones (RPZ) durchgehend aktiv (H24). {x}"],
-  ["UAS flight is not permitted unless permission has been granted by {w} via {v}", "UAS-Flüge nur mit Genehmigung von {w} über {v}."],
+  ["UAS flight is not permitted unless permission has been granted by {w:org} via {v}", "UAS-Flüge nur mit Genehmigung von {w} über {v}."],
   ["For (?:additional )?contact details,? see {r}", "Kontaktdaten siehe {r}."],
   ["For contact details and opening hours see {r}", "Kontaktdaten und Öffnungszeiten siehe {r}."],
   ["ATC must be contacted during operational hours with a minimum of {n:num} hours notice provided prior to the unmanned aircraft flight within the FRZ", "Die Flugverkehrskontrolle ist während der Betriebszeiten mindestens {n} Stunden vor dem Flug unbemannter Luftfahrzeuge in der FRZ zu kontaktieren."],
@@ -766,11 +802,11 @@ rules("gb", [
   ["Requests for permission to fly an unmanned aircraft are to be made to the Duty Operations Manager (Tel: {c:contact} or Email:", "Anträge auf Genehmigung eines Flugs mit unbemannten Luftfahrzeugen sind an den Duty Operations Manager zu richten (Tel.: {c} oder E-Mail:"],
   ["Information relating to flight within the FRZ and an on-line application form is available on the aerodrome's website {c:contact}", "Informationen zu Flügen in der FRZ und ein Online-Antragsformular gibt es auf der Website des Flugplatzes: {c}"],
   ["{c:contact}). Requests are to be made at least {n:num} hours prior to the intended commencement of a flight", "{c}). Anträge mindestens {n} Stunden vor dem geplanten Flugbeginn stellen."],
-  ["Contact: Pre-flight information / Booking: {w}", "Kontakt: Vorfluginformation / Buchung: {w}"],
-  ["Contact: Pre-flight information: {w}", "Kontakt: Vorfluginformation: {w}"],
-  ["Contact: Booking: {w}", "Kontakt: Buchung: {w}"],
+  ["Contact: Pre-flight information / Booking: {w:org}", "Kontakt: Vorfluginformation / Buchung: {w}"],
+  ["Contact: Pre-flight information: {w:org}", "Kontakt: Vorfluginformation: {w}"],
+  ["Contact: Booking: {w:org}", "Kontakt: Buchung: {w}"],
   ["Contact: Refer to Statutory Instrument", "Kontakt: siehe Rechtsverordnung (Statutory Instrument)."],
-  ["Contact: {w}", "Kontakt: {w}"],
+  ["Contact: {w:org}", "Kontakt: {w}"],
   ["Activation: Status: ACTIVE", "Aktivierung: Status aktiv"],
   ["Activation: Status: {s:id} / {x:tr} / OTHER", "Aktivierung: Status {s} / {x} / Sonstiges"],
   ["Activation: Status: {s:id} / {x:tr} / {y:tr}", "Aktivierung: Status {s} / {x} / {y}"],
@@ -816,7 +852,7 @@ rules("gb", [
   ["Below {a:hgt} {u:svc} on channel {f:num}. At/above {b:hgt} {v:svc} on {g:num} MHz", "Unterhalb {a}: {u} auf Kanal {f}. Ab {b}: {v} auf {g} MHz"],
   ["{u:svc} {f:num} MHz", "{u} {f} MHz"],
   ["{u:svc} {f:num}", "{u} {f} MHz"],
-  ["SUA Authority: {w}", "Zuständige Stelle (SUA): {w}"],
+  ["SUA Authority: {w:org}", "Zuständige Stelle (SUA): {w}"],
   ["SI {a:id}(?:,| and| &) SI {b:id}(?: \\(Amendment\\))?", "Rechtsverordnungen SI {a} und SI {b}"],
   ["SI {a:id}", "Rechtsverordnung SI {a}"],
   ["Guernsey SI {a:id}", "Rechtsverordnung Guernsey SI {a}"],
@@ -840,25 +876,25 @@ rules("gb", [
   ["On no account should negative contact on {f:num} MHz be taken as non-activity of the range", "Fehlender Funkkontakt auf {f} MHz bedeutet keinesfalls, dass auf dem Übungsplatz kein Betrieb stattfindet."],
   ["{a:id} is contained within {b:id} \\(activated by NOTAM\\)", "{a} liegt innerhalb von {b} (Aktivierung per NOTAM)."],
   ["May be activated at the same time as {a:id} and/or {b:id} as a separate activity", "Kann gleichzeitig mit {a} und/oder {b} als eigene Aktivität aktiviert werden."],
-  ["When active, entry of non-participating aircraft is prohibited unless flying in accordance with an authorisation given by {w}, Tel: {c:contact}", "Wenn aktiv: Einflug nicht beteiligter Luftfahrzeuge verboten, außer mit Genehmigung von {w}, Tel.: {c}."],
-  ["Lower limit: {h:hgt} When active, entry of non-participating aircraft is prohibited unless flying in accordance with an authorisation given by {w}, Tel: {c:contact}", "Untergrenze: {h}. Wenn aktiv: Einflug nicht beteiligter Luftfahrzeuge verboten, außer mit Genehmigung von {w}, Tel.: {c}."],
+  ["When active, entry of non-participating aircraft is prohibited unless flying in accordance with an authorisation given by {w:org}, Tel: {c:contact}", "Wenn aktiv: Einflug nicht beteiligter Luftfahrzeuge verboten, außer mit Genehmigung von {w}, Tel.: {c}."],
+  ["Lower limit: {h:hgt} When active, entry of non-participating aircraft is prohibited unless flying in accordance with an authorisation given by {w:org}, Tel: {c:contact}", "Untergrenze: {h}. Wenn aktiv: Einflug nicht beteiligter Luftfahrzeuge verboten, außer mit Genehmigung von {w}, Tel.: {c}."],
   ["Application via CAA Customer Portal - ACOMS: {c:contact}", "Antrag über das CAA-Kundenportal (ACOMS): {c}"],
   ["NSF: Online Application: {c:contact}", "NSF: Online-Antrag: {c}"],
   ["Exemptions to be sought via NATS Non-Standard Flight \\(NSF\\) application online", "Ausnahmen online über einen NATS-Antrag für Non-Standard Flights (NSF) beantragen."],
-  ["Permissions to fly UAS within the Restricted Area are to be obtained from {w} via email: {c:contact} or telephone: {d:contact}", "Genehmigungen für UAS-Flüge im Beschränkungsgebiet sind bei {w} einzuholen: E-Mail {c} oder Telefon {d}."],
-  ["Clearance for emergency service aircraft will be given by {w}", "Freigaben für Luftfahrzeuge der Rettungsdienste erteilt {w}."],
+  ["Permissions to fly UAS within the Restricted Area are to be obtained from {w:org} via email: {c:contact} or telephone: {d:contact}", "Genehmigungen für UAS-Flüge im Beschränkungsgebiet sind bei {w} einzuholen: E-Mail {c} oder Telefon {d}."],
+  ["Clearance for emergency service aircraft will be given by {w:org}", "Freigaben für Luftfahrzeuge der Rettungsdienste erteilt {w}."],
   ["Flight Permitted by:", "Flüge erlaubt für:"],
   ["Flight permitted by:", "Flüge erlaubt für:"],
   ["Flight permitted by;", "Flüge erlaubt für:"],
   ["Flight permitted by any aircraft -", "Flüge erlaubt für jedes Luftfahrzeug –"],
   ["Flight permitted by any unmanned aircraft:", "Flüge erlaubt für jedes unbemannte Luftfahrzeug:"],
   ["Flight Permitted by any unmanned aircraft operated by or on behalf of:", "Flüge erlaubt für jedes unbemannte Luftfahrzeug, das betrieben wird von oder im Auftrag von:"],
-  ["any (?:unmanned )?aircraft operated by,? or on behalf of,? {w}", "jedes Luftfahrzeug, das von oder im Auftrag von {w} betrieben wird"],
-  ["any (?:unmanned )?aircraft operating for or on behalf of {w}", "jedes Luftfahrzeug, das für oder im Auftrag von {w} betrieben wird"],
-  ["any aircraft flying in the service of {w}", "jedes Luftfahrzeug im Dienst von {w}"],
-  ["any aircraft in the service of {w}", "jedes Luftfahrzeug im Dienst von {w}"],
-  ["any (?:unmanned )?aircraft flying in accordance with (?:the|a) permission (?:of|issued by) {w}", "jedes Luftfahrzeug mit Genehmigung von {w}"],
-  ["any aircraft flying in accordance with an agreed exemption issued by, or with the permission of, {w}", "jedes Luftfahrzeug mit vereinbarter Ausnahme oder Genehmigung von {w}"],
+  ["any (?:unmanned )?aircraft operated by,? or on behalf of,? {w:org}", "jedes Luftfahrzeug, das von oder im Auftrag von {w} betrieben wird"],
+  ["any (?:unmanned )?aircraft operating for or on behalf of {w:org}", "jedes Luftfahrzeug, das für oder im Auftrag von {w} betrieben wird"],
+  ["any aircraft flying in the service of {w:org}", "jedes Luftfahrzeug im Dienst von {w}"],
+  ["any aircraft in the service of {w:org}", "jedes Luftfahrzeug im Dienst von {w}"],
+  ["any (?:unmanned )?aircraft flying in accordance with (?:the|a) permission (?:of|issued by) {w:org}", "jedes Luftfahrzeug mit Genehmigung von {w}"],
+  ["any aircraft flying in accordance with an agreed exemption issued by, or with the permission of, {w:org}", "jedes Luftfahrzeug mit vereinbarter Ausnahme oder Genehmigung von {w}"],
   ["any aircraft flying in accordance with an Enhanced Non-Standard Flight clearance issued by the appropriate ATC unit", "jedes Luftfahrzeug mit einer Enhanced-Non-Standard-Flight-Freigabe der zuständigen Flugverkehrskontrollstelle"],
   ["any aircraft flying in accordance with a Special Flight Notification issued by the appropriate ATC unit", "jedes Luftfahrzeug mit einer Special Flight Notification der zuständigen Flugverkehrskontrollstelle"],
   ["any aircraft approaching to, or departing from, {p}", "jedes Luftfahrzeug im An- oder Abflug auf {p}"],
@@ -866,9 +902,9 @@ rules("gb", [
   ["any helicopter flying on Helicopter Route {r:id}", "jeder Hubschrauber auf der Hubschrauberroute {r}"],
   ["any aircraft (?:either )?operated by a member of the Royal Family", "jedes Luftfahrzeug, das von einem Mitglied der königlichen Familie geführt wird"],
   ["any aircraft landing in the grounds of {p} at the invitation of the person in charge of the household there, provided that {w} has been informed in advance of such intended landing", "jedes Luftfahrzeug, das auf Einladung der Haushaltsleitung auf dem Gelände von {p} landet, sofern {w} vorab über die Landung informiert wurde"],
-  ["operating in the service of {w}", "im Dienst von {w}"],
-  ["operating with the permission of {w}", "mit Genehmigung von {w}"],
-  ["flying in accordance with the permission of {w}", "mit Genehmigung von {w}"],
+  ["operating in the service of {w:org}", "im Dienst von {w}"],
+  ["operating with the permission of {w:org}", "mit Genehmigung von {w}"],
+  ["flying in accordance with the permission of {w:org}", "mit Genehmigung von {w}"],
   ["a Police Air Support Unit", "eine Polizei-Luftunterstützungseinheit"],
   ["a member of the Royal Family", "ein Mitglied der königlichen Familie"],
   ["an Emergency Medical Service", "ein Rettungsdienst"],
@@ -878,7 +914,7 @@ rules("gb", [
   ["\\(iv\\) the Maritime and Coastguard Agency for the purpose of search and rescue only", "(iv) die Küstenwache (Maritime and Coastguard Agency) ausschließlich für Such- und Rettungseinsätze"],
   ["Operated by a member of the Royal Family,?", "Geführt von einem Mitglied der königlichen Familie"],
   ["High energy manoeuvres related to display flying training only", "Flugmanöver mit hoher Energie nur im Rahmen von Kunstflugtraining für Flugvorführungen."],
-  ["Microlight access to {p} obtained from {w}", "Zugang für Ultraleichtflugzeuge nach {p} über {w}."],
+  ["Microlight access to {p} obtained from {w:org}", "Zugang für Ultraleichtflugzeuge nach {p} über {w}."],
   ["In the event of an emergency which requires airborne assistance the HRA will be cleared of military low flying aircraft", "Bei einem Notfall mit Bedarf an Luftunterstützung wird das HRA von militärischen Tiefflügen freigehalten."],
   ["Flight permitted at not less than {h:hgt} above mean sea level for the purpose of landing at {p}", "Flüge in mindestens {h} über dem Meeresspiegel zur Landung in {p} erlaubt."],
   ["Flight permitted at a height of not less than {h:hgt} above ground level whilst operating under and in accordance with a clearance from the air traffic control unit at {p}", "Flüge in mindestens {h} über Grund mit Freigabe der Flugverkehrskontrolle {p} erlaubt."],
@@ -961,28 +997,28 @@ rules("lt", [
 
 // --- Malta (Kontaktzeilen „<Ort> - Contact <E-Mail>“) ---------------------------
 rules("mt", [
-  ["{p} -? ?(?:Please contact|please contact|Contact|contact|Contacts|Contcat)(?: -|:)? ?{c:mail}", "{p} – Kontakt: {c}"],
-  ["{p} -? ?(?:Please contact|please contact|Contact|contact)(?: -|:)? ?{who} - {c:contact}", "{p} – Kontakt: {who}, {c}"],
-  ["{p} -? ?(?:Contact|contact) {who} {c:contact}", "{p} – Kontakt: {who}, {c}"],
-  ["{p} - No objection required -? ?(?:email )?{c:mail}", "{p} – Unbedenklichkeitserklärung erforderlich – Kontakt: {c}"],
-  ["{p} - No [Oo]bjection required - email {c:contact}", "{p} – Unbedenklichkeitserklärung erforderlich – Kontakt: {c}"],
-  ["{p} - No objection required {c:contact}", "{p} – Unbedenklichkeitserklärung erforderlich – Kontakt: {c}"],
-  ["{p}\\. No objection (?:required )?from {w} (?:required )?-? ?(?:Contact|contact) {c:contact}", "{p}. Unbedenklichkeitserklärung von {w} erforderlich – Kontakt: {c}"],
-  ["{p} - please contact {c:contact} for permission and upload with (?:your|flight) submission", "{p} – Genehmigung bei {c} einholen und mit dem Flugantrag hochladen"],
-  ["{p} - please upload permit from:? {c:contact}", "{p} – Genehmigung von {c} mit dem Antrag hochladen"],
-  ["{p} - Please contact Drones at ERA on {c:contact}", "{p} – Kontakt: Drohnenstelle der Umweltbehörde ERA, {c}"],
-  ["{p} Contact ERA {c:contact}", "{p} – Kontakt: Umweltbehörde ERA, {c}"],
-  ["{p} - {c:mail}", "{p} – Kontakt: {c}"],
-  ["{p} {c:mail}", "{p} – Kontakt: {c}"],
-  ["{p} - (?:AFM )?Coordination needed {c:contact}", "{p} – Abstimmung mit den Streitkräften (AFM) erforderlich, Kontakt: {c}"],
-  ["{p}\\. Operations subject to no objection from AFM\\. Contact {c:contact}", "{p}. Betrieb nur mit Unbedenklichkeitserklärung der Streitkräfte (AFM). Kontakt: {c}"],
-  ["{p} - Operations allowed only if no objection provided by AFM - Contact {c:contact}", "{p} – Betrieb nur mit Unbedenklichkeitserklärung der Streitkräfte (AFM). Kontakt: {c}"],
-  ["{p} - No objection required {c:contact}", "{p} – Unbedenklichkeitserklärung erforderlich – Kontakt: {c}"],
+  ["{p:place} -? ?(?:Please contact|please contact|Contact|contact|Contacts|Contcat)(?: -|:)? ?{c:mail}", "{p} – Kontakt: {c}"],
+  ["{p:place} -? ?(?:Please contact|please contact|Contact|contact)(?: -|:)? ?{who} - {c:contact}", "{p} – Kontakt: {who}, {c}"],
+  ["{p:place} -? ?(?:Contact|contact) {who} {c:contact}", "{p} – Kontakt: {who}, {c}"],
+  ["{p:place} - No objection required -? ?(?:email )?{c:mail}", "{p} – Unbedenklichkeitserklärung erforderlich – Kontakt: {c}"],
+  ["{p:place} - No [Oo]bjection required - email {c:contact}", "{p} – Unbedenklichkeitserklärung erforderlich – Kontakt: {c}"],
+  ["{p:place} - No objection required {c:contact}", "{p} – Unbedenklichkeitserklärung erforderlich – Kontakt: {c}"],
+  ["{p:place}\\. No objection (?:required )?from {w} (?:required )?-? ?(?:Contact|contact) {c:contact}", "{p}. Unbedenklichkeitserklärung von {w} erforderlich – Kontakt: {c}"],
+  ["{p:place} - please contact {c:contact} for permission and upload with (?:your|flight) submission", "{p} – Genehmigung bei {c} einholen und mit dem Flugantrag hochladen"],
+  ["{p:place} - please upload permit from:? {c:contact}", "{p} – Genehmigung von {c} mit dem Antrag hochladen"],
+  ["{p:place} - Please contact Drones at ERA on {c:contact}", "{p} – Kontakt: Drohnenstelle der Umweltbehörde ERA, {c}"],
+  ["{p:place} Contact ERA {c:contact}", "{p} – Kontakt: Umweltbehörde ERA, {c}"],
+  ["{p:place} - {c:mail}", "{p} – Kontakt: {c}"],
+  ["{p:place} {c:mail}", "{p} – Kontakt: {c}"],
+  ["{p:place} - (?:AFM )?Coordination needed {c:contact}", "{p} – Abstimmung mit den Streitkräften (AFM) erforderlich, Kontakt: {c}"],
+  ["{p:place}\\. Operations subject to no objection from AFM\\. Contact {c:contact}", "{p}. Betrieb nur mit Unbedenklichkeitserklärung der Streitkräfte (AFM). Kontakt: {c}"],
+  ["{p:place} - Operations allowed only if no objection provided by AFM - Contact {c:contact}", "{p} – Betrieb nur mit Unbedenklichkeitserklärung der Streitkräfte (AFM). Kontakt: {c}"],
+  ["{p:place} - No objection required {c:contact}", "{p} – Unbedenklichkeitserklärung erforderlich – Kontakt: {c}"],
   ["Helipad - no objection contact is {who} - {c:contact}", "Hubschrauberlandeplatz – Unbedenklichkeitserklärung bei {who}, {c}"],
-  ["{p}\\. Requests will be reviewed by the Drones Unit", "{p}. Anträge werden von der Drohnenstelle geprüft."],
-  ["{p} Highly Restricted Area {q}", "{p} Hochbeschränktes Gebiet {q}"],
-  ["{p} - Auto Authorisation Limit {h:hgt}", "{p} – automatische Freigabe bis {h}"],
-  ["{p} Auto Authorisation of maximum {h:hgt}", "{p} – automatische Freigabe bis max. {h}"],
+  ["{p:place}\\. Requests will be reviewed by the Drones Unit", "{p}. Anträge werden von der Drohnenstelle geprüft."],
+  ["{p:place} Highly Restricted Area {q}", "{p} Hochbeschränktes Gebiet {q}"],
+  ["{p:place} - Auto Authorisation Limit {h:hgt}", "{p} – automatische Freigabe bis {h}"],
+  ["{p:place} Auto Authorisation of maximum {h:hgt}", "{p} – automatische Freigabe bis max. {h}"],
   ["LUQA-Central-Requests with altitude above {h:hgt} need to be approved by MATS. - Email MATS on {c:contact} \\(and copy {d:contact}\\) advising request number\\(TM{x}\\)and date/time/coord/altitude and scope", "LUQA-Central: Anträge über {h} müssen von MATS (Flugsicherung Malta) genehmigt werden – E-Mail an {c} (Kopie an {d}) mit Antragsnummer (TM…), Datum/Uhrzeit/Koordinaten/Höhe und Zweck."],
   ["Valletta Special Permit Zone. Recreational Operations not allowed. Commercial Operations are authorised subject to Special Permit criteria are met. Email {c:contact}", "Sondergenehmigungszone Valletta. Freizeitbetrieb nicht erlaubt. Gewerblicher Betrieb erlaubt, wenn die Kriterien der Sondergenehmigung erfüllt sind. E-Mail: {c}"],
 ]);
@@ -1039,7 +1075,7 @@ rules("pl", [
 
 // --- Rumänien ----------------------------------------------------------------
 rules("ro", [
-  ["ROMATSA {c:contact}For flights up to {h:hgt} in this zone, drone pilots shall contact TWR at the abovementioned phone", "ROMATSA {c} – Für Flüge bis {h} in dieser Zone müssen Drohnenpiloten den Tower (TWR) unter der oben genannten Telefonnummer kontaktieren."],
+  ["ROMATSA {c}For flights up to {h:hgt} in this zone, drone pilots shall contact TWR at the abovementioned phone", "ROMATSA {c} – Für Flüge bis {h} in dieser Zone müssen Drohnenpiloten den Tower (TWR) unter der oben genannten Telefonnummer kontaktieren."],
   ["ROMATSA {c:contact}", "ROMATSA {c}"],
 ]);
 
@@ -1106,7 +1142,7 @@ rules("si", [
   ["Zakon o kritični infrastrukturi", "Gesetz über kritische Infrastruktur"],
   ["Act on the Execution of Criminal Sanctions \\({k:id}\\)", "Gesetz über den Vollzug strafrechtlicher Sanktionen ({k})"],
   ["Zakon o izvrševanju kazenskih sankcij \\({k:id}\\)", "Gesetz über den Vollzug strafrechtlicher Sanktionen ({k})"],
-  ["Official [Gg]azette RS,? {x:rest}", "Amtsblatt der Republik Slowenien {x}"],
+  ["Official [Gg]azette RS,? {x:org}", "Amtsblatt der Republik Slowenien {x}"],
   ["Uradni list RS,? {x:rest}", "Amtsblatt der Republik Slowenien {x}"],
   ["[Ss]klep Vlade (?:RS|Republike Slovenije),? {x:rest}", "Regierungsbeschluss der Republik Slowenien {x}"],
   ["Sklep Vlade RS, št. {a}; {b:tr}", "Regierungsbeschluss der Republik Slowenien Nr. {a}; {b}"],
@@ -1128,6 +1164,8 @@ rules("si", [
   ["Prohibited areas - Nuclear power plant", "Sperrgebiete – Kernkraftwerk"],
   ["{w} \\(hospital\\)", "{w} (Krankenhaus)"],
   ["{x:id} restricted", "{x} Beschränkungsgebiet"],
+  ["Kontrolirana cona \\({x}\\)", "Kontrollzone ({x})"],
+  ["Letalisce {n}", "Flugplatz {n}"],
   ["{x} - Danger area", "{x} – Gefahrengebiet"],
 ]);
 
@@ -1194,6 +1232,10 @@ rules("cy", [
   ["Για πληροφορίες αναφορικά με τους όρους πρόσβασης της ζώνης επισκευθείτε την ιστοσελίδα {c:contact}", "Informationen zu den Zugangsbedingungen der Zone: {c}"],
   ["Για πτήσεις σε αυτήν την περιοχή, απαιτείται άδεια από τη {w}. Υποβολή αίτησης τουλάχιστον {n:num} βδομάδες πριν από την προγραμματισμένη ημερομηνία{x:rest}", "Für Flüge in diesem Gebiet ist eine Genehmigung von {w} erforderlich. Antrag mindestens {n} Wochen vor dem geplanten Flugdatum stellen."],
   ["ΕΞΟΥΣΙΟΔΟΤΗΣΗ", "Autorisierung erforderlich"],
+  ["Για πτήσεις σε αυτήν την περιοχή, απαιτείται άδεια από {w:tr} ?\\. Υποβολή αίτησης τουλάχιστον {n:num} βδομάδ(?:α|ες) πριν από την προγραμματισμένη ημερομηνία", "Für Flüge in diesem Gebiet ist eine Genehmigung von {w} erforderlich. Antrag mindestens {n} Woche(n) vor dem geplanten Flugdatum stellen."],
+  ["Πτήσεις s?σε αυτήν την περιοχή μπορούν να πραγματοποιηθούν κατόπιν ειδικής άδειας από {w:tr}", "Flüge in diesem Gebiet sind nur mit Sondergenehmigung von {w} möglich."],
+  ["Απαγορεύονται οι πτήσεις ΣμηΕΑ σε αυτήν την περιοχήv?", "UAS-Flüge sind in diesem Gebiet verboten."],
+  ["Όροι Πρόσβασης:", "Zugangsbedingungen:"],
   ["ΕΞΟΥΣΙΟΔΟΤΗΣΗ {x:tr}", "Autorisierung erforderlich – {x}"],
 ]);
 
@@ -1263,7 +1305,26 @@ rules("name-is", [
   ["{n} sjúkrahús", "Krankenhaus {n}"],
 ], NAME_RULES);
 
+rules("name-no", [
+  ["{n} TIZ \\(Del {k:num}\\)", "{n} TIZ (Teil {k})"],
+  ["Midlertidig [Ff]areområde", "Temporäres Gefahrengebiet"],
+  ["Militær droneflyging", "Militärischer Drohnenflug"],
+  ["Droneflyging", "Drohnenflug"],
+  ["Radio- og transponderpåbudssone {n}", "Funk- und Transponderpflichtzone {n}"],
+  ["Zona UAS {n}", "UAS-Zone {n}"],
+], NAME_RULES);
+
 rules("name-cz", [
+  ["Administrativní budova {n}", "Verwaltungsgebäude {n}"],
+  ["Cvičiště {n}", "Übungsplatz {n}"],
+  ["Vojenský újezd {n}", "Truppenübungsplatz {n}"],
+  ["Vojenská {n}", "Militärisches Objekt {n}"],
+  ["Vojenský {n}", "Militärisches Objekt {n}"],
+  ["Sklady {n}", "Lager {n}"],
+  ["Velitelství {n}", "Kommando {n}"],
+  ["Objekt {n}", "Objekt {n}"],
+  ["Budova {n}", "Gebäude {n}"],
+  ["Komunikace {n}", "Fernmeldeanlage {n}"],
   ["Grid {k:id} {n:id}", "Höhenraster {k} {n}"],
   ["Vnější zóna {n}", "Äußere Zone {n}"],
   ["Vnitřní zóna {n}", "Innere Zone {n}"],
@@ -1275,6 +1336,7 @@ rules("name-cz", [
   ["Nemocnice {n}", "Krankenhaus {n}"],
   ["Elektrárna {n}", "Kraftwerk {n}"],
   ["Rozvodna {n}", "Umspannwerk {n}"],
+  ["Silnice {k:id}\\. třídy", "Straße {k}. Klasse"],
   ["Silnice {n}", "Straße {n}"],
   ["Dálnice {n}", "Autobahn {n}"],
 ], NAME_RULES);

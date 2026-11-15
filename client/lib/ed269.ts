@@ -1,5 +1,5 @@
 import { ed269SourceLabels } from "./geozoneSources/registry";
-import { translateTextDe, translateZoneNameDe } from "../../shared/zoneTranslate";
+import { translateLineDe, translateTextDe, translateZoneNameDe } from "../../shared/zoneTranslate";
 import type { GeozoneFeatureInfo } from "@/lib/geozones";
 import { belgianAltitudeMeters } from "../../shared/belgianGeozones";
 import { stripHtml } from "../../shared/geozoneKit/text";
@@ -283,13 +283,24 @@ export function parseEd269ToGeozoneInfo(
       message = stripHtml((pick?.message || pick?.text || "").toString());
     }
     if (!message) message = stripHtml((p.message || p.reason || p.description || "").toString());
-    // Behördentext ins Deutsche; das Original bleibt unten erhalten
+    // Behördentext ins Deutsche (Wörterbuch + Satzmuster, offline); das Original
+    // bleibt unten erhalten. Enthält die (deutsche) Meldung schon einen Block
+    // „Originaltext der Behörde:“, kommen dessen übersetzte Zeilen davor und das
+    // Original wird nicht ein zweites Mal angehängt. Nicht übersetzbare Zeilen
+    // tragen „(nicht übersetzt)“ – außer in deutschen Meldungen der Normalisierer.
     const originalMessage = message;
-    if (message && !hasGermanOriginal) {
-      const tr = translateTextDe(message);
+    let messageTranslated = false;
+    let originalInMessage = false;
+    if (message) {
+      const tr = translateTextDe(message, { markUntranslated: !hasGermanOriginal });
       message = tr.text;
+      originalInMessage = tr.originalIncluded;
+      messageTranslated = tr.changed && !tr.originalIncluded;
     }
-    const messageTranslated = !!originalMessage && message !== originalMessage;
+    if (originalInMessage && name !== originalName) {
+      // Originalname in den vorhandenen Originalblock statt einer zweiten Überschrift
+      message = message.replace(`${ORIGINAL_TEXT_HEADING}\n`, `${ORIGINAL_TEXT_HEADING}\n${originalName}\n`);
+    }
 
     const detailLines: string[] = [];
     // Den Zonennamen in der Beschreibung erneut aufgreifen, damit die Zone auch im
@@ -299,12 +310,12 @@ export function parseEd269ToGeozoneInfo(
     detailLines.push(`Beschränkung: ${restrictionLabel}`);
     detailLines.push(`Höhe: ${altitudeLabel}`);
     const scheduleText = ed269ScheduleFromProps(p);
-    if (p.reason) detailLines.push(`Grund: ${stripHtml(String(p.reason))}`);
+    if (p.reason) detailLines.push(translateLineDe(`Grund: ${stripHtml(String(p.reason))}`));
     if (message) detailLines.push(message);
     const sourceInfo = ed269SourceInfo(p);
     detailLines.push(...sourceInfo.details);
     // Rechtlich maßgeblich ist die Behördenfassung: Original immer mitgeben
-    if (messageTranslated || name !== originalName) {
+    if (messageTranslated || (name !== originalName && !originalInMessage)) {
       detailLines.push(ORIGINAL_TEXT_HEADING);
       if (name !== originalName) detailLines.push(originalName);
       if (messageTranslated) detailLines.push(originalMessage);

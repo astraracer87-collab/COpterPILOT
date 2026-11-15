@@ -19,6 +19,7 @@ umgangen, keine privaten Logins missbraucht. Teile der Abrufe liefen aus einer
 | [geozonen-daten-abruf-DE-2026-11-15.md](geozonen-daten-abruf-DE-2026-11-15.md) | Bericht der **tatsächlich von DE abgerufenen Daten** (ES/PL/RO/LU) inkl. Größenwarnungen |
 | [handover-hauptjob-DE-2026-11-15.md](handover-hauptjob-DE-2026-11-15.md) | **Konsolidierte DE-Übergabe**: Erreichbarkeit DE/US, Abruf-Rezepte je Land, Datei-Inventar (`fixtures/`), MT-Normalizer |
 | [air-traffic-quellen.md](air-traffic-quellen.md) | **Luftverkehr**: ADS-B/OGN-Quellen + FlightRadar24 (feed.js, fertiger Code) |
+| [zonen-uebersetzung.md](zonen-uebersetzung.md) | **Behördentexte auf Deutsch** ohne Übersetzungsdienst: Wörterbuch + Satzmuster, Abdeckung je Land |
 
 **Test-Fixtures** (getrimmte echte Antworten): [`docs/fixtures/`](fixtures/)
 (PL-KML, RO-Zonen, RO-NOTAM, ES-Aerodrome, LU-OGC).
