@@ -30,7 +30,10 @@ import type { FlightCheckParamList } from "@/navigation/FlightCheckNavigator";
 import { uncoveredGeozoneSources, sourceCoverageWarning, type GeozoneSourceCoverage } from "@/lib/geozoneCoverage";
 import { zonePolicy, RESTRICTION_POLICY } from "../../shared/restrictionPolicy";
 import { evaluateZones } from "@/lib/flightChecks";
-import { coverageChecks, formatCoverageDataAges, formatCoverageTruncation, notamChecks, replaceCheckCategories } from "../../shared/checks";
+import { aggregate, coverageChecks, formatCoverageDataAges, formatCoverageTruncation, notamChecks, replaceCheckCategories } from "../../shared/checks";
+import { useGeozoneRevalidation, useVerdictChangeWatch } from "@/lib/geozoneSources/useGeozoneRevalidation";
+import { GeozoneDataChangedBanner } from "@/components/GeozoneDataChangedBanner";
+import { DataStandLines } from "@/components/DataStandLines";
 import { detectCountryFromCoordinates } from "../../shared/countryDetection";
 import {
   queryGeozonesInAreaWithCoverage,
@@ -148,6 +151,8 @@ export default function PreCheckOverviewScreen() {
   // Alle Quellen (auch ok/veraltet) für die Abdeckungs-Befunde der Prüfkette.
   const [coverageSources, setCoverageSources] = useState<GeozoneSourceCoverage[]>([]);
   const [notamLoading, setNotamLoading] = useState(true);
+  // Teil A: Stundenwerte aus dem Offline-Speicher („Offline-Vorhersage von HH:MM“)
+  const [hourlyOffline, setHourlyOffline] = useState<{ fetchedAt: number; cached: boolean } | null>(null);
   const [geozoneError, setGeozoneError] = useState(false);
   const [notamError, setNotamError] = useState(false);
   const [pilotProfile, setPilotProfile] = useState<PilotProfile | null>(null);
@@ -276,8 +281,14 @@ export default function PreCheckOverviewScreen() {
   }, [mapReady, wmsLoaded, notamLoading, geozoneLoading, captureMapSnapshot]);
 
   const searchRadiusKm = planningRadiusKm ?? 1;
+  // Teil A: lokaler Bestand sofort, online im Hintergrund nachziehen; neue
+  // Daten → neu laden (dataVersion), geändertes Urteil → Hinweis.
+  const revalidation = useGeozoneRevalidation({ latitude, longitude, radiusKm: searchRadiusKm, purpose: "check", enabled: planningRadiusKm != null });
+  const [loadedVersion, setLoadedVersion] = useState(0);
+  const dataVersion = revalidation.dataVersion;
 
   const loadGeozones = useCallback(async () => {
+    const version = dataVersion;
     setGeozoneLoading(true);
     setGeozoneError(false);
     setCoverageGaps([]);
@@ -292,9 +303,10 @@ export default function PreCheckOverviewScreen() {
     } catch {
       setGeozoneError(true);
     } finally {
+      setLoadedVersion(version);
       setGeozoneLoading(false);
     }
-  }, [latitude, longitude, searchRadiusKm]);
+  }, [latitude, longitude, searchRadiusKm, dataVersion]);
 
   const loadNotams = useCallback(async () => {
     setNotamLoading(true);
@@ -339,6 +351,7 @@ export default function PreCheckOverviewScreen() {
         if (cancelled) return;
         setHourlySlots(result.slots);
         setHourlySource(result.source);
+        setHourlyOffline(result.offline ?? null);
       } catch {
         if (cancelled) return;
         setHourlySlots([]);
@@ -458,6 +471,28 @@ export default function PreCheckOverviewScreen() {
 
   const loading = geozoneLoading || notamLoading;
 
+  // Teil A: Urteil aus Zonen, Abdeckung und NOTAMs – für den Hinweis bei
+  // geänderten Daten (nie stilles Kippen nach einer Hintergrund-Aktualisierung).
+  const buildPreCheckChecks = () => [
+    ...zoneEval.checks,
+    ...coverageChecks({
+      context: "precheck",
+      sources: coverageSources,
+      queryFailed: geozoneError,
+      primaryIso: detectCountryFromCoordinates(latitude, longitude),
+      countryLabel: (iso) => countryName(iso) || iso,
+    }),
+    ...notamChecks({
+      context: "precheck",
+      failed: notamError,
+      count: notamError ? null : notams.active.length,
+      source: "DIPUL temporäre Beschränkungen",
+      offlineFetchedAt: notams.offline?.cached ? notams.offline.fetchedAt : null,
+    }),
+  ];
+  const livePreCheckVerdict = loading ? null : aggregate(buildPreCheckChecks()).verdict;
+  const verdictWatch = useVerdictChangeWatch(livePreCheckVerdict, loadedVersion, dataVersion);
+
   // Ack nur fordern wenn tatsächlich Daten vorliegen.
   // Bei Lade-/Fetch-Fehlern bzw. Abdeckungslücken bleibt der Status unbekannt —
   // dann muss der Pilot manuell bestätigen, damit kein stiller Bypass entsteht.
@@ -481,22 +516,7 @@ export default function PreCheckOverviewScreen() {
 
     // Prüfkette (B4): Geozonen-, Abdeckungs- und NOTAM-Befunde des Pre-Checks
     // in der Session (Kontext "precheck"); ResultsScreen ergänzt Wetter/Nacht.
-    const preCheckChecks = [
-      ...zoneEval.checks,
-      ...coverageChecks({
-        context: "precheck",
-        sources: coverageSources,
-        queryFailed: geozoneError,
-        primaryIso: detectCountryFromCoordinates(latitude, longitude),
-        countryLabel: (iso) => countryName(iso) || iso,
-      }),
-      ...notamChecks({
-        context: "precheck",
-        failed: notamError,
-        count: notamError ? null : notams.active.length,
-        source: "DIPUL temporäre Beschränkungen",
-      }),
-    ];
+    const preCheckChecks = buildPreCheckChecks();
 
     if (sessionId) {
       const existing = await getFlightSession(sessionId);
@@ -684,6 +704,7 @@ export default function PreCheckOverviewScreen() {
           },
         ]}
       >
+        <GeozoneDataChangedBanner change={verdictWatch.change} onDismiss={verdictWatch.dismiss} />
         {wildlifeRescueMode ? (
           <Card
             style={[styles.wildlifeHint, { backgroundColor: theme.statusCautionBackground, borderColor: theme.statusCaution }]}
@@ -928,10 +949,28 @@ export default function PreCheckOverviewScreen() {
           {!geozoneLoading && !geozoneError && geozoneDataAges ? (
             <ThemedText
               testID="precheck-geozone-data-age"
-              style={[styles.geozoneDetails, { color: coverageSources.some((s) => s.status === "stale") ? "#FF9500" : theme.textTertiary }]}
+              style={[styles.geozoneDetails, { color: coverageSources.some((s) => s.status === "stale" || s.status === "partial") ? "#FF9500" : theme.textTertiary }]}
             >
               {`Geozonen-Daten – ${geozoneDataAges}`}
             </ThemedText>
+          ) : null}
+          {!geozoneLoading ? (
+            <DataStandLines
+              testID="precheck-data-stand"
+              entries={[
+                { kind: "notam", origin: notams.offline },
+                { kind: "weather", origin: hourlyOffline },
+              ]}
+              extraLines={revalidation.pendingWifi.map((iso) => ({
+                text: `${countryName(iso) || iso}: Neue Fassung verfügbar – wird im WLAN geladen`,
+                tone: "offline" as const,
+              }))}
+              onRefresh={() => {
+                revalidation.refreshNow().catch(() => {});
+                loadNotams();
+              }}
+              refreshing={revalidation.refreshing}
+            />
           ) : null}
           {!geozoneLoading && !geozoneError && geozoneTruncation ? (
             <ThemedText testID="precheck-geozone-truncated" style={[styles.geozoneDetails, { color: theme.textTertiary }]}>

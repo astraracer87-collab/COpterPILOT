@@ -20,9 +20,17 @@ import { isZoneActiveInContext, type ZoneTimeContext } from "../../shared/ed269R
 import { maxRestrictionVerdict, type RestrictionVerdict, type RestrictionZoneLike } from "../../shared/restrictionPolicy";
 import { partitionByReachability, type ReachabilityOptions, type ZoneAltitudeInput } from "../../shared/geozoneAltitudeFilter";
 import {
+  assessOfflineData,
+  formatStandTimeDe,
+  offlineForecastLabel,
+  offlineStandLabel,
+} from "../../shared/offlineDataPolicy";
+import {
   aggregate,
   checksFor,
   geozoneChecks,
+  offlineDataCheck,
+  offlineExpiredCheck,
   legacyGeozoneChecks,
   notamChecks,
   officialMapCrossCheckChecks,
@@ -81,11 +89,40 @@ export function nightChecks(input: NightCheckInput): CheckResult[] {
 
 export interface WeatherCheckInput {
   context: CheckContext;
+  /** `weather.offline` (Teil A): Vorhersage aus dem Offline-Speicher. */
   weather: WeatherData | null | undefined;
   limits: WeatherLimits;
   kpIndex?: number;
+  /** Teil A: Kp aus dem Offline-Speicher – Abrufzeit (ms). */
+  kpOfflineFetchedAt?: number | null;
   maxAltitude?: number;
+  /** `offline`/`greyOnly` (Teil A): METAR aus dem Offline-Speicher bzw. älter als 2 h. */
   airportMetar?: AirportMetarObservation | null;
+  /** Prüfzeitpunkt (ms) für das Alter der Offline-Daten; Standard: jetzt. */
+  now?: number;
+}
+
+export const WEATHER_WIND_AGED_TEXT_PREFIX = "Wind-/Böendaten älter als 6 h";
+
+/**
+ * Teil A: Offline-Daten im Urteil.
+ *  - Wetter < 24 h: CAUTION „Wetter – Offline-Daten (Stand …) – vor dem Start
+ *    online neu prüfen“; ab 6 h zusätzlich deutlicher Wind-/Böen-Befund (rot,
+ *    Bestätigung); ≥ 24 h: wie ohne Wetter (unbekannt) mit „Gerät online
+ *    bringen, um das Wetter zu prüfen“.
+ *  - Kp < 24 h: CAUTION; ≥ 24 h: unbekannt (Wert wird nicht verwendet).
+ *  - METAR < 2 h: CAUTION und wird bewertet; älter: nur Info (grau), nicht bewertet.
+ * Befunde, die die Offline-Daten selbst auslösen (Limits), bleiben unverändert streng.
+ */
+function offlineWeatherAssessment(input: WeatherCheckInput, now: number) {
+  const wOff = input.weather?.offline?.cached ? input.weather.offline : null;
+  const wState = wOff ? assessOfflineData("weather", wOff.fetchedAt, now) : null;
+  const kpAt = input.kpOfflineFetchedAt ?? null;
+  const kpState = kpAt != null ? assessOfflineData("kp", kpAt, now) : null;
+  const metar = input.airportMetar ?? null;
+  const mOff = metar?.offline?.cached ? metar.offline : null;
+  const metarGrey = !!metar && (metar.greyOnly === true || (mOff ? !assessOfflineData("metar", mOff.fetchedAt, now).useInVerdict : false));
+  return { wOff, wState, kpAt, kpState, metar, mOff, metarGrey };
 }
 
 const NEUTRAL_WEATHER = (lat: number, lon: number): WeatherData => ({
@@ -109,31 +146,76 @@ const NEUTRAL_WEATHER = (lat: number, lon: number): WeatherData => ({
  */
 export function weatherChecks(input: WeatherCheckInput, latitude = 0, longitude = 0): CheckResult[] {
   const { context } = input;
-  const hasWeather = !!input.weather && Array.isArray(input.weather.forecasts) && input.weather.forecasts.length > 0;
+  const now = input.now ?? Date.now();
+  const off = offlineWeatherAssessment(input, now);
+  const weatherExpired = off.wState?.state === "expired";
+  const hasWeather = !weatherExpired && !!input.weather && Array.isArray(input.weather.forecasts) && input.weather.forecasts.length > 0;
   const data = hasWeather ? input.weather! : NEUTRAL_WEATHER(latitude, longitude);
+  const kpUsable = off.kpState ? off.kpState.useInVerdict : true;
+  const metarForVerdict = off.metarGrey ? null : input.airportMetar;
   const res = assessWeather(
     data,
     input.limits,
     false,
     undefined,
-    hasWeather ? input.kpIndex : undefined,
+    hasWeather && kpUsable ? input.kpIndex : undefined,
     input.maxAltitude,
     undefined,
-    hasWeather ? input.airportMetar : null,
+    hasWeather ? metarForVerdict : null,
   );
   const out: CheckResult[] = res.warnings.map((w, i) => warningToCheck(w, "weather", `weather:${i}`, context));
   if (!hasWeather) {
-    out.unshift({
-      id: "weather:unavailable",
-      category: "weather",
-      severity: "unknown",
-      title: WEATHER_UNKNOWN_TEXT,
-      detail: "Ohne Vorhersage kann das Wetter nicht bewertet werden.",
-      emphasis: "caution",
-      context,
-    });
-  } else if (out.length === 0) {
-    out.push({ id: "weather:ok", category: "weather", severity: "info", title: WEATHER_OK_TEXT, detail: "", context });
+    out.unshift(
+      weatherExpired
+        ? { ...offlineExpiredCheck({ kind: "weather", context, fetchedAt: off.wOff?.fetchedAt, now }), id: "weather:unavailable" }
+        : {
+            id: "weather:unavailable",
+            category: "weather",
+            severity: "unknown",
+            title: WEATHER_UNKNOWN_TEXT,
+            detail: "Ohne Vorhersage kann das Wetter nicht bewertet werden.",
+            emphasis: "caution",
+            context,
+          },
+    );
+  } else {
+    if (off.wOff) {
+      out.push(offlineDataCheck({ kind: "weather", fetchedAt: off.wOff.fetchedAt, context, now, detail: `${offlineForecastLabel(off.wOff.fetchedAt, now)} – Gerät offline bzw. Wetterdienst nicht erreichbar.` }));
+      if (off.wState?.state === "aged") {
+        out.push({
+          id: "weather:offline-wind-aged",
+          category: "weather",
+          severity: "caution",
+          title: `${WEATHER_WIND_AGED_TEXT_PREFIX} (Stand ${formatStandTimeDe(off.wOff.fetchedAt, now)}) – Wind und Böen vor dem Start vor Ort bzw. online prüfen`,
+          detail: "Wind und Böen ändern sich schnell; die gespeicherte Vorhersage ist dafür zu alt.",
+          emphasis: "warning",
+          requiresConfirmation: true,
+          dataAge: { fetchedAt: new Date(off.wOff.fetchedAt).toISOString(), stale: true, ageMs: Math.max(0, now - off.wOff.fetchedAt) },
+          context,
+        });
+      }
+    }
+    if (off.kpAt != null && input.kpIndex != null) {
+      out.push(kpUsable
+        ? offlineDataCheck({ kind: "kp", fetchedAt: off.kpAt, context, now })
+        : offlineExpiredCheck({ kind: "kp", context, fetchedAt: off.kpAt, now }));
+    }
+    if (input.airportMetar && off.metarGrey) {
+      const at = off.mOff?.fetchedAt ?? now;
+      out.push({
+        id: "weather:metar-grey",
+        category: "weather",
+        severity: "info",
+        title: `METAR ${input.airportMetar.icao} älter als 2 h (${offlineStandLabel(at, now)}) – nur zur Information, nicht bewertet`,
+        detail: "",
+        context,
+      });
+    } else if (input.airportMetar && off.mOff) {
+      out.push(offlineDataCheck({ kind: "metar", fetchedAt: off.mOff.fetchedAt, context, now }));
+    }
+    if (out.length === 0) {
+      out.push({ id: "weather:ok", category: "weather", severity: "info", title: WEATHER_OK_TEXT, detail: "", context });
+    }
   }
   return out;
 }
@@ -267,8 +349,12 @@ export interface FlightEvaluationInput {
   weather: WeatherData | null | undefined;
   limits: WeatherLimits;
   kpIndex?: number;
+  /** Teil A: Kp aus dem Offline-Speicher – Abrufzeit (ms). */
+  kpOfflineFetchedAt?: number | null;
   maxAltitude?: number;
   airportMetar?: AirportMetarObservation | null;
+  /** Prüfzeitpunkt (ms) für das Alter von Offline-Daten; Standard: jetzt. */
+  now?: number;
   /** Gespeicherte Befunde (storedChecksFor). */
   stored: CheckResult[];
   officialMapCrossCheck?: { blocking: boolean; note?: string } | null;
@@ -297,8 +383,10 @@ export function evaluateFlight(input: FlightEvaluationInput): FlightEvaluation {
         weather: input.weather,
         limits: input.limits,
         kpIndex: input.kpIndex,
+        kpOfflineFetchedAt: input.kpOfflineFetchedAt,
         maxAltitude: input.maxAltitude,
         airportMetar: input.airportMetar,
+        now: input.now,
       },
       input.latitude,
       input.longitude,

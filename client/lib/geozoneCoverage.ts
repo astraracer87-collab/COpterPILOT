@@ -13,7 +13,13 @@ import { detectCountryFromCoordinates } from "./countryMaps";
 import { parseEd269ToGeozoneInfo } from "./ed269";
 import type { GeozoneFeatureInfo } from "./geozones";
 import { getEd269Dataset } from "./geozoneDirect/ed269Store";
-import { isSourceDataStale, resolveGeozoneSourceIso } from "../../shared/geozoneSourceMeta";
+import {
+  isSourceDataStale,
+  isTemporaryDataStale,
+  resolveGeozoneSourceIso,
+  temporarySourceOf,
+  TEMPORARY_ZONES_STALE_NOTE,
+} from "../../shared/geozoneSourceMeta";
 import { queryEd269Features } from "./geozoneDirect/ed269Query";
 
 // Sowohl die Radius- (getCountriesInRadius) als auch die Viewport-Abdeckung
@@ -130,7 +136,34 @@ export function worseSourceStatus(a: GeozoneSourceStatus, b: GeozoneSourceStatus
 // Warntexte (deutsch) liegen in der Prüfkette (shared/checks/builders.ts),
 // damit Liste, Dialog und CheckResult denselben Text verwenden.
 export { geozoneCoverageWarning, sourceCoverageWarning } from "../../shared/checks/builders";
-import { geozoneTruncationHint } from "../../shared/checks/builders";
+import { formatDataStandDe, geozoneTruncationHint } from "../../shared/checks/builders";
+
+/**
+ * Abdeckungs-Status eines gespeicherten Bestands (Teil A):
+ *  - dauerhafte Zonen älter als staleWarnAfterMs (28 Tage) → "stale"
+ *    (CAUTION, „vor dem Start online aktualisieren“),
+ *  - sonst temporäre Zonen älter als temporaryStaleAfterMs (24 h) bzw. nie
+ *    geladen → "partial" mit Hinweis „Temporäre Beschränkungen nicht aktuell“
+ *    (unbekannt → mindestens CAUTION),
+ *  - sonst "ok".
+ * `temporaryFetchedAt` undefined = Quelle/Bestand ohne temporäre Zonen
+ * (z. B. Datei-Import, FR/CZ-Paket).
+ */
+export function storedCoverageStatus(
+  iso: string,
+  fetchedAt: number | null | undefined,
+  temporaryFetchedAt?: number | null,
+  now: number = Date.now(),
+): { status: GeozoneSourceStatus; note?: string } {
+  const tracksTemp = temporaryFetchedAt !== undefined && temporarySourceOf(iso) !== "none";
+  const tempStale = tracksTemp && isTemporaryDataStale(iso, temporaryFetchedAt, now);
+  const tempNote = tempStale
+    ? `${TEMPORARY_ZONES_STALE_NOTE}${temporaryFetchedAt ? ` (${formatDataStandDe(temporaryFetchedAt, now)})` : ""}`
+    : undefined;
+  if (isSourceDataStale(iso, fetchedAt, now)) return { status: "stale", ...(tempNote ? { note: tempNote } : {}) };
+  if (tempStale) return { status: "partial", note: tempNote };
+  return { status: "ok" };
+}
 
 // Wie queryEd269CachedFeaturesFrom, liefert aber zusätzlich den Status der
 // Quelle: kein Datensatz -> "missing", Ausnahme -> "error", älter als das
@@ -150,8 +183,10 @@ export async function queryEd269CachedFeaturesWithStatusFrom(
     const ds = await getEd269Dataset(iso, { forceRefresh });
     if (!ds) return { zones: [], status: "missing", note: "kein Datenbestand auf dem Gerät" };
     const fetchedAt = ds.fetchedAt > 0 ? ds.fetchedAt : undefined;
-    // Altersschwelle laut Registry-Policy (staleWarnAfterMs)
-    const status: GeozoneSourceStatus = isSourceDataStale(iso, ds.fetchedAt) ? "stale" : "ok";
+    // Altersschwelle laut Registry-Policy: dauerhafte Zonen staleWarnAfterMs
+    // (28 Tage), temporäre Zonen im Bestand temporaryStaleAfterMs (24 h, Teil A).
+    const stored = storedCoverageStatus(iso, ds.fetchedAt, ds.imported ? undefined : ds.fetchedAt);
+    const status: GeozoneSourceStatus = stored.status;
     let bbox: [number, number, number, number] | undefined;
     if (!fullCountry) {
       const kmToDegLat = 1 / 111.32;
@@ -174,9 +209,10 @@ export async function queryEd269CachedFeaturesWithStatusFrom(
     const zones = parseEd269ToGeozoneInfo(feats, iso);
     // Keine stille Kürzung mehr (B7/S7): Hinweis in der Abdeckungs-Notiz.
     if (stats.truncated && effLimit) {
-      return { zones, status, fetchedAt, truncated: true, note: geozoneTruncationHint(effLimit) };
+      const note = [stored.note, geozoneTruncationHint(effLimit)].filter(Boolean).join(" · ");
+      return { zones, status, fetchedAt, truncated: true, note };
     }
-    return { zones, status, fetchedAt };
+    return { zones, status, fetchedAt, ...(stored.note ? { note: stored.note } : {}) };
   } catch (e: any) {
     console.warn("[Geozones] ED-269 query error:", e?.message || e);
     return { zones: [], status: "error", note: String(e?.message || e) };

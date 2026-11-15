@@ -32,6 +32,7 @@ import {
   entryRange,
   frPageUrl,
   geometryBBox,
+  isBeforeCurrentAirac,
   isIndexStale,
   isTileStoreIso,
   TILE_STORE_ISOS,
@@ -54,6 +55,8 @@ import {
 import { dedupeZones, dipulLayerOfId, zoneFromStored } from "./tileZones";
 import { setCountryAccessAvailable } from "../../../shared/countryDetection";
 import { zoneEndedLongAgo } from "../../../shared/ed269Restriction";
+import { TEMPORARY_ZONES_MAX_AGE_MS } from "../../../shared/geozoneSourceMeta";
+import { loadLargePacksOnMobile, mayDownloadLargePack } from "../geozoneSources/largePackSetting";
 
 // ---------------------------------------------------------------------------
 // Umgebung (Dateisystem, Netz)
@@ -127,6 +130,11 @@ function getEnv(): TileEnv {
   };
 }
 
+/** Verbindung über WLAN/Ethernet? (NetInfo; Tests: Umgebung) */
+export function isOnWifi(): Promise<boolean> {
+  return getEnv().isWifi();
+}
+
 /** Nur für Tests: Dateisystem/Netz ersetzen und Zustand leeren. */
 export function __setTileStoreEnvForTests(env: Partial<TileEnv> | null): void {
   envOverride = env;
@@ -136,6 +144,8 @@ export function __setTileStoreEnvForTests(env: Partial<TileEnv> | null): void {
   zoneCacheBytes.clear();
   zoneCacheTotal = 0;
   tempCache = null;
+  tempFetchedAt = null;
+  tempSignature = "";
   metaLoaded = null;
 }
 
@@ -398,14 +408,56 @@ export async function queryTiledGeozonesAtPoint(
 // offline der zuletzt gespeicherte Stand.
 // ---------------------------------------------------------------------------
 
-export const DE_TEMP_CACHE_MS = 10 * 60 * 1000;
+export const DE_TEMP_CACHE_MS = TEMPORARY_ZONES_MAX_AGE_MS;
 let tempCache: { at: number; features: any[] } | null = null;
 let tempInFlight: Promise<any[]> | null = null;
+// Teil A: tatsächlicher Stand der temporären Zonen (Live-Abruf bzw. temp.json);
+// null = nie geladen. Getrennt von tempCache.at (Cache-Steuerung).
+let tempFetchedAt: number | null = null;
+let tempSignature = "";
+const tempListeners = new Set<() => void>();
 
-export async function getDeTempFeatures(): Promise<any[]> {
+/** Benachrichtigung, wenn sich die temporären DE-Zonen inhaltlich ändern (Teil A). */
+export function onDeTempChange(l: () => void): () => void {
+  tempListeners.add(l);
+  return () => tempListeners.delete(l);
+}
+
+function tempSignatureOf(features: any[]): string {
+  return features
+    .map((f) => `${f?.id ?? ""}|${f?.properties?.start_time ?? ""}|${f?.properties?.end_time ?? ""}`)
+    .sort()
+    .join(";");
+}
+
+function setTempFeatures(features: any[], fetchedAt: number, cacheAt: number): void {
+  tempCache = { at: cacheAt, features };
+  tempFetchedAt = fetchedAt;
+  const sig = tempSignatureOf(features);
+  const changed = tempSignature !== "" && sig !== tempSignature;
+  tempSignature = sig;
+  if (changed) {
+    for (const l of tempListeners) {
+      try {
+        l();
+      } catch {}
+    }
+  }
+}
+
+/** Stand der temporären DE-Zonen (Teil A): Zeitpunkt des letzten erfolgreichen Abrufs. */
+export function getDeTempStatus(): { fetchedAt: number | null } {
+  return { fetchedAt: tempFetchedAt };
+}
+
+/**
+ * Temporäre DE-Zonen: online höchstens DE_TEMP_CACHE_MS alt (`force`: sofort
+ * neu laden), offline bzw. bei Fehler der zuletzt gespeicherte Stand (temp.json).
+ */
+export async function getDeTempFeatures(opts: { force?: boolean } = {}): Promise<any[]> {
   const env = getEnv();
   const now = Date.now();
-  if (tempCache && now - tempCache.at < DE_TEMP_CACHE_MS) return tempCache.features;
+  if (!opts.force && tempCache && now - tempCache.at < DE_TEMP_CACHE_MS) return tempCache.features;
   if (!env.isOffline()) {
     if (!tempInFlight) {
       tempInFlight = (async () => {
@@ -413,11 +465,12 @@ export async function getDeTempFeatures(): Promise<any[]> {
           const data = await fetchJson(dipulPageUrl(DIPUL_TEMP_LAYER, 0, 1000), 20000, 1);
           const features = Array.isArray(data?.features) ? data.features : null;
           if (features) {
-            tempCache = { at: Date.now(), features };
+            const at = Date.now();
+            setTempFeatures(features, at, at);
             const fs = env.fs;
             if (fs) {
               await fs.mkdirp(`${fs.root()}de/`).catch(() => {});
-              await fs.writeText(tempPath(fs), JSON.stringify({ fetchedAt: Date.now(), features })).catch(() => {});
+              await fs.writeText(tempPath(fs), JSON.stringify({ fetchedAt: at, features })).catch(() => {});
             }
             return features;
           }
@@ -428,7 +481,7 @@ export async function getDeTempFeatures(): Promise<any[]> {
       });
     }
     const live = await tempInFlight;
-    if (live.length > 0 || tempCache) return tempCache?.features ?? live;
+    if (live.length > 0 || (tempCache && tempFetchedAt != null && tempFetchedAt >= now)) return tempCache?.features ?? live;
   }
   const fs = env.fs;
   if (!fs) return tempCache?.features ?? [];
@@ -436,11 +489,13 @@ export async function getDeTempFeatures(): Promise<any[]> {
     const raw = await fs.readText(tempPath(fs));
     const parsed = raw ? JSON.parse(raw) : null;
     const features = Array.isArray(parsed?.features) ? parsed.features : [];
+    const fetchedAt = typeof parsed?.fetchedAt === "number" ? parsed.fetchedAt : null;
     // offline: nicht dauerhaft cachen, damit online sofort wieder live geladen wird
-    tempCache = { at: now - DE_TEMP_CACHE_MS + 60_000, features };
+    if (fetchedAt != null) setTempFeatures(features, fetchedAt, now - DE_TEMP_CACHE_MS + 60_000);
+    else tempCache = { at: now - DE_TEMP_CACHE_MS + 60_000, features };
     return features;
   } catch {
-    return [];
+    return tempCache?.features ?? [];
   }
 }
 
@@ -531,6 +586,7 @@ function wfsSource(iso: "DE" | "FR", part: TileStorePart): PartSource {
     concurrency: 3,
     async listJobs() {
       const jobs: TileJob[] = [];
+      let matched = 0;
       for (const layer of layers) {
         const data = await fetchJson(wfsCountUrl(iso, layer), 60_000);
         const total = wfsMatched(data);
@@ -541,8 +597,10 @@ function wfsSource(iso: "DE" | "FR", part: TileStorePart): PartSource {
         }
         const size = iso === "FR" ? FR_PAGE_SIZE : DIPUL_PAGE_SIZE[layer] ?? DIPUL_DEFAULT_PAGE;
         jobs.push(...pageJobs(layer, total, size));
+        matched += total;
       }
-      return { jobs, source: { service: iso === "FR" ? "geopf-wfs" : "dipul-wfs" } };
+      // matched: Trefferzahl beim Download (Teil A: günstige Versionsprüfung FR)
+      return { jobs, source: { service: iso === "FR" ? "geopf-wfs" : "dipul-wfs", matched } };
     },
     async runJob(job) {
       const data = await fetchJson(url(job.layer!, job.start!, job.count!));
@@ -771,20 +829,52 @@ export async function stagedProgress(rawIso: string, part: TileStorePart): Promi
  * die ŘLP hat einen neuen Veröffentlichungsordner.
  */
 export async function tileStoreRefreshDue(rawIso: string, now = Date.now()): Promise<boolean> {
-  const iso = String(rawIso || "").toUpperCase();
-  await loadTileStoreMeta();
-  const meta = getTilePartMeta(iso, "base");
-  if (!meta) return false; // nichts gespeichert -> nichts zu erneuern
-  if (isIndexStale(meta, now)) return true;
-  if (iso === "CZ" && !getEnv().isOffline()) {
-    const pub = await fetchCzPublication();
-    if (pub && meta.source?.folder && pub.folder !== meta.source.folder) return true;
-  }
-  return false;
+  return (await tileStoreVersionCheck(rawIso, now)).due;
+}
+
+export type TileStoreDueReason = "age" | "airac" | "cz-folder" | "fr-count";
+
+export interface TileStoreVersionCheck {
+  due: boolean;
+  reason: TileStoreDueReason | null;
 }
 
 /**
- * Hintergrund-Aktualisierung beim App-Start: nur online und im WLAN, nur für
+ * Teil A: günstige Prüfung auf eine neue Fassung, OHNE das Paket zu laden.
+ * - Alter > 28 Tage (AIRAC) → fällig
+ * - DE (dipul) und FR: Paket vor Beginn des aktuellen AIRAC-Zyklus erstellt
+ *   (dipul veröffentlicht zum AIRAC-Stichtag; WFS liefert weder ETag noch
+ *   Last-Modified)
+ * - FR zusätzlich (online): Trefferzahl des WFS (resultType=hits) weicht von
+ *   der gespeicherten Zonenzahl ab
+ * - CZ (online): neuer Veröffentlichungsordner auf der ŘLP-Indexseite
+ */
+export async function tileStoreVersionCheck(rawIso: string, now = Date.now()): Promise<TileStoreVersionCheck> {
+  const iso = String(rawIso || "").toUpperCase();
+  await loadTileStoreMeta();
+  const meta = getTilePartMeta(iso, "base");
+  if (!meta) return { due: false, reason: null }; // nichts gespeichert -> nichts zu erneuern
+  if (isIndexStale(meta, now)) return { due: true, reason: "age" };
+  if ((iso === "DE" || iso === "FR") && isBeforeCurrentAirac(meta.createdAt, now)) return { due: true, reason: "airac" };
+  const env = getEnv();
+  if (env.isOffline()) return { due: false, reason: null };
+  if (iso === "CZ") {
+    const pub = await fetchCzPublication();
+    if (pub && meta.source?.folder && pub.folder !== meta.source.folder) return { due: true, reason: "cz-folder" };
+  }
+  if (iso === "FR") {
+    try {
+      const total = wfsMatched(await fetchJson(wfsCountUrl("FR", "fr"), 15_000, 0));
+      const stored = Number(meta.source?.matched);
+      if (total != null && total > 0 && Number.isFinite(stored) && stored > 0 && total !== stored) return { due: true, reason: "fr-count" };
+    } catch {}
+  }
+  return { due: false, reason: null };
+}
+
+/**
+ * Hintergrund-Aktualisierung beim App-Start: nur online und im WLAN (oder mit
+ * Erlaubnis für mobile Daten), nur für
  * Länder mit vorhandenem Bestand, wenn fällig. Fehler bleiben folgenlos (der
  * alte Bestand bleibt erhalten).
  */
@@ -795,7 +885,8 @@ export async function refreshDueTileStores(): Promise<void> {
   for (const iso of tiledGeozoneIsos()) {
     try {
       if (!(await tileStoreRefreshDue(iso))) continue;
-      if (!(await env.isWifi())) return;
+      // Teil A: große Pakete nur im WLAN, außer „auch über mobile Daten“ ist erlaubt
+      if (!mayDownloadLargePack(await env.isWifi(), await loadLargePacksOnMobile())) return;
       // Während der Aktualisierung liegen alter und neuer Bestand nebeneinander
       const need = ((getTilePartMeta(iso, "base")?.dataBytes ?? 0) + (getTilePartMeta(iso, "wohn")?.dataBytes ?? 0)) * 1.3;
       const free = await env.fs.freeBytes?.().catch(() => null);

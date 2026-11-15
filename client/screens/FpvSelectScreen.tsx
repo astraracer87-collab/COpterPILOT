@@ -23,7 +23,7 @@ export default function FpvSelectScreen() {
   const headerHeight = useHeaderHeight();
   const [hasVerbandsregel, setHasVerbandsregel] = useState(false);
 
-  const { latitude, longitude, hasRestrictions, restrictionStatus, restrictionNotes, restrictionVerdict, weatherData, droneId, limits, sessionId, kpIndex } = route.params;
+  const { latitude, longitude, hasRestrictions, restrictionStatus, restrictionNotes, restrictionVerdict, weatherData, droneId, limits, sessionId, kpIndex, kpOfflineFetchedAt } = route.params;
 
   useEffect(() => {
     getPilotProfile().then((p) => setHasVerbandsregel(p.insuranceVerbandsregelDE === true));
@@ -44,6 +44,7 @@ export default function FpvSelectScreen() {
       isFpvFlight: isFpv,
       fpvMode: isFpv ? (fpvMode ?? "spotter") : undefined,
       kpIndex,
+      kpOfflineFetchedAt,
     });
   };
 

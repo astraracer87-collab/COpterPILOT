@@ -53,6 +53,13 @@ import { RESTRICTION_POLICY, zoneRestriction } from "../../shared/restrictionPol
 import { Geozone21hRules } from "@/components/Geozone21hRules";
 import { InfrastructureFlightGuidance } from "@/components/InfrastructureFlightGuidance";
 import { getCached, setCache, makeCacheKey } from "@/lib/dataCache";
+import { useGeozoneRevalidation } from "@/lib/geozoneSources/useGeozoneRevalidation";
+import { formatSourceStand, type StandTone } from "../../shared/offlineDataPolicy";
+
+/** GPS-Koordinate für die Länderbestimmung (Teil A); null solange unbekannt. */
+function finiteCoordOrNull(v: number | null | undefined): number | null {
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
 import { findNearbyCtrAirports, CtrAirport, getCtrCategoryLabel, getCtrProviderName } from "@/lib/ctrData";
 import * as WebBrowser from "@/lib/webBrowser";
 import {
@@ -140,6 +147,15 @@ export default function StandaloneLiveTrafficScreen() {
   const [showAllGeozones, setShowAllGeozones] = useState(false);
   const [maxReachableAltitudeM, setMaxReachableAltitudeM] = useState(120);
   const [detectedCountryIso, setDetectedCountryIso] = useState<string | undefined>(overrideCountry);
+  // Teil A: Geozonen-Bestände bei Länderwechsel laut GPS (inkl. Nachbarn im
+  // Umkreis) im Hintergrund prüfen; neue Daten → Hinweise neu laden.
+  const geozoneReval = useGeozoneRevalidation({
+    latitude: finiteCoordOrNull(latitude),
+    longitude: finiteCoordOrNull(longitude),
+    radiusKm: Math.max(raRadiusKm, 5),
+    countryIso: detectedCountryIso,
+    purpose: "map",
+  });
   const [energyMapCenter, setEnergyMapCenter] = useState<{ latitude: number; longitude: number } | null>(null);
   const energyQueryLatitude = energyMapCenter?.latitude ?? latitude ?? 0;
   const energyQueryLongitude = energyMapCenter?.longitude ?? longitude ?? 0;
@@ -216,6 +232,9 @@ export default function StandaloneLiveTrafficScreen() {
   const [sidePanelWeather, setSidePanelWeather] = useState<ForecastData | null>(null);
   const [sidePanelForecasts, setSidePanelForecasts] = useState<ForecastData[]>([]);
   const [sidePanelKp, setSidePanelKp] = useState<KpIndexData | null>(null);
+  // Teil A: Stand je Quelle (Wetter/NOTAMs aus dem Offline-Speicher)
+  const [sidePanelWeatherOrigin, setSidePanelWeatherOrigin] = useState<{ fetchedAt: number; cached: boolean } | null>(null);
+  const [sidePanelNotamOrigin, setSidePanelNotamOrigin] = useState<{ fetchedAt: number; cached: boolean } | null>(null);
   const [sidePanelKpTimeline, setSidePanelKpTimeline] = useState<KpTimeEntry[]>([]);
   const [sidePanelLoading, setSidePanelLoading] = useState(false);
   const [alertFlags, setAlertFlags] = useState<{ wetter: boolean; notam: boolean; geozone: boolean }>({ wetter: false, notam: false, geozone: false });
@@ -615,6 +634,8 @@ export default function StandaloneLiveTrafficScreen() {
         if (f) setSidePanelWeather(f);
         if (weatherData?.forecasts) setSidePanelForecasts(weatherData.forecasts);
         setSidePanelKp(kp);
+        setSidePanelWeatherOrigin(weatherData?.offline ?? (weatherData ? { fetchedAt: Date.now(), cached: false } : null));
+        setSidePanelNotamOrigin((notamResult as { offline?: { fetchedAt: number; cached: boolean } }).offline ?? null);
         if (kpTl.length > 0) setSidePanelKpTimeline(kpTl);
         setSidePanelNotams(combinedNotams);
         setSidePanelTempRestrictions(tempRestrictions);
@@ -629,7 +650,7 @@ export default function StandaloneLiveTrafficScreen() {
     checkAlerts();
     const iv = setInterval(checkAlerts, 120000);
     return () => { cancelled = true; clearInterval(iv); };
-  }, [stableAlertLat, stableAlertLon, raRadiusKm, detectedCountryIso]);
+  }, [stableAlertLat, stableAlertLon, raRadiusKm, detectedCountryIso, geozoneReval.dataVersion]);
 
   const openSidePanel = useCallback(async (panel: "geozone" | "notam" | "wetter" | "radar") => {
     if (sidePanel === panel) { setSidePanel(null); return; }
@@ -1456,6 +1477,18 @@ export default function StandaloneLiveTrafficScreen() {
               dipulRestrictions={sidePanelDipulRestrictions}
               notams={sidePanelNotams}
               notamStatusUnknown={sidePanelNotamUnknown}
+              standLines={[
+                ...(sidePanel === "wetter"
+                  ? [formatSourceStand("weather", sidePanelWeatherOrigin), formatSourceStand("kp", sidePanelKp?.offline ?? null)]
+                  : sidePanel === "notam"
+                    ? [formatSourceStand("notam", sidePanelNotamOrigin)]
+                    : []),
+                ...(sidePanel === "geozone"
+                  ? geozoneReval.pendingWifi.map((iso) => ({ text: `${iso}: Neue Geozonen-Fassung verfügbar – wird im WLAN geladen`, tone: "offline" as const }))
+                  : []),
+              ].filter((x): x is { text: string; tone: StandTone } => !!x)}
+              onRefreshStand={sidePanel === "geozone" ? () => { geozoneReval.refreshNow().catch(() => {}); } : undefined}
+              refreshingStand={geozoneReval.refreshing}
               weather={sidePanelWeather}
               forecasts={sidePanelForecasts}
               kpIndex={sidePanelKp}
@@ -1999,7 +2032,7 @@ function openGeozoneContact(c: GeozoneContact) {
   }).catch(() => {});
 }
 
-function SidePanelView({ panel, loading, geozones, windFacilityWarnings = [], geozoneDataStatus = "loading", isZoneSerious, tempRestrictions, dipulRestrictions, notams, notamStatusUnknown = false, weather, forecasts, kpIndex, kpTimeline = [], wind, isDark, safeTop, onClose, radarData, weatherStatus = "unknown", latitude: propLat, longitude: propLon, countryIso }: {
+function SidePanelView({ panel, loading, geozones, windFacilityWarnings = [], geozoneDataStatus = "loading", isZoneSerious, tempRestrictions, dipulRestrictions, notams, notamStatusUnknown = false, standLines = [], onRefreshStand, refreshingStand = false, weather, forecasts, kpIndex, kpTimeline = [], wind, isDark, safeTop, onClose, radarData, weatherStatus = "unknown", latitude: propLat, longitude: propLon, countryIso }: {
   panel: "geozone" | "notam" | "wetter" | "radar";
   loading: boolean;
   geozones: GeozoneFeatureInfo[];
@@ -2011,6 +2044,11 @@ function SidePanelView({ panel, loading, geozones, windFacilityWarnings = [], ge
   notams: NotamData[];
   /** NOTAM-Abfrage fehlgeschlagen: Status unbekannt statt "keine NOTAMs". */
   notamStatusUnknown?: boolean;
+  /** Teil A: „Stand“-Zeilen je Quelle (Offline-Daten mit Alter). */
+  standLines?: { text: string; tone: StandTone }[];
+  /** Teil A: „Jetzt aktualisieren“ (Geozonen-Bestände). */
+  onRefreshStand?: () => void;
+  refreshingStand?: boolean;
   weather: ForecastData | null;
   forecasts: ForecastData[];
   kpIndex: KpIndexData | null;
@@ -2091,6 +2129,24 @@ function SidePanelView({ panel, loading, geozones, windFacilityWarnings = [], ge
         </View>
       ) : (
         <ScrollView style={[sidePanelStyles.scrollArea, { maxHeight: scrollMaxHeight }]} showsVerticalScrollIndicator={false}>
+          {standLines.length > 0 || onRefreshStand ? (
+            <View style={{ marginBottom: 6, gap: 2 }} testID="radar-data-stand">
+              {standLines.map((l, i) => (
+                <Text
+                  key={`stand-${i}`}
+                  style={{ fontSize: 11, color: l.tone === "warning" ? "#FF3B30" : l.tone === "offline" ? "#FF9500" : mutedColor }}
+                >
+                  {l.text}
+                </Text>
+              ))}
+              {onRefreshStand ? (
+                <Pressable onPress={onRefreshStand} disabled={refreshingStand} hitSlop={6} testID="radar-refresh-now" style={{ flexDirection: "row", alignItems: "center", gap: 4, opacity: refreshingStand ? 0.6 : 1 }}>
+                  <Feather name="refresh-cw" size={11} color={accentColor} />
+                  <Text style={{ fontSize: 11, fontWeight: "600", color: accentColor }}>Jetzt aktualisieren</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          ) : null}
           {panel === "geozone" ? (
             geozones.length > 0 ? (
               <View style={{ gap: 6 }}>

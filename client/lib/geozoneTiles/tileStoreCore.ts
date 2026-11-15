@@ -516,3 +516,22 @@ export function isIndexStale(file: Pick<TileIndexFile, "createdAt" | "complete">
   if (!file || !file.complete || !file.createdAt) return true;
   return now - file.createdAt > TILE_STORE_REFRESH_MS;
 }
+
+// ---------------------------------------------------------------------------
+// Teil A: günstige Versionsprüfung – AIRAC-Zyklus (dipul/FR ändern sich mit AIRAC)
+// ---------------------------------------------------------------------------
+
+/** Bekanntes AIRAC-Wirksamkeitsdatum (AIRAC 2401 = 25.01.2024, 00:00 UTC). */
+export const AIRAC_EPOCH_MS = Date.UTC(2024, 0, 25);
+export const AIRAC_CYCLE_MS = 28 * 86_400_000;
+
+/** Beginn des am Zeitpunkt `now` gültigen AIRAC-Zyklus (ms, UTC). */
+export function airacCycleStart(now: number = Date.now()): number {
+  const n = Math.floor((now - AIRAC_EPOCH_MS) / AIRAC_CYCLE_MS);
+  return AIRAC_EPOCH_MS + n * AIRAC_CYCLE_MS;
+}
+
+/** Wurde der Bestand vor Beginn des aktuellen AIRAC-Zyklus erstellt? */
+export function isBeforeCurrentAirac(createdAt: number, now: number = Date.now()): boolean {
+  return createdAt > 0 && createdAt < airacCycleStart(now);
+}

@@ -9,6 +9,7 @@
 
 import type { CheckContext, CheckOverride, CheckResult, CheckTip } from "./types";
 import { GEOZONE_IMPORT_ONLY_SOURCE_ISOS } from "../geozoneSourceMeta";
+import { bringOnlineHint, offlineCheckReason, offlineStandLabel, type OfflineDataKind } from "../offlineDataPolicy";
 
 const isImportOnlyIso = (iso: string) => GEOZONE_IMPORT_ONLY_SOURCE_ISOS.includes(String(iso).toUpperCase());
 
@@ -416,10 +417,76 @@ export interface NotamCheckInput {
   /** Anzahl NOTAMs im Umkreis (null = nicht abgefragt). */
   count: number | null | undefined;
   source?: string;
+  /** Teil A: NOTAMs aus dem Offline-Speicher (Abrufzeit) → höchstens CAUTION. */
+  offlineFetchedAt?: number | null;
+  /** Prüfzeitpunkt (ms); Standard: jetzt. */
+  now?: number;
 }
 
-/** NOTAM-Befund: Fehlschlag → "unknown"; sonst nur Info (Anzahl beeinflusst
- * das Urteil wie bisher nicht). Nicht abgefragt → kein Befund. */
+// ---------------------------------------------------------------------------
+// Offline-Daten (Teil A)
+// ---------------------------------------------------------------------------
+
+/** Quellen-Bezeichnung im Befundtext. */
+const OFFLINE_SOURCE_LABEL: Record<OfflineDataKind, string> = {
+  weather: "Wetter",
+  kp: "Kp-Index",
+  metar: "METAR",
+  taf: "TAF",
+  notam: "NOTAMs",
+};
+
+/**
+ * Befund für Daten aus dem Offline-Speicher: CAUTION „<Quelle> – Offline-Daten
+ * (Stand HH:MM) – vor dem Start online neu prüfen“. Offline-Daten ergeben so
+ * nie ein GO.
+ */
+export function offlineDataCheck(input: {
+  kind: OfflineDataKind;
+  fetchedAt: number;
+  context: CheckContext;
+  category?: CheckResult["category"];
+  now?: number;
+  detail?: string;
+}): CheckResult {
+  const now = input.now ?? Date.now();
+  return {
+    id: `${input.category ?? (input.kind === "notam" ? "notam" : "weather")}:offline:${input.kind}`,
+    category: input.category ?? (input.kind === "notam" ? "notam" : "weather"),
+    severity: "caution",
+    title: `${OFFLINE_SOURCE_LABEL[input.kind]} – ${offlineCheckReason(input.fetchedAt, now)}`,
+    detail: input.detail ?? `Gerät offline bzw. Dienst nicht erreichbar – verwendet wird der gespeicherte ${offlineStandLabel(input.fetchedAt, now)}.`,
+    emphasis: "caution",
+    dataAge: { fetchedAt: new Date(input.fetchedAt).toISOString(), stale: false, ageMs: Math.max(0, now - input.fetchedAt) },
+    context: input.context,
+  };
+}
+
+/** Befund „zu alt/fehlt“: unbekannt mit Hinweis „Gerät online bringen, um … zu prüfen“. */
+export function offlineExpiredCheck(input: {
+  kind: OfflineDataKind;
+  context: CheckContext;
+  category?: CheckResult["category"];
+  fetchedAt?: number | null;
+  now?: number;
+}): CheckResult {
+  const now = input.now ?? Date.now();
+  return {
+    id: `${input.category ?? (input.kind === "notam" ? "notam" : "weather")}:offline-expired:${input.kind}`,
+    category: input.category ?? (input.kind === "notam" ? "notam" : "weather"),
+    severity: "unknown",
+    title: `${OFFLINE_SOURCE_LABEL[input.kind]} nicht verfügbar – ${bringOnlineHint(input.kind)}`,
+    detail: input.fetchedAt
+      ? `Gespeicherte Daten zu alt (${offlineStandLabel(input.fetchedAt, now)}, ab 24 h nicht mehr verwendet).`
+      : "Keine gespeicherten Daten vorhanden.",
+    emphasis: "caution",
+    context: input.context,
+  };
+}
+
+/** NOTAM-Befund: Fehlschlag → "unknown"; Offline-Daten → CAUTION; sonst nur
+ * Info (Anzahl beeinflusst das Urteil wie bisher nicht). Nicht abgefragt →
+ * kein Befund. */
 export function notamChecks(input: NotamCheckInput): CheckResult[] {
   if (input.failed) {
     return [{
@@ -434,6 +501,17 @@ export function notamChecks(input: NotamCheckInput): CheckResult[] {
     }];
   }
   if (input.count == null) return [];
+  if (input.offlineFetchedAt) {
+    const now = input.now ?? Date.now();
+    const check = offlineDataCheck({
+      kind: "notam",
+      fetchedAt: input.offlineFetchedAt,
+      context: input.context,
+      now,
+      detail: `${input.count === 0 ? "Keine noch gültigen NOTAMs" : `${input.count} noch gültige NOTAM(s)`} im gespeicherten ${offlineStandLabel(input.offlineFetchedAt, now)} – neu erlassene NOTAMs fehlen möglicherweise.`,
+    });
+    return [{ ...check, id: "notam:status", source: input.source }];
+  }
   return [{
     id: "notam:status",
     category: "notam",

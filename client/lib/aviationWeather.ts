@@ -20,6 +20,14 @@ export {
   type TafTrendKlartext,
 } from "./aviationWeatherDecode";
 import { describeWeather } from "./aviationWeatherDecode";
+import { fetchWithOfflineCache, getOfflineResult, putOfflineResult } from "./offlineResultCache";
+import {
+  assessOfflineData,
+  OFFLINE_DATA_MAX_AGE_MS,
+  offlineLocationKey,
+  tafValidUntil,
+  type OfflineOrigin,
+} from "../../shared/offlineDataPolicy";
 
 export interface AirportWeather {
   icao: string;
@@ -27,6 +35,16 @@ export interface AirportWeather {
   tafRaw: string | null;
   observedAt: string | null;
   issuedAt: string | null;
+  /** Teil A: aus dem Offline-Speicher (Gerät offline bzw. Dienst nicht erreichbar). */
+  offline?: OfflineOrigin;
+  /** Teil A: METAR älter als 2 h – nur grau anzeigen, nicht bewerten. */
+  metarGrey?: boolean;
+}
+
+/** Alter einer METAR: Beobachtungszeit, sonst Abrufzeit. */
+function metarAgeBase(observedAt: string | null | undefined, fetchedAt: number): number {
+  const t = observedAt ? new Date(observedAt).getTime() : NaN;
+  return Number.isFinite(t) ? Math.min(t, fetchedAt) : fetchedAt;
 }
 
 interface AwcMetar {
@@ -77,8 +95,57 @@ async function fetchAwcJson(path: string): Promise<{ ok: boolean; status: number
 const AWC_TTL_MS = 10 * 60 * 1000;
 const awcCache = new Map<string, { ts: number; data: unknown }>();
 
+/**
+ * Teil A: METAR/TAF mit Offline-Speicher. Online wie bisher (10-min-Cache im
+ * Speicher); jeder erfolgreiche Abruf wird gespeichert. Offline bzw. bei
+ * Ausfall: letzter Stand (< 24 h) – METAR älter als 2 h nur grau
+ * (`metarGrey`), TAF nur bis zum Ende ihrer Gültigkeit.
+ */
 export async function fetchAirportWeather(icao: string): Promise<AirportWeather> {
   const code = icao.trim().toUpperCase();
+  let offline = false;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    offline = !!require("./network").isOfflineNow();
+  } catch {}
+  if (!offline) {
+    try {
+      const live = await fetchAirportWeatherLive(code);
+      putOfflineResult("airport", code, live).catch(() => {});
+      return live;
+    } catch (e) {
+      const stored = await storedAirportWeather(code);
+      if (stored) return stored;
+      throw e;
+    }
+  }
+  const stored = await storedAirportWeather(code);
+  if (stored) return stored;
+  throw new Error("Gerät offline – keine gespeicherte METAR/TAF (< 24 h)");
+}
+
+async function storedAirportWeather(code: string, now = Date.now()): Promise<AirportWeather | null> {
+  const st = await getOfflineResult<AirportWeather>("airport", code).catch(() => null);
+  if (!st || now - st.fetchedAt >= OFFLINE_DATA_MAX_AGE_MS) return null;
+  const w = st.data;
+  const metarState = w.metarRaw ? assessOfflineData("metar", metarAgeBase(w.observedAt, st.fetchedAt), now) : null;
+  const tafEnd = tafValidUntil(w.tafRaw, w.issuedAt ?? st.fetchedAt);
+  const tafState = w.tafRaw ? assessOfflineData("taf", st.fetchedAt, now, { validUntil: tafEnd }) : null;
+  const metarRaw = metarState && metarState.show ? w.metarRaw : null;
+  const tafRaw = tafState && tafState.show ? w.tafRaw : null;
+  if (!metarRaw && !tafRaw) return null;
+  return {
+    ...w,
+    metarRaw,
+    observedAt: metarRaw ? w.observedAt : null,
+    tafRaw,
+    issuedAt: tafRaw ? w.issuedAt : null,
+    offline: { fetchedAt: st.fetchedAt, cached: true },
+    ...(metarState?.state === "grey" ? { metarGrey: true } : {}),
+  };
+}
+
+async function fetchAirportWeatherLive(code: string): Promise<AirportWeather> {
   const cacheKey = `icao:${code}`;
   const cached = awcCache.get(cacheKey);
   let data: { metars?: AwcMetar[]; tafs?: AwcTaf[] };
@@ -211,6 +278,10 @@ export interface AirportMetarObservation {
   hasFreezing: boolean;
   /** Deutsche Klartext-Beschreibung der gemeldeten Wettererscheinungen. */
   phenomenaText: string | null;
+  /** Teil A: aus dem Offline-Speicher. */
+  offline?: OfflineOrigin;
+  /** Teil A: METAR älter als 2 h – nur graue Information, nicht im Urteil. */
+  greyOnly?: boolean;
 }
 
 function visibilityToMeters(vis?: Visibility, cavok?: boolean): number | null {
@@ -291,13 +362,43 @@ export async function fetchCtrAirportMetar(
       name,
       distanceKm: Math.round(distanceKm * 10) / 10,
       observedAt: weather.observedAt,
+      ...(weather.offline ? { offline: weather.offline } : {}),
+      ...(weather.metarGrey ? { greyOnly: true } : {}),
     };
   } catch {
     return null;
   }
 }
 
+/**
+ * Teil A: nächstgelegene METAR mit Offline-Speicher (Standort 0,05° + Radius).
+ * Offline: letzter Stand (< 24 h); älter als 2 h → `greyOnly` (nicht im Urteil).
+ */
 export async function fetchNearestAirportMetar(
+  lat: number,
+  lon: number,
+  radiusKm: number = 30,
+): Promise<AirportMetarObservation | null> {
+  try {
+    const r = await fetchWithOfflineCache(
+      "metar",
+      `${offlineLocationKey(lat, lon)}_${Math.round(radiusKm)}`,
+      async () => {
+        const live = await fetchNearestAirportMetarLive(lat, lon, radiusKm);
+        if (!live) throw new Error("keine METAR");
+        return live;
+      },
+    );
+    if (!r.cached) return r.data;
+    const st = assessOfflineData("metar", metarAgeBase(r.data.observedAt, r.fetchedAt));
+    if (!st.show) return null;
+    return { ...r.data, offline: { fetchedAt: r.fetchedAt, cached: true }, ...(st.state === "grey" ? { greyOnly: true } : {}) };
+  } catch {
+    return null;
+  }
+}
+
+async function fetchNearestAirportMetarLive(
   lat: number,
   lon: number,
   radiusKm: number = 30,

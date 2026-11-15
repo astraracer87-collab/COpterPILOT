@@ -356,6 +356,8 @@ export interface WeatherSnapshot {
   kpIndex?: number;
   windAtAltitude?: WindAtAltitudeSnapshot[];
   temperatureAtAltitude?: ValueAtAltitudeSnapshot[];
+  /** Teil A: Vorhersage aus dem Offline-Speicher (Abrufzeit), „Offline-Vorhersage von HH:MM“. */
+  offline?: { fetchedAt: number; cached: boolean };
 }
 
 export interface Briefing {

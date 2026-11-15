@@ -35,9 +35,32 @@ export type GeozoneAccessGate = "login" | "pack" | "import";
 export interface GeozoneRefreshPolicy {
   /** Bestand gilt nach dieser Zeit als fällig und wird (online) erneuert; null = nie automatisch. */
   maxAgeMs: number | null;
-  /** Ab diesem Alter: Abdeckung „stale“ → Befund CAUTION mit Datenalter. */
+  /**
+   * Ab diesem Alter: Abdeckung „stale“ → Befund CAUTION mit Datenalter. Gilt
+   * für die DAUERHAFTEN Zonen (Teil A: 28 Tage = AIRAC-Zyklus).
+   */
   staleWarnAfterMs: number;
+  /**
+   * Temporäre Zonen (Teil A): online höchstens so alt (kurzer Cache), bevor
+   * bei Bedarf (Planung/Pre-Check) neu geladen wird. Fehlt = keine temporären Zonen.
+   */
+  temporaryMaxAgeMs?: number;
+  /**
+   * Temporäre Zonen älter als dieser Wert → Abdeckung „partial“
+   * („Temporäre Beschränkungen nicht aktuell“) → Befund unbekannt (≥ CAUTION).
+   */
+  temporaryStaleAfterMs?: number;
 }
+
+/**
+ * Wo stecken die temporären Zonen einer Quelle (Teil A)?
+ * - "dataset": im selben Landesbestand (ED-269-Gerätecache) – Alter = Bestand
+ * - "separate": eigener Abruf mit eigenem Stand (DE: dipul-Ebene
+ *   temporaere_betriebseinschraenkungen, tileStore temp.json)
+ * - "none": Quelle veröffentlicht keine temporären Zonen bzw. sie lassen sich
+ *   nicht aktualisieren (FR-Karte, CZ-ED-318-Paket, HU-Bild, RO-Import)
+ */
+export type GeozoneTemporarySource = "dataset" | "separate" | "none";
 
 export interface GeozoneLicenceRef {
   license: string;
@@ -54,6 +77,14 @@ export interface GeozoneSourceMeta {
   kind: GeozoneSourceKind;
   /** null = keine gespeicherten Daten (nur Live-/Bild-Overlay) */
   refresh: GeozoneRefreshPolicy | null;
+  /** Herkunft der temporären Zonen (Teil A); Standard aus `kind` (temporarySourceOf). */
+  temporary?: GeozoneTemporarySource;
+  /**
+   * Großer Bestand (Teil A): Neuladen nur im WLAN, außer der Nutzer erlaubt
+   * „Große Pakete auch über mobile Daten laden“. Kachelspeicher (DE/FR/CZ)
+   * immer; ED-269-Länder mit sehr großem Feed (NL ≈ 23 MB) per Flag.
+   */
+  largeDataset?: boolean;
   offline: GeozoneOfflineStrategy;
   /** Vektor-Mindestzoom (sonst GEOZONE_VECTOR_MIN_ZOOM aus geozoneZoom.ts) */
   vectorMinZoom?: number;
@@ -102,13 +133,25 @@ export interface GeozoneSourceMeta {
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
 
-/** ED-269-Gerätecache: täglicher Abgleich (wie früher der Server). */
-export const ED269_STORE_REFRESH_MS = 24 * HOUR;
+/**
+ * ED-269-Gerätecache (Teil A): kleine Landesbestände online nach 6 h neu laden
+ * (günstig, stale-while-revalidate). Früher 24 h.
+ */
+export const ED269_STORE_REFRESH_MS = 6 * HOUR;
 /** Offline-Kachelspeicher: AIRAC-Zyklus. */
 export const TILE_STORE_REFRESH_MS = 28 * DAY;
+/** Dauerhafte Zonen ändern sich mit AIRAC: Warnung erst nach 28 Tagen (Teil A, früher 24 h). */
+export const PERMANENT_ZONES_STALE_MS = 28 * DAY;
+/** Temporäre Zonen: online kurzer Cache (≤ 10 min). */
+export const TEMPORARY_ZONES_MAX_AGE_MS = 10 * 60 * 1000;
+/** Temporäre Zonen älter als 24 h → „Temporäre Beschränkungen nicht aktuell“. */
+export const TEMPORARY_ZONES_STALE_MS = 24 * HOUR;
 
-const ED269_POLICY: GeozoneRefreshPolicy = { maxAgeMs: ED269_STORE_REFRESH_MS, staleWarnAfterMs: ED269_STORE_REFRESH_MS };
+const TEMP_POLICY = { temporaryMaxAgeMs: TEMPORARY_ZONES_MAX_AGE_MS, temporaryStaleAfterMs: TEMPORARY_ZONES_STALE_MS } as const;
+const ED269_POLICY: GeozoneRefreshPolicy = { maxAgeMs: ED269_STORE_REFRESH_MS, staleWarnAfterMs: PERMANENT_ZONES_STALE_MS, ...TEMP_POLICY };
 const TILE_POLICY: GeozoneRefreshPolicy = { maxAgeMs: TILE_STORE_REFRESH_MS, staleWarnAfterMs: TILE_STORE_REFRESH_MS };
+// DE: Kachelspeicher + eigener Abruf der temporären Betriebseinschränkungen.
+const TILE_POLICY_DE: GeozoneRefreshPolicy = { ...TILE_POLICY, ...TEMP_POLICY };
 // Import: kein automatischer Abruf; Altersschwelle wie beim ED-269-Gerätecache.
 // Importe (RO) lassen sich nicht online aktualisieren, nur neu importieren.
 // Warnung erst nach einem AIRAC-Zyklus (28 Tage), nicht schon nach 24 h.
@@ -147,8 +190,9 @@ export const GEOZONE_SOURCE_META: readonly GeozoneSourceMeta[] = [
     iso: "DE",
     labelDe: "Deutschland",
     kind: "tiled",
-    refresh: TILE_POLICY,
+    refresh: TILE_POLICY_DE,
     offline: "tile-store",
+    temporary: "separate",
     // sehr dichter Bestand (≈ 83 000 Zonen) – Vektor-Zeichnung erst ab z10
     vectorMinZoom: 10,
     provider:
@@ -188,6 +232,8 @@ export const GEOZONE_SOURCE_META: readonly GeozoneSourceMeta[] = [
     iso: "NL",
     labelDe: "Niederlande",
     ...vector,
+    // GoDrone-Feed ≈ 23 MB JSON: wie ein großes Paket nur im WLAN neu laden.
+    largeDataset: true,
     provider: "Luchtverkeersleiding Nederland (LVNL) / Altitude Angel – GoDrone",
     writtenPermission: true,
     url: "https://map.godrone.nl",
@@ -555,3 +601,39 @@ export function isSourceDataStale(
   if (!policy) return false;
   return now - (fetchedAt || 0) > policy.staleWarnAfterMs;
 }
+
+// ---------------------------------------------------------------------------
+// Teil A: dauerhafte vs. temporäre Zonen, große Pakete
+// ---------------------------------------------------------------------------
+
+/**
+ * Herkunft der temporären Zonen einer Quelle. Standard: Vektor-Feeds
+ * ("ed269-vector"/"login") liefern sie im Landesbestand mit; Kachelspeicher,
+ * Bild-Overlay und Import haben keine aktualisierbaren temporären Zonen.
+ */
+export function temporarySourceOf(iso: string | null | undefined): GeozoneTemporarySource {
+  const m = getGeozoneSourceMeta(iso);
+  if (!m) return "none";
+  if (m.temporary) return m.temporary;
+  return m.kind === "ed269-vector" || m.kind === "login" ? "dataset" : "none";
+}
+
+/** Großer Bestand (Kachelspeicher oder Flag) → Neuladen nur im WLAN bzw. mit Erlaubnis. */
+export function isLargeGeozoneDataset(iso: string | null | undefined): boolean {
+  const m = getGeozoneSourceMeta(iso);
+  return !!m && (m.offline === "tile-store" || m.largeDataset === true);
+}
+
+/** Sind die temporären Zonen (Stand `fetchedAt`) laut Policy nicht mehr aktuell? */
+export function isTemporaryDataStale(
+  iso: string | null | undefined,
+  fetchedAt: number | null | undefined,
+  now: number = Date.now(),
+): boolean {
+  if (temporarySourceOf(iso) === "none") return false;
+  const ms = geozoneRefreshPolicy(iso)?.temporaryStaleAfterMs ?? TEMPORARY_ZONES_STALE_MS;
+  return now - (fetchedAt || 0) > ms;
+}
+
+/** Hinweis bei veralteten temporären Zonen (Abdeckung „partial“). */
+export const TEMPORARY_ZONES_STALE_NOTE = "Temporäre Beschränkungen nicht aktuell";

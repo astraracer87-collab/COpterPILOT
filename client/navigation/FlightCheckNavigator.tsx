@@ -49,6 +49,8 @@ export type FlightCheckParamList = {
     limits: WeatherLimits;
     sessionId?: string;
     kpIndex?: number;
+    /** Teil A: Kp aus dem Offline-Speicher – Abrufzeit (ms). */
+    kpOfflineFetchedAt?: number;
   };
   Checklist: { 
     latitude: number; 
@@ -66,6 +68,8 @@ export type FlightCheckParamList = {
     /** FPV-Modus: "spotter" (Standard, bis 120 m) oder "verband30m" (DMFV/DMO Art.16, max. 30 m, ohne Spotter). */
     fpvMode?: "spotter" | "verband30m";
     kpIndex?: number;
+    /** Teil A: Kp aus dem Offline-Speicher – Abrufzeit (ms). */
+    kpOfflineFetchedAt?: number;
   };
   Results: { 
     latitude: number; 
@@ -85,6 +89,8 @@ export type FlightCheckParamList = {
     isFpvFlight?: boolean;
     fpvMode?: "spotter" | "verband30m";
     kpIndex?: number;
+    /** Teil A: Kp aus dem Offline-Speicher – Abrufzeit (ms). */
+    kpOfflineFetchedAt?: number;
   };
   DebriefingChecklist: {
     sessionId: string;

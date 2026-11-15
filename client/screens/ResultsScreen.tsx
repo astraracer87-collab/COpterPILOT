@@ -48,7 +48,7 @@ export default function ResultsScreen() {
   const [ctrWeather, setCtrWeather] = useState<CtrWeatherSnapshot | null>(null);
   const [ctrLoading, setCtrLoading] = useState(false);
 
-  const { latitude, longitude, hasRestrictions, restrictionStatus, restrictionNotes, restrictionVerdict, weatherData, droneId, limits, sessionId, checklistCompleted, checklistPresented, batteryUsage, isFpvFlight, fpvMode, kpIndex } = route.params;
+  const { latitude, longitude, hasRestrictions, restrictionStatus, restrictionNotes, restrictionVerdict, weatherData, droneId, limits, sessionId, checklistCompleted, checklistPresented, batteryUsage, isFpvFlight, fpvMode, kpIndex, kpOfflineFetchedAt } = route.params;
 
   // VLOS-Distanz aus der charakteristischen Dimension (CD) der geprüften Drohne.
   // CD kommt bevorzugt vom Drohnen-Profil, sonst aus dem passenden Preset.
@@ -162,6 +162,7 @@ export default function ResultsScreen() {
       weather: weatherData,
       limits,
       kpIndex,
+      kpOfflineFetchedAt,
       airportMetar,
       stored: storedChecksFor(
         { checkResults: session?.checkResults, hasRestrictions, restrictionStatus, restrictionVerdict },
@@ -176,7 +177,7 @@ export default function ResultsScreen() {
     } else {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     }
-  }, [weatherData, limits, hasRestrictions, restrictionStatus, restrictionVerdict, kpIndex, latitude, longitude, sessionId]);
+  }, [weatherData, limits, hasRestrictions, restrictionStatus, restrictionVerdict, kpIndex, kpOfflineFetchedAt, latitude, longitude, sessionId]);
 
   useEffect(() => {
     runAssessment();

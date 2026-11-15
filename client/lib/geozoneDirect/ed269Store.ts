@@ -60,7 +60,7 @@ export function onEd269Downloaded(hook: DownloadHook): () => void {
   return () => downloadHooks.delete(hook);
 }
 
-// Aktualisierungsintervall laut Registry-Policy (maxAgeMs, je Land; Standard 24 h).
+// Aktualisierungsintervall laut Registry-Policy (maxAgeMs, je Land; Standard 6 h, Teil A).
 export const ED269_REFRESH_AFTER_MS = ED269_STORE_REFRESH_MS;
 // Nach einem fehlgeschlagenen Download nicht bei jedem Karten-Pan erneut
 // versuchen (offline!), sondern frühestens nach dieser Pause.

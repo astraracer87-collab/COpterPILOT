@@ -43,6 +43,7 @@ import { deleteEd269Dataset, loadStoredEd269Dataset, type Ed269ImportMeta } from
 import { GEOZONE_IMPORT_FORMAT_LABELS, pickAndImportGeozoneFile } from "@/lib/geozoneDirect/geozoneFileImport";
 import { RO_ROMATSA_DRONES_URL } from "../../shared/geozoneImport";
 import { resolveGeozoneSourceIso } from "../../shared/geozoneSourceMeta";
+import { loadLargePacksOnMobile, setLargePacksOnMobile } from "@/lib/geozoneSources/largePackSetting";
 
 const LEVELS: DetailLevel[] = [11, 12, 13, 14, 15];
 const KIND_LABEL: Record<string, string> = { map: "Karte", sat: "Satellit", geo: "Geozonen" };
@@ -96,9 +97,12 @@ export default function OfflineMapsScreen() {
   const [googleBusy, setGoogleBusy] = useState(false);
   const [googleMsg, setGoogleMsg] = useState<string | null>(null);
 
+  // Teil A: große Geozonen-Pakete (DE/FR/CZ, NL) sonst nur im WLAN aktualisieren
+  const [largePacksMobile, setLargePacksMobile] = useState(false);
   useEffect(() => {
     getGoogleKey().then((k) => setHasGoogle(!!k));
     getDeeplKey().then((k) => setHasDeepl(!!k));
+    loadLargePacksOnMobile().then(setLargePacksMobile).catch(() => {});
   }, []);
 
   // Italien (d-flight): eigener Zugang, nur verschlüsselt auf dem Gerät gespeichert
@@ -459,6 +463,16 @@ export default function OfflineMapsScreen() {
           {dfMsg ? <ThemedText style={[styles.small, { marginTop: Spacing.sm }]}>{dfMsg}</ThemedText> : null}
         </Card>
 
+        <ThemedText style={[styles.sectionTitle, { color: theme.textSecondary, marginTop: Spacing["2xl"] }]}>GEOZONEN AKTUALISIEREN</ThemedText>
+        <Card style={styles.card}>
+          <Row
+            label="Große Pakete auch über mobile Daten laden"
+            sub="Geozonen-Pakete Deutschland, Frankreich, Tschechien und der große Bestand der Niederlande werden sonst nur im WLAN neu geladen (vorher wird günstig auf eine neue Fassung geprüft). Kleine Länder werden online alle 6 Stunden, temporäre Beschränkungen bei jeder Prüfung (höchstens 10 Minuten alt) aktualisiert."
+            value={largePacksMobile}
+            onChange={(v) => { setLargePacksMobile(v); setLargePacksOnMobile(v).catch(() => {}); }}
+          />
+        </Card>
+
         <ThemedText style={[styles.sectionTitle, { color: theme.textSecondary, marginTop: Spacing["2xl"] }]}>HINDERNISSE</ThemedText>
         <Card style={styles.card}>
           <Row
@@ -647,7 +661,9 @@ export default function OfflineMapsScreen() {
                       <ThemedText style={[styles.small, { color: theme.textSecondary }]}>
                         Quelle Geozonen: {country.geozoneAttribution.label}
                         {country.geozoneAttribution.url ? " ↗" : ""}
-                        {" · alle 28 Tage (AIRAC) im WLAN automatisch aktualisiert"}
+                        {largePacksMobile
+                          ? " · zum AIRAC-Stichtag (spätestens alle 28 Tage) automatisch aktualisiert"
+                          : " · zum AIRAC-Stichtag (spätestens alle 28 Tage) im WLAN automatisch aktualisiert"}
                       </ThemedText>
                     </Pressable>
                   ) : null}

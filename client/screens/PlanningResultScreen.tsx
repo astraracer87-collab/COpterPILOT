@@ -24,6 +24,7 @@ import { calculateSolarTimes, formatSolarTime, getDaylightPhase, SolarTimes, com
 import { findPresetForDrone, DronePreset } from "@/lib/dronePresets";
 import { estimateEv, shutterDenomFromEv, snapShutterDenom, recommendNd, NdRecommendation } from "@/lib/ndFilter";
 import SunArcChart from "@/components/SunArcChart";
+import { DataStandLines } from "@/components/DataStandLines";
 import type { FlightPlanningParamList } from "@/navigation/FlightPlanningNavigator";
 
 type NavigationProp = NativeStackNavigationProp<FlightPlanningParamList, "PlanningResult">;
@@ -107,6 +108,8 @@ export default function PlanningResultScreen() {
             cloudCover: forecastWeather.cloudCover,
             pressure: 1013,
           }],
+          // Teil A: Offline-Vorhersage zählt höchstens als CAUTION
+          ...(forecastWeather.offline?.cached ? { offline: forecastWeather.offline } : {}),
         };
       })()
     : null;
@@ -314,6 +317,7 @@ export default function PlanningResultScreen() {
               <ThemedText style={styles.weatherTitle}>Wettervorhersage</ThemedText>
               <StatusBadge status={effectiveStatus} />
             </View>
+            <DataStandLines testID="planning-result-data-stand" entries={[{ kind: "weather", origin: forecastWeather.offline ?? null }]} />
             <View style={styles.weatherGrid}>
               <View style={styles.weatherItem}>
                 <Feather name="thermometer" size={16} color={theme.textSecondary} />

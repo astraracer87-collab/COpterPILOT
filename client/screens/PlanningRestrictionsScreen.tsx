@@ -44,7 +44,10 @@ import {
 } from "@/lib/countryCompliance";
 import { getNightFlightRule } from "@/lib/countryInfo";
 import { nightFlightCountry } from "@/lib/assessment";
-import { geozoneChecks, coverageChecks, complianceChecks, formatCoverageDataAges, formatCoverageTruncation, replaceCheckCategories, type CheckResult, type CheckOverride } from "../../shared/checks";
+import { aggregate, geozoneChecks, coverageChecks, complianceChecks, formatCoverageDataAges, formatCoverageTruncation, replaceCheckCategories, type CheckResult, type CheckOverride } from "../../shared/checks";
+import { useGeozoneRevalidation, useVerdictChangeWatch } from "@/lib/geozoneSources/useGeozoneRevalidation";
+import { GeozoneDataChangedBanner } from "@/components/GeozoneDataChangedBanner";
+import { DataStandLines } from "@/components/DataStandLines";
 import { isFlightWindowDuringNight } from "@/lib/solar";
 import { detectBundeslandFromCoordinates } from "@/lib/countryMaps";
 import { hasOwnMap } from "../../shared/countryDetection";
@@ -77,6 +80,10 @@ export default function PlanningRestrictionsScreen() {
 
   const { droneId, latitude, longitude, locationName, countryIso, mapUrl, radiusKm: initialRadiusKm, maxAltitude, recommendedVlosM, vlosExceeded, vlosCharDimensionM, vlosAltitudeCorrection, vlosHorizontalLimitM, plannedDate, plannedTime, endTime, routeWaypoints, sessionId, restrictionStatus: manualRestrictionStatus, restrictionNotes: manualRestrictionNotes, officialMapCrossCheck } = route.params;
   const localRadiusKm = initialRadiusKm || 1;
+  // Teil A: lokaler Bestand sofort, online im Hintergrund nachziehen; neue
+  // Daten → neu auswerten (dataVersion), geändertes Urteil → Hinweis.
+  const revalidation = useGeozoneRevalidation({ latitude, longitude, radiusKm: localRadiusKm, countryIso, purpose: "check" });
+  const [loadedVersion, setLoadedVersion] = useState(0);
   const energyInfrastructureQuery = useGermanEnergyInfrastructure(
     latitude,
     longitude,
@@ -193,6 +200,7 @@ export default function PlanningRestrictionsScreen() {
 
   useEffect(() => {
     let cancelled = false;
+    const version = revalidation.dataVersion;
     const fetchGeozones = async () => {
       setLoading(true);
       setError(false);
@@ -253,12 +261,15 @@ export default function PlanningRestrictionsScreen() {
       } catch {
         if (!cancelled) setError(true);
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoadedVersion(version);
+          setLoading(false);
+        }
       }
     };
     const timer = setTimeout(() => { fetchGeozones(); }, 300);
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [latitude, longitude, localRadiusKm, countryIso]);
+  }, [latitude, longitude, localRadiusKm, countryIso, revalidation.dataVersion]);
 
   // Höhen-Filter: vektorbasierte ED-269-Zonen (AT/BE/DK) mit Untergrenze über der
   // geplanten Höhe (Standard 120 m AGL) ausblenden. WMS-Länder bleiben unberührt.
@@ -571,6 +582,10 @@ export default function PlanningRestrictionsScreen() {
     }),
     ...complianceChecks({ alphaTangoMissingAcknowledged: alphaTango }, "planning"),
   ];
+  // Teil A: Urteil der Geozonen-/Abdeckungsprüfung (ohne Pilotenwahl) für den
+  // Hinweis bei geänderten Daten.
+  const liveRestrictionVerdict = loading ? null : aggregate(buildRestrictionChecks(undefined, false)).verdict;
+  const verdictWatch = useVerdictChangeWatch(liveRestrictionVerdict, loadedVersion, revalidation.dataVersion);
   const persistRestrictionChecks = (checks: CheckResult[]) => {
     if (!sessionId) return;
     getFlightSession(sessionId)
@@ -951,6 +966,7 @@ export default function PlanningRestrictionsScreen() {
         <ThemedText style={[styles.subtitle, { color: theme.textSecondary }]}>
           Automatische Prüfung der Geozonen für deinen Standort
         </ThemedText>
+        <GeozoneDataChangedBanner change={verdictWatch.change} onDismiss={verdictWatch.dismiss} />
         {countryIso === "DE" ? (
           <View style={styles.dipulSourceInfo}>
             <ThemedText style={[styles.dipulSourceText, { color: theme.textSecondary }]}>
@@ -1152,10 +1168,21 @@ export default function PlanningRestrictionsScreen() {
         {!loading && !error && geozoneDataAges ? (
           <ThemedText
             testID="planning-geozone-data-age"
-            style={[styles.statusDesc, { color: coverageSources.some((s) => s.status === "stale") ? (theme.statusCaution || "#FF9500") : theme.textSecondary, marginBottom: Spacing.sm }]}
+            style={[styles.statusDesc, { color: coverageSources.some((s) => s.status === "stale" || s.status === "partial") ? (theme.statusCaution || "#FF9500") : theme.textSecondary, marginBottom: Spacing.sm }]}
           >
             {`Geozonen-Daten – ${geozoneDataAges}`}
           </ThemedText>
+        ) : null}
+        {!loading ? (
+          <DataStandLines
+            testID="planning-geozone-refresh"
+            extraLines={revalidation.pendingWifi.map((iso) => ({
+              text: `${countryName(iso) || iso}: Neue Fassung verfügbar – wird im WLAN geladen`,
+              tone: "offline" as const,
+            }))}
+            onRefresh={revalidation.refreshNow}
+            refreshing={revalidation.refreshing}
+          />
         ) : null}
         {!loading && !error && geozoneTruncation ? (
           <ThemedText testID="planning-geozone-truncated" style={[styles.statusDesc, { color: theme.textSecondary, marginBottom: Spacing.sm }]}>

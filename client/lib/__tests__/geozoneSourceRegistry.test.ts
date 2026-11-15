@@ -166,12 +166,19 @@ describe("Quellen-Registry: Konsistenz", () => {
     }
   });
 
-  it("Aktualisierungs-Policy: 24 h ED-269-Gerätecache, 28 Tage Kachelspeicher und Importe", () => {
-    assert.equal(ED269_STORE_REFRESH_MS, 24 * 3_600_000);
+  it("Aktualisierungs-Policy (Teil A): ED-269 online nach 6 h neu laden, dauerhafte Zonen Warnung nach 28 Tagen, temporäre 10 min / 24 h", () => {
+    assert.equal(ED269_STORE_REFRESH_MS, 6 * 3_600_000);
     assert.equal(TILE_STORE_REFRESH_MS, 28 * 86_400_000);
+    const temp = { temporaryMaxAgeMs: 10 * 60_000, temporaryStaleAfterMs: 24 * 3_600_000 };
     for (const s of GEOZONE_SOURCES) {
-      if (s.offline === "tile-store") assert.deepEqual(s.refresh, { maxAgeMs: TILE_STORE_REFRESH_MS, staleWarnAfterMs: TILE_STORE_REFRESH_MS }, s.iso);
-      if (s.offline === "ed269-store") assert.deepEqual(s.refresh, { maxAgeMs: ED269_STORE_REFRESH_MS, staleWarnAfterMs: ED269_STORE_REFRESH_MS }, s.iso);
+      if (s.offline === "tile-store") {
+        assert.deepEqual(
+          s.refresh,
+          { maxAgeMs: TILE_STORE_REFRESH_MS, staleWarnAfterMs: TILE_STORE_REFRESH_MS, ...(s.iso === "DE" ? temp : {}) },
+          s.iso,
+        );
+      }
+      if (s.offline === "ed269-store") assert.deepEqual(s.refresh, { maxAgeMs: ED269_STORE_REFRESH_MS, staleWarnAfterMs: 28 * 86_400_000, ...temp }, s.iso);
       if (s.offline === "import") assert.deepEqual(s.refresh, { maxAgeMs: null, staleWarnAfterMs: TILE_STORE_REFRESH_MS }, s.iso);
     }
   });
@@ -352,7 +359,11 @@ describe("getSourceDataStatus / veraltet → CAUTION", () => {
     writeMeta("CZ", now - 29 * 86_400_000);
     await loadTileStoreMeta(true);
     const de = getSourceDataStatus("DE", now);
-    assert.deepEqual(de, { fetchedAt: now - 3 * 86_400_000, ageMs: 3 * 86_400_000, stale: false, kind: "tiled" });
+    // Teil A: temporäre DE-Zonen haben einen eigenen Stand – hier nie geladen → nicht aktuell
+    assert.deepEqual(de, {
+      fetchedAt: now - 3 * 86_400_000, ageMs: 3 * 86_400_000, stale: false, kind: "tiled",
+      temporaryFetchedAt: null, temporaryStale: true,
+    });
     const cz = getSourceDataStatus("CZ", now);
     assert.equal(cz.stale, true);
     assert.equal(getSourceDataStatus("FR", now).fetchedAt, null);

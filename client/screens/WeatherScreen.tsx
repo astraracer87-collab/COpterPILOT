@@ -15,6 +15,9 @@ import { useTheme } from "@/hooks/useTheme";
 import { useShowDataSources } from "@/lib/dataSource";
 import { Spacing, Typography, Colors } from "@/constants/theme";
 import { fetchWeather, WeatherData, WeatherFetchError, ForecastData, fetchHourlyForecasts, HourlyForecastSlot } from "@/lib/weather";
+import { DataStandLines } from "@/components/DataStandLines";
+import { isOfflineNow } from "@/lib/network";
+import { bringOnlineHint } from "../../shared/offlineDataPolicy";
 import HourlyForecastTable from "@/components/HourlyForecastTable";
 import {
   fetchKpIndex,
@@ -162,7 +165,10 @@ export default function WeatherScreen() {
       }
     } catch (err) {
       console.error("Weather fetch error:", err);
-      if (err instanceof WeatherFetchError) {
+      if (isOfflineNow()) {
+        // Teil A: kein gespeicherter Stand < 24 h
+        setError(`${bringOnlineHint("weather")} – keine gespeicherte Vorhersage jünger als 24 h.`);
+      } else if (err instanceof WeatherFetchError) {
         setError(err.message);
       } else if (err instanceof Error) {
         setError(`Verbindungsfehler: ${err.message}`);
@@ -214,6 +220,7 @@ export default function WeatherScreen() {
         limits: limits,
         sessionId,
         kpIndex: kpData?.value,
+        kpOfflineFetchedAt: kpData?.offline?.fetchedAt,
       });
     } else {
       navigation.navigate("Checklist", {
@@ -229,6 +236,7 @@ export default function WeatherScreen() {
         sessionId,
         isFpvFlight,
         kpIndex: kpData?.value,
+        kpOfflineFetchedAt: kpData?.offline?.fetchedAt,
       });
     }
   };
@@ -306,6 +314,14 @@ export default function WeatherScreen() {
           },
         ]}
       >
+        <DataStandLines
+          testID="weather-data-stand"
+          entries={[
+            { kind: "weather", origin: weather.offline ?? null },
+            { kind: "kp", origin: kpData?.offline ?? null },
+          ]}
+          onRefresh={weather.offline || kpData?.offline ? () => { loadData(); } : undefined}
+        />
         <ThemedText style={[styles.sectionTitle, { color: theme.textSecondary }]}>
           AKTUELL (BODEN)
         </ThemedText>

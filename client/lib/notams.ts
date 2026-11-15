@@ -1,16 +1,45 @@
-import { getCached, setCache, makeCacheKey } from "@/lib/dataCache";
 import { getFirForPosition } from "@/lib/firDetection";
 import { isOfflineNow } from "@/lib/network";
-import { getOfflinePackNotams } from "@/lib/offlineStore";
+import { readPackData } from "@/lib/offlineStore";
+import { getOfflineResult, putOfflineResult } from "@/lib/offlineResultCache";
 import { detectCountryFromCoordinates } from "../../shared/countryDetection";
 import { FT_M } from "../../shared/heights";
+import {
+  OFFLINE_DATA_MAX_AGE_MS,
+  offlineLocationKey,
+  stillValidNotams,
+  type OfflineOrigin,
+} from "../../shared/offlineDataPolicy";
 
-async function offlineNotamsFor(lat: number, lon: number): Promise<NotamData[] | null> {
+interface StoredNotams {
+  notams: NotamData[];
+  fetchedAt: number;
+}
+
+// Teil A: gespeicherte NOTAMs offline nur, wenn jünger als 24 h, und nur die
+// noch gültigen. Zuerst der letzte erfolgreiche Abruf am Standort (0,05°),
+// sonst das Offline-Paket des Landes (Stand = Paket-Zeitpunkt).
+async function offlineNotamsFor(lat: number, lon: number, key: string, now = Date.now()): Promise<StoredNotams | null> {
+  const cached = await getOfflineResult<{ notams: NotamData[] }>("notams", key).catch(() => null);
+  if (cached && now - cached.fetchedAt < OFFLINE_DATA_MAX_AGE_MS && Array.isArray(cached.data?.notams)) {
+    return { notams: stillValidNotams(cached.data.notams, now), fetchedAt: cached.fetchedAt };
+  }
   const iso = detectCountryFromCoordinates(lat, lon);
   if (!iso) return null;
-  const stored = await getOfflinePackNotams(iso);
-  if (stored && stored.length) return stored as NotamData[];
-  return null;
+  const pack = await readPackData(iso).catch(() => null);
+  if (!pack || !Array.isArray(pack.notams) || pack.notams.length === 0 || pack.notamsUnavailable) return null;
+  if (!(pack.cachedAt > 0) || now - pack.cachedAt >= OFFLINE_DATA_MAX_AGE_MS) return null;
+  return { notams: stillValidNotams(pack.notams as NotamData[], now), fetchedAt: pack.cachedAt };
+}
+
+function offlineResponse(stored: StoredNotams, error: string) {
+  return {
+    notams: stored.notams,
+    total: stored.notams.length,
+    queriedCodes: [] as string[],
+    error,
+    offline: { fetchedAt: stored.fetchedAt, cached: true } as OfflineOrigin,
+  };
 }
 
 const AUTOROUTER_URL = "https://api.autorouter.aero/v1.0/notam";
@@ -242,13 +271,15 @@ export async function fetchNotams(
   error?: string;
   /** true: Abfrage fehlgeschlagen, KEINE verwertbaren Daten (auch kein Cache/Offline). */
   failed?: boolean;
+  /** Teil A: NOTAMs aus dem Offline-Speicher (nur noch gültige, < 24 h). */
+  offline?: OfflineOrigin;
 }> {
+  const ck = `${offlineLocationKey(lat, lon)}${customIcaos && customIcaos.length > 0 ? `_${[...customIcaos].sort().join(",")}` : ""}`;
   try {
     if (isOfflineNow()) {
-      const offline = await offlineNotamsFor(lat, lon);
-      if (offline) {
-        return { notams: offline, total: offline.length, queriedCodes: [], error: "Offline (gespeichert)" };
-      }
+      const offline = await offlineNotamsFor(lat, lon, ck);
+      if (offline) return offlineResponse(offline, "Offline (gespeichert)");
+      return { notams: [], total: 0, queriedCodes: [], error: "Offline – keine gespeicherten NOTAMs (< 24 h)", failed: true };
     }
     const fir = getFirForPosition(lat, lon);
     const nearbyAirports = getNearbyAirportCodes(lat, lon);
@@ -279,6 +310,8 @@ export async function fetchNotams(
     }
 
     if (!response.ok) {
+      const offline = await offlineNotamsFor(lat, lon, ck);
+      if (offline) return offlineResponse(offline, `HTTP ${response.status} (gespeichert)`);
       return {
         notams: [],
         total: 0,
@@ -314,18 +347,13 @@ export async function fetchNotams(
       total: data.total,
       queriedCodes: uniqueCodes,
     };
-    const ck = makeCacheKey("notams", lat, lon);
-    setCache(ck, result).catch(() => {});
+    // Teil A: ALLE Zeilen speichern (offline werden die dann noch gültigen gezeigt)
+    putOfflineResult("notams", ck, { notams: rows }).catch(() => {});
     return result;
   } catch (err: any) {
-    const offline = await offlineNotamsFor(lat, lon);
+    const offline = await offlineNotamsFor(lat, lon, ck);
     if (offline) {
-      return { notams: offline, total: offline.length, queriedCodes: [], error: "Offline (gespeichert)" };
-    }
-    const ck = makeCacheKey("notams", lat, lon);
-    const cached = await getCached<{ notams: NotamData[]; total: number; queriedCodes: string[] }>(ck);
-    if (cached) {
-      return { ...cached.data, error: err.name === "AbortError" ? "Zeitüberschreitung (Cache)" : (err.message || "Fehler (Cache)") };
+      return offlineResponse(offline, err?.name === "AbortError" ? "Zeitüberschreitung (gespeichert)" : "Offline (gespeichert)");
     }
     if (err.name === "AbortError") {
       return {

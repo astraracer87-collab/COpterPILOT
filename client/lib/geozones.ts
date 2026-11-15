@@ -9,6 +9,7 @@ import {
   queryEd269CachedFeaturesWithStatusFrom,
   getCountriesInRadius as getCountriesInRadiusFrom,
   getViewportCountries as getViewportCountriesFrom,
+  storedCoverageStatus,
   summarizeGeozoneCoverage,
   worseSourceStatus,
   type Ed269StatusResult,
@@ -19,6 +20,8 @@ import {
 export type { GeozoneAreaResult, GeozoneSourceCoverage, GeozoneSourceStatus, GeozoneCoverage } from "@/lib/geozoneCoverage";
 import { isLoggedInSync } from "@/lib/auth";
 import { isOfflineNow } from "@/lib/network";
+import { getOfflineResult, putOfflineResult } from "@/lib/offlineResultCache";
+import { offlineLocationKey } from "../../shared/offlineDataPolicy";
 import {
   hasTiledGeozones,
   queryTiledGeozones,
@@ -586,7 +589,9 @@ export async function queryEd269CachedFeaturesWithStatus(
     if (!tiled) return { zones: [], status: "missing", note: "Offline-Paket nicht lesbar" };
     // Keine stille Kürzung (B7/S7): Hinweis „hineinzoomen“.
     const trunc = stats.truncated && limit ? { truncated: true, note: geozoneTruncationHint(limit) } : {};
-    return { zones: tiled, ...storedDataReport(iso), ...trunc };
+    // Temporäre DE-Zonen nur bewerten, wenn sie abgefragt wurden (Ebenen-Filter).
+    const withTemp = !opts?.layers || opts.layers.length === 0 || opts.layers.includes("temporaere_betriebseinschraenkungen");
+    return { zones: tiled, ...storedDataReport(iso, withTemp), ...trunc };
   }
   // Offline-Quelle der ED-269-Länder ist allein der Gerätebestand
   // (geozoneDirect/ed269Store, auf dem Gerät gespeichert, Stand/„stale“ laut
@@ -601,9 +606,16 @@ export async function queryEd269CachedFeaturesWithStatus(
  * Abdeckungs-Meldung für einen gespeicherten Bestand (Kachelspeicher): Stand
  * und "stale" laut Registry-Policy (getSourceDataStatus).
  */
-function storedDataReport(iso: string): { status: GeozoneSourceStatus; fetchedAt?: number } {
+function storedDataReport(iso: string, withTemp = true): { status: GeozoneSourceStatus; fetchedAt?: number; note?: string } {
   const st = getSourceDataStatus(iso);
-  return { status: st.stale ? "stale" : "ok", ...(st.fetchedAt != null ? { fetchedAt: st.fetchedAt } : {}) };
+  // Teil A: DE führt die temporären Betriebseinschränkungen mit eigenem Stand
+  // (getDeTempStatus); veraltet bzw. nie geladen → "partial".
+  const stored = storedCoverageStatus(iso, st.fetchedAt, withTemp ? st.temporaryFetchedAt : undefined);
+  return {
+    status: stored.status,
+    ...(st.fetchedAt != null ? { fetchedAt: st.fetchedAt } : {}),
+    ...(stored.note ? { note: stored.note } : {}),
+  };
 }
 
 export const TEMP_RESTRICTION_LAYER_LABEL = "Temporäre Beschränkungen";
@@ -829,6 +841,19 @@ function classifyLegalRef(legalRef: string, name: string, typeCode?: string): { 
 export interface DipulTempRestrictionsResult {
   active: DipulTempRestriction[];
   upcoming: DipulTempRestriction[];
+  /** Teil A: aus dem gespeicherten Stand (Gerät offline bzw. Dienst nicht erreichbar). */
+  offline?: { fetchedAt: number; cached: boolean };
+}
+
+/** Teil A: gespeicherte temporäre DE-Beschränkungen – nur noch gültige, mit Stand. */
+function cachedTempRestrictions(data: DipulTempRestrictionsResult, fetchedAt: number): DipulTempRestrictionsResult {
+  const now = Date.now();
+  const valid = (r: DipulTempRestriction) => r.endTsIndefinite || !r.endTs || new Date(r.endTs).getTime() > now;
+  return {
+    active: (data.active ?? []).filter(valid),
+    upcoming: (data.upcoming ?? []).filter(valid),
+    offline: { fetchedAt, cached: true },
+  };
 }
 
 async function fetchGeoapi(token: string, body: string, signal: AbortSignal): Promise<Response> {
@@ -1029,7 +1054,7 @@ export async function fetchAllTempRestrictions(): Promise<DipulTempRestrictionsR
     return mergeMilLowFlight(data, getAllMilLowFlightRestrictions());
   } catch (err) {
     const cached = await getCached<DipulTempRestrictionsResult>("dipul_all");
-    if (cached) return mergeMilLowFlight(cached.data, getAllMilLowFlightRestrictions());
+    if (cached) return { ...mergeMilLowFlight(cachedTempRestrictions(cached.data, cached.ts), getAllMilLowFlightRestrictions()), offline: { fetchedAt: cached.ts, cached: true } };
     throw err;
   }
 }
@@ -1045,7 +1070,7 @@ export async function fetchNearbyTempRestrictions(lat: number, lon: number, radi
     return mergeMilLowFlight(data, milExtra);
   } catch (err) {
     const cached = await getCached<DipulTempRestrictionsResult>(ck);
-    if (cached) return mergeMilLowFlight(cached.data, milExtra);
+    if (cached) return { ...mergeMilLowFlight(cachedTempRestrictions(cached.data, cached.ts), milExtra), offline: { fetchedAt: cached.ts, cached: true } };
     throw err;
   }
 }
@@ -1067,7 +1092,7 @@ export async function fetchNearbyTempRestrictionsRaw(lat: number, lon: number, r
     return data;
   } catch (err) {
     const cached = await getCached<DipulTempRestrictionsResult>(ck);
-    if (cached) return cached.data;
+    if (cached) return cachedTempRestrictions(cached.data, cached.ts);
     throw err;
   }
 }
@@ -1408,7 +1433,23 @@ async function queryGeozonesForCountry(
   }
 
   if (config.iso === "DE") {
-    return queryDipulGeozones(lat, lon, radiusKm, onDipulSourceStatus);
+    // Teil A: Land ohne Offline-Paket → online direkt (dipul-WFS) und das
+    // Ergebnis je Standort zwischenspeichern; offline der gespeicherte Stand
+    // (mit Alter), sonst Abdeckungslücke statt „keine Zonen“.
+    const key = `${offlineLocationKey(lat, lon)}_${Math.round(radiusKm * 10)}`;
+    if (isOfflineNow()) {
+      const stored = await getOfflineResult<GeozoneFeatureInfo[]>("geozones-live", key).catch(() => null);
+      if (stored && Array.isArray(stored.data)) {
+        const st = storedCoverageStatus("DE", stored.fetchedAt, stored.fetchedAt);
+        report?.({ status: st.status, fetchedAt: stored.fetchedAt, ...(st.note ? { note: st.note } : {}) });
+        return stored.data;
+      }
+      report?.({ status: "missing", note: "Gerät offline – kein Offline-Paket und kein gespeicherter Stand" });
+      return [];
+    }
+    const zones = await queryDipulGeozones(lat, lon, radiusKm, onDipulSourceStatus);
+    putOfflineResult("geozones-live", key, zones).catch(() => {});
+    return zones;
   }
 
   // CZ: Zonen nur aus dem Offline-Paket -> ohne Paket keine automatische Prüfung.

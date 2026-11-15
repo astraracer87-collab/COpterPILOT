@@ -29,6 +29,7 @@ import { consumeFlightPlanningMode, getFlightPlanningMode } from "@/lib/flightPl
 import { CommonActions } from "@react-navigation/native";
 import { buildRestrictionSessionPatch } from "@/lib/manualRestrictionFlow";
 import { notamChecks, replaceCheckCategories, type CheckResult } from "../../shared/checks";
+import { DataStandLines } from "@/components/DataStandLines";
 
 type NavigationProp = NativeStackNavigationProp<FlightPlanningParamList, "PlanningDetails">;
 type RouteParams = RouteProp<FlightPlanningParamList, "PlanningDetails">;
@@ -57,7 +58,7 @@ export default function PlanningDetailsScreen() {
     if (restrictionChecks) next = replaceCheckCategories(next, restrictionChecks, ["geozone", "coverage", "compliance"], "planning");
     return replaceCheckCategories(
       next,
-      notamChecks({ context: "planning", failed: notamUnknown, count: notamCount, source: "NOTAM-Abfrage (Planung)" }),
+      notamChecks({ context: "planning", failed: notamUnknown, count: notamCount, source: "NOTAM-Abfrage (Planung)", offlineFetchedAt: notamOffline?.fetchedAt ?? null }),
       ["notam"],
       "planning",
     );
@@ -106,6 +107,8 @@ export default function PlanningDetailsScreen() {
   const [notamCount, setNotamCount] = useState<number | null>(null);
   // NOTAM-Abfrage fehlgeschlagen (z. B. HTTP 401): Status unbekannt, NICHT "keine".
   const [notamUnknown, setNotamUnknown] = useState(false);
+  // Teil A: NOTAMs aus dem Offline-Speicher (nur noch gültige, < 24 h)
+  const [notamOffline, setNotamOffline] = useState<{ fetchedAt: number; cached: boolean } | null>(null);
   const [verbandsregelDE, setVerbandsregelDE] = useState(false);
 
   const dateObj = useMemo(() => {
@@ -270,12 +273,14 @@ export default function PlanningDetailsScreen() {
         fetchKpIndex().catch(() => null),
         fetchNotams(latitude, longitude).catch(() => ({ notams: [], total: 0, queriedCodes: [], failed: true })),
       ]);
-      setForecastWeather(result.weather);
+      // Teil A: Offline-Vorhersage behält ihren Stand (Urteil höchstens CAUTION)
+      setForecastWeather(result.weather ? (result.offline ? { ...result.weather, offline: result.offline } : result.weather) : null);
       setWeatherSource(result.source);
       setWeatherTooFarAhead(!!result.tooFarAhead);
       if (kpResult) setKpData(kpResult);
       setNotamCount(notamCountOrUnknown(notamResult));
       setNotamUnknown(notamCountOrUnknown(notamResult) === null);
+      setNotamOffline((notamResult as { offline?: { fetchedAt: number; cached: boolean } }).offline ?? null);
       if (result.weather) {
         setHourlySlots(hourlyResult.slots);
         setHourlySource(hourlyResult.source);
@@ -352,12 +357,14 @@ export default function PlanningDetailsScreen() {
         fetchKpIndex().catch(() => null),
         fetchNotams(latitude, longitude).catch(() => ({ notams: [], total: 0, queriedCodes: [], failed: true })),
       ]);
-      setForecastWeather(result.weather);
+      // Teil A: Offline-Vorhersage behält ihren Stand (Urteil höchstens CAUTION)
+      setForecastWeather(result.weather ? (result.offline ? { ...result.weather, offline: result.offline } : result.weather) : null);
       setWeatherSource(result.source);
       setWeatherTooFarAhead(!!result.tooFarAhead);
       setKpData(kpResult);
       setNotamCount(notamCountOrUnknown(notamResult));
       setNotamUnknown(notamCountOrUnknown(notamResult) === null);
+      setNotamOffline((notamResult as { offline?: { fetchedAt: number; cached: boolean } }).offline ?? null);
       if (result.weather) {
         setHourlySlots(hourlyResult.slots);
         setHourlySource(hourlyResult.source);
@@ -772,6 +779,16 @@ export default function PlanningDetailsScreen() {
               <Feather name="refresh-cw" size={14} color={theme.textTertiary} />
             ) : null}
           </View>
+          <DataStandLines
+            testID="planning-data-stand"
+            entries={[
+              { kind: "weather", origin: forecastWeather?.offline ?? null },
+              { kind: "kp", origin: kpData?.offline ?? null },
+              { kind: "notam", origin: notamOffline },
+            ]}
+            onRefresh={forecastWeather?.offline || kpData?.offline || notamOffline || notamUnknown ? () => { updateWeatherSilently(); } : undefined}
+            refreshing={isRefreshing}
+          />
           {loading && !forecastWeather ? (
             <View style={styles.weatherLoadingContainer}>
               <Feather name="cloud" size={24} color={theme.primary} />

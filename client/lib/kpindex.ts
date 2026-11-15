@@ -1,4 +1,6 @@
 import { fetchWithTimeout } from "./fetchWithTimeout";
+import { fetchWithOfflineCache } from "./offlineResultCache";
+import type { OfflineOrigin } from "../../shared/offlineDataPolicy";
 
 export interface KpIndexData {
   value: number;
@@ -6,12 +8,20 @@ export interface KpIndexData {
   level: "ruhig" | "leicht_unruhig" | "unruhig" | "Sturm" | "starker_Sturm";
   color: string;
   description: string;
+  /** Teil A: Wert aus dem Offline-Speicher (Kp mit Alter anzeigen). */
+  offline?: OfflineOrigin;
 }
 
 const KP_API_URL = "https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json";
 const KP_FORECAST_API_URL = "https://services.swpc.noaa.gov/products/noaa-planetary-k-index-forecast.json";
 
+/** Teil A: Kp-Index mit Offline-Speicher (global, < 24 h). */
 export async function fetchKpIndex(): Promise<KpIndexData> {
+  const r = await fetchWithOfflineCache("kp", "global", fetchKpIndexLive);
+  return r.cached ? { ...r.data, offline: { fetchedAt: r.fetchedAt, cached: true } } : r.data;
+}
+
+async function fetchKpIndexLive(): Promise<KpIndexData> {
   const response = await fetchWithTimeout(KP_API_URL);
 
   if (!response.ok) {
@@ -97,7 +107,13 @@ export interface KpTimeEntry {
   value: number;
 }
 
+/** Teil A: Kp-Vorhersage mit Offline-Speicher (global, < 24 h). */
 export async function fetchKpTimeline(): Promise<KpTimeEntry[]> {
+  const r = await fetchWithOfflineCache("kp-timeline", "global", fetchKpTimelineLive, { accept: (d) => d.length > 0 });
+  return r.data;
+}
+
+async function fetchKpTimelineLive(): Promise<KpTimeEntry[]> {
   const response = await fetchWithTimeout(KP_FORECAST_API_URL);
   if (!response.ok) throw new Error(`KP-Forecast API Fehler: ${response.status}`);
   const data: any[] = await response.json();

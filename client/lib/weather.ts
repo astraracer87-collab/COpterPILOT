@@ -1,5 +1,7 @@
 import { isWithinDwdCoverage } from "../../shared/countryDetection";
 import { fetchWithTimeout } from "./fetchWithTimeout";
+import { fetchWithOfflineCache } from "./offlineResultCache";
+import { offlineLocationKey, type OfflineOrigin } from "../../shared/offlineDataPolicy";
 
 // Mögliche Wetterquellen. "openmeteo" deckt das Ausland ab (Open-Meteo wählt
 // dort automatisch lokale Modelle wie AROME in Frankreich); "dipul" (DFS,
@@ -61,6 +63,8 @@ export interface WeatherData {
   longitude: number;
   calculationTime: string;
   forecasts: ForecastData[];
+  /** Teil A: gesetzt, wenn die Daten aus dem Offline-Speicher stammen. */
+  offline?: OfflineOrigin;
 }
 
 // DFS-dipul-Wetter (ICON-D2) wird direkt abgefragt – der frühere Server-Proxy
@@ -215,7 +219,27 @@ async function fetchOpenMeteoForecast(
   };
 }
 
+/**
+ * Teil A: Wetter mit Offline-Speicher. Online wird live abgerufen und das
+ * Ergebnis je Standort (0,05°) gespeichert; offline bzw. bei Fehler liefert der
+ * Speicher den letzten Stand (< 24 h, nur noch nicht vergangene Stunden) mit
+ * `offline: { fetchedAt, cached: true }`.
+ */
 export async function fetchWeather(latitude: number, longitude: number, durationMinutes?: number): Promise<WeatherData> {
+  const r = await fetchWithOfflineCache(
+    "weather",
+    offlineLocationKey(latitude, longitude),
+    () => fetchWeatherLive(latitude, longitude, durationMinutes),
+    { accept: (d) => Array.isArray(d?.forecasts) && d.forecasts.length > 0 },
+  );
+  if (!r.cached) return r.data;
+  const nowMs = Date.now();
+  const forecasts = (r.data.forecasts ?? []).filter((f) => new Date(f.timestamp).getTime() >= nowMs - 3_600_000);
+  if (forecasts.length === 0) throw new WeatherFetchError("Offline – keine passende gespeicherte Vorhersage");
+  return { ...r.data, forecasts, offline: { fetchedAt: r.fetchedAt, cached: true } };
+}
+
+async function fetchWeatherLive(latitude: number, longitude: number, durationMinutes?: number): Promise<WeatherData> {
   const forecasts = durationMinutes != null && durationMinutes > 0
     ? getTimestampsForWindow(durationMinutes)
     : getNext24HourTimestamps();
@@ -384,6 +408,14 @@ export interface ForecastResult {
   weather: WeatherSnapshot | null;
   source: WeatherSource | null;
   tooFarAhead?: boolean;
+  /** Teil A: Vorhersage aus dem Offline-Speicher („Offline-Vorhersage von HH:MM“). */
+  offline?: OfflineOrigin;
+}
+
+/** Stunden-Schlüssel eines Zeitpunkts (Offline-Speicher). */
+function hourKey(iso: string): string {
+  const d = new Date(iso);
+  return Number.isFinite(d.getTime()) ? new Date(Math.floor(d.getTime() / 3_600_000) * 3_600_000).toISOString().slice(0, 13) : "x";
 }
 
 async function fetchDipulForecast(
@@ -607,7 +639,36 @@ async function buildOpenMeteoHourlySlots(
   return omSlots;
 }
 
+/**
+ * Teil A: Stundenwerte mit Offline-Speicher (Schlüssel: Standort + Fenster).
+ * Offline bzw. ohne Live-Daten: letzter Stand (< 24 h) mit `offline`.
+ */
 export async function fetchHourlyForecasts(
+  latitude: number,
+  longitude: number,
+  startTime: string,
+  endTime: string
+): Promise<{ slots: HourlyForecastSlot[]; source: WeatherSource; offline?: OfflineOrigin }> {
+  if (new Date(endTime) <= new Date(startTime)) return { slots: [], source: "dipul" };
+  const key = `${offlineLocationKey(latitude, longitude)}_${hourKey(startTime)}_${hourKey(endTime)}`;
+  try {
+    const r = await fetchWithOfflineCache(
+      "hourly",
+      key,
+      async () => {
+        const live = await fetchHourlyForecastsLive(latitude, longitude, startTime, endTime);
+        if (live.slots.length === 0) throw new WeatherFetchError("Keine Stundenwerte");
+        return live;
+      },
+    );
+    return r.cached ? { ...r.data, offline: { fetchedAt: r.fetchedAt, cached: true } } : r.data;
+  } catch {
+    // wie bisher: keine Daten -> leere Liste (Quelle wie im Live-Pfad)
+    return { slots: [], source: isWithinDwdCoverage(latitude, longitude) ? "brightsky" : "openmeteo" };
+  }
+}
+
+async function fetchHourlyForecastsLive(
   latitude: number,
   longitude: number,
   startTime: string,
@@ -758,7 +819,34 @@ export async function fetchHourlyForecasts(
   return { slots, source: abroad ? "openmeteo" : "brightsky" };
 }
 
+/**
+ * Teil A: Vorhersage für den geplanten Zeitpunkt mit Offline-Speicher
+ * (Schlüssel: Standort + Stunde). Offline bzw. ohne Live-Daten: letzter Stand
+ * (< 24 h) mit `offline` („Offline-Vorhersage von HH:MM“).
+ */
 export async function fetchWeatherForecastWithSource(
+  latitude: number,
+  longitude: number,
+  targetTime: string
+): Promise<ForecastResult> {
+  let liveResult: ForecastResult | null = null;
+  try {
+    const r = await fetchWithOfflineCache(
+      "forecast",
+      `${offlineLocationKey(latitude, longitude)}_${hourKey(targetTime)}`,
+      async () => {
+        liveResult = await fetchWeatherForecastWithSourceLive(latitude, longitude, targetTime);
+        if (!liveResult.weather) throw new WeatherFetchError("Keine Vorhersage");
+        return liveResult;
+      },
+    );
+    return r.cached ? { ...r.data, offline: { fetchedAt: r.fetchedAt, cached: true } } : r.data;
+  } catch {
+    return liveResult ?? { weather: null, source: null, tooFarAhead: true };
+  }
+}
+
+async function fetchWeatherForecastWithSourceLive(
   latitude: number,
   longitude: number,
   targetTime: string

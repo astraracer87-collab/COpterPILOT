@@ -17,7 +17,9 @@ import {
   GEOZONE_SOURCE_META,
   getGeozoneSourceMeta,
   isSourceDataStale,
+  isTemporaryDataStale,
   resolveGeozoneSourceIso,
+  temporarySourceOf,
   type GeozoneSourceKind,
   type GeozoneSourceMeta,
 } from "../../../shared/geozoneSourceMeta";
@@ -51,7 +53,7 @@ import {
   type GeoFeature,
 } from "../geozoneDirect/ed269Sources";
 import { getEd269DatasetStatus } from "../geozoneDirect/ed269Store";
-import { getTilePartMeta } from "../geozoneTiles/tileStore";
+import { getDeTempStatus, getTilePartMeta } from "../geozoneTiles/tileStore";
 import { TILE_STORE_ATTRIBUTION } from "../geozoneTiles/tileStoreCore";
 import { WMS_GEOZONE_CONFIGS, type CountryGeozoneConfig, type CountryIsoWithGeozones } from "./wmsConfigs";
 
@@ -215,6 +217,14 @@ export interface SourceDataStatus {
   kind: GeozoneSourceKind | null;
   /** Bestand stammt aus einem Datei-Import */
   imported?: boolean;
+  /**
+   * Teil A: Stand der temporären Zonen (ED-269: = Bestand; DE: eigener Abruf
+   * der temporären Betriebseinschränkungen). Nur bei Quellen mit temporären
+   * Zonen und vorhandenem Bestand; null = nie geladen.
+   */
+  temporaryFetchedAt?: number | null;
+  /** Temporäre Zonen älter als temporaryStaleAfterMs (24 h) bzw. nie geladen */
+  temporaryStale?: boolean;
 }
 
 /**
@@ -238,11 +248,18 @@ export function getSourceDataStatus(iso: string | null | undefined, now: number 
     if (st.imported) imported = true;
   }
   const ageMs = fetchedAt != null ? Math.max(0, now - fetchedAt) : null;
+  const tempSource = temporarySourceOf(meta.iso);
+  let temporary: Pick<SourceDataStatus, "temporaryFetchedAt" | "temporaryStale"> = {};
+  if (fetchedAt != null && tempSource !== "none" && !imported) {
+    const tAt = tempSource === "separate" ? getDeTempStatus().fetchedAt : fetchedAt;
+    temporary = { temporaryFetchedAt: tAt, temporaryStale: isTemporaryDataStale(meta.iso, tAt, now) };
+  }
   return {
     fetchedAt,
     ageMs,
     stale: fetchedAt != null && isSourceDataStale(meta.iso, fetchedAt, now),
     kind: meta.kind,
     ...(imported ? { imported } : {}),
+    ...temporary,
   };
 }

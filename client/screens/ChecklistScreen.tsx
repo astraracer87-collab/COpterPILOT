@@ -141,7 +141,7 @@ export default function ChecklistScreen() {
     tip: "",
   });
 
-  const { latitude, longitude, hasRestrictions, restrictionStatus, restrictionNotes, restrictionVerdict, weatherData, droneId, limits, sessionId, isFpvFlight, fpvMode, kpIndex } = route.params;
+  const { latitude, longitude, hasRestrictions, restrictionStatus, restrictionNotes, restrictionVerdict, weatherData, droneId, limits, sessionId, isFpvFlight, fpvMode, kpIndex, kpOfflineFetchedAt } = route.params;
   const effectiveFpvMode: "spotter" | "verband30m" = fpvMode ?? "spotter";
 
   useEffect(() => {
@@ -258,6 +258,7 @@ export default function ChecklistScreen() {
       isFpvFlight,
       fpvMode: isFpvFlight ? effectiveFpvMode : undefined,
       kpIndex,
+      kpOfflineFetchedAt,
     });
   };
 

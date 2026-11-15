@@ -430,3 +430,163 @@ alle Länderlisten werden daraus abgeleitet.
   subscription.ts (auth, FeatureGate, Paywall, Map, PlanningLocation …).
 - Nicht Teil dieses Schritts (aus der B7-Zeile oben): Ausnahme-Schlüssel per
   featureId (S1) und `NO_FLY_TEXT_RE` (I10).
+
+## Stand A (2026-11-15)
+
+### Geozonen zweigleisig (stale-while-revalidate)
+
+- **Policy** (shared/geozoneSourceMeta.ts): `GeozoneRefreshPolicy` trennt
+  dauerhafte und temporäre Zonen – `maxAgeMs` (online neu laden: ED-269 jetzt
+  **6 h** statt 24 h, Kachelspeicher 28 Tage), `staleWarnAfterMs` (dauerhafte
+  Zonen: **28 Tage** = AIRAC, ED-269 bisher 24 h), `temporaryMaxAgeMs`
+  (**10 min**) und `temporaryStaleAfterMs` (**24 h**). Neu je Quelle:
+  `temporary` ("dataset" = im ED-269-Bestand, "separate" = DE eigener Abruf,
+  "none" = FR/CZ/HU/RO; Standard aus `kind`, `temporarySourceOf`) und
+  `largeDataset` (NL-Feed ≈ 23 MB; Kachelspeicher immer groß,
+  `isLargeGeozoneDataset`); `isTemporaryDataStale`, `TEMPORARY_ZONES_STALE_NOTE`.
+- **Regel „temporär“** (shared/geozoneTemporary.ts, `isTemporaryGeozoneProps`
+  für Roh-Features, `isTemporaryGeozone` für GeozoneFeatureInfo): temporär ist
+  eine Zone, wenn (1) die Quelle sie NOTAM-artig markiert (`isNotam` EE/NO/SE,
+  `_notamEligible`, Registry-Flags `notamFromLiveFlag` BE / `notamFromApplicability`
+  AT über `ed269IsNotamEligible`), (2) sie aus einer Temporär-Ebene stammt
+  (dipul `temporaere_betriebseinschraenkungen` = „Temporäre Beschränkungen“,
+  LU-TSA) oder (3) ihr Gültigkeitsfenster (Start UND Ende) kürzer als 30 Tage
+  ist (gleiche Grenze wie die NOTAM-Liste). HR-Reservierungen, IS-Sperrungen,
+  LV/ES-NOTAM-Ebenen fallen über ihr Gültigkeitsfenster/`isNotam` darunter.
+  Alles andere (kein Fenster, „permanent“, Frequentis-Platzhalter 2100,
+  NL-AIRAC-Gültigkeit) ist dauerhaft.
+- **Abdeckung** (`storedCoverageStatus`, client/lib/geozoneCoverage.ts):
+  dauerhafte Zonen > 28 Tage → "stale" (CAUTION wie bisher); sonst temporäre
+  Zonen > 24 h bzw. nie geladen → **"partial" „Temporäre Beschränkungen nicht
+  aktuell (Stand …)“** → Befund unbekannt (≥ CAUTION, Abdeckungslücke mit
+  manueller Klärung in der Planung). ED-269: Stand der temporären Zonen = Stand
+  des Bestands (nicht bei Datei-Import); DE-Kachelpaket: Stand des eigenen
+  Abrufs der temporären Betriebseinschränkungen (`getDeTempStatus`,
+  temp.json; nur wenn die Ebene abgefragt wurde). `getSourceDataStatus` liefert
+  zusätzlich `temporaryFetchedAt`/`temporaryStale`.
+- **Hintergrund-Aktualisierung** (client/lib/geozoneSources/revalidate.ts,
+  RN-frei, Umgebung austauschbar): `revalidateGeozoneSources(isos, purpose)`
+  mit `purpose` "check" (Planung/Pre-Check), "map" (Radar/Karte), "manual"
+  („Jetzt aktualisieren“):
+  - ED-269-Land: neu laden, wenn älter als 6 h (Karte) bzw. 10 min (Prüfung,
+    weil die temporären Zonen im Bestand stecken; nicht beim großen NL-Feed);
+    ohne Bestand sofort laden; Fehlschlag 2 min gedrosselt; offline nie.
+  - Großer Bestand: vorhandenen nur im WLAN bzw. mit Erlaubnis erneuern, sonst
+    „Neue Fassung verfügbar – wird im WLAN geladen“ (`getPendingWifiUpdates`).
+  - Kachelpaket: erst günstige Versionsprüfung `tileStoreVersionCheck`
+    (Alter > 28 Tage; **DE/FR: Paket vor Beginn des aktuellen AIRAC-Zyklus**
+    – `airacCycleStart`, Bezug AIRAC 2401 = 25.01.2024; dipul-WFS kennt weder
+    ETag noch Last-Modified; **FR zusätzlich Trefferzahl** des WFS
+    (resultType=hits) gegen die beim Download gespeicherte `source.matched`;
+    **CZ: Veröffentlichungsordner** der ŘLP-Indexseite wie bisher), höchstens
+    alle 30 min; Download nur im WLAN bzw. mit Erlaubnis. DE: temporäre
+    Betriebseinschränkungen bei Prüfungen online frisch (≤ 10 min).
+  - `refreshDueTileStores` (App-Start) beachtet die neue Erlaubnis ebenfalls.
+- **Einstellung** „Große Pakete auch über mobile Daten laden“
+  (RcOfflineMapsScreen, Abschnitt „Geozonen aktualisieren“;
+  geozoneSources/largePackSetting.ts, AsyncStorage). Verbindungsart über
+  das vorhandene @react-native-community/netinfo (`type` wifi/ethernet) –
+  expo-network war nicht nötig.
+- **Auslöser**: `useGeozoneRevalidation` (Hook) beim Öffnen und bei jedem
+  Länderwechsel (Länder im Umkreis inkl. Nachbarn, `getCountriesInRadius`, auf
+  ~1 km gerundet) in Planung/Einschränkungen und Pre-Check ("check") sowie im
+  Radar (GPS, "map"). Kartenansichten nutzen weiter das SWR des Gerätecaches
+  (jetzt 6 h).
+- **Land ohne Speicher**: DE ohne Kachelpaket fragt online den dipul-WFS und
+  speichert das Ergebnis je Standort (0,05°, offlineResultCache
+  "geozones-live"); offline gilt dieser Stand mit Alter (28 Tage/24 h wie
+  oben), ohne Stand → Abdeckungslücke statt „keine Zonen“. ED-269-Länder laden
+  wie bisher den Datensatz.
+- **Urteil kippt nie still**: Ereignis `onGeozoneDataChanged` (aus
+  `onEd269Downloaded`, `onTileStoreChange`, neu `onDeTempChange` bei
+  inhaltlich geänderten temporären DE-Zonen). Planung (PlanningRestrictions)
+  und Pre-Check (PreCheckOverview) laden bei einem relevanten Ereignis neu
+  (`dataVersion`) und vergleichen das Urteil (shared/checks/verdictChange.ts,
+  `verdictWatchReducer`: Vergleich nur mit einem Ergebnis, das auf den neuen
+  Daten beruht). Bei Änderung – **in jede Richtung, auch zu GO** – roter
+  Hinweis „Neue Geozonen-Daten – Prüfergebnis hat sich geändert (vorher …,
+  jetzt …). Bitte Ergebnis erneut prüfen.“ (GeozoneDataChangedBanner).
+
+### Wetter, METAR/TAF, NOTAM, Kp offline (Product Owner)
+
+- **Speicher** client/lib/offlineResultCache.ts: letzter erfolgreicher Abruf je
+  Standort (`offlineLocationKey`, 0,05°) mit `fetchedAt`, AsyncStorage,
+  größenbegrenzt und LRU je Art (z. B. Wetter 20 Einträge/600 kB, NOTAMs 20/800 kB,
+  Kp 1). `fetchWithOfflineCache`: online abrufen + speichern; offline bzw. bei
+  Fehler gespeicherter Stand < 24 h mit `offline: { fetchedAt, cached: true }`.
+- **Schwellen/Texte** shared/offlineDataPolicy.ts: < 24 h anzeigen;
+  Vorhersage „Offline-Vorhersage von HH:MM“; Wind/Böen ab 6 h deutlicher
+  Hinweis; METAR > 2 h nur grau (`greyOnly`, nicht bewertet); TAF bis
+  Gültigkeitsende (`tafValidUntil`); NOTAMs nur noch gültige
+  (`stillValidNotams`); Kp mit Alter; ≥ 24 h ausgeblendet mit „Gerät online
+  bringen, um … zu prüfen“; `formatSourceStand` = einheitliche „Stand“-Zeile.
+- **Angebunden**: `fetchWeather` (Radar, Pre-Check-Wetter), 
+  `fetchWeatherForecastWithSource` (Planung, Schlüssel Standort + Stunde),
+  `fetchHourlyForecasts` (Standort + Fenster), `fetchKpIndex`/`fetchKpTimeline`
+  (global), `fetchNotams` (ersetzt den alten 24-h-dataCache-Rückfall; Offline-
+  Paket nur noch, wenn < 24 h, und nur gültige NOTAMs; auch bei HTTP-Fehler),
+  `fetchAirportWeather` (METAR/TAF je ICAO), `fetchNearestAirportMetar`,
+  DIPUL-Temporärbeschränkungen (vorhandener dataCache, jetzt mit Stand und nur
+  noch gültige).
+- **Prüfkette**: `weatherChecks` (flightChecks.ts) liest `weather.offline`,
+  `kpOfflineFetchedAt` und `airportMetar.offline/greyOnly`; neue Builder
+  `offlineDataCheck`/`offlineExpiredCheck` (shared/checks/builders.ts),
+  `notamChecks({ offlineFetchedAt })`. Offline-Daten → je Quelle CAUTION
+  „<Quelle> – Offline-Daten (Stand HH:MM) – vor dem Start online neu prüfen“
+  (Urteil nie GO); Wetter ab 6 h zusätzlich „Wind-/Böendaten älter als 6 h …“
+  (rot, Bestätigung); zu alt/fehlend = unbekannt (Wetter: „Gerät online
+  bringen, um das Wetter zu prüfen“; Kp-Wert ≥ 24 h wird nicht verwendet).
+  **Auslegung „höchstens CAUTION“**: Offline-Daten machen das Urteil nie
+  besser als CAUTION; Befunde, die die Offline-Daten selbst auslösen (z. B.
+  Wind über Limit, Gewitter in einer < 2 h alten METAR), bleiben so streng wie
+  online (ein NO-GO wird nicht abgeschwächt). Planung: `WeatherSnapshot.offline`
+  geht über die Session in PlanningResult; Pre-Check: `WeatherData.offline` und
+  neuer Route-Param `kpOfflineFetchedAt` (Weather → FpvSelect/Checklist → Results).
+
+### UI
+
+- Komponente `DataStandLines` („Stand“-Zeilen je Quelle + „Jetzt
+  aktualisieren“): Planung Details (Wetter/Kp/NOTAMs, Aktualisieren bei
+  Offline-Daten), PlanningResult (Vorhersage), Pre-Check-Übersicht
+  (NOTAMs/Stundenwerte + Geozonen „Jetzt aktualisieren“), Pre-Check-Wetter
+  (Wetter/Kp; offline ohne Stand: „Gerät online bringen, um das Wetter zu
+  prüfen …“), Planung Einschränkungen (Geozonen „Jetzt aktualisieren“,
+  wartende WLAN-Updates). Radar-Seitenpanel: Stand-Zeilen für Wetter/Kp/NOTAMs,
+  im Geozonen-Panel „Jetzt aktualisieren“ und wartende WLAN-Updates. Die
+  B5-Zeile „Geozonen-Daten – …“ wird jetzt auch bei „partial“ orange.
+
+### Tests
+
+- client/lib/__tests__/geozoneRevalidate.test.ts: Schwellen dauerhaft/
+  temporär, Regel „temporär“, Neuladen je Zweck, Orchestrierung mit
+  gemocktem Netz/Zeit (offline, Drossel, NL/Kachelpaket nur im WLAN bzw. mit
+  Erlaubnis, Versionsprüfung), SWR mit echtem Gerätecache (Antwort sofort aus
+  dem Bestand, Hintergrund-Download ersetzt, Ereignis, Urteil GO → NO-GO wird
+  gemeldet, auch Wechsel zu GO), AIRAC-Stichtage, FR-Trefferzahl, Stand der
+  temporären DE-Zonen online/offline.
+- client/lib/__tests__/offlineData.test.ts: Schwellen (frisch, 6 h, 24 h,
+  METAR 2 h, TAF-Gültigkeit, NOTAM-Gültigkeit), Speicher (Offline/Fehler,
+  24-h-Grenze, LRU, Größenbegrenzung), Prüfkette (CAUTION, Wind-Hinweis mit
+  Bestätigung, unbekannt ab 24 h, NO-GO bleibt, Kp, METAR grau, NOTAMs,
+  evaluateFlight).
+- notamFetchStatus.test.tsx: Offline-Stand < 24 h nur gültige NOTAMs, ≥ 24 h
+  failed. geozoneSourceRegistry.test.ts an die neue Policy angepasst (gewollt).
+
+### Offen / fachlich zu bestätigen
+
+- Prüfungen laden ED-269-Bestände mit temporären Zonen nach 10 min neu – auch
+  mittelgroße Feeds (ES, PL, SE, DK …) über mobile Daten; nur NL ist als groß
+  markiert.
+- Temporär-Regel gilt für alle ED-269-Vektorquellen („dataset“), auch wenn
+  ein Feed nie temporäre Zonen enthält: nach 24 h ohne Netz → Abdeckung
+  „partial“ (bisher „stale“ ab 24 h, beides ≥ CAUTION).
+- FR: AIRAC-Stichtag als Versionssignal angenommen; die Trefferzahl-Prüfung
+  greift erst für nach diesem Stand geladene Pakete (`source.matched`).
+- Kartenansichten außerhalb des Radars (MapScreen, Planungskarten) haben
+  keinen eigenen Auslöser/Hinweis, nur das 6-h-SWR des Gerätecaches.
+  FlightCheck-RestrictionsScreen ist nicht angebunden.
+- Kp-Vorhersage (`fetchKpTimeline`) wird offline ohne eigenen Stand genutzt;
+  PlanningResult bewertet Kp weiterhin nicht (unverändert).
+- Stundenwerte/Vorhersage offline nur für bereits abgefragte Fenster bzw.
+  Stunden (Schlüssel Standort + Zeit); die Radar-/Pre-Check-Wettervorhersage
+  (24 h je Standort) ist davon unabhängig.
