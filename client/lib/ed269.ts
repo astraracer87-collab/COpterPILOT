@@ -6,6 +6,7 @@ import { FI_GEOZONE_SOURCE_LABEL } from "../../shared/finnishGeozones";
 import { NO_GEOZONE_SOURCE_LABEL } from "../../shared/norwegianGeozones";
 import { IE_GEOZONE_SOURCE_LABEL, LU_GEOZONE_SOURCE_LABEL } from "../../shared/irishLuxGeozones";
 import { SE_GEOZONE_SOURCE_LABEL } from "../../shared/swedishGeozones";
+import { PT_GEOZONE_SOURCE_LABEL } from "../../shared/portugueseGeozones";
 import type { GeozoneFeatureInfo } from "@/lib/geozones";
 import { DANISH_GEOZONE_SOURCE_LABEL } from "../../shared/danishGeozones";
 import { belgianAltitudeMeters } from "../../shared/belgianGeozones";
@@ -73,6 +74,7 @@ export const ED269_SOURCE_LABELS: Record<string, string> = {
   IE: IE_GEOZONE_SOURCE_LABEL,
   LU: LU_GEOZONE_SOURCE_LABEL,
   SE: SE_GEOZONE_SOURCE_LABEL,
+  PT: PT_GEOZONE_SOURCE_LABEL,
 };
 
 // Wandelt einen ED-269-Höhenwert in Meter um. Versteht Klartext-Marker (SFC/GND

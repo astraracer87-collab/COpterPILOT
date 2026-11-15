@@ -7,6 +7,13 @@ import {
   normalizeLuxembourgOgc,
 } from "../../../shared/irishLuxGeozones";
 import { ed269ZonesToFeatures } from "../../../shared/ed269Pure";
+import { PT_ED269_URL, normalizePortugueseZones } from "../../../shared/portugueseGeozones";
+
+export async function fetchPortugal(): Promise<GeoFeature[]> {
+  const features = normalizePortugueseZones(await directFetchJson(PT_ED269_URL)) as unknown as GeoFeature[];
+  if (features.length === 0) throw new Error("ANAC lieferte keine Zonen");
+  return finalizeDirectFeatures(features, "pt");
+}
 
 export const IE_ZONES_PAGE_URL = "https://www.iaa.ie/general-aviation/drones/uas-geographic-zones";
 export const IE_LAST_KNOWN_URL =

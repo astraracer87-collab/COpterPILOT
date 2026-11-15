@@ -112,7 +112,7 @@ export {
   COUNTRY_WMS_MAX_NATIVE_ZOOM,
 } from "@/lib/geozoneZoom";
 
-export type CountryIsoWithGeozones = "DE" | "CH" | "LU" | "NL" | "FR" | "AT" | "BE" | "DK" | "EE" | "FI" | "NO" | "SE" | "IE";
+export type CountryIsoWithGeozones = "DE" | "CH" | "LU" | "NL" | "FR" | "AT" | "BE" | "DK" | "EE" | "FI" | "NO" | "SE" | "IE" | "PT";
 
 export interface CountryGeozoneConfig {
   iso: CountryIsoWithGeozones;
@@ -262,6 +262,16 @@ export const COUNTRY_GEOZONE_CONFIGS: Record<string, CountryGeozoneConfig> = {
     // Schweden (LFV / Transportstyrelsen, CC BY 4.0): ED-318-UAS-Zonen plus
     // WFS-Lufträume (CTR/TIZ/ATZ, 5-km-/1-km-Zonen, R/D, AIP SUP, NOTAM).
     iso: "SE",
+    wmsBaseUrl: "",
+    wmsVersion: "1.3.0",
+    layers: [],
+    featureInfoType: "ed269-cached",
+    alwaysVisibleLayerIds: [],
+    forceEnabledLayerIds: [],
+  },
+  PT: {
+    // Portugal (ANAC – DNT): ED-269-Direktdownload, ohne Anmeldung.
+    iso: "PT",
     wmsBaseUrl: "",
     wmsVersion: "1.3.0",
     layers: [],
