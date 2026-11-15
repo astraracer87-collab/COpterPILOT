@@ -165,7 +165,54 @@ Aus `widgets/ConfigDrones/config.json` + `Widget.js` der Seite:
    `lower_m`/`upper_m`/`ref` (geparst), `text=itemE`, `raw=icaoFormatText`, `fir`, `qcode`.
 8. Hinweis in der App: NOTAM-Darstellung ohne Gewähr, verbindlich sind die NOTAMs/AIS von ENAIRE.
 
-## 7. Offene Punkte
+## 7. Weitere Fallen (Nachprüfung 15.11.2026, 18:05 MEZ)
+
+Geprüft am kompletten GeoJSON-Abzug (725 Features – drei NOTAMs waren seit der ersten Abfrage
+abgelaufen, der Bestand ändert sich also laufend).
+
+1. **`UPPER_VAL`/`LOWER_VAL` sind grob gerundet, nicht umgerechnet.** Beispiele:
+   `00100M AMSL` → 400 (richtig wären 328 ft), `00060M AMSL` → 200, `00060FT AGL` → 100,
+   `00120M AGL` → 400. Die Werte sind offenbar auf volle 100 ft gerundet wie die Q-Zeile.
+   `FL100` → 10000 (Flugfläche, also Druckhöhe, wird als Fuß behandelt), `UNL` → 99900.
+   **Für Drohnenhöhen ausschließlich `itemF`/`itemG` parsen.**
+2. **Gemischte Höhenbezüge.** Untergrenzen: SFC 541, GND 94, FT AMSL 65, FL 25.
+   Obergrenzen: M AGL 395, FT AMSL 205, FL 99, FT AGL 22, M AMSL 3, UNL 1.
+   Ein Parser muss also M und FT, AGL und AMSL, FL und UNL beherrschen.
+3. **Kreise sind grob aufgelöst und liegen *innerhalb* des echten Kreises.** Jeder Kreis-NOTAM hat genau
+   37 Stützpunkte (36 Segmente à 10°). Radien liegen zwischen 1,8 km und 27,6 km (Median 11 km).
+   Damit ragt der echte Kreis zwischen den Stützpunkten bis zu ~0,4 % des Radius über das
+   Polygon hinaus, das sind bis ~105 m. Für einen Punkt-in-Zone-Test einen Puffer
+   (z. B. 0,5 % des Radius oder pauschal 150 m) aufschlagen oder den Kreis aus `itemQ`/`itemE`
+   (`RADIUS OF …`) selbst neu erzeugen.
+4. **Zeitplan `itemD` ist freier ICAO-Text mit vielen Varianten.** Gesehen:
+   `0600-1400`, `MON-FRI 0600-1400`, `SR-SS` (145×, Sonnenauf- bis -untergang → Sonnenstand
+   je Ort berechnen), `SR-2100`, Tage des Monats (`03-05 12 17-19 24 2000-2359`), Monatsnamen
+   (`NOV 02 1900-2359, NOV 03-06 0000-0600 1900-2359 …`, über Monatsgrenzen OCT→NOV→DEC→JAN).
+   Nachtzeiten sind über Mitternacht in zwei Blöcke geteilt. Alle Zeiten sind **UTC**, nicht
+   spanische Ortszeit (MEZ/MESZ bzw. auf den Kanaren WEZ). Bei 98 NOTAMs ist `itemD` leer, dann gilt
+   die ganze Spanne B–C.
+5. **Die Website-Felder `itemBstr`/`itemCstr` sind ebenfalls UTC**, obwohl ohne Zeitzone
+   (stimmen bei allen 725 mit `itemB`/`itemC` überein). Nicht als Ortszeit anzeigen.
+6. **Identische Geometrien mehrfach.** 189 Features teilen ihre Geometrie mit mindestens einem anderen
+   NOTAM (gleiches Gebiet, mehrere Aktivierungszeiträume, z. B. `LED120` 5×). Nicht über die Geometrie
+   deduplizieren. In der Karte werden diese Flächen sonst übereinandergestapelt und wirken dunkler,
+   deshalb besser nur die gerade aktiven zeichnen.
+7. **Es gibt MultiPolygone.** 723 Features sind `Polygon`, aber 2 sind `MultiPolygon`
+   (zwei getrennte Teilflächen in einem NOTAM). Löcher kommen bei NOTAMs aktuell nicht vor.
+   Ringe sind geschlossen und gegen den Uhrzeigersinn orientiert (RFC 7946-konform). Es gibt auch Dreiecke
+   (24 Features mit nur 4 Punkten).
+8. **FIR ≠ Spanien.** 2 NOTAMs liegen in der FIR `GMMM` (Casablanca), betreffen aber Melilla
+   (`itemA = GEML`). Wer nach `fir` filtert (`LE*`/`GC*`), verliert sie. Außerdem `LEXX` (78) als
+   Sammel-FIR für mehrere spanische FIRs.
+9. **„Permanent“ ist ein Datum.** `itemC` = 01.10.2050 heißt faktisch „bis auf Weiteres“
+   (ein V-NOTAM für UAS-Betrieb, Quelle `UAS SUP095/26` – also aus einem AIP-Supplement).
+10. **Bestand ändert sich zwischen Seiten.** Bei Paging (falls der Bestand jemals > 3000 wird) kann sich
+    die Liste zwischen zwei Seiten ändern. Heute irrelevant, weil ein Request reicht. Sonst nach
+    `notamId` deduplizieren.
+11. **Texte:** `itemE` hat feste Zeilenumbrüche mit vielen Leerzeichen (Fernschreib-Layout) → Whitespace
+    normalisieren. `DESCRIPTION` ist HTML mit gemischten `<br>`/`<br />`.
+
+## 8. Offene Punkte
 
 - Wie oft ENAIRE den Layer tatsächlich aktualisiert, ist nicht dokumentiert. Indiz: abgelaufene NOTAMs
   waren minutengenau entfernt → vermutlich laufende Synchronisation aus ICARO. Durch Logging der
