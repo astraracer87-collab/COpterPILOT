@@ -198,3 +198,40 @@ da die Höhen/Typen **nicht** in ExtendedData, sondern im Freitext stehen.)
 
 Die Beschreibungstexte je Typ (EN/PL, Flugbedingungen, Kontakt) stehen im
 `zones/types`-Endpoint und können als Popup-Text genutzt werden.
+
+---
+
+## 9. Ergänzungen (DE-Session, 2026-11-15)
+
+### 9.1 Offizieller manueller KML-Export (lizenzsauberer Zweitweg)
+Die Karte selbst hat einen **Download-Button** (linke Leiste → Dialog
+**„Download KML file"**) – kein API-Key nötig, klar als offizieller Export
+gedacht:
+- Schalter **3D** → Export mit Höhenausdehnung statt nur 2D-Flächen.
+- **ALL ZONES** → alle Zonen; **Choose zones** → Filter nach „up to height of
+  the base of the zone (m)" (Standard 120 m) und nach Zonentyp.
+
+→ Für die **statische Geometrie-Schicht** ist dieser Export der sauberste Weg
+(entspricht inhaltlich `kml/filtered` aus §2). Nachteil: manueller Klick, kein
+automatischer Feed → für regelmäßige Aktualisierung die PANSA-Freigabe nutzen.
+
+### 9.2 Verschachtelte Zonen (RPA-Unterzonen)
+Zonen können **ineinander** liegen: unter einer `CTR`/`MCTR` hängt oft eine
+**RPA-Unterzone** (z. B. „CTR EPRA" → „↳ RA RPA51"), die die **ortsgenauen
+Flugregeln** trägt (Varianten `DRA-RL`/`DRA-RM`/`DRA-RH`). → Im Datenmodell ein
+`parent_zone_id` vorsehen und bei der Punktabfrage Unter- **und** Oberzone
+anzeigen (die strengste Regel gilt).
+
+### 9.3 Dynamische Endpunkte (nur mit PANSA-Freigabe automatisiert nutzen)
+Zur statischen Geometrie (§2) kommen zeitabhängige Daten:
+- `GET /v1/activ/activations` – Aktivierungen zeitlich begrenzter Zonen
+- `GET /v1/activ/timeslices` – Zeitfenster dazu
+- `GET /v1/activ/aups` – AUP (militärische Lufträume; vgl. `airspace.pansa.pl` §4)
+- `GET /v1/notams` – NOTAMs für FIR EPWW
+- `GET /v1/operations` – gemeldete Drohnenflüge (Check-ins/Symbole)
+
+→ **Statische Schicht** aus dem KML; **dynamische Schicht** (Aktivierungen/
+NOTAM/AUP) erst nach schriftlicher PANSA-Freigabe automatisiert beziehen, bis
+dahin Hinweis + Link auf DroneMap. (Die interne API ist nicht dokumentiert und
+gilt laut DroneTrake/unmannedairspace ausdrücklich **nicht** als veröffentlichte
+Daten – darum Freigabe einholen, wie bei GR/SK.)
