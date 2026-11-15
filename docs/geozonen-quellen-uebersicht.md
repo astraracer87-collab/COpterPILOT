@@ -36,13 +36,18 @@ Pro Land gibt es ein eigenes Detaildokument (`docs/<land>-…-integration.md`).
 | **HU** | MyDroneSpace / HungaroControl | Login (GoodID/Google) | GeoJSON (`/api/zones`) + WMTS-Raster | 🔑 Zonen brauchen Login; WMTS öffentlich | `hungary-mydronespace-api-integration.md` |
 | **CZ** | ANS CR / ŘLP | keine | ED-318 Download (offiziell) | ✅ einsatzbereit (aim.rlp.cz, ED-318) | `czech-ans-api-integration.md` |
 | **SK** | LPS SR | keine | ArcGIS MapServer-Query (GeoJSON) | ✅ einsatzbereit (178 Zonen, AIXM-Schema) | `slovakia-lps-api-integration.md` |
-| **LV** | LGS / AIS Latvia | keine (Referer) | ArcGIS (Referer-Proxy) | 📥 abrufbar (DE-IP, mit Referer) | `latvia-lgs-api-integration.md` |
+| **LV** | LGS / airspace.lv | keine (Referer) | ArcGIS GeoJSON + SOE-Aktivfilter | ✅ einsatzbereit (DE-IP verifiziert: 816 Zonen) | `latvia-lgs-api-integration.md` |
+| **DK** | Trafikstyrelsen / dronezoner.eu | keine | ArcGIS FeatureServer (GeoJSON) | ✅ einsatzbereit (Rot/Orange/Blau/Grün + NOTAM) | `denmark-dronezoner-api-integration.md` |
+| **CH** | BAZL / swisstopo | keine | ED-269 + GeoJSON (STAC-Download) | ✅ einsatzbereit (1.288 Zonen, tägl.) | `switzerland-bazl-api-integration.md` |
+| **LI** | BAZL (über CH) | keine | — (im CH-Datensatz enthalten) | ✅ via CH-Quelle (kein eigener Abruf) | `switzerland-bazl-api-integration.md` |
+| **NO** | dronesoner.no / AIP Norway | keine | statische GeoJSON-Dateien | ✅ einsatzbereit (Rot/Orange/Blau, NOTAM) | `norway-dronesoner-api-integration.md` |
 | **GR** | HASP/HCAA (DAGR) | keine (Freigabe) | WMS-KML + GetFeatureInfo | 📥 extrahierbar (Skript, CC BY-NC-ND) | `greece-romania-geozones-notes.md` |
 | **RO** | ROMATSA | keine | GeoServer WFS + JSON | ✅ live abgerufen (DE-IP): 1.272 + 226 Zonen | `greece-romania-geozones-notes.md` |
 
-**Zusammenfassung (25 Länder):** 20× ✅ einsatzbereit · 3× 📥 beschaffbar
-(Skript/Export: MT, LV, GR) · 2× 🔑 Zugang offen (IT Login-Fetch, HU raster-only
-→ Login/Export). RO/PL/ES live abgerufen, EE/FR/GB offizielle Quellen.
+**Zusammenfassung (30 Länder):** 26× ✅ einsatzbereit · 2× 📥 beschaffbar
+(Export/Skript: MT, GR) · 2× 🔑 Zugang offen (IT Login-Fetch, HU raster-only
+→ Login/Export). Neu verifiziert (DE-Session): EE, FR, DK, CH (+LI), NO, LV;
+RO/PL/ES live abgerufen; GB offizieller AIXM-Datensatz.
 
 ---
 

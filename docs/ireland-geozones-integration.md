@@ -17,8 +17,16 @@ Vergleich: `docs/godrone-api-integration.md` (NL),
 - Die Datei ist ein sauberes ED-269-GeoJSON: 82 Zonen (`MultiPolygon`) mit
   `identifier`, `country:"IRL"`, `type`, `restrictionConditions`, `reason`,
   `zoneAuthority[]` usw., plus `datasetMetadata` auf oberster Ebene.
-- **Wichtige Einschränkung:** Die Datei enthält **keine Höhengrenzen**
-  (kein `lowerLimit`/`upperLimit`). Jede Zone gilt ohne vertikale Angabe.
+- ⚠️ **Korrektur (DE-Session verifiziert): Höhen SIND vorhanden** – nicht in
+  `properties`, sondern im **`geometry.layer`-Objekt** (`upper`/`upperReference`/
+  `lower`/`lowerReference`/`uom`), genau wie bei PT nativ. Standard-GeoJSON-Parser
+  (Leaflet/Mapbox/Turf/GeoPandas) **ignorieren** unbekannte Geometrie-Member →
+  beim Import selbst in die Properties kopieren. (Die frühere Aussage „keine
+  Höhen" war ein Parser-Artefakt.)
+- **Zweiter offizieller Weg:** ein öffentlicher **ArcGIS-FeatureServer** (die
+  Datenquelle der eingebetteten Karte) liefert dieselben Zonen live als GeoJSON,
+  mit Höhen als **flache** Properties (kein `layer`-Objekt) – gut für Bbox-/
+  Änderungsabfragen (siehe §7).
 - Nutzungshinweis der IAA: „reference only, not for navigation“. Vor jedem
   Flug zusätzlich NOTAMs/TRAs prüfen. Das gehört in den App-Hinweistext.
 
@@ -78,8 +86,21 @@ Feature-`properties`:
 | `zoneAuthority[]` | `{purpose, name:"AirNav Ireland", service:"Cork ATC", email:"suaairspace@airnav.ie", …}` | Freigabestelle |
 | `limitedApplicability[]` | `[{startDateTime, endDateTime}, …]` | zeitlich begrenzte Aktivität |
 
-Geometrie: `MultiPolygon`; das `geometry`-Objekt trägt zusätzlich ein Feld
-`layer`. **Keine Höhenfelder** irgendwo in der Datei.
+Geometrie: `MultiPolygon` (alle 82, Kreise bereits polygonisiert). Das
+`geometry`-Objekt trägt zusätzlich ein **`layer`-Objekt mit den Höhen**:
+```json
+"geometry": {
+  "type": "MultiPolygon", "coordinates": [[[[-8.4938,52.0910], …]]],
+  "layer": { "upper":5000, "upperReference":"AMSL", "lower":0, "lowerReference":"AGL", "uom":"ft" }
+}
+```
+→ `uom` ist `ft` (×0,3048 → m), Referenzen gemischt `AGL`/`AMSL` → mitführen.
+
+> **`CONDITIONAL`-Zonen sind Ausnahmezonen** (Modellflugplätze), die *innerhalb*
+> anderer Zonen liegen und deren Beschränkung für Modellflug aufheben → in der
+> Darstellung **über** der umgebenden Zone zeichnen, in der Logik als Ausnahme
+> behandeln. `limitedApplicability` fehlt bei permanenten Zonen **ganz** (Feld
+> nicht vorhanden, nicht `null`).
 
 ---
 
@@ -103,9 +124,10 @@ Geometrie: `MultiPolygon`; das `geometry`-Objekt trägt zusätzlich ein Feld
    - `restrictionConditions` und `limitedApplicability[]` übernehmen
      (letzteres ist das ED-269-Gültigkeitsfenster → `ed269ValidityFromProps`
      ggf. um `limitedApplicability` erweitern; AT nutzt `applicability`).
-   - **Keine Höhen** → `isZoneReachable` (120-m-Filter) greift mangels
-     Ceiling nicht; alle IE-Zonen als „reicht bis Boden/unbegrenzt“ behandeln,
-     also immer anzeigen.
+   - **Höhen aus `geometry.layer`** (nicht `properties`!) auslesen und in die
+     Zone übernehmen: `upper`/`lower` × (`uom==="ft"`?0.3048:1) → Meter,
+     `upperReference`/`lowerReference` (AGL/AMSL) mitführen. Damit greift der
+     120-m-Filter korrekt (anders als früher angenommen).
 3. `"ie"` zu `ED269_DIRECT_COUNTRIES` hinzufügen und in
    `fetchEd269CountryFeatures` verdrahten.
 4. **Normalisierung** prüfen: In `normalizeEd269Restriction` sicherstellen,
@@ -125,10 +147,39 @@ Geometrie: `MultiPolygon`; das `geometry`-Objekt trägt zusätzlich ein Feld
 ## 5. Offene Punkte
 - **Lizenz/Nutzungsbedingungen** der IAA-GeoJSON formal bestätigen (die Seite
   sagt „reference only“; die genaue Weiterverwendungslizenz ist zu klären).
-- **Fehlende Höhen**: Mit der IAA bzw. UAM-010 klären, ob ein ergänzender
-  Höhendatensatz existiert oder ob `geometry.layer` ein Höhenband kodiert.
+  Hinweis: Die frühere Freigabe bezog sich evtl. auf den alten Weg – kurz
+  bestätigen lassen, dass sie auch für die Art.-15-Datei bzw. den FeatureServer
+  gilt.
+- ~~Fehlende Höhen~~ **erledigt:** Höhen liegen in `geometry.layer` (§3).
 - `restrictionConditions`-Format (`PERMITTED/MODEL AIRCRAFT=YES`) ggf. parsen,
   um Modellflug-Ausnahmen korrekt anzuzeigen.
+- **Umweltauflagen** (National Parks & Wildlife Service, separate ArcGIS-Karte
+  `dahg.maps.arcgis.com/…id=8f7060450de3485fa1c1085536d477ba`) sind **nicht**
+  Teil der Geozonen – nur mit eigener Freigabe/Lizenz einbinden.
+
+---
+
+## 7. Weg B: ArcGIS-FeatureServer (Live-API, Alternative/Ergänzung)
+
+Die eingebettete IAA-Karte ist eine ArcGIS-Instant-App. Öffentlicher
+Feature-Layer, **kein Token, CORS erlaubt**, `maxRecordCount` 2000
+(82 Features → ein Request):
+```
+https://services6.arcgis.com/BkChpeOzfjSW2tpl/arcgis/rest/services/Geozones_Ireland/FeatureServer/0
+```
+- **Alle Zonen (GeoJSON, WGS84):**
+  `…/0/query?where=1%3D1&outFields=*&outSR=4326&f=geojson`
+- **Bbox:** `…/0/query?geometry=-9.0,51.8,-8.0,52.2&geometryType=esriGeometryEnvelope&inSR=4326&spatialRel=esriSpatialRelIntersects&outFields=identifier,name,type,reason,message,upper,upperReference,lower,lowerReference,uom&outSR=4326&f=geojson`
+- **Änderungsstand:** `…/0?f=json` → `editingInfo.lastEditDate`.
+
+Unterschiede zur Datei: Höhen als **flache** Properties (`upper`/`upperReference`
+/…, kein `layer`-Objekt); Behörde „hineingejoint" (`name_1`/`service`/`email`/…
+statt Array); Geometrie als `Polygon`; interne Felder (`OBJECTID`/`GlobalID`/…)
+ignorieren. **Zeitfenster (`limitedApplicability`) fehlen hier** → für temporäre
+Zonen die GeoJSON-Datei (§2) nehmen.
+
+→ Empfehlung: **Datei = Primärquelle** (enthält `limitedApplicability`),
+FeatureServer optional für `lastEditDate`-Änderungserkennung/Bbox.
 
 ---
 

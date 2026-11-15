@@ -14,10 +14,29 @@ Vergleich: übrige Länder-Dokumente in `docs/`.
 - Die Zonen liegen als **GeoServer-Vektorlayer** vor und sind per **WFS als
   GeoJSON** abrufbar – **ohne Authentifizierung**.
 - **Layer (live geprüft):** `samgongustofa:dronemap_isl_geom`
-  (Samgöngustofa = isländische Verkehrsbehörde) → **271 Zonen**, `MultiPolygon`,
+  (Samgöngustofa = isländische Verkehrsbehörde), `MultiPolygon`,
   ED-269-nahe Felder (`country: "ISL"`). Dazu
   `samgongustofa:skyndilokanir_dronar` (temporäre Sperrungen, aktuell 0).
 - Einschränkung: Der Layer trägt **nur Basis-Metadaten, keine Höhengrenzen**.
+
+> ⚠️ **Korrektur/Abgleich (DE-Session verifiziert):** Der aktuell von der Webseite
+> (`kort.gis.is/mapview/?app=dronar`) genutzte Endpoint ist
+> **`https://gis.natt.is/geoserver/samgongustofa/ows`** mit Layer
+> **`samgongustofa:dronemap_ice_geom`** (Schreibweise `_ice_`, **nicht** `_isl_`) →
+> **171 dauerhafte Zonen** (`UGZ-1`…`UGZ-171`). Je nach Abruf/Stand variiert die
+> Zahl (hier 171, früher 271 – Layer-Name und Host gegenprüfen!). **`gis.natt.is`
+> ist der GeoServer von Náttúrufræðistofnun** (natt.is), `gis.is` ist ein Alias.
+> → Beim Bau **beide Layer-Namen tolerant behandeln** und `?f=json`
+> `GetCapabilities`/`DescribeFeatureType` zur Laufzeit prüfen.
+>
+> **Widerspruch Restriction↔Message:** alle Zonen `restriction =
+> REQ_AUTHORISATION`, aber `message = "No drone flights allowed in this area."`
+> → in der App als **Sperrgebiet, Ausnahme nur mit Genehmigung** anzeigen.
+> **Keine Höhen** → als „SFC–UNL" (Boden bis unbegrenzt) behandeln.
+> Temporärer Layer `skyndilokanir_dronar`: Felder `zoneType`, `effectiveDate`,
+> `expirationDate`, `contact` → nur im aktiven Zeitfenster zeigen, häufiger laden.
+> Stil (GeoServer-Legende): Füllung `#000070` @0,3, Rand `#000070` 0,5.
+> Rechtsgrundlage: Reglugerð nr. 1360/2024.
 
 ---
 

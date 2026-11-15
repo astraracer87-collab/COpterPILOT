@@ -1,7 +1,7 @@
 # Datenquellen-Dokumentation – Index
 
 Zentraler Einstieg zu allen analysierten Datenquellen für COpterPILOT:
-Drohnen-Geozonen (25 Länder) und Live-Luftverkehr. Stand: 2026-11-15.
+Drohnen-Geozonen (30 Länder) und Live-Luftverkehr. Stand: 2026-11-15.
 
 Methode: Analyse der offiziellen Portale/Apps (Netzwerk-Capture, öffentliche
 Bundles/Specs), Abrufe über die **öffentlichen** Endpunkte. Kein Bot-/WAF-Schutz
@@ -54,7 +54,11 @@ umgangen, keine privaten Logins missbraucht. Teile der Abrufe liefen aus einer
 | 🇭🇺 HU Ungarn | 🔑 Vektor nur per Login (öffentl. Weg raster-only, verifiziert) | [hungary-mydronespace-api-integration.md](hungary-mydronespace-api-integration.md) |
 | 🇲🇹 MT Malta | 🔎 DDP-Filter-Parameter | [idronect-mt-api-integration.md](idronect-mt-api-integration.md) |
 | 🇨🇿 CZ Tschechien | 🔎 getGJ.php-Params | [czech-ans-api-integration.md](czech-ans-api-integration.md) |
-| 🇱🇻 LV Lettland | 🔎 Endpoint/ED-269 | [latvia-lgs-api-integration.md](latvia-lgs-api-integration.md) |
+| 🇱🇻 LV Lettland | ✅ (ArcGIS + SOE-Aktivfilter) | [latvia-lgs-api-integration.md](latvia-lgs-api-integration.md) |
+| 🇩🇰 DK Dänemark | ✅ (ArcGIS, dronezoner.eu) | [denmark-dronezoner-api-integration.md](denmark-dronezoner-api-integration.md) |
+| 🇨🇭 CH Schweiz | ✅ (ED-269 STAC, 1.288) | [switzerland-bazl-api-integration.md](switzerland-bazl-api-integration.md) |
+| 🇱🇮 LI Liechtenstein | ✅ (über CH-Datensatz) | [switzerland-bazl-api-integration.md](switzerland-bazl-api-integration.md) |
+| 🇳🇴 NO Norwegen | ✅ (statische GeoJSON) | [norway-dronesoner-api-integration.md](norway-dronesoner-api-integration.md) |
 | 🇬🇷 GR Griechenland | ⚠️ nur WMS-Raster → ED-269 erfragen | [greece-romania-geozones-notes.md](greece-romania-geozones-notes.md) |
 
 ---
@@ -73,11 +77,14 @@ umgangen, keine privaten Logins missbraucht. Teile der Abrufe liefen aus einer
 
 Siehe „Gruppierung nach Technik" in
 [geozonen-quellen-uebersicht.md](geozonen-quellen-uebersicht.md):
-- **ED-269/ED-318-Loader** (vorhanden) → AT, LT, **EE**, IE, PT, BE, ES, IT, LU
-- **WFS-Loader** → BE, IS, BG, RO, **FR** (~90k → PMTiles), CZ(ED-318)
-- **ArcGIS-FeatureServer/MapServer-Loader** → CY, SI, SK, ES
+- **ED-269/ED-318-Loader** (vorhanden) → AT, LT, EE, IE, PT, BE, ES, IT, LU, **CH** (+LI)
+- **WFS-Loader** → BE, IS, BG, RO, FR (~90k → PMTiles), CZ(ED-318)
+- **ArcGIS-FeatureServer/MapServer-Loader** → CY, SI, SK, ES, **DK**, **LV** (+SOE-Aktivfilter, Referer)
+- **Statische GeoJSON-Dateien** → **NO** (dronesoner.no, pro Zonenart eine Datei)
 - **KML→GeoJSON** → PL; **AIXM 5.1** → GB (Bögen/Kreise densifizieren)
 - **Sonderfälle** → HR (SignalR), MT (Meteor-DDP), GR (WMS-KML-Skript)
+- Wiederkehrendes Muster: viele Quellen tragen **Höhen/Farben/Aktiv-Flags direkt
+  im Feature** (NL, CH, DK, PT, EE …) → internes Einheitsschema nutzen.
 - Helfer: WKT→GeoJSON (HR), Kreis→Polygon (PT, NL), Höhenumrechnung (FL/ft/m)
 
 ---

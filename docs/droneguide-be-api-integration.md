@@ -99,6 +99,37 @@ Kein neuer Bauauftrag nötig.
 
 ---
 
+## 5a. Alternativer Pfad `uaszone` + OAuth (DE-Session) – nützliche Extras
+
+Eine zweite Analyse fand den **Unifly-Pfad** der Web-App (Layer **`uaszone`**,
+nicht `geo_zone_fast`). Unsere Integration nutzt den **auth-freien**
+`geo_zone_fast`-WFS + skeyes-Live-API (§2/§3) – **das bleibt primär**. Aus dem
+Unifly-Pfad lohnen sich aber diese Ergänzungen:
+
+- **Aktiv/geplant-Flags:** Per `viewParams` (GeoServer-SQL-View) liefert der
+  Server `active_at_window_start` (`"1"`=jetzt aktiv) und `active_within_window`
+  (`"1"`=im Fenster geplant). So lassen sich Zonen als **aktiv / geplant /
+  inaktiv** darstellen (volle Farbe / schraffiert / blass). viewParams-Format:
+  `window_start:<ISO>;window_end:<ISO>;show_planned:true` – ⚠️ **Doppelpunkte in
+  den Zeitstempeln mit `\:` escapen** (`:`/`;` sind Trennzeichen).
+- **`name`/`description` sind JSON-Strings** mit Sprachschlüsseln
+  (`{"en":…,"de":…,"fr":…,"nl":…}`) → doppelt parsen, Fallback `de→en→fr→nl`.
+- **Detail-Endpunkte** (für Popup, mit Bearer-Token des Unifly-Pfads):
+  `GET /api/uaszones/{uuid}` (Kontakt `drones@skeyes.be`, `accessConditions`
+  mehrsprachig), `…/{uuid}/validity?start=&end=` (Aktivierungszeiträume),
+  `…/{uuid}/notams?start=&end=` (NOTAMs; `start`/`end` **Pflicht**, sonst 400).
+- **GeometryCollection** kommt vor (1 CTA = Polygon + MultiLineString) → Parser
+  muss das können; für Flächenprüfung nur die Polygon-Teile.
+- Auth (falls dieser Pfad doch gebraucht wird): OAuth2 `client_credentials`
+  (HTTP Basic `client_id:client_secret`) an
+  `/auth/realms/OperatorPortal/protocol/openid-connect/token` → Bearer (48 h).
+  **Eigene Credentials bei skeyes anfragen**, nicht die des Web-Clients nutzen.
+
+→ Da `geo_zone_fast` ohne Auth dieselben Zonen gibt, brauchen wir den
+OAuth-Pfad nur, falls die `active_*`-Flags/Detail-Endpunkte gewünscht sind.
+
+---
+
 ## 6. Schnelltest
 
 ```bash

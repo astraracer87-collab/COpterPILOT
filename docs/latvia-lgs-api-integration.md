@@ -67,3 +67,63 @@ Quellen vom Product Owner: `m.airspace.lv/mob/map`, `ais.lgs.lv/page/UAS_geozone
   (Für AMSL-Zonen `DronesZonesUASAMSL` nehmen.) **Status LV: abrufbar** (mit
   Referer); Fixtures von der DE-Session nachziehen. Alternativ ED-269/AIXM 5.1
   bei LGS/AIS (`ais.lgs.lv`).
+
+---
+
+## Anhang LV: vollständig verifiziert (DE-Session, 2026-11-15) → ✅ einsatzbereit
+
+Der **Desktop-Pfad** liefert dasselbe ohne Verschlüsselung, direkt als GeoJSON:
+```
+GET https://www.airspace.lv/Drones/proxy.ashx?https://LGS-AGS/pngzqkggemmzgqqj/rest/services/DRONES/DronesZonesUAS/MapServer/{LAYER}/query?where=1%3D1&outFields=*&outSR=4326&f=geojson
+Header: Referer: https://www.airspace.lv/Drones/app/2D/default/en-us
+```
+> Das Pfadsegment `pngzqkggemmzgqqj` ist LGS-konfigurationsabhängig → als Config
+> ablegen; bei 404 `…/Drones/2DAppConfig.json` prüfen. `maxRecordCount` 5000
+> (ein Request/Layer reicht). Formate: json/**geojson**/pbf.
+
+### Vier Layer = Kategorie (`DronesZonesUAS/MapServer`)
+| Layer | `RESTRICTIONNAME` | Bedeutung | Bestand (aktiv) |
+|---|---|---|---|
+| 0 | `PROHIBITED` | Flug verboten | 36 (17) |
+| 1 | `REQ_AUTHORISATION` | nur mit Genehmigung | 713 (676) |
+| 2 | `CONDITIONAL` | erlaubt unter Bedingungen | 61 (59) |
+| 3 | `NO_RESTRICTION` | nur Info | 6 (3) |
+
+(`DronesZonesUASAMSL` = AMSL-Darstellung; `FIR_drones` = FIR Riga/Landesgrenze.)
+
+### Aktive Zonen: SOE `getJSONZones` (empfohlen statt eigener Zeitlogik)
+```
+GET .../DronesZonesUAS/MapServer/exts/DronesRestSOE/getJSONZones?time=<ISO>&endTime=<ISO>&oids=true&f=json
+```
+→ `results[].oids` je Layer = die **jetzt (oder im Zeitfenster) aktiven**
+`OBJECTID`. **Vorgehen:** alle Zonen als GeoJSON cachen + regelmäßig
+`getJSONZones` abfragen; in der App nur Features mit `OBJECTID ∈ oids` zeigen.
+
+### Feldschema (ED-269-nah, 58 Felder – Auszug)
+- **ID/Kategorie:** `IDENTIFIER` (ED-269-Zonen-ID, **mehrfach** = je Zeitscheibe
+  eine Zeile), `ZONENAME` (EVR…=Restricted, EVD=Danger, EVCA=CTR), `COUNTRY`=`LVA`,
+  `RESTRICTIONNAME`, `REASONNAME` (mehrere mit `#`, z. B. `SENSITIVE#PRIVACY`),
+  `METADATADESC`/`CRC32` → **Änderungserkennung**.
+- **Höhen:** `LOWERLIMIT`/`UPPERLIMIT` (Meter, `UOMDIMENSIONS=M`),
+  `LOWERVERTICALREFNAME`/`UPPERVERTICALREFNAME` (`AGL`/`AMSL`). ⚠️ Viele
+  Flugverbote haben **AMSL-Untergrenze** (z. B. 300 m AMSL, Militär EVR5F) →
+  **nicht pauschal als Verbot** anzeigen, Höhen ausweisen / mit Geländemodell
+  prüfen (LV ist flach, meist <300 m).
+- **Zeit:** `TIMEPERIODSTARTDATE`/`ENDDATE` (ms UTC), `PERMANENT`=`NO` (immer),
+  `MON…SUNSTARTTIME/ENDTIME` (tägliche Fenster, nur ~20 Zonen; nur Uhrzeit zählt,
+  Datum 1988-12-30 Dummy; UTC/Ortszeit vor Produktiv prüfen).
+- **Bedingungen (Layer 2)** `RESTRICTIONCONDITIONS`: kodiert, `/`-getrennt, `OR`
+  für Alternativen (z. B. `PERMITTED/NOTIFICATION=YES`;
+  `…/OP_CATEGORY=OPEN/MAX_UA_MASS=2000/OR/…`). Klartext-Wörterbuch:
+  `https://www.airspace.lv/Drones/Content/restrictionConditionsDictionary-en.json`.
+- **Kontakt/Genehmigung:** `MESSAGEENG`/`MESSAGE`, `TOFLYNAME`/`TOFLYSERVICE`/
+  `TOFLYEMAIL`/`TOFLYPHONE`/`TOFLYSITEURL`, `TOFLYPURPOSE`
+  (INFORMATION/AUTHORISATION/NOTIFICATION), `TOFLYINTERVALBEFORE…` (ISO-Dauer,
+  z. B. `PT15M`).
+
+### Integration
+- `shared/latvianGeozones.ts`: Layer→`category`, Felder mappen (Referenz-Python
+  im Quellbericht), `active_now` aus `getJSONZones`-OIDs. Backend-Abruf (Referer
+  nicht in die App), alle 15 min; nur bei geänderter `METADATADESC`/`CRC`
+  neu schreiben. `LV: "LGS / airspace.lv"`.
+- **Status LV: einsatzbereit** (Desktop-GeoJSON + SOE-Aktivfilter verifiziert).
