@@ -10,19 +10,28 @@ Vergleich: übrige Länder-Dokumente in `docs/` (NL/AT/IT/LU/IE/PL/BE/PT/ES).
 
 ## 1. Kurzfassung
 
-- Malta nutzt **kein offenes Datenportal**, sondern die **login-geschützte
-  UTM-Plattform iDronect** (belgischer Anbieter Aviatize; Brand/Deployment
-  „malta"). Technik: **Meteor 3.5.2** mit **DDP (WebSocket)** als
-  Datentransport, Mapbox als Basiskarte.
-- **Kein öffentlicher ED-269-/GeoJSON-Download gefunden.** Die Karte unter
-  `/map` ist ohne Login nicht zugänglich (403); die Zonen werden über
-  DDP-Publikationen/-Methoden **hinter dem Login** geladen.
-- Auch extern ist **keine maschinenlesbare öffentliche Quelle** für Maltas
-  Zonen belegt (Transport Malta verweist nur auf die interaktive Karte).
-- **Folge:** Für die Integration braucht es entweder **Zugangsdaten/API-Zugang
-  von iDronect/Aviatize bzw. Transport Malta CAD** oder einen von ihnen
-  bereitgestellten **ED-269-Export**. Die vorhandene „Freigabe" sollte genau
-  das umfassen – bitte klären (siehe §5).
+- Malta nutzt die **UTM-Plattform iDronect** (belgischer Anbieter Aviatize;
+  Brand/Deployment „malta"). Technik: **Meteor 3.5.2** mit **DDP (WebSocket)**
+  als Datentransport, deck.gl + Mapbox-Basiskarte.
+- Laut Betreiber werden die **Geozonen auf der Karte ohne Login angezeigt**.
+  Das deckt sich mit der Technik: Der **DDP-WebSocket ist anonym erreichbar**
+  (verifiziert), und die Zonen werden client-seitig aus DDP-Daten gerendert –
+  **nicht** aus einer öffentlichen GeoJSON-Datei oder aus den Mapbox-Styles
+  (die sind nur Basiskarten).
+- **Kein öffentlicher ED-269-/GeoJSON-Download** – weder auf der Plattform noch
+  bei Transport Malta. Das Zonen-Schema ist iDronect-eigen (GeoJSON unter
+  `flightArea` + Felder), **nicht** ED-269.
+- **Ein konkreter Blocker bleibt:** Die Daten-Methode `Zones.getFilteredZones`
+  ist anonym aufrufbar, validiert ihren Filter aber **streng**. Mit leerem
+  Filter kommen 0 Zonen; `{managedZones:true}` braucht Login; jeder andere
+  geratene Schlüssel → „Internal server error". Die **exakten Filter-Parameter
+  für die öffentlichen Anzeige-Zonen** ließen sich aus dem Client-Bundle nicht
+  ableiten (siehe §5 für den einfachen nächsten Schritt).
+
+> Die Browser-UI (`/map`) ist aus dieser Cloud-Umgebung zusätzlich
+> bot-geschützt (403 für den Headless-Browser). Ich habe diesen Schutz
+> **bewusst nicht umgangen**. Der DDP-Datenkanal selbst ist aber offen und
+> wurde als legitimer Client genutzt.
 
 ---
 
@@ -36,18 +45,25 @@ Vergleich: übrige Länder-Dokumente in `docs/` (NL/AT/IT/LU/IE/PL/BE/PT/ES).
 | Betreiber | iDronect / Aviatize (BE); nationales UTM für Transport Malta |
 | Zahlung/Weiteres | Stripe (Live-Key im Client), Sentry, FullCalendar – für Geozonen irrelevant |
 
-Im Client-Bundle gefundene zonenbezogene DDP-/Logiknamen (Anhaltspunkte für den
-authentifizierten Zugriff):
-- **Methoden:** `Zones.getFilteredZones`, `Zones.saveMultipleZones`
-- **Publikations-/Abo-/Routennamen:** `operator-zones`, `non-editable-zones`,
-  `manage-zones`
-- **Zonenfelder:** `zoneName`, `zoneAbbr`, Zonentyp (`flight-zone-types.js`),
-  GeoJSON-Geometrie (das Bundle ist stark GeoJSON-basiert)
-- Flags: `EDITABLE_ZONES_ENABLED`, `NON_EDITABLE_ZONES_ENABLED`
-
-> Es ist **kein** ED-269-/UASZone-Export im Client enthalten (kein `ed-269`,
-> kein `UASZone`-Export-Pfad). Das Zonen-Schema ist iDronect-eigen (GeoJSON +
-> `zoneName`/`zoneAbbr`/Typ), **nicht** ED-269.
+### Verifizierter DDP-Zugriff (anonym)
+- **Endpoint:** `wss://tmcad.idronect.com/websocket` (Meteor-DDP). Handshake
+  `{"msg":"connect","version":"1","support":["1","pre2","pre1"]}` → `connected`.
+  **Ohne Login erreichbar.**
+- **Daten-Methode:** `Zones.getFilteredZones(filter)` – DDP
+  `{"msg":"method","method":"Zones.getFilteredZones","params":[<filter>]}`.
+  - Gibt ein **Array** zurück; jedes Element hat `flightArea` (= GeoJSON der
+    Zonengeometrie); das Bundle mappt `.map(e => e.flightArea)` in die
+    Kartenlayer.
+  - `params:[{}]` → OK, aber **0 Zonen**.
+  - `params:[{managedZones:true}]` → „You have no access to the zones for this
+    company" (Betreiber-eigene Zonen, Login nötig).
+  - Unbekannte Filterschlüssel → „Internal server error" (strenges
+    `check()`-Schema). **Die Parameter für die öffentlichen Zonen sind noch
+    unbekannt.**
+- **Weitere Methode:** `getAerodromes` (Flugplätze).
+- Es ist **kein** ED-269-/UASZone-Export im Client (kein `ed-269`, kein
+  `UASZone`). Zonen-Schema iDronect-eigen (`flightArea`-GeoJSON + Felder wie
+  `zoneName`/`zoneAbbr`/Typ), **nicht** ED-269.
 
 ---
 
@@ -91,18 +107,24 @@ authentifizierten Zugriff):
 
 ---
 
-## 5. Offene Punkte (vor dem Bau klären – blockierend)
-1. **Was genau deckt die Malta-Freigabe ab?**
-   - einen **ED-269-/GeoJSON-Export** (bevorzugt), oder
-   - **Zugangsdaten** für den DDP-Zugriff, oder
-   - eine **Daten-Datei** von Transport Malta CAD.
-2. **Ansprechpartner:** iDronect/Aviatize (Plattformbetreiber) bzw. Transport
-   Malta CAD. Frage konkret nach einem ED-269-Feed – das erspart den
-   DDP-Sonderweg.
-3. **Zugangsdaten** (falls DDP): bitte als Umgebungsvariablen bereitstellen,
-   nicht im Chat. Dann kann der Zonenabruf verifiziert und eine Fixture
-   erstellt werden.
+## 5. Offene Punkte (ein einfacher Schritt entsperrt Malta)
 
-> **Aktueller Stand:** Ohne ED-269-Feed oder Zugangsdaten ist Malta **nicht
-> live abrufbar**. Die Plattform- und Datenpfad-Analyse ist abgeschlossen; der
-> nächste Schritt ist eine Entscheidung/Info aus §5.
+Die öffentlichen Zonen werden ohne Login angezeigt, es fehlen nur die
+**exakten Filter-Parameter** für `Zones.getFilteredZones`. Zwei einfache Wege,
+das herauszufinden:
+
+1. **Aus eurem eigenen Browser (schnellster Weg):** `tmcad.idronect.com/map` im
+   normalen Browser öffnen (dort greift kein Bot-Schutz), Entwicklertools →
+   Netzwerk → WS-Verbindung `/websocket`. Dort die Nachricht
+   `{"msg":"method","method":"Zones.getFilteredZones","params":[…]}` suchen und
+   das `params`-Objekt notieren. Mit genau diesen Parametern kann die App die
+   Zonen anonym per DDP ziehen.
+2. **Bei iDronect/Aviatize erfragen:** entweder diese Filter-Parameter **oder**
+   – besser – einen **ED-269-Feed**. iDronect betreibt mehrere nationale UTMs
+   und kann einen solchen Export i. d. R. liefern; das würde direkt auf die
+   vorhandene ED-269-Pipeline passen und den DDP-Sonderweg ersparen.
+
+> **Aktueller Stand:** DDP-Zugang und Methode sind verifiziert; es fehlen nur
+> die Filter-Parameter für die öffentlichen Zonen. Sobald die vorliegen (aus
+> §5.1 oder §5.2), kann ich den Abruf fertig verifizieren und eine Fixture
+> anlegen. Ein ED-269-Feed wäre die sauberere Alternative.
