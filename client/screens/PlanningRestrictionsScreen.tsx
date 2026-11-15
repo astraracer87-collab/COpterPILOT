@@ -18,6 +18,7 @@ import { useShowDataSources } from "@/lib/dataSource";
 import { attributionLabel } from "@/lib/sourceAttribution";
 import { Spacing, Typography, BorderRadius, Colors } from "@/constants/theme";
 import type { FlightPlanningParamList } from "@/navigation/FlightPlanningNavigator";
+import { geozoneIsActiveAt, ed269InactiveInfoText } from "@/lib/ed269";
 import { queryGeozonesInArea, GeozoneFeatureInfo, DipulGeozoneSourceStatus, separateTempRestrictions, getCountryGeozoneConfig, getCountriesInRadius, DipulTempRestriction, DipulTempRestrictionsResult, fetchNearbyTempRestrictionsRaw, loadRadarSettings, saveRadarSettings } from "@/lib/geozones";
 import { fetchElevation } from "@/lib/elevation";
 import { partitionByReachability, DEFAULT_REACHABLE_ALTITUDE_M, assessGeozoneAltitudeConflict } from "../../shared/geozoneAltitudeFilter";
@@ -184,7 +185,7 @@ export default function PlanningRestrictionsScreen() {
         // Geländehöhe nur laden, wenn MSL-bezogene Vektorzonen (AT/BE/DK) vorliegen.
         const needsTerrain = separated.geozones.some(
           (gz) => gz.lowerReference === "MSL"
-            && ["AT", "BE", "DK"].includes(String(gz.country || countryIso || "").toUpperCase()),
+            && ["AT", "BE", "DK", "NL"].includes(String(gz.country || countryIso || "").toUpperCase()),
         );
         if (needsTerrain) {
           fetchElevation(latitude, longitude)
@@ -222,7 +223,7 @@ export default function PlanningRestrictionsScreen() {
   // geplanten Höhe (Standard 120 m AGL) ausblenden. WMS-Länder bleiben unberührt.
   // Der Schalter "Alle Geozonen anzeigen" hebt den Filter auf.
   const { geozones, hiddenAboveGeozones } = useMemo(() => {
-    const VECTOR_ISOS = ["AT", "BE", "DK"];
+    const VECTOR_ISOS = ["AT", "BE", "DK", "NL"];
     const isFilterable = (gz: GeozoneFeatureInfo) =>
       VECTOR_ISOS.includes(String(gz.country || countryIso || "").toUpperCase());
     if (showAllGeozones) return { geozones: rawGeozones, hiddenAboveGeozones: [] as GeozoneFeatureInfo[] };
@@ -296,9 +297,20 @@ export default function PlanningRestrictionsScreen() {
   };
   // Zonen, die rein über die geplante Höhe unkritisch werden (silently/dismissed)
   // — getrennt aufgeführt, fließen aber NICHT in die Konflikt-Bewertung ein.
-  const altitudeClearedGeozones = geozones.filter((gz) => !gz.informationalOnly && isZoneClearedByAltitude(gz));
+  // Zeitgesteuerte ED-269-Zonen (z. B. MTMA Mo–Do 07:00–15:30Z): Für die
+  // Flugprüfung zählt der GEPLANTE Flugzeitpunkt (ohne Planung: jetzt). Zonen,
+  // die dann laut Schedule/Gültigkeit inaktiv sind, gelten nicht als
+  // Beschränkung, werden aber als Hinweis aufgeführt.
+  const plannedFlightDate = useMemo(() => {
+    if (!plannedDate) return new Date();
+    const d = new Date(`${plannedDate}T${plannedTime && /^\d{1,2}:\d{2}/.test(plannedTime) ? plannedTime.padStart(5, "0") : "12:00"}`);
+    return isNaN(d.getTime()) ? new Date() : d;
+  }, [plannedDate, plannedTime]);
+  const timeInactiveGeozones = geozones.filter((gz) => !gz.informationalOnly && !geozoneIsActiveAt(gz, plannedFlightDate));
+  const timeRelevantGeozones = geozones.filter((gz) => gz.informationalOnly || geozoneIsActiveAt(gz, plannedFlightDate));
+  const altitudeClearedGeozones = timeRelevantGeozones.filter((gz) => !gz.informationalOnly && isZoneClearedByAltitude(gz));
   // Aktiv konfliktrelevante Zonen (heutiges Verhalten als sicherer Default).
-  const activeGeozones = geozones.filter((gz) => !gz.informationalOnly && !isZoneClearedByAltitude(gz));
+  const activeGeozones = timeRelevantGeozones.filter((gz) => !gz.informationalOnly && !isZoneClearedByAltitude(gz));
 
   const coveredGeozones = activeGeozones.filter(isGeozoneCoveredByAV);
   const uncoveredGeozones = activeGeozones.filter((gz) => !isGeozoneCoveredByAV(gz));
@@ -1713,6 +1725,25 @@ export default function PlanningRestrictionsScreen() {
               Zonen oberhalb der Höhe wieder ausblenden
             </ThemedText>
           </Pressable>
+        ) : null}
+
+        {!loading && !error && timeInactiveGeozones.length > 0 ? (
+          <Card style={[styles.avWarningCard, { borderLeftColor: theme.textSecondary }]} testID="card-time-inactive">
+            <View style={styles.sectionHeader}>
+              <Feather name="clock" size={16} color={theme.textSecondary} />
+              <ThemedText style={[styles.sectionTitle, { color: theme.textSecondary }]}>
+                {timeInactiveGeozones.length} {timeInactiveGeozones.length === 1 ? "zeitgesteuerte Zone" : "zeitgesteuerte Zonen"} zur geplanten Zeit inaktiv
+              </ThemedText>
+            </View>
+            {timeInactiveGeozones.map((gz, idx) => (
+              <ThemedText
+                key={`${gz.featureId || gz.name}-${idx}`}
+                style={[styles.geozoneDetails, { color: theme.textSecondary, marginTop: Spacing.xs }]}
+              >
+                {gz.name || gz.layerLabel || "Unbenannt"}: {ed269InactiveInfoText(gz, plannedDate ? "planned" : "now")}
+              </ThemedText>
+            ))}
+          </Card>
         ) : null}
 
         {!loading && !error && altitudeClearedGeozones.length > 0 ? (

@@ -41,6 +41,9 @@ export interface GeozoneFeatureInfo {
   validStartTs?: number | null;
   validEndTs?: number | null;
   scheduleText?: string[];
+  /** Raw ED-269 applicability[] of time-dependent zones (see ed269IsActiveAt /
+   * geozoneIsActiveAt). Absent for permanent zones and non-ED-269 sources. */
+  ed269Applicability?: any[];
   /** A temporary/NOTAM record may be eligible even without validity dates. */
   notamEligible?: boolean;
   applicationText?: string;

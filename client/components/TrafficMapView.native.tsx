@@ -12,6 +12,7 @@ import { BorderRadius } from "@/constants/theme";
 import type { GermanEnergyInfrastructureItem } from "../../shared/germanEnergyInfrastructure";
 import type { EnergyFacility100mPoint } from "../../shared/germanEnergyInfrastructure";
 import { getCategoryLabel, type AircraftCategory, type DataSource } from "@/lib/opensky";
+import { geozoneIsActiveAt } from "@/lib/ed269";
 import { buildGeozoneCacheTileUrl, buildGeozoneTileUrls, buildVectorGeozoneTileUrl, isRasterTiledVectorCountry, queryGeozoneFeatureInfo, queryEd269CachedFeatures, getCountryGeozoneConfig, getViewportCountries, separateTempRestrictions, GEOZONE_TILE_MIN_ZOOM, getVectorMinZoom, loadsFullCountryVectorZones, GEOZONE_VECTOR_MAX_RADIUS_KM, GEOZONE_VECTOR_MAX_FEATURES, type GeozoneFeatureInfo } from "@/lib/geozones";
 import { agencyTagColor } from "@/lib/agencyTag";
 import { simplifyRingGroup, smoothRingGroup } from "@/lib/ringSimplify";
@@ -718,7 +719,8 @@ export const MAIN_MAP_HTML = `<!DOCTYPE html>
       for (var k = 0; k < z.r.length; k++){
         var poly = z.r[k]; // [Aussenring, ...Loecher] -> Leaflet sticht Loecher aus
         if (poly && poly.length >= 1 && poly[0] && poly[0].length >= 3) {
-          L.polygon(poly, { color: z.s || "rgba(0,122,255,0.85)", opacity: 0.95, weight: 2, fillColor: z.f || "rgba(0,122,255,0.15)", fillOpacity: 1, interactive: false, smoothFactor: 0 }).addTo(vzLayer);
+          // z.ia: zeitgesteuerte Zone, derzeit inaktiv -> abgeschwächt + gestrichelt.
+          L.polygon(poly, { color: z.s || "rgba(0,122,255,0.85)", opacity: z.ia ? 0.45 : 0.95, weight: 2, dashArray: z.ia ? "6 4" : null, fillColor: z.f || "rgba(0,122,255,0.15)", fillOpacity: z.ia ? 0.3 : 1, interactive: false, smoothFactor: 0 }).addTo(vzLayer);
         }
       }
     }
@@ -776,6 +778,8 @@ export const MAIN_MAP_HTML = `<!DOCTYPE html>
       var z = zones[i];
       h += "<div class='gzc'><div class='gzn'>" + esc(z.t || "Geozone") + "</div>";
       if (z.vr) h += "<div class='gzr'><span class='gzk'>Gültig</span><span class='gzv'>" + esc(z.vr) + "</span></div>";
+      if (z.sc) h += "<div class='gzr'><span class='gzk'>Aktiv</span><span class='gzv'>" + esc(z.sc) + (z.ia ? " (derzeit inaktiv)" : "") + "</span></div>";
+      else if (z.ia) h += "<div class='gzr'><span class='gzk'>Status</span><span class='gzv'>derzeit inaktiv</span></div>";
       var d = z.d || [];
       for (var j = 0; j < d.length; j++){
         var line = d[j] || "";
@@ -1610,6 +1614,7 @@ export default function TrafficMapView({
   // jedes Polygon ist [Außenring, …Löcher], damit Leaflet Löcher aussticht.
   const vzPolys = useMemo(() => {
     const now = Date.now();
+    const nowDate = new Date(now);
     const energyZones = countryIso === "DE" ? [
       ...windFacilitiesAsGeozones(
         windRestrictionPoints.length ? windRestrictionPoints : getGermanWindFacility100mPoints("DE", energyInfrastructure),
@@ -1664,6 +1669,10 @@ export default function TrafficMapView({
           lk: z.links,
           // Gültigkeitszeitraum für das Tap-Popup temporärer Zonen.
           vr: isTemp ? formatValidityRange(z.validStartTs, z.validEndTs) : null,
+          // Wiederkehrende Aktivzeiten (ED-269-Schedule) und ob die Zone gerade
+          // inaktiv ist (abgeschwächte Darstellung, Hinweis im Popup).
+          sc: z.scheduleText?.length ? z.scheduleText.join("; ") : null,
+          ia: !geozoneIsActiveAt(z, nowDate),
         };
        }).filter((z) => z.r.length > 0 || z.p.length > 0 || z.l.length > 0);
    }, [filteredVectorZones, additionalGeozones, lockedSet, entitlement, countryIso, energyTilesEnabled, settledZoom, windRestrictionPoints, energyInfrastructure]);

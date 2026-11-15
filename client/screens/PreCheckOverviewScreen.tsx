@@ -43,6 +43,7 @@ import {
 } from "@/lib/geozones";
 import { findMilLowFlightAreasContaining, findMilLowFlightAreasIntersectingRadius, findMilLowFlightAreasOnRoute, MIL_LOW_FLIGHT_LABEL, MIL_LOW_FLIGHT_ACTIVATION_TEXT, MIL_LOW_FLIGHT_DATA_STAND, MIL_LOW_FLIGHT_SOURCE_URL } from "@/lib/milLowFlight";
 import { smoothRingGroup } from "@/lib/ringSimplify";
+import { geozoneIsActiveAt, ed269InactiveInfoText } from "@/lib/ed269";
 import {
   getPilotProfile,
   PilotProfile,
@@ -131,7 +132,8 @@ export default function PreCheckOverviewScreen() {
 
   const { sessionId, latitude, longitude, locationName, droneId } = route.params;
 
-  const [geozones, setGeozones] = useState<GeozoneFeatureInfo[]>([]);
+  const [allGeozones, setGeozones] = useState<GeozoneFeatureInfo[]>([]);
+  const [plannedFlightDate, setPlannedFlightDate] = useState<Date | null>(null);
   const [tempRestrictions, setTempRestrictions] = useState<GeozoneFeatureInfo[]>([]);
   const [notams, setNotams] = useState<DipulTempRestrictionsResult>({ active: [], upcoming: [] });
   const [geozoneLoading, setGeozoneLoading] = useState(true);
@@ -176,6 +178,11 @@ export default function PreCheckOverviewScreen() {
     if (sessionId) {
       getFlightSession(sessionId).then((s) => {
         setPlanningRadiusKm(s?.planning?.radiusKm ?? 1);
+        if (s?.planning?.plannedDate) {
+          const t = s.planning.plannedTime && /^\d{1,2}:\d{2}/.test(s.planning.plannedTime) ? s.planning.plannedTime.padStart(5, "0") : "12:00";
+          const d = new Date(`${s.planning.plannedDate}T${t}`);
+          if (!isNaN(d.getTime())) setPlannedFlightDate(d);
+        }
         if (s?.planning?.maxAltitude != null) setPlanningMaxAltitude(s.planning.maxAltitude);
         if (s?.mapSnapshotBase64) {
           // Snapshot wurde bereits in einer vorigen Pre-Check-Session erfasst — erneutes Capturen vermeiden.
@@ -381,6 +388,13 @@ export default function PreCheckOverviewScreen() {
     return is21hLayerAvEligible(gz.layerLabel);
   };
 
+  // Zeitgesteuerte ED-269-Zonen (z. B. MTMA Mo–Do): Beim Pre-Check zählt eine
+  // Zone, wenn sie JETZT oder zur geplanten Flugzeit aktiv ist. Nur wenn sie zu
+  // beiden Zeitpunkten inaktiv ist, wird sie als reiner Hinweis geführt.
+  const isZoneRelevantInTime = (gz: GeozoneFeatureInfo): boolean =>
+    geozoneIsActiveAt(gz, new Date()) || (plannedFlightDate != null && geozoneIsActiveAt(gz, plannedFlightDate));
+  const geozones = allGeozones.filter(isZoneRelevantInTime);
+  const timeInactiveGeozones = allGeozones.filter((gz) => !isZoneRelevantInTime(gz));
   const coveredGeozones = geozones.filter(isGeozoneCoveredByAV);
   const uncoveredGeozones = geozones.filter((gz) => !isGeozoneCoveredByAV(gz));
   const hasAnyGeozones = geozones.length > 0 || tempRestrictions.length > 0;
@@ -680,11 +694,13 @@ export default function PreCheckOverviewScreen() {
                 }
                 return null;
               })}
-              {geozones.flatMap((gz, gi) => {
+              {allGeozones.flatMap((gz, gi) => {
                 const groups = ringGroupsForZone(gz);
                 if (groups.length === 0) return [];
-                const fill = gz.fillColor ?? "rgba(0,122,255,0.12)";
-                const stroke = gz.strokeColor ?? "rgba(0,122,255,0.85)";
+                // Gerade inaktive zeitgesteuerte Zonen abgeschwächt zeichnen.
+                const inactiveNow = !geozoneIsActiveAt(gz, new Date());
+                const fill = inactiveNow ? "rgba(142,142,147,0.06)" : (gz.fillColor ?? "rgba(0,122,255,0.12)");
+                const stroke = inactiveNow ? "rgba(142,142,147,0.6)" : (gz.strokeColor ?? "rgba(0,122,255,0.85)");
                 return groups.map((group, ri) => {
                   const [outer, ...holes] = smoothRingGroup(group);
                   if (!outer || outer.length < 3) return null;
@@ -818,12 +834,19 @@ export default function PreCheckOverviewScreen() {
               </Pressable>
             </Card>
           ) : !hasAnyGeozones ? (
+            <>
             <Card style={[styles.statusCard, { borderLeftColor: "#34C759", borderLeftWidth: 3 }]}>
               <Feather name="check-circle" size={18} color="#34C759" />
               <ThemedText style={[styles.statusText, { color: "#34C759" }]}>
                 Keine Geozonen-Einschränkungen
               </ThemedText>
             </Card>
+            {timeInactiveGeozones.length > 0 ? (
+              <ThemedText style={[styles.geozoneDetails, { color: theme.textTertiary }]} testID="precheck-time-inactive-hint">
+                {timeInactiveGeozones.map((gz) => `${gz.name}: ${ed269InactiveInfoText(gz, plannedFlightDate ? "planned" : "now")}`).join("\n")}
+              </ThemedText>
+            ) : null}
+            </>
           ) : (
             <View style={styles.geozoneList}>
               {coveredGeozones.length > 0 ? (
@@ -862,6 +885,25 @@ export default function PreCheckOverviewScreen() {
                       {gz.details ? (
                         <ThemedText style={[styles.geozoneDetails, { color: theme.textTertiary }]} numberOfLines={2}>{gz.details}</ThemedText>
                       ) : null}
+                    </Card>
+                  ))}
+                </View>
+              ) : null}
+
+              {timeInactiveGeozones.length > 0 ? (
+                <View testID="precheck-time-inactive">
+                  <View style={styles.subSectionHeader}>
+                    <Feather name="clock" size={12} color={theme.textSecondary} />
+                    <ThemedText style={[styles.subSectionTitle, { color: theme.textSecondary }]}>
+                      Zeitgesteuert, derzeit inaktiv ({timeInactiveGeozones.length})
+                    </ThemedText>
+                  </View>
+                  {timeInactiveGeozones.map((gz, i) => (
+                    <Card key={`inactive-${i}`} style={[styles.geozoneCard, { borderLeftColor: theme.textSecondary, borderLeftWidth: 2 }]}>
+                      <ThemedText style={styles.geozoneName}>{gz.name}</ThemedText>
+                      <ThemedText style={[styles.geozoneDetails, { color: theme.textTertiary }]} numberOfLines={2}>
+                        {ed269InactiveInfoText(gz, plannedFlightDate ? "planned" : "now")}
+                      </ThemedText>
                     </Card>
                   ))}
                 </View>

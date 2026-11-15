@@ -183,6 +183,165 @@ const ED269_WEEKDAYS: Record<string, string> = {
   SUNDAY: "So",
 };
 
+// Wochentagskürzel (ED-269 MON..SUN, auch Langform/2-Buchstaben) -> JS-UTC-Tag
+// (0 = Sonntag … 6 = Samstag). ANY/DAILY gilt für jeden Tag.
+const ED269_WEEKDAY_INDEX: Record<string, number> = {
+  SU: 0, SUN: 0, SUNDAY: 0,
+  MO: 1, MON: 1, MONDAY: 1,
+  TU: 2, TUE: 2, TUESDAY: 2,
+  WE: 3, WED: 3, WEDNESDAY: 3,
+  TH: 4, THU: 4, THURSDAY: 4,
+  FR: 5, FRI: 5, FRIDAY: 5,
+  SA: 6, SAT: 6, SATURDAY: 6,
+};
+
+function ed269RawScheduleDays(entry: any): any[] {
+  const daysValue =
+    entry?.daysOfWeek ?? entry?.dayOfWeek ?? entry?.days ?? entry?.byDay ?? entry?.day;
+  return Array.isArray(daysValue)
+    ? daysValue
+    : typeof daysValue === "string" && /[,;]/.test(daysValue)
+      ? daysValue.split(/[,;]/)
+      : daysValue == null
+        ? []
+        : [daysValue];
+}
+
+function ed269RawDayKey(value: any): string {
+  const raw =
+    typeof value === "string"
+      ? value
+      : value && typeof value === "object"
+        ? value.day ?? value.dayOfWeek ?? value.value ?? value.name ?? ""
+        : String(value ?? "");
+  return String(raw).trim().toUpperCase();
+}
+
+// "06:00Z", "6:00", "06:00:00", "24:00" -> Minuten seit Mitternacht (UTC);
+// null, wenn nicht lesbar.
+function ed269TimeMinutes(value: any): number | null {
+  if (value == null) return null;
+  const match = String(value).trim().match(/^(\d{1,2}):(\d{2})(?::\d{2}(?:\.\d+)?)?\s*(?:Z|UTC)?$/i);
+  if (!match) return null;
+  const h = Number(match[1]);
+  const m = Number(match[2]);
+  if (h > 24 || m > 59 || (h === 24 && m !== 0)) return null;
+  return h * 60 + m;
+}
+
+// Prüft einen einzelnen Schedule-Eintrag gegen einen Zeitpunkt (UTC).
+// Unlesbare Tages-/Zeitangaben gelten aus Sicherheitsgründen als passend
+// (lieber eine Zone zu viel als aktiv werten als eine echte zu verschweigen).
+function ed269ScheduleEntryMatches(entry: any, date: Date): boolean {
+  if (!entry || typeof entry !== "object") return true;
+  const dayKeys = ed269RawScheduleDays(entry).map(ed269RawDayKey).filter(Boolean);
+  const anyDay =
+    dayKeys.length === 0 ||
+    dayKeys.some((d) => d === "ANY" || d === "DAILY" || d === "ALL" || !(d in ED269_WEEKDAY_INDEX));
+  const dayMatches = (utcDay: number): boolean =>
+    anyDay || dayKeys.some((d) => ED269_WEEKDAY_INDEX[d] === utcDay);
+
+  const startRaw = entry.startTime ?? entry.startTimeOfDay ?? entry.timeStart ?? entry.beginTime ?? entry.from;
+  const endRaw = entry.endTime ?? entry.timeEnd ?? entry.untilTime ?? entry.to;
+  const start = startRaw == null ? 0 : ed269TimeMinutes(startRaw);
+  const end = endRaw == null ? 24 * 60 : ed269TimeMinutes(endRaw);
+  if (start == null || end == null) return dayMatches(date.getUTCDay());
+
+  const day = date.getUTCDay();
+  const t = date.getUTCHours() * 60 + date.getUTCMinutes();
+  if (start === end) return dayMatches(day); // ganztägig
+  if (start < end) return dayMatches(day) && t >= start && t < end;
+  // Über Mitternacht (z. B. 22:00Z–04:00Z): der Wochentag bezieht sich auf den
+  // Beginn; der Teil nach Mitternacht gehört zum Vortag.
+  if (t >= start) return dayMatches(day);
+  if (t < end) return dayMatches((day + 6) % 7);
+  return false;
+}
+
+function ed269ParseTs(value: any): number | null {
+  if (value == null || value === "") return null;
+  const ts = new Date(value).getTime();
+  return Number.isFinite(ts) ? ts : null;
+}
+
+/**
+ * Ist eine ED-269-Zone zum Zeitpunkt `date` aktiv? Aktiv, wenn ein Eintrag in
+ * `applicability` passt: permanent === "YES" ODER (start ≤ date ≤ end, fehlende
+ * Grenze = offen) UND (kein schedule ODER ein schedule-Eintrag passt auf
+ * UTC-Wochentag und UTC-Uhrzeit). Zonen ohne jede Gültigkeitsangabe gelten als
+ * aktiv. Die Austro-Control-Platzhalter (MATZ/MCTR bis 2100) gelten als dauerhaft.
+ */
+export function ed269IsActiveAt(p: Record<string, any>, date: Date): boolean {
+  p = normalizeAustrianEd269Placeholder(p || {});
+  const ts = date.getTime();
+  if (!Number.isFinite(ts)) return true;
+  if (p?.permanent === true || String(p?.permanent ?? "").toUpperCase() === "YES") return true;
+  const app = p?.applicability;
+  if (!Array.isArray(app) || app.length === 0) {
+    // Belgien (skeyes live) liefert nur validStartTs/validEndTs (ms).
+    const ds = Number(p?.validStartTs);
+    const de = Number(p?.validEndTs);
+    if (p?.validStartTs != null && Number.isFinite(ds) && ts < ds) return false;
+    if (p?.validEndTs != null && Number.isFinite(de) && ts > de) return false;
+    return true;
+  }
+  return app.some((entry: any) => {
+    if (!entry || typeof entry !== "object") return true;
+    if (String(entry.permanent ?? "").toUpperCase() === "YES") return true;
+    const start = ed269ParseTs(entry.startDateTime);
+    const end = ed269ParseTs(entry.endDateTime);
+    if (start != null && ts < start) return false;
+    if (end != null && ts > end) return false;
+    const schedule = entry.schedule;
+    if (!Array.isArray(schedule) || schedule.length === 0) return true;
+    return schedule.some((s: any) => ed269ScheduleEntryMatches(s, date));
+  });
+}
+
+/**
+ * Kompakte, serialisierbare Aktivitätsinfo für Karten/Planung (wird an
+ * GeozoneFeatureInfo gehängt). Nur wenn die Zone überhaupt zeitabhängig ist.
+ */
+export function ed269ActivityFromProps(p: Record<string, any>): any[] | undefined {
+  const n = normalizeAustrianEd269Placeholder(p || {});
+  const app = n?.applicability;
+  if (!Array.isArray(app) || app.length === 0) return undefined;
+  if (app.some((a: any) => String(a?.permanent ?? "").toUpperCase() === "YES")) return undefined;
+  return app;
+}
+
+/** Aktivität einer bereits geparsten Zone (GeozoneFeatureInfo-ähnlich). Zonen
+ * ohne ED-269-Aktivitätsinfo (andere Quellen, alte Offline-Pakete) gelten als
+ * aktiv; das Gültigkeitsfenster (validStart/EndTs) behandelt der bestehende Code. */
+export function geozoneIsActiveAt(
+  z: { ed269Applicability?: any[] | null } | null | undefined,
+  date: Date,
+): boolean {
+  const app = z?.ed269Applicability;
+  if (!Array.isArray(app) || app.length === 0) return true;
+  return ed269IsActiveAt({ applicability: app }, date);
+}
+
+/** Hinweistext für eine zeitgesteuerte Zone, die zum Zeitpunkt inaktiv ist. */
+export function ed269InactiveInfoText(
+  z: { scheduleText?: string[]; validStartTs?: number | null; validEndTs?: number | null },
+  when: "planned" | "now" = "planned",
+): string {
+  const suffix = when === "planned" ? "(zur geplanten Zeit inaktiv)" : "(derzeit inaktiv)";
+  const schedule = (z.scheduleText ?? []).filter(Boolean);
+  if (schedule.length > 0) return `zeitweise aktiv – ${schedule.join("; ")} ${suffix}`;
+  const fmt = (ts: number) => {
+    const d = new Date(ts);
+    return `${String(d.getUTCDate()).padStart(2, "0")}.${String(d.getUTCMonth() + 1).padStart(2, "0")}.${d.getUTCFullYear()}`;
+  };
+  const parts: string[] = [];
+  if (z.validStartTs != null) parts.push(`ab ${fmt(z.validStartTs)}`);
+  if (z.validEndTs != null) parts.push(`bis ${fmt(z.validEndTs)}`);
+  return parts.length > 0
+    ? `zeitweise aktiv – gültig ${parts.join(" ")} ${suffix}`
+    : `zeitweise aktiv ${suffix}`;
+}
+
 function ed269ScheduleDay(value: any): string {
   const raw =
     typeof value === "string"
@@ -194,9 +353,34 @@ function ed269ScheduleDay(value: any): string {
   return ED269_WEEKDAYS[normalized] ?? normalized;
 }
 
+const ED269_DAY_ORDER = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
+
+// "Mo, Di, Mi, Do" -> "Mo–Do"; nicht zusammenhängende Tage bleiben einzeln
+// ("Mo, Mi, Fr"). ANY -> "täglich".
+function compactEd269Days(days: string[]): string {
+  if (days.some((d) => d === "ANY" || d === "DAILY")) return "täglich";
+  const idx = days.map((d) => ED269_DAY_ORDER.indexOf(d));
+  if (idx.some((i) => i < 0)) return days.join(", ");
+  const sorted = [...new Set(idx)].sort((a, b) => a - b);
+  if (sorted.length === 7) return "täglich";
+  const groups: number[][] = [];
+  for (const i of sorted) {
+    const last = groups[groups.length - 1];
+    if (last && last[last.length - 1] === i - 1) last.push(i);
+    else groups.push([i]);
+  }
+  return groups
+    .map((g) =>
+      g.length >= 3
+        ? `${ED269_DAY_ORDER[g[0]]}–${ED269_DAY_ORDER[g[g.length - 1]]}`
+        : g.map((i) => ED269_DAY_ORDER[i]).join(", "),
+    )
+    .join(", ");
+}
+
 function ed269ScheduleTime(value: any): string {
   const raw = String(value ?? "").trim();
-  const match = raw.match(/^(\d{1,2}):(\d{2})(?::\d{2}(?:\.\d+)?)?(?:Z)?$/i);
+  const match = raw.match(/^(\d{1,2}):(\d{2})(?::\d{2}(?:\.\d+)?)?\s*(?:Z|UTC)?$/i);
   if (!match) return raw;
   return `${match[1].padStart(2, "0")}:${match[2]}`;
 }
@@ -222,7 +406,7 @@ function formatEd269ScheduleEntry(entry: any): string {
   const days = dayValues
     .map(ed269ScheduleDay)
     .filter(Boolean);
-  if (days.length > 0) parts.push(days.join(", "));
+  if (days.length > 0) parts.push(compactEd269Days(days));
 
   const frequency = String(entry.frequency ?? entry.freq ?? "")
     .trim()
@@ -245,7 +429,9 @@ function formatEd269ScheduleEntry(entry: any): string {
   if (start != null || end != null) {
     const startText = start == null ? "Beginn offen" : ed269ScheduleTime(start);
     const endText = end == null ? "Ende offen" : ed269ScheduleTime(end);
-    parts.push(`${startText}–${endText} Uhr`);
+    // ED-269-Zeiten mit "Z"-Suffix sind UTC -> nicht als Ortszeit ("Uhr") ausgeben.
+    const isUtc = [start, end].some((v) => v != null && /(?:Z|UTC)\s*$/i.test(String(v).trim()));
+    parts.push(`${startText}–${endText} ${isUtc ? "UTC" : "Uhr"}`);
   }
 
   const interval = entry.timeInterval ?? entry.interval;

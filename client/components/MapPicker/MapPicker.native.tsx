@@ -24,6 +24,7 @@ import {
 } from "@/lib/geozones";
 import { getVectorMinZoom, loadsFullCountryVectorZones, isRasterTiledVectorCountry, GEOZONE_VECTOR_MAX_RADIUS_KM, GEOZONE_VECTOR_MAX_FEATURES } from "@/lib/geozoneZoom";
 import { simplifyRingGroup, smoothRingGroup } from "@/lib/ringSimplify";
+import { geozoneIsActiveAt } from "@/lib/ed269";
 import { findNearbyCtrAirports, CTR_AIRPORTS } from "@/lib/ctrData";
 import { getCtrBandRings, getCtrLegendEntries, getCtrProvisionalNote } from "@/lib/ctrAltitude";
 import CtrInfoCard from "@/components/CtrInfoCard";
@@ -250,7 +251,8 @@ const MAP_HTML = `<!DOCTYPE html>
       for (var k = 0; k < z.r.length; k++){
         var poly = z.r[k]; // [Aussenring, ...Loecher] -> Leaflet sticht Loecher aus
         if (poly && poly.length >= 1 && poly[0] && poly[0].length >= 3) {
-          L.polygon(poly, { color: z.s || "rgba(0,122,255,0.85)", opacity: 0.95, weight: 2, fillColor: z.f || "rgba(0,122,255,0.15)", fillOpacity: 1, interactive: false, smoothFactor: 0 }).addTo(vzLayer);
+          // z.i: zeitgesteuerte Zone, derzeit inaktiv -> abgeschwächt + gestrichelt.
+          L.polygon(poly, { color: z.s || "rgba(0,122,255,0.85)", opacity: z.i ? 0.45 : 0.95, weight: 2, dashArray: z.i ? "6 4" : null, fillColor: z.f || "rgba(0,122,255,0.15)", fillOpacity: z.i ? 0.3 : 1, interactive: false, smoothFactor: 0 }).addTo(vzLayer);
         }
       }
     }
@@ -566,7 +568,7 @@ const MapPicker = forwardRef<MapPickerRef, MapPickerProps>(
       if (useViewportCountries) {
         const wmsT = visibleViewportCountries
           .map((iso) => getCountryGeozoneConfig(iso))
-          .filter((cfg) => cfg.featureInfoType !== "ed269-cached" && cfg.featureInfoType !== "none" && !!cfg.wmsBaseUrl)
+          .filter((cfg) => cfg.featureInfoType !== "none" && !!cfg.wmsBaseUrl)
           .map((cfg) => {
             const enabled = cfg.layers.filter((l) => l.defaultEnabled).map((l) => l.wmsLayer);
             const layerSet = enabled.length > 0 ? enabled : ([cfg.layers[0]?.wmsLayer].filter(Boolean) as string[]);
@@ -657,7 +659,8 @@ const MapPicker = forwardRef<MapPickerRef, MapPickerProps>(
 
     const vzPolys = useMemo(() => {
       void vzVersion;
-      const out: { r: [number, number][][][]; p?: [number, number][]; l?: [number, number][][]; s: string; f: string }[] = [];
+      const out: { r: [number, number][][][]; p?: [number, number][]; l?: [number, number][][]; s: string; f: string; i?: 1 }[] = [];
+      const nowDate = new Date();
       for (const iso of vectorCountries) {
         // Raster-Kachel-Land (z. B. Belgien): dauerhafte Zonen zeichnet die
         // serverseitige PNG-Kachel; hier nur temporäre Zonen als Vektor.
@@ -681,6 +684,8 @@ const MapPicker = forwardRef<MapPickerRef, MapPickerProps>(
             r: polys,
             s: z.strokeColor ?? "rgba(0,122,255,0.85)",
             f: z.fillColor ?? "rgba(0,122,255,0.15)",
+            // Zeitgesteuerte ED-269-Zone (Schedule), die jetzt nicht aktiv ist.
+            ...(geozoneIsActiveAt(z, nowDate) ? {} : { i: 1 as const }),
           });
         }
       }

@@ -1365,7 +1365,7 @@ export default function PlanningLocationScreen() {
                         {g.name}
                       </ThemedText>
                       <ThemedText style={[styles.touchedRowLayer, { color: theme.textSecondary }]} numberOfLines={1}>
-                        {g.layerLabel}{a.label ? ` · ${a.label}` : ""}
+                        {g.layerLabel}{a.label ? ` · ${a.label}` : ""}{g.ed269Applicability?.length ? " · zeitweise aktiv" : ""}
                       </ThemedText>
                     </View>
                     <Feather name="chevron-right" size={16} color={theme.textTertiary} style={styles.touchedChevron} />
@@ -1394,7 +1394,7 @@ export default function PlanningLocationScreen() {
                             {g.name}
                           </ThemedText>
                           <ThemedText style={[styles.touchedRowLayer, { color: theme.textSecondary }]} numberOfLines={1}>
-                            {g.layerLabel}{a.label ? ` · ${a.label}` : ""}
+                            {g.layerLabel}{a.label ? ` · ${a.label}` : ""}{g.ed269Applicability?.length ? " · zeitweise aktiv" : ""}
                           </ThemedText>
                         </View>
                         <Feather name="chevron-right" size={16} color={theme.textTertiary} style={styles.touchedChevron} />
@@ -1432,7 +1432,7 @@ export default function PlanningLocationScreen() {
                         {g.name}
                       </ThemedText>
                       <ThemedText style={[styles.touchedRowLayer, { color: theme.textSecondary }]} numberOfLines={1}>
-                        {g.layerLabel}{a.label ? ` · ${a.label}` : ""}
+                        {g.layerLabel}{a.label ? ` · ${a.label}` : ""}{g.ed269Applicability?.length ? " · zeitweise aktiv" : ""}
                       </ThemedText>
                     </View>
                     <Feather name="chevron-right" size={16} color={theme.textTertiary} style={styles.touchedChevron} />
