@@ -212,8 +212,22 @@ gedacht:
   the base of the zone (m)" (Standard 120 m) und nach Zonentyp.
 
 → Für die **statische Geometrie-Schicht** ist dieser Export der sauberste Weg
-(entspricht inhaltlich `kml/filtered` aus §2). Nachteil: manueller Klick, kein
-automatischer Feed → für regelmäßige Aktualisierung die PANSA-Freigabe nutzen.
+(entspricht inhaltlich `kml/filtered` aus §2).
+
+⚠️ **Noch zu verifizieren (Netzwerk-Tab, 30 s):** Wie erzeugt der Button das KML?
+- **Variante A:** Die Zonen sind im Browser schon geladen; das KML wird
+  **client-seitig** als Blob-Download gebaut → **kein API-Key, keine Anfrage**,
+  voll lizenzsauber. Dann ließe sich der Export sogar **browser-seitig
+  automatisieren** (wie der Malta-Export in `docs/tools/malta/`).
+- **Variante B:** Der Button ruft `/v1/kml/filtered` mit dem Session-Token auf
+  → dann gilt der Login+Key-Flow aus §2 auch für die App.
+- Test: Button klicken, im DevTools-Netzwerk-Tab prüfen, ob eine Anfrage an
+  `api.dronemap.pansa.pl` rausgeht (→ B) oder nicht (→ A). **Von PL-/EU-IP**
+  machen (aus der US-Cloud geo-geblockt).
+
+Nachteil in jedem Fall: manueller Klick, kein automatischer Feed → für
+regelmäßige Aktualisierung entweder serverseitig den Call nachbauen (B) oder den
+Browser-Export automatisieren (A); PANSA-Freigabe für den Rhythmus nutzen.
 
 ### 9.2 Verschachtelte Zonen (RPA-Unterzonen)
 Zonen können **ineinander** liegen: unter einer `CTR`/`MCTR` hängt oft eine
