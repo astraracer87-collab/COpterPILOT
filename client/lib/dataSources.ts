@@ -295,14 +295,14 @@ function buildMapEntries(): DataSourceEntry[] {
 function buildMapFallbackEntries(): DataSourceEntry[] {
   return [
     {
-      id: "map-carto",
-      provider: "CARTO (Voyager) auf Basis von OpenStreetMap",
+      id: "map-esri-street",
+      provider: "Esri World Street Map (u. a. auf Basis von OpenStreetMap)",
       usage:
         "Online-Ersatzkarte außerhalb der Länder mit amtlicher Karte (nicht offline speicherbar).",
-      license: "OSM-Daten: ODbL 1.0 · Kacheln: CARTO-Nutzungsbedingungen",
-      licenseUrl: "https://carto.com/attributions",
+      license: "Esri-Nutzungsbedingungen · OSM-Daten: ODbL 1.0",
+      licenseUrl: "https://www.esri.com/en-us/legal/terms/full-master-agreement",
       attributions: [FALLBACK_MAP.attribution],
-      url: "https://carto.com",
+      url: "https://www.arcgis.com/home/item.html?id=3b93337983e9436f8db950e38a8629af",
     },
     {
       id: "map-esri",

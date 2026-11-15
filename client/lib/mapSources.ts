@@ -498,9 +498,10 @@ export function noOfflineBasemapNote(label: string, hasGeozones = true): string 
 
 /** Online-Ersatz außerhalb der Länder oben (nicht offline speicherbar). */
 export const FALLBACK_MAP = {
-  tiles: "https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png",
-  attribution: "© OpenStreetMap-Mitwirkende © CARTO",
-  maxzoom: 20,
+  // CARTO verlangt seit 11/2026 einen API-Schlüssel („API KEY REQUIRED“) – Esri-Straßenkarte ohne Schlüssel.
+  tiles: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",
+  attribution: "Esri, HERE, Garmin, © OpenStreetMap-Mitwirkende",
+  maxzoom: 19,
 };
 export const FALLBACK_SATELLITE = {
   tiles: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",

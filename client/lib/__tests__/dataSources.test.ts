@@ -159,7 +159,7 @@ test("Hindernisse/OSM, Nominatim, Wetter, Verkehr, Bibliotheken vorhanden", () =
     "lib-maplibre",
     "lib-pdfjs",
     "map-google",
-    "map-carto",
+    "map-esri-street",
     "map-esri",
   ]) {
     assert.ok(
