@@ -112,7 +112,7 @@ export {
   COUNTRY_WMS_MAX_NATIVE_ZOOM,
 } from "@/lib/geozoneZoom";
 
-export type CountryIsoWithGeozones = "DE" | "CH" | "LU" | "NL" | "FR" | "AT" | "BE" | "DK" | "EE" | "FI" | "NO" | "SE";
+export type CountryIsoWithGeozones = "DE" | "CH" | "LU" | "NL" | "FR" | "AT" | "BE" | "DK" | "EE" | "FI" | "NO" | "SE" | "IE";
 
 export interface CountryGeozoneConfig {
   iso: CountryIsoWithGeozones;
@@ -164,9 +164,11 @@ export const COUNTRY_GEOZONE_CONFIGS: Record<string, CountryGeozoneConfig> = {
     wmsBaseUrl: "https://wms.geoportail.lu/public_map_layers/service",
     wmsVersion: "1.1.1",
     layers: LU_GEOZONE_LAYERS,
-    featureInfoType: "ogc-features",
-    alwaysVisibleLayerIds: ["lu_uas_0_50", "lu_uas_50_120"],
-    forceEnabledLayerIds: ["lu_uas_0_50"],
+    // Zonen als Vektoren (ED-269 CC0, sonst OGC-Features) – offline nutzbar.
+    // Die WMS-Ebenen bleiben abschaltbar erhalten, standardmäßig aus.
+    featureInfoType: "ed269-cached",
+    alwaysVisibleLayerIds: [],
+    forceEnabledLayerIds: [],
   },
   NL: {
     iso: "NL",
@@ -239,6 +241,27 @@ export const COUNTRY_GEOZONE_CONFIGS: Record<string, CountryGeozoneConfig> = {
     // Estland (EANS / Transpordiamet): ED-269-Vektorzonen von utm.eans.ee
     // (gleiche Plattform wie Dronespace AT), inkl. NOTAM-Zonen. Kein WMS.
     iso: "EE",
+    wmsBaseUrl: "",
+    wmsVersion: "1.3.0",
+    layers: [],
+    featureInfoType: "ed269-cached",
+    alwaysVisibleLayerIds: [],
+    forceEnabledLayerIds: [],
+  },
+  IE: {
+    // Irland (IAA): ED-269-GeoJSON, Dateiname mit Datum wird von der IAA-Seite gelesen.
+    iso: "IE",
+    wmsBaseUrl: "",
+    wmsVersion: "1.3.0",
+    layers: [],
+    featureInfoType: "ed269-cached",
+    alwaysVisibleLayerIds: [],
+    forceEnabledLayerIds: [],
+  },
+  SE: {
+    // Schweden (LFV / Transportstyrelsen, CC BY 4.0): ED-318-UAS-Zonen plus
+    // WFS-Lufträume (CTR/TIZ/ATZ, 5-km-/1-km-Zonen, R/D, AIP SUP, NOTAM).
+    iso: "SE",
     wmsBaseUrl: "",
     wmsVersion: "1.3.0",
     layers: [],
@@ -1414,8 +1437,9 @@ async function queryGeozonesForCountry(
     return [...vector, ...extra];
   }
 
-  if (config.featureInfoType === "ogc-features" && config.iso === "LU") {
-    return queryLuOgcFeatures(lat, lon, radiusKm);
+  if (config.iso === "LU") {
+    const vector = await queryEd269CachedFeatures(lat, lon, radiusKm, "LU", GEOZONE_VECTOR_MAX_FEATURES).catch(() => []);
+    return vector.length > 0 ? vector : queryLuOgcFeatures(lat, lon, radiusKm);
   }
 
   if (config.iso === "NL") {

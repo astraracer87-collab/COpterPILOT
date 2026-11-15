@@ -1,0 +1,1443 @@
+{
+ "type": "FeatureCollection",
+ "metadata": {
+  "provider": [
+   {
+    "text": "Transportstyrelsen",
+    "lang": "en-GB"
+   }
+  ],
+  "issued": "2026-10-29T00:00:00Z",
+  "validFrom": "2026-10-29T00:00:00Z"
+ },
+ "features": [
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     20.051111111111112,
+     63.852222222222224
+    ],
+    "extent": {
+     "subType": "Circle",
+     "radius": 500
+    },
+    "layer": {
+     "upper": 150,
+     "upperReference": "AGL",
+     "lower": 0,
+     "lowerReference": "AGL",
+     "uom": "m"
+    }
+   },
+   "properties": {
+    "identifier": "ESU200",
+    "country": "SWE",
+    "name": [
+     {
+      "text": "Stornorrforsen hydro power plant",
+      "lang": "en-GB"
+     },
+     {
+      "text": "Stornorrforsen kraftverk",
+      "lang": "sv-SE"
+     }
+    ],
+    "type": "REQ_AUTHORIZATION",
+    "variant": "COMMON",
+    "restrictionConditions": "AUTHORIZED",
+    "reason": [
+     "SENSITIVE"
+    ],
+    "otherReasonInfo": [
+     {
+      "text": "Security",
+      "lang": "en-GB"
+     },
+     {
+      "text": "Säkerhet",
+      "lang": "sv-SE"
+     }
+    ],
+    "regulationExemption": "NO",
+    "message": [
+     {
+      "text": "Access prohibited. Special permission from the Swedish Transport Agency is required, except for activities conducted by the Swedish Armed Forces, the Swedish Customs Service or the Police Authority, air rescue services, firefighting, border control and coast guard operations carried out by other Swedish authorities, activities undertaken pursuant to the Civil Protection Act (2003:778), as well as UAS operations conducted by Vattenfall Vattenkraft AB.\nNon-exempt actors must first obtain an assessment from Vattenfall (bevakningscentral.vattenkraft@vattenfall.com) before applying for permission from the Swedish Transport Agency. More information is available at https://www.transportstyrelsen.se/sv/luftfart/flygplatser-flygtrafiktjanst-och-luftrum/luftrum/ansok-i-luftrumsarenden/ansokan-om-att-flyga-i-geografiska-uas-zoner/.",
+      "lang": "en-GB"
+     },
+     {
+      "text": "Tillträde förbjudet. Särskilda tillstånd från Transportstyrelsen krävs utom för verksamhet som utövas av Försvarsmakten, Tullverket eller Polismyndigheten, flygräddning, brandbekämpning, gränskontroll och kustbevakning som utförs av andra svenska myndigheter, verksamhet som utövas enligt lag (2003:778) om skydd mot olyckor samt UAS-verksamhet som utförs av Vattenfall Vattenkraft AB.\nEj undantagna aktörer ska först inhämta ett utlåtande från Vattenfall (bevakningscentral.vattenkraft@vattenfall.com) innan tillstånd söks hos Transportstyrelsen, mer info på https://www.transportstyrelsen.se/sv/luftfart/flygplatser-flygtrafiktjanst-och-luftrum/luftrum/ansok-i-luftrumsarenden/ansokan-om-att-flyga-i-geografiska-uas-zoner/.",
+      "lang": "sv-SE"
+     }
+    ],
+    "zoneAuthority": [
+     {
+      "name": [
+       {
+        "text": "Swedish Transport Agency",
+        "lang": "en-GB"
+       },
+       {
+        "text": "Transportstyrelsen",
+        "lang": "sv-SE"
+       }
+      ],
+      "purpose": "AUTHORIZATION",
+      "intervalBefore": "P14DT00H00M",
+      "service": [
+       {
+        "text": "Permission",
+        "lang": "sv-SE"
+       }
+      ],
+      "contactName": [
+       {
+        "text": "Transportstyrelsen",
+        "lang": "sv-SE"
+       }
+      ],
+      "siteURL": [
+       {
+        "text": "https://www.transportstyrelsen.se/sv/luftfart/flygplatser-flygtrafiktjanst-och-luftrum/luftrum/geografiska-uas-zoner/",
+        "lang": "sv-SE"
+       }
+      ],
+      "email": [
+       {
+        "text": "luftfart@transportstyrelsen.se",
+        "lang": "sv-SE"
+       }
+      ],
+      "phone": [
+       {
+        "text": "+46771503503",
+        "lang": "sv-SE"
+       }
+      ]
+     },
+     {
+      "name": [
+       {
+        "text": "Vattenfall",
+        "lang": "en-GB"
+       },
+       {
+        "text": "Vattenfall",
+        "lang": "sv-SE"
+       }
+      ],
+      "purpose": "NOTIFICATION",
+      "intervalBefore": "P07DT00H00M",
+      "service": [
+       {
+        "text": "Assessment",
+        "lang": "sv-SE"
+       }
+      ],
+      "contactName": [
+       {
+        "text": "Vattenfall Vattenkraft AB",
+        "lang": "sv-SE"
+       }
+      ],
+      "email": [
+       {
+        "text": "bevakningscentral.vattenkraft@vattenfall.se",
+        "lang": "sv-SE"
+       }
+      ]
+     }
+    ],
+    "extendedProperties": {
+     "text": "SE: Undantagna aktörer ska, så snart omständigheterna medger, underrätta Vattenfall Vattenkraft AB om att UAS-verksamhet kommer att bedrivas inom berörd zon, genom meddelande till bevakningscentral.vattenkraft@vattenfall.com. I brådskande fall får verksamheten påbörjas innan underrättelse har skett. EN: Exempted operators shall, as soon as circumstances allow, notify Vattenfall Vattenkraft AB of UAS operations within the relevant zone by sending a message to bevakningscentral.vattenkraft@vattenfall.com. In urgent cases, operations may commence prior to such notification."
+    },
+    "limitedApplicability": [
+     {
+      "startDateTime": "2025-10-27T00:00:00Z"
+     }
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     11.871,
+     57.78
+    ],
+    "extent": {
+     "subType": "Circle",
+     "radius": 3500
+    },
+    "layer": {
+     "upper": 1500,
+     "upperReference": "AMSL",
+     "lower": 0,
+     "lowerReference": "AGL",
+     "uom": "ft"
+    }
+   },
+   "properties": {
+    "identifier": "ESU209",
+    "country": "SWE",
+    "name": [
+     {
+      "text": "Säve Heliport",
+      "lang": "en-GB"
+     },
+     {
+      "text": "Säve helikopterflygplats",
+      "lang": "sv-SE"
+     }
+    ],
+    "type": "REQ_AUTHORIZATION",
+    "variant": "COMMON",
+    "restrictionConditions": "AUTHORIZED",
+    "reason": [
+     "AIR_TRAFFIC"
+    ],
+    "otherReasonInfo": [
+     {
+      "text": "Security",
+      "lang": "en-GB"
+     },
+     {
+      "text": "Säkerhet",
+      "lang": "sv-SE"
+     }
+    ],
+    "regulationExemption": "NO",
+    "message": [
+     {
+      "text": "Access prohibited. Special permission from the Swedish Transport Agency is required, except for activities conducted by the Swedish Armed Forces, the Swedish Customs Service or the Police Authority, air rescue services, firefighting, border control and coast guard operations carried out by other Swedish authorities, and activities undertaken pursuant to the Civil Protection Act (2003:778).\nNon-exempt actors must first obtain an assessment from Säve Flygplatsdrift AB (op.save@castellum.se) before applying for permission from the Swedish Transport Agency. More information is available at https://www.transportstyrelsen.se/sv/luftfart/flygplatser-flygtrafiktjanst-och-luftrum/luftrum/ansok-i-luftrumsarenden/ansokan-om-att-flyga-i-geografiska-uas-zoner/.",
+      "lang": "en-GB"
+     },
+     {
+      "text": "Tillträde förbjudet. Särskilda tillstånd från Transportstyrelsen krävs utom för verksamhet som utövas av Försvarsmakten, Tullverket eller Polismyndigheten, flygräddning, brandbekämpning, gränskontroll och kustbevakning som utförs av andra svenska myndigheter samt verksamhet som utövas enligt lag (2003:778) om skydd mot olyckor.\nEj undantagna aktörer ska först inhämta ett utlåtande från Säve Flygplatsdrift AB (op.save@castellum.se) innan tillstånd söks hos Transportstyrelsen, mer info på https://www.transportstyrelsen.se/sv/luftfart/flygplatser-flygtrafiktjanst-och-luftrum/luftrum/ansok-i-luftrumsarenden/ansokan-om-att-flyga-i-geografiska-uas-zoner/.",
+      "lang": "sv-SE"
+     }
+    ],
+    "zoneAuthority": [
+     {
+      "name": [
+       {
+        "text": "Swedish Transport Agency",
+        "lang": "en-GB"
+       },
+       {
+        "text": "Transportstyrelsen",
+        "lang": "sv-SE"
+       }
+      ],
+      "purpose": "AUTHORIZATION",
+      "intervalBefore": "P14DT00H00M",
+      "service": [
+       {
+        "text": "Permission",
+        "lang": "sv-SE"
+       }
+      ],
+      "contactName": [
+       {
+        "text": "Transportstyrelsen",
+        "lang": "sv-SE"
+       }
+      ],
+      "siteURL": [
+       {
+        "text": "https://www.transportstyrelsen.se/sv/luftfart/flygplatser-flygtrafiktjanst-och-luftrum/luftrum/geografiska-uas-zoner/",
+        "lang": "sv-SE"
+       }
+      ],
+      "email": [
+       {
+        "text": "luftfart@transportstyrelsen.se",
+        "lang": "sv-SE"
+       }
+      ],
+      "phone": [
+       {
+        "text": "+46771503503",
+        "lang": "sv-SE"
+       }
+      ]
+     },
+     {
+      "name": [
+       {
+        "text": "Säve Flygplatsdrift AB",
+        "lang": "en-GB"
+       },
+       {
+        "text": "Säve Flygplatsdrift AB",
+        "lang": "sv-SE"
+       }
+      ],
+      "purpose": "NOTIFICATION",
+      "intervalBefore": "P07DT00H00M",
+      "service": [
+       {
+        "text": "Assessment",
+        "lang": "sv-SE"
+       }
+      ],
+      "contactName": [
+       {
+        "text": "Säve Flygplatsdrift AB",
+        "lang": "sv-SE"
+       }
+      ],
+      "email": [
+       {
+        "text": "op.save@castellum.se",
+        "lang": "sv-SE"
+       }
+      ]
+     }
+    ],
+    "extendedProperties": {
+     "text": "SE: Undantagna aktörer ska, så snart omständigheterna medger, underrätta Säve Flygplatsdrift AB om att UAS-verksamhet kommer att bedrivas inom berörd zon, genom meddelande till op.save@castellum.se. I brådskande fall får verksamheten påbörjas innan underrättelse har skett. EN: Exempted operators shall, as soon as circumstances allow, notify Säve Flygplatsdrift AB that UAS operations will be conducted within the relevant zone, by sending a message to op.save@castellum.se. In urgent cases, operations may commence prior to such notification."
+    },
+    "limitedApplicability": [
+     {
+      "startDateTime": "2026-01-01T00:00:00Z",
+      "endDateTime": "2027-12-31T23:59:00Z"
+     }
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       16.525,
+       57.78888888888889
+      ],
+      [
+       16.514444444444443,
+       57.78333333333336
+      ],
+      [
+       16.52638888888889,
+       57.77222222222221
+      ],
+      [
+       16.54138888888889,
+       57.7763888888889
+      ],
+      [
+       16.525,
+       57.78888888888889
+      ]
+     ]
+    ],
+    "layer": {
+     "upper": 150,
+     "upperReference": "AGL",
+     "lower": 0,
+     "lowerReference": "AGL",
+     "uom": "m"
+    }
+   },
+   "properties": {
+    "identifier": "ESU210",
+    "country": "SWE",
+    "name": [
+     {
+      "text": "Hjorten",
+      "lang": "en-GB"
+     },
+     {
+      "text": "Hjorten",
+      "lang": "sv-SE"
+     }
+    ],
+    "type": "REQ_AUTHORIZATION",
+    "variant": "COMMON",
+    "restrictionConditions": "AUTHORIZED",
+    "reason": [
+     "OTHER"
+    ],
+    "otherReasonInfo": [
+     {
+      "text": "Test site",
+      "lang": "en-GB"
+     },
+     {
+      "text": "Testanläggning",
+      "lang": "sv-SE"
+     }
+    ],
+    "regulationExemption": "NO",
+    "message": [
+     {
+      "text": "The geographical UAS zone corresponds to the extent of restricted area ESR833 Hjorten. When the restricted area is activated, access is prohibited in accordance with the regulations applicable to the restricted area.",
+      "lang": "en-GB"
+     },
+     {
+      "text": "Den geografiska UAS-zonen motsvarar utbredningen av restriktionsområde ESR833 Hjorten. När restriktionsområdet är aktiverat gäller tillträde förbjudet i enlighet med bestämmelserna för restriktionsområdet.",
+      "lang": "sv-SE"
+     }
+    ],
+    "zoneAuthority": [
+     {
+      "name": [
+       {
+        "text": "Swedish Transport Agency",
+        "lang": "en-GB"
+       },
+       {
+        "text": "Transportstyrelsen",
+        "lang": "sv-SE"
+       }
+      ],
+      "purpose": "INFORMATION",
+      "intervalBefore": "P00DT24H00M",
+      "service": [
+       {
+        "text": "Information",
+        "lang": "sv-SE"
+       }
+      ],
+      "contactName": [
+       {
+        "text": "Transportstyrelsen",
+        "lang": "sv-SE"
+       }
+      ],
+      "siteURL": [
+       {
+        "text": "https://www.transportstyrelsen.se/sv/luftfart/flygplatser-flygtrafiktjanst-och-luftrum/luftrum/geografiska-uas-zoner/",
+        "lang": "sv-SE"
+       }
+      ],
+      "email": [
+       {
+        "text": "luftfart@transportstyrelsen.se",
+        "lang": "sv-SE"
+       }
+      ],
+      "phone": [
+       {
+        "text": "+46771503503",
+        "lang": "sv-SE"
+       }
+      ]
+     },
+     {
+      "name": [
+       {
+        "text": "Västervik Drone Science Park AB",
+        "lang": "en-GB"
+       },
+       {
+        "text": "Västervik Drone Science Park AB",
+        "lang": "sv-SE"
+       }
+      ],
+      "purpose": "INFORMATION",
+      "intervalBefore": "P01DT00H00M",
+      "service": [
+       {
+        "text": "Information",
+        "lang": "sv-SE"
+       }
+      ],
+      "contactName": [
+       {
+        "text": "Västervik Drone Science Park AB",
+        "lang": "sv-SE"
+       }
+      ],
+      "siteURL": [
+       {
+        "text": "https://www.vastervikdsp.com/more/#contact",
+        "lang": "sv-SE"
+       }
+      ]
+     }
+    ],
+    "limitedApplicability": [
+     {
+      "startDateTime": "2025-11-10T00:00:00Z",
+      "endDateTime": "2027-08-31T23:59:00Z",
+      "schedule": [
+       {
+        "day": [
+         "MON"
+        ],
+        "startTime": "06:00:00Z",
+        "endTime": "21:00:00Z"
+       },
+       {
+        "day": [
+         "TUE"
+        ],
+        "startTime": "06:00:00Z",
+        "endTime": "21:00:00Z"
+       },
+       {
+        "day": [
+         "WED"
+        ],
+        "startTime": "06:00:00Z",
+        "endTime": "21:00:00Z"
+       },
+       {
+        "day": [
+         "THU"
+        ],
+        "startTime": "06:00:00Z",
+        "endTime": "21:00:00Z"
+       },
+       {
+        "day": [
+         "FRI"
+        ],
+        "startTime": "06:00:00Z",
+        "endTime": "21:00:00Z"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     18.096591,
+     59.22703100000004
+    ],
+    "extent": {
+     "subType": "Circle",
+     "radius": 80
+    },
+    "layer": {
+     "upper": 150,
+     "upperReference": "AGL",
+     "lower": 0,
+     "lowerReference": "AGL",
+     "uom": "m"
+    }
+   },
+   "properties": {
+    "identifier": "ESU218",
+    "country": "SWE",
+    "name": [
+     {
+      "text": "Ågestabadet",
+      "lang": "en-GB"
+     },
+     {
+      "text": "Ågestabadet",
+      "lang": "sv-SE"
+     }
+    ],
+    "type": "CONDITIONAL",
+    "variant": "COMMON",
+    "restrictionConditions": "NO_PHOTOGRAPH",
+    "reason": [
+     "PRIVACY"
+    ],
+    "otherReasonInfo": [
+     {
+      "text": "Privacy",
+      "lang": "en-GB"
+     },
+     {
+      "text": "Personlig integritet",
+      "lang": "sv-SE"
+     }
+    ],
+    "regulationExemption": "NO",
+    "message": [
+     {
+      "text": "Photography is prohibited in this area.",
+      "lang": "en-GB"
+     },
+     {
+      "text": "Inom området gäller förbud mot fotografering.",
+      "lang": "sv-SE"
+     }
+    ],
+    "zoneAuthority": [
+     {
+      "name": [
+       {
+        "text": "Swedish Transport Agency",
+        "lang": "en-GB"
+       },
+       {
+        "text": "Transportstyrelsen",
+        "lang": "sv-SE"
+       }
+      ],
+      "purpose": "INFORMATION",
+      "intervalBefore": "P02DT00H00M",
+      "service": [
+       {
+        "text": "Information",
+        "lang": "sv-SE"
+       }
+      ],
+      "contactName": [
+       {
+        "text": "Transportstyrelsen",
+        "lang": "sv-SE"
+       }
+      ],
+      "siteURL": [
+       {
+        "text": "https://www.transportstyrelsen.se/sv/luftfart/flygplatser-flygtrafiktjanst-och-luftrum/luftrum/geografiska-uas-zoner/",
+        "lang": "sv-SE"
+       }
+      ],
+      "email": [
+       {
+        "text": "luftfart@transportstyrelsen.se",
+        "lang": "sv-SE"
+       }
+      ],
+      "phone": [
+       {
+        "text": "+46771503503",
+        "lang": "sv-SE"
+       }
+      ]
+     },
+     {
+      "name": [
+       {
+        "text": "Stockholm City",
+        "lang": "en-GB"
+       },
+       {
+        "text": "Stockholm stad",
+        "lang": "sv-SE"
+       }
+      ],
+      "purpose": "INFORMATION",
+      "intervalBefore": "P02DT00H00M",
+      "service": [
+       {
+        "text": "Information",
+        "lang": "sv-SE"
+       }
+      ],
+      "contactName": [
+       {
+        "text": "Stockholm stad",
+        "lang": "sv-SE"
+       }
+      ],
+      "siteURL": [
+       {
+        "text": "https://start.stockholm/om-stockholms-stad/organisation/fackforvaltningar/fastighetskontoret/",
+        "lang": "sv-SE"
+       }
+      ],
+      "email": [
+       {
+        "text": "fastighetskontoret@stockholm.se",
+        "lang": "sv-SE"
+       }
+      ],
+      "phone": [
+       {
+        "text": "+46850827000",
+        "lang": "sv-SE"
+       }
+      ]
+     }
+    ],
+    "limitedApplicability": [
+     {
+      "startDateTime": "2027-05-15T00:00:00Z",
+      "endDateTime": "2027-09-15T23:59:00Z"
+     }
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       11.785534937677802,
+       58.08385675667506
+      ],
+      [
+       11.853616973716047,
+       58.07026475789132
+      ],
+      [
+       11.867797682891661,
+       58.102323789420296
+      ],
+      [
+       11.785534937677802,
+       58.08385675667506
+      ]
+     ]
+    ],
+    "layer": {
+     "upper": 300,
+     "upperReference": "AGL",
+     "lower": 0,
+     "lowerReference": "AGL",
+     "uom": "m"
+    }
+   },
+   "properties": {
+    "identifier": "ESU261",
+    "country": "SWE",
+    "name": [
+     {
+      "text": "Stenungsund North",
+      "lang": "en-GB"
+     },
+     {
+      "text": "Stenungsund Norra",
+      "lang": "sv-SE"
+     }
+    ],
+    "type": "REQ_AUTHORIZATION",
+    "variant": "COMMON",
+    "restrictionConditions": "AUTHORIZED",
+    "reason": [
+     "SENSITIVE"
+    ],
+    "otherReasonInfo": [
+     {
+      "text": "Security",
+      "lang": "en-GB"
+     },
+     {
+      "text": "Säkerhet",
+      "lang": "sv-SE"
+     }
+    ],
+    "regulationExemption": "NO",
+    "message": [
+     {
+      "text": "Access prohibited. Permission from the Swedish Transport Agency required, except activities conducted by the Swedish Armed Forces, the Swedish Customs Service, the Coast Guard, the County Administrative Board, the Swedish Police Authority; air rescue, firefighting, border control, and coast guard operations conducted by other Swedish authorities; activities conducted in accordance with the Act (2003:778) on Protection Against Accidents; Borouge International, Linde Gas, Norbro Energi, Vattenfall, Petroport, Nouryon Functional Chemicals AB/Surface Chemistry, Perstorp Oxo, Ineos Inovyn, NCC; activities with the municipal fire and rescue service. Non-exempt actors must obtain an assessment from Industrins Räddningstjänst i Stenungsund AB (info@teamiris.se) before applying for permission from the Swedish Transport Agency, https://www.transportstyrelsen.se/sv/luftfart/flygplatser-flygtrafiktjanst-och-luftrum/luftrum/ansok-i-luftrumsarenden/ansokan-om-att-flyga-i-geografiska-uas-zoner/.",
+      "lang": "en-GB"
+     },
+     {
+      "text": "Tillträde förbjudet. Särskilda tillstånd från Transportstyrelsen krävs utom för verksamhet som utövas av Försvarsmakten, Tullverket, Kustbevakningen, Länsstyrelsen eller Polismyndigheten, flygräddning, brandbekämpning, gränskontroll och kustbevakning som utförs av andra svenska myndigheter, verksamhet som utövas enligt lag (2003:778) om skydd mot olyckor samt UAS-verksamhet som utförs på uppdrag av Borouge International, Linde Gas, Norbro Energi, Vattenfall, Petroport, Nouryon Functional Chemicals AB/Surface Chemistry, Perstorp Oxo, Ineos Inovyn, NCC Industry AB, och övningsverksamhet med kommunal räddningstjänst. Ej undantagna aktörer ska först inhämta ett utlåtande från Industrins Räddningstjänst i Stenungsund AB (info@teamiris.se) innan tillstånd söks hos Transportstyrelsen, mer info på https://www.transportstyrelsen.se/sv/luftfart/flygplatser-flygtrafiktjanst-och-luftrum/luftrum/ansok-i-luftrumsarenden/ansokan-om-att-flyga-i-geografiska-uas-zoner/.",
+      "lang": "sv-SE"
+     }
+    ],
+    "zoneAuthority": [
+     {
+      "name": [
+       {
+        "text": "Swedish Transport Agency",
+        "lang": "en-GB"
+       },
+       {
+        "text": "Transportstyrelsen",
+        "lang": "sv-SE"
+       }
+      ],
+      "purpose": "AUTHORIZATION",
+      "intervalBefore": "P14DT00H00M",
+      "service": [
+       {
+        "text": "Permission",
+        "lang": "sv-SE"
+       }
+      ],
+      "contactName": [
+       {
+        "text": "Transportstyrelsen",
+        "lang": "sv-SE"
+       }
+      ],
+      "siteURL": [
+       {
+        "text": "https://www.transportstyrelsen.se/sv/luftfart/flygplatser-flygtrafiktjanst-och-luftrum/luftrum/geografiska-uas-zoner/",
+        "lang": "sv-SE"
+       }
+      ],
+      "email": [
+       {
+        "text": "luftfart@transportstyrelsen.se",
+        "lang": "sv-SE"
+       }
+      ],
+      "phone": [
+       {
+        "text": "+46771503503",
+        "lang": "sv-SE"
+       }
+      ]
+     },
+     {
+      "name": [
+       {
+        "text": "Industrins Räddningstjänst i Stenungsund AB",
+        "lang": "en-GB"
+       },
+       {
+        "text": "Industrins Räddningstjänst i Stenungsund AB",
+        "lang": "sv-SE"
+       }
+      ],
+      "purpose": "NOTIFICATION",
+      "intervalBefore": "P07DT00H00M",
+      "service": [
+       {
+        "text": "Assessment",
+        "lang": "sv-SE"
+       }
+      ],
+      "contactName": [
+       {
+        "text": "Industrins Räddningstjänst i Stenungsund AB",
+        "lang": "sv-SE"
+       }
+      ],
+      "siteURL": [
+       {
+        "text": "https://teamiris.se/kontakt/",
+        "lang": "sv-SE"
+       }
+      ],
+      "email": [
+       {
+        "text": "info@teamiris.se",
+        "lang": "sv-SE"
+       }
+      ]
+     }
+    ],
+    "extendedProperties": {
+     "text": "SE: Undantagna aktörer ska, så snart omständigheterna medger, underrätta Industrins Räddningstjänst i Stenungsund AB om att UAS-verksamhet kommer att bedrivas inom berörd zon, genom meddelande till info@teamiris.se. I brådskande fall får verksamheten påbörjas innan underrättelse har skett. EN: Exempted operators shall, as soon as circumstances allow, notify Industrins Räddningstjänst i Stenungsund AB of UAS operations within the relevant zone by sending a message to info@teamiris.se. In urgent cases, operations may commence prior to such notification."
+    },
+    "limitedApplicability": [
+     {
+      "startDateTime": "2026-08-17T00:00:00Z"
+     }
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       17.646666666666665,
+       59.229444444444454
+      ],
+      [
+       17.580833333333334,
+       59.21722222222226
+      ],
+      [
+       17.548611111111114,
+       59.184722222222206
+      ],
+      [
+       17.59361111111111,
+       59.17472222222219
+      ],
+      [
+       17.603611111111114,
+       59.16638888888892
+      ],
+      [
+       17.648333333333333,
+       59.164722222222224
+      ],
+      [
+       17.649444444444445,
+       59.168055555555554
+      ],
+      [
+       17.654999999999998,
+       59.17444444444445
+      ],
+      [
+       17.66583333333333,
+       59.17861111111111
+      ],
+      [
+       17.678333333333335,
+       59.18055555555554
+      ],
+      [
+       17.68638888888889,
+       59.18083333333334
+      ],
+      [
+       17.7,
+       59.17888888888888
+      ],
+      [
+       17.682222222222222,
+       59.20527777777778
+      ],
+      [
+       17.659166666666664,
+       59.22305555555556
+      ],
+      [
+       17.646666666666665,
+       59.229444444444454
+      ]
+     ]
+    ],
+    "layer": {
+     "upper": 120,
+     "upperReference": "AGL",
+     "lower": 80,
+     "lowerReference": "AGL",
+     "uom": "m"
+    }
+   },
+   "properties": {
+    "identifier": "ESU271",
+    "country": "SWE",
+    "name": [
+     {
+      "text": "Södertälje UAS",
+      "lang": "en-GB"
+     },
+     {
+      "text": "Södertälje UAS",
+      "lang": "sv-SE"
+     }
+    ],
+    "type": "REQ_AUTHORIZATION",
+    "variant": "COMMON",
+    "restrictionConditions": "AUTHORIZED",
+    "reason": [
+     "AIR_TRAFFIC"
+    ],
+    "otherReasonInfo": [
+     {
+      "text": "UAS operations",
+      "lang": "en-GB"
+     },
+     {
+      "text": "UAS-verksamhet",
+      "lang": "sv-SE"
+     }
+    ],
+    "regulationExemption": "NO",
+    "message": [
+     {
+      "text": "Access prohibited. Special permission from the Swedish Police Authority is required, except for activities conducted by the Swedish Armed Forces, the Swedish Customs Service, the Swedish Prison and Probation Service, the Swedish Maritime Administration, or the Swedish Police Authority, as well as air rescue, firefighting, border control, and coast guard operations conducted by other Swedish authorities, activities carried out under Act (2003:778). Non-exempt actors must obtain a permission from the Swedish Police Authority by email to restriktionsomrade.nationell@polisen.se.",
+      "lang": "en-GB"
+     },
+     {
+      "text": "Tillträde förbjudet. Särskilda tillstånd från Polismyndigheten krävs utom för verksamhet som utövas av Försvarsmakten, Tullverket, Kriminalvården, Sjöfartsverket eller Polismyndigheten, flygräddning, brandbekämpning, gränskontroll och kustbevakning som utförs av andra svenska myndigheter samt verksamhet som utövas enligt lag (2003:778). Ej undantagna aktörer ska inhämta tillstånd från Polismyndigheten genom mejl till restriktionsomrade.nationell@polisen.se.",
+      "lang": "sv-SE"
+     }
+    ],
+    "zoneAuthority": [
+     {
+      "name": [
+       {
+        "text": "Swedish Transport Agency",
+        "lang": "en-GB"
+       },
+       {
+        "text": "Transportstyrelsen",
+        "lang": "sv-SE"
+       }
+      ],
+      "purpose": "INFORMATION",
+      "intervalBefore": "P01DT00H00M",
+      "service": [
+       {
+        "text": "Information",
+        "lang": "sv-SE"
+       }
+      ],
+      "contactName": [
+       {
+        "text": "Transportstyrelsen",
+        "lang": "sv-SE"
+       }
+      ],
+      "siteURL": [
+       {
+        "text": "https://www.transportstyrelsen.se/sv/luftfart/flygplatser-flygtrafiktjanst-och-luftrum/luftrum/geografiska-uas-zoner/",
+        "lang": "sv-SE"
+       }
+      ],
+      "email": [
+       {
+        "text": "luftfart@transportstyrelsen.se",
+        "lang": "sv-SE"
+       }
+      ],
+      "phone": [
+       {
+        "text": "+46771503503",
+        "lang": "sv-SE"
+       }
+      ]
+     },
+     {
+      "name": [
+       {
+        "text": "The Swedish Police Authority",
+        "lang": "en-GB"
+       },
+       {
+        "text": "Polismyndigheten",
+        "lang": "sv-SE"
+       }
+      ],
+      "purpose": "AUTHORIZATION",
+      "intervalBefore": "P10DT00H00M",
+      "service": [
+       {
+        "text": "Permission",
+        "lang": "sv-SE"
+       }
+      ],
+      "contactName": [
+       {
+        "text": "Polismyndigheten",
+        "lang": "sv-SE"
+       }
+      ],
+      "email": [
+       {
+        "text": "restriktionsomrade.nationell@polisen.se",
+        "lang": "sv-SE"
+       }
+      ]
+     }
+    ],
+    "extendedProperties": {
+     "text": "SE: Undantagna aktörer ska, så snart omständigheterna medger, underrätta Polismyndigheten om att UAS-verksamhet kommer att bedrivas inom berörd zon, genom meddelande till restriktionsomrade.nationell@polisen.se. I brådskande fall får verksamheten påbörjas innan underrättelse har skett. EN: Exempted operators shall, as soon as circumstances allow, notify Vattenfall Vattenkraft AB that UAS operations will be conducted within the relevant zone, by sending a message to restriktionsomrade.nationell@polisen.se. In urgent cases, operations may commence prior to such notification."
+    },
+    "limitedApplicability": [
+     {
+      "startDateTime": "2026-09-19T00:00:00Z",
+      "endDateTime": "2027-05-31T23:59:00Z"
+     }
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       14.368333333333334,
+       63.12861111111113
+      ],
+      [
+       14.398888888888889,
+       63.110000000000014
+      ],
+      [
+       14.421111111111111,
+       63.0888888888889
+      ],
+      [
+       14.54277777777778,
+       62.98666666666668
+      ],
+      [
+       14.578333333333335,
+       62.979444444444425
+      ],
+      [
+       14.595,
+       62.98472222222222
+      ],
+      [
+       14.594722222222224,
+       62.99472222222221
+      ],
+      [
+       14.566944444444442,
+       63.00388888888892
+      ],
+      [
+       14.459166666666667,
+       63.095
+      ],
+      [
+       14.476944444444445,
+       63.10388888888892
+      ],
+      [
+       14.368333333333334,
+       63.12861111111113
+      ]
+     ]
+    ],
+    "layer": {
+     "upper": 150,
+     "upperReference": "AGL",
+     "lower": 0,
+     "lowerReference": "AGL",
+     "uom": "m"
+    }
+   },
+   "properties": {
+    "identifier": "ESU276",
+    "country": "SWE",
+    "name": [
+     {
+      "text": "Östersund South",
+      "lang": "en-GB"
+     },
+     {
+      "text": "Östersund Syd",
+      "lang": "sv-SE"
+     }
+    ],
+    "type": "CONDITIONAL",
+    "variant": "COMMON",
+    "restrictionConditions": "AUTHORIZED",
+    "reason": [
+     "AIR_TRAFFIC"
+    ],
+    "otherReasonInfo": [
+     {
+      "text": "UAS operations",
+      "lang": "en-GB"
+     },
+     {
+      "text": "UAS-verksamhet",
+      "lang": "sv-SE"
+     }
+    ],
+    "regulationExemption": "NO",
+    "message": [
+     {
+      "text": "The area is used for operations with UAS flying beyond visual line of sight of the remote pilot. Consultation with Östersund communiy should take place before the area is used for traffic. More information is available at TEL +46(0)76144397 . Covering the geo zone is also a danger area, ESD861 Östersund Syd.",
+      "lang": "en-GB"
+     },
+     {
+      "text": "Området används för verksamhet med UAS som flyger utom synhåll från fjärrpiloten. Samverkan med Östersunds kommun bör ske innan området trafikeras. Mer information finns på TEL +46(0)761443975 . Över området finns även ett farligt område, ESD861 Östersund Syd.",
+      "lang": "sv-SE"
+     }
+    ],
+    "zoneAuthority": [
+     {
+      "name": [
+       {
+        "text": "Swedish Transport Agency",
+        "lang": "en-GB"
+       },
+       {
+        "text": "Transportstyrelsen",
+        "lang": "sv-SE"
+       }
+      ],
+      "purpose": "INFORMATION",
+      "intervalBefore": "P00DT24H00M",
+      "service": [
+       {
+        "text": "Information",
+        "lang": "sv-SE"
+       }
+      ],
+      "contactName": [
+       {
+        "text": "Transportstyrelsen",
+        "lang": "sv-SE"
+       }
+      ],
+      "siteURL": [
+       {
+        "text": "https://www.transportstyrelsen.se/sv/luftfart/flygplatser-flygtrafiktjanst-och-luftrum/luftrum/geografiska-uas-zoner/",
+        "lang": "sv-SE"
+       }
+      ],
+      "email": [
+       {
+        "text": "luftfart@transportstyrelsen.se",
+        "lang": "sv-SE"
+       }
+      ],
+      "phone": [
+       {
+        "text": "+46771503503",
+        "lang": "sv-SE"
+       }
+      ]
+     },
+     {
+      "name": [
+       {
+        "text": "Östersund municipality",
+        "lang": "en-GB"
+       },
+       {
+        "text": "Östersunds kommun",
+        "lang": "sv-SE"
+       }
+      ],
+      "purpose": "NOTIFICATION",
+      "intervalBefore": "P01DT00H00M",
+      "service": [
+       {
+        "text": "Consultation",
+        "lang": "sv-SE"
+       }
+      ],
+      "contactName": [
+       {
+        "text": "Östersunds kommun",
+        "lang": "sv-SE"
+       }
+      ],
+      "siteURL": [
+       {
+        "text": "https://www.ostersund.se/trafik-och-infrastruktur/hallbart-resande/green-flyway.html",
+        "lang": "sv-SE"
+       }
+      ],
+      "email": [
+       {
+        "text": "anne.sorensson@ostersund.se",
+        "lang": "sv-SE"
+       }
+      ],
+      "phone": [
+       {
+        "text": "+46767686477",
+        "lang": "sv-SE"
+       }
+      ]
+     }
+    ],
+    "limitedApplicability": [
+     {
+      "startDateTime": "2026-11-10T00:00:00Z",
+      "endDateTime": "2026-11-13T23:59:00Z",
+      "schedule": [
+       {
+        "day": [
+         "MON"
+        ],
+        "startTime": "07:00:00Z",
+        "endTime": "17:00:00Z"
+       },
+       {
+        "day": [
+         "TUE"
+        ],
+        "startTime": "07:00:00Z",
+        "endTime": "17:00:00Z"
+       },
+       {
+        "day": [
+         "WED"
+        ],
+        "startTime": "07:00:00Z",
+        "endTime": "17:00:00Z"
+       },
+       {
+        "day": [
+         "THU"
+        ],
+        "startTime": "07:00:00Z",
+        "endTime": "17:00:00Z"
+       },
+       {
+        "day": [
+         "FRI"
+        ],
+        "startTime": "07:00:00Z",
+        "endTime": "17:00:00Z"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       12.928055555555552,
+       63.28833333333333
+      ],
+      [
+       12.838055555555558,
+       63.22999999999999
+      ],
+      [
+       12.972777777777777,
+       63.19361111111115
+      ],
+      [
+       13.096388888888887,
+       63.259444444444455
+      ],
+      [
+       12.928055555555552,
+       63.28833333333333
+      ]
+     ]
+    ],
+    "layer": {
+     "upper": 150,
+     "upperReference": "AGL",
+     "lower": 0,
+     "lowerReference": "AGL",
+     "uom": "m"
+    }
+   },
+   "properties": {
+    "identifier": "ESU279",
+    "country": "SWE",
+    "name": [
+     {
+      "text": "Are Ottsjo UAS",
+      "lang": "en-GB"
+     },
+     {
+      "text": "Åre Ottsjö UAS",
+      "lang": "sv-SE"
+     }
+    ],
+    "type": "CONDITIONAL",
+    "variant": "COMMON",
+    "restrictionConditions": "AUTHORIZED",
+    "reason": [
+     "OTHER"
+    ],
+    "otherReasonInfo": [
+     {
+      "text": "UAS operations",
+      "lang": "en-GB"
+     },
+     {
+      "text": "UAS-verksamhet",
+      "lang": "sv-SE"
+     }
+    ],
+    "regulationExemption": "NO",
+    "message": [
+     {
+      "text": "The area is used for operations with UAS flying beyond visual line of sight of the remote pilot. Consultation with TIEPOINT A/S should take place before the area is used for traffic.",
+      "lang": "en-GB"
+     },
+     {
+      "text": "Området används för verksamhet med UAS som flyger utom synhåll från fjärrpiloten. Samverkan med TIEPOINT A/S bör ske innan området trafikeras.",
+      "lang": "sv-SE"
+     }
+    ],
+    "zoneAuthority": [
+     {
+      "name": [
+       {
+        "text": "Swedish Transport Agency",
+        "lang": "en-GB"
+       },
+       {
+        "text": "Transportstyrelsen",
+        "lang": "sv-SE"
+       }
+      ],
+      "purpose": "INFORMATION",
+      "intervalBefore": "P01DT00H00M",
+      "service": [
+       {
+        "text": "Information",
+        "lang": "sv-SE"
+       }
+      ],
+      "contactName": [
+       {
+        "text": "Transportstyrelsen",
+        "lang": "sv-SE"
+       }
+      ],
+      "siteURL": [
+       {
+        "text": "https://www.transportstyrelsen.se/sv/luftfart/flygplatser-flygtrafiktjanst-och-luftrum/luftrum/geografiska-uas-zoner/",
+        "lang": "sv-SE"
+       }
+      ],
+      "email": [
+       {
+        "text": "luftfart@transportstyrelsen.se",
+        "lang": "sv-SE"
+       }
+      ],
+      "phone": [
+       {
+        "text": "+46771503503",
+        "lang": "sv-SE"
+       }
+      ]
+     },
+     {
+      "name": [
+       {
+        "text": "TIEPOINT A/S",
+        "lang": "en-GB"
+       },
+       {
+        "text": "TIEPOINT A/S",
+        "lang": "sv-SE"
+       }
+      ],
+      "purpose": "NOTIFICATION",
+      "intervalBefore": "P01DT00H00M",
+      "service": [
+       {
+        "text": "Consultation",
+        "lang": "sv-SE"
+       }
+      ],
+      "contactName": [
+       {
+        "text": "TIEPOINT A/S",
+        "lang": "sv-SE"
+       }
+      ],
+      "email": [
+       {
+        "text": "christian.dyngeland@tiepoint.no",
+        "lang": "sv-SE"
+       }
+      ],
+      "phone": [
+       {
+        "text": "+4794184609",
+        "lang": "sv-SE"
+       }
+      ]
+     }
+    ],
+    "limitedApplicability": [
+     {
+      "startDateTime": "2026-10-26T05:00:00Z",
+      "endDateTime": "2026-11-13T15:00:00Z"
+     }
+    ]
+   }
+  }
+ ]
+}

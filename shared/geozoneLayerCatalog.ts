@@ -99,8 +99,9 @@ export const CH_GEOZONE_LAYERS: GeozoneLayer[] = [
 ];
 
 export const LU_GEOZONE_LAYERS: GeozoneLayer[] = [
-  { id: "lu_uas_0_50", wmsLayer: "1927", label: "UAS-Zonen 0–50 m", defaultEnabled: true },
-  { id: "lu_uas_50_120", wmsLayer: "1928", label: "UAS-Zonen 50–120 m", defaultEnabled: true },
+  // Kommen als Vektoren (siehe geozones.ts LU); WMS standardmäßig aus (sonst doppelt).
+  { id: "lu_uas_0_50", wmsLayer: "1927", label: "UAS-Zonen 0–50 m (WMS)", defaultEnabled: false },
+  { id: "lu_uas_50_120", wmsLayer: "1928", label: "UAS-Zonen 50–120 m (WMS)", defaultEnabled: false },
 ];
 
 export const NL_GEOZONE_LAYERS: GeozoneLayer[] = [
