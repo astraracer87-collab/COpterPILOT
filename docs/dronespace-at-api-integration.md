@@ -209,3 +209,52 @@ curl -s --compressed -A "$UA" "https://utm.dronespace.at/avm/utm/uas.geojson" | 
 curl -s --compressed -A "$UA" "https://utm.dronespace.at/avm/utm/uas.geojson?start=$S&end=$E" \
   | jq '{n:(.features|length), restr:([.features[].properties.restriction]|group_by(.)|map({(.[0]):length})|add)}'
 ```
+
+---
+
+## Anhang AT: Zusatzdetails (DE-Session verifiziert, 2026-11-15)
+
+Bestätigt den Zeitfenster-Fix oben und ergänzt build-relevante Details:
+
+### Weitere Parameter
+- `bounds=west,south,east,north` – BBox-Filter (Webseite rundet auf ganze Grad).
+- `buffer=<Minuten>` – Puffer um `start`/`end` (Webseite-Default 60).
+
+### ⚠️ Systemzonen `sys_*` (6 Features, `hidden:true`) – nicht wegwerfen
+| identifier | Inhalt |
+|---|---|
+| `sys_1`, `sys_2` | „Bewilligungspflichtig": **ganz Österreich (Staatsgrenze als hochaufgelöstes Polygon, ~9.700 Punkte)** |
+| `sys_3` (3×) | „Flugplanabgabe freiwillig" |
+| `sys_4` | „Außerhalb der Staatsgrenze", `PROHIBITED`: Welt-Rechteck mit AT als Loch |
+
+→ Beim **Rendern ausblenden** (`hidden===true`), aber behalten: `sys_1/2`
+liefern die **AT-Staatsgrenze** gratis (für Ländererkennung nutzbar). Diese
+Systemzonen machen den Großteil der 3,5 MB aus.
+
+### `authorityRequirementConditions` (13 Zonen) – Ausnahmen parsen
+Kodierte Zeichenkette, z. B. CTR Graz:
+`EXCLUDED/LOS=VLOS/ALTITUDE_AGL_MAX=30/MTOM_G_MAX=249`
+→ an `/` trennen; 1. Token = Modus (`EXCLUDED`), danach `KEY=VALUE`. Bedeutet:
+Zustimmungspflicht **entfällt** bei VLOS, ≤30 m AGL, <250 g.
+
+### Geometrie-Fallen
+- Nur `Polygon` (kein MultiPolygon); Kreise **bereits polygonisiert**
+  (Heliport-Radius ≈ 73 Punkte).
+- **Wickelrichtung uneinheitlich** (229 CW / 54 CCW) → für RFC-7946-strikte
+  Tools (manche Point-in-Polygon/Vektortile) mit `@mapbox/geojson-rewind` /
+  `turf.rewind` normalisieren. MapLibre/Mapbox stört es nicht.
+- 3 Features mit Löchern (`sys_4`, `sys_3`, `acg_331`).
+- `feature.geometry` == `properties.geometry.horizontalProjection` → fürs
+  Rendern `feature.geometry` nehmen.
+
+### Restriction-Farben (Dronespace, Füllung 0.15)
+`PROHIBITED` `hsl(1,98%,55%)` rot · `REQ_AUTHORISATION` `hsl(38,93%,48%)` orange ·
+`CONDITIONAL` `hsl(209,100%,20%)` dunkelblau · `NO_RESTRICTION` `hsl(196,48%,49%)`
+hellblau. Überlappung nach Strenge sortieren (NO_RESTRICTION < CONDITIONAL <
+REQ_AUTHORISATION < PROHIBITED → strengste gilt).
+
+### Betrieb
+- Antwort `Cache-Control: max-age=1` + **`ETag`** → Server-Sync alle 1–6 h mit
+  `If-None-Match`. Nicht pro Nutzer abrufen (kein CORS-Header → serverseitig).
+- `zoneId` (UUID) = Primärschlüssel für Diffs; `identifier` (`acg_163`) lesbare Ref.
+- `region`: 0 = bundesweit, 1–9 = Bundesland.

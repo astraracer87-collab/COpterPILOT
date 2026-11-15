@@ -1,8 +1,8 @@
 # Luftverkehr (Radar) – Datenquellen & Integrationsdoku
 
 Übersicht über die Live-Luftverkehrsquellen von COpterPILOT: die aktiven
-ADS-B-/OGN-Feeds (bereits integriert) und FlightRadar24 (Zusatzquelle, seit
-2026-11-15 integriert, mit Zustimmung von FR24). Stand: 2026-11-15, Endpunkte live geprüft.
+ADS-B-/OGN-Feeds (bereits integriert) und FlightRadar24 (geplante Zusatzquelle,
+mit schriftlicher Zustimmung von FR24). Stand: 2026-11-15, Endpunkte live geprüft.
 
 Analog zu den Geozonen-Dokumenten (`docs/geozonen-quellen-uebersicht.md`).
 
@@ -46,8 +46,8 @@ User-Agent `COpterPilot/1.0 (drone preflight app)`.
 
 Im `DataSource`-Typ (`client/lib/opensky.ts`) existieren zusätzlich `opensky`
 und `fr24`; aktiv genutzt werden laut Code-Kommentar **adsb.lol,
-airplanes.live, adsb.fi und OGN**, seit 2026-11-15 zusätzlich **FR24** (siehe
-§3/§4.2). `opensky` steht auf `error` und wird nicht abgefragt.
+airplanes.live, adsb.fi und OGN**. `fr24` steht auf `error` und wird derzeit
+**nicht** abgefragt (siehe §3).
 
 ---
 
@@ -60,7 +60,6 @@ airplanes.live, adsb.fi und OGN**, seit 2026-11-15 zusätzlich **FR24** (siehe
   alle anderen.
 - → Genutzt wird der **inoffizielle `feed.js`-Web-Feed**, **nicht** die bezahlte
   API. Die Zustimmung von FR24 bitte schriftlich im Projekt ablegen.
-- **TODO:** Schriftliche Zustimmung von FR24 unter docs/genehmigungen/ ablegen
 
 ### 3.2 Der Feed (live verifiziert 2026-11-15)
 ```
@@ -283,30 +282,6 @@ const s = parseFr24Feed(data);
 // callsign="WZZ8409", velocity≈240 m/s, baroAltitude≈11270 m, full_count übersprungen
 ```
 
-### 4.2 Umsetzungsstand (2026-11-15)
-- **Umgesetzt** in `client/lib/traffic/sources.ts` (`FR24_FEED_URL`,
-  `parseFr24Feed`, `buildFr24FeedUrl`, `fetchFr24`) und
-  `client/lib/traffic/aggregator.ts` (`fr24` standardmäßig aktiv).
-- Abweichungen vom Copy-paste-Code oben:
-  - Abruf über `client/lib/fetchWithTimeout.ts` (8 s) mit Mobile-Browser-UA und
-    `Origin`/`Referer` wie die Webseite.
-  - Bounding-Box für FR24 auf `FR24_MAX_DIST_NM` = 60 NM Halbkante gekappt
-    (deckt den max. Radar-Radius 100 km ab); Poll-Intervall 8 s.
-  - Feld 10 (`time`) → `reportAgeMs`; Positionen älter als `FR24_MAX_AGE_SEC`
-    (120 s, wie OGN) werden verworfen (`maxage=14400` im Request bleibt wie
-    verifiziert, gefiltert wird clientseitig).
-  - Kategorie ab `"unknown"` über `refineCategoryByType` (plausible Typkürzel
-    → mindestens Flugzeug); `GRND`/`GND` → Bodenfahrzeug.
-  - Hex muss echter Hex sein, sonst synthetische ID `fr24-<flight_id>`.
-- Merge: FR24 steht in `ALL_DATA_SOURCES` hinten → bei gleichem ICAO-Hex bzw.
-  gleicher Registrierung bleiben die ADS-B-Werte Basis, FR24 füllt nur Lücken
-  (Typ, Registrierung, Start/Ziel, Flugnummer).
-- **Abschaltbar** zur Laufzeit: `setTrafficSourceEnabled("fr24", false)`;
-  `getAggregatorStatus().enabledSources` zeigt die aktiven Quellen. Eine
-  persistente Einstellung in der UI gibt es noch nicht.
-- Noch offen: `ENABLED_SOURCES` in `client/lib/trafficStatus.ts` (UI-Liste des
-  `SourceHealthIndicator`) um `"fr24"` ergänzen, damit FR24 dort erscheint.
-
 ### Einordnung
 - FR24 als **Zusatzquelle mit Fallback**, nicht als alleinige – der inoffizielle
   Feed kann sich ändern. Die ADS-B-/OGN-Quellen bleiben die Basis.
@@ -320,7 +295,6 @@ const s = parseFr24Feed(data);
    durch FR24s Cloudflare? Hier (Server-Egress) ja; Geräte-IPs können abweichen.
 2. **Rate-Limits:** FR24 nennt keine; defensiv pollen, Bounding-Box klein halten.
 3. **Zustimmung** von FR24 schriftlich im Projekt ablegen.
-   TODO: Schriftliche Zustimmung von FR24 unter docs/genehmigungen/ ablegen
 4. Prüfen, ob `feed.js` bei Lastspitzen leere Hüllen (`full_count` > 0, aber
    keine Flüge) liefert – die Python-Library droppt dann die Cookies
    `AWSALB`/`AWSALBCORS` und wiederholt (FEED_EMPTY_RETRIES). Für RN ggf.

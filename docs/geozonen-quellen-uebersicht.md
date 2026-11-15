@@ -20,26 +20,39 @@ Pro Land gibt es ein eigenes Detaildokument (`docs/<land>-…-integration.md`).
 | **IE** | Irish Aviation Authority | keine | ED-269 GeoJSON | ✅ einsatzbereit (Link dynamisch) | `ireland-geozones-integration.md` |
 | **PT** | ANAC | keine | ED-269 Download | ✅ einsatzbereit (vollständigstes ED-269) | `anac-pt-api-integration.md` |
 | **LT** | Oro navigacija (Skyzr) | keine | ED-269 (wie AT) | ✅ einsatzbereit | `lithuania-ans-api-integration.md` |
-| **GB** | NATS UAS Restrictions Map | keine | KML (Google My Maps) | ✅ einsatzbereit (offiziell, inkl. FRZ) | `uk-geozones-integration.md` |
+| **GB** | NATS (UK AIP ENR 5.1) | keine | **AIXM 5.1** (+ KML-Rückfall) | ✅ einsatzbereit (offizieller Digital-Datensatz, 1.069 Zonen) | `uk-geozones-integration.md` |
+| **EE** | EANS (Skyzr) | keine | ED-269 (wie AT/LT) | ✅ einsatzbereit (live: ~230 Zonen) | `estonia-eans-api-integration.md` |
+| **FR** | DGAC / IGN (Géoplateforme) | keine (Etalab) | WFS GeoJSON (~89.700) | ✅ einsatzbereit (Portal nur Raster, WFS liefert Vektor) | `france-geoportail-api-integration.md` |
 | **IS** | Samgöngustofa / gis.is | keine | WFS GeoJSON | ✅ einsatzbereit (ohne Höhen) | `iceland-samgongustofa-api-integration.md` |
 | **CY** | DCA Cyprus / ArcGIS | keine | ArcGIS FeatureServer (KML-Stil) | ✅ einsatzbereit (gr. Popups parsen) | `cyprus-dca-api-integration.md` |
 | **HR** | Croatia Control (AMC) | keine | SignalR-Hub (WKT) | ✅ einsatzbereit (anonym) | `croatia-amc-api-integration.md` |
 | **BG** | CAA Bulgaria | keine | GeoServer WFS (ED-269-nah) | ✅ einsatzbereit | `bulgaria-caa-api-integration.md` |
-| **SI** | CAA Slovenia / Slovenia Control | keine | ArcGIS FeatureServer (dünn) | ✅ einsatzbereit (Stand 2021 prüfen) | `slovenia-caa-api-integration.md` |
+| **SI** | CAA Slovenia / Slovenia Control | keine | ArcGIS FeatureServer (Web Map dyn.) | ✅ einsatzbereit (aktuelle Mai-2026-Karte, Skript) | `slovenia-caa-api-integration.md` |
 | **LU** | Geoportail Luxembourg | keine (CC0) | ED-269 / OGC Features | 🔑 Modul `luGeozones.ts` gebaut (nicht eingebunden), Feed defekt → auf OGC umstellen | `luxembourg-geozones-integration.md` |
-| **IT** | d-flight | Login (Keycloak) + CSRF | ED-269 Download | 🔑 CSRF gelöst, Download-Format erfassen | `dflight-it-api-integration.md` |
-| **PL** | PANSA DroneMap | API-Key (`x-api-key`) → Bearer (`access_token`) | KML (Typ/Höhen in `<description>`) | ✅ **integriert** (2026-11-15): KML `max=500` (Höhengrenze, ungefiltert), Typ-Tabelle 34 Typen, ft → m, Bezug unbekannt | `pansa-pl-api-integration.md` |
-| **ES** | ENAIRE | keine | ArcGIS MapServer `insignias` (GeoJSON) | ✅ **integriert als Kachelspeicher-Land** (2026-11-15): Paket-Teile Luftfahrt / Infrastruktur / Naturschutz, NOTAM live, ohne Paket bbox-Live-Abfrage; AIP-ZIP- und alter FeatureServer-Pfad entfernt | `enaire-es-api-integration.md` |
-| **MT** | iDronect / Transport Malta | keine (DDP) | Browser-Export (GeoJSON) | ✅ **integriert als Nur-Import-Land** (Roh-Export + `normalisieren.py`), kein automatischer Abruf; ohne Import manuelle Prüfung | `idronect-mt-api-integration.md` |
+| **IT** | d-flight | Login (Keycloak, Token) | GeoServer-WFS (GeoJSON) | 🔑 WFS abrufbar mit Login (ATM09_INFO 3.876); offen: Service-Account + Lizenzfreigabe | `dflight-it-api-integration.md` |
+| **PL** | PANSA DroneMap | API-Key (`x-api-key`) → Bearer | KML | ✅ live abgerufen (DE-IP): 1.774 Zonen | `pansa-pl-api-integration.md` |
+| **ES** | ENAIRE | keine | ED-318 (ArcGIS MapServer) | ✅ KOMPLETT abgerufen (DE-IP, ~21k Feat.) | `enaire-es-api-integration.md` |
+| **MT** | iDronect / Transport Malta | keine (DDP) | Meteor-DDP (GeoJSON) | ✅ direkt abrufbar (`{managedZones:true}`, 195 Zonen) | `idronect-mt-api-integration.md` |
 | **HU** | MyDroneSpace / HungaroControl | Login (GoodID/Google) | GeoJSON (`/api/zones`) + WMTS-Raster | 🔑 Zonen brauchen Login; WMTS öffentlich | `hungary-mydronespace-api-integration.md` |
 | **CZ** | ANS CR / ŘLP | keine | ED-318 Download (offiziell) | ✅ einsatzbereit (aim.rlp.cz, ED-318) | `czech-ans-api-integration.md` |
 | **SK** | LPS SR | keine | ArcGIS MapServer-Query (GeoJSON) | ✅ einsatzbereit (178 Zonen, AIXM-Schema) | `slovakia-lps-api-integration.md` |
-| **LV** | LGS / AIS Latvia | keine (Referer) | ArcGIS (Referer-Proxy) | 📥 abrufbar (DE-IP, mit Referer) | `latvia-lgs-api-integration.md` |
-| **GR** | HASP/HCAA (DAGR) | keine (Freigabe) | WMS-Raster (+ Skript-Export) | ✅ **integriert als Bild-Overlay** (DAGR-WMS, Zeitfenster heute..morgen, manuelle Prüfung) + optionaler Import der `dagr_geozonen.py`-Ausgabe; Kachel-Laden in der App wegen Bot-Schutz auf dem Gerät prüfen | `greece-romania-geozones-notes.md` |
-| **RO** | ROMATSA | keine | statisches JSON + GeoServer-WFS (NOTAM) | ✅ **integriert** (2026-11-15): Online-Abruf statt Nur-Import, NOTAM-UAV als temporäre Zonen; Datei-Import bleibt Rückfall | `greece-romania-geozones-notes.md` |
+| **LV** | LGS / airspace.lv | keine (Referer) | ArcGIS GeoJSON + SOE-Aktivfilter | ✅ einsatzbereit (DE-IP verifiziert: 816 Zonen) | `latvia-lgs-api-integration.md` |
+| **DK** | Trafikstyrelsen / dronezoner.eu | keine | ArcGIS FeatureServer (GeoJSON) | ✅ einsatzbereit (Rot/Orange/Blau/Grün + NOTAM) | `denmark-dronezoner-api-integration.md` |
+| **CH** | BAZL / swisstopo | keine | ED-269 + GeoJSON (STAC-Download) | ✅ einsatzbereit (1.288 Zonen, tägl.) | `switzerland-bazl-api-integration.md` |
+| **LI** | BAZL (über CH) | keine | — (im CH-Datensatz enthalten) | ✅ via CH-Quelle (kein eigener Abruf) | `switzerland-bazl-api-integration.md` |
+| **NO** | dronesoner.no / AIP Norway | keine | statische GeoJSON-Dateien | ✅ einsatzbereit (Rot/Orange/Blau, NOTAM) | `norway-dronesoner-api-integration.md` |
+| **SE** | LFV / Transportstyrelsen | keine | ED-318 + GeoServer WFS | ✅ einsatzbereit (72 UAS-Zonen + Luftraum, Skript) | `sweden-lfv-api-integration.md` |
+| **GR** | HASP/HCAA (DAGR) | keine (Freigabe) | WMS-KML + GetFeatureInfo | ✅ einsatzbereit (Produktions-Worker, EU-IP-Host, CC BY-NC-ND) | `greece-romania-geozones-notes.md` |
+| **RO** | ROMATSA | keine | GeoServer WFS + JSON | ✅ live abgerufen (DE-IP): 1.272 + 226 Zonen | `greece-romania-geozones-notes.md` |
 
-**Zusammenfassung:** 13× ✅ einsatzbereit · 8× 🔑 Zugang/Detail offen ·
-2× 🌐 nur in dieser Umgebung blockiert.
+**Zusammenfassung (31 Länder):** 29× ✅ einsatzbereit · 2× 🔑 Zugang offen.
+MT direkt per DDP (`{managedZones:true}`); GR über Produktions-Worker (EU-IP).
+**Nur noch IT und HU offen:**
+- **IT** – WFS liefert die Zonen mit eingeloggtem Token (Fixture sofort ziehbar),
+  aber Produktiv braucht **Service-Account + Lizenz-/Weitergabefreigabe** von D-Flight.
+- **HU** – öffentlich nur Raster; Vektor nur per Login/Betreiber-Export. Neu verifiziert (DE-Session): EE, FR, DK, CH (+LI), NO, SE, LV;
+RO/PL/ES live abgerufen; GB offizieller AIXM-Datensatz. Fertige Export-Skripte
+unter `docs/tools/<land>/` für PL, SE, SK, ES, RO, CY, CZ, SI, GR, MT.
 
 ---
 
@@ -71,14 +84,14 @@ Pro Land gibt es ein eigenes Detaildokument (`docs/<land>-…-integration.md`).
 | Land | Was wird gebraucht |
 |---|---|
 | IT | Download-Format einmal einloggen & als Fixture erfassen (CSRF-Weg steht) |
-| PL | Höhenbezug (AGL/AMSL) der `Min/Max`-ft-Werte bei PANSA klären (App: unbekannt); eigener API-Key |
-| ES | Feldnamen der Zonen-Layer (außer Layer 0) auf dem Gerät/mit EU-IP prüfen; Paketgrößen messen; ENP-Layer 1 Größe |
-| MT | Höheneinheit (vermutlich ft) bei Transport Malta bestätigen; für automatischen Bezug Datenfreigabe + `Zones.getFilteredZones`-Parameter |
+| PL | Login+KML von EU-/PL-IP gegenprüfen |
+| ES | FeatureServer/WFS von EU-/ES-IP gegenprüfen (WAF) |
+| MT | `Zones.getFilteredZones`-**Parameter** aus Browser-Netzwerk-Tab kopieren |
 | HU | ED-269/öffentlichen Zonen-Endpoint bei MyDroneSpace erfragen (`info@mydronespace.hu`) |
 | CZ | `getGJ.php`-Parameter aus Browser **oder** ED-269 bei ANS CR |
 | LV | Daten-Endpoint aus `m.airspace.lv` **oder** ED-269/AIXM bei LGS |
-| GR | Auf dem Gerät prüfen, ob die DAGR-Kacheln trotz Bot-Schutz laden; ED-269/AIXM bei HASP/HCAA erfragen; Ebenen-Zuordnung des Imports bestätigen |
-| RO | Auf dem Gerät (Android-TLS) prüfen; weitere `status`-/`tip`-Werte beobachten |
+| GR | Datenanfrage aus Browser (Seite bot-geblockt); HASP ist vermutl. ArcGIS |
+| RO | Von EU-/RO-IP prüfen **oder** ED-269 bei ROMATSA |
 | SI | Aktualität der 2021-Layer bei Slovenia Control prüfen |
 | alle | Schriftliche Freigaben/Lizenzen je Land im Repo ablegen |
 

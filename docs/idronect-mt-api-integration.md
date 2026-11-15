@@ -149,7 +149,37 @@ das herauszufinden:
 
 ---
 
-## 7. ✅ GELÖST: Browser-Export der gerenderten Zonen (DE-Session, 2026-11-15)
+## 6a. ✅ KORREKTUR: `{managedZones:true}` liefert anonym **195 Zonen** (DE-Session, EU-IP, Browser)
+
+**Wichtige Richtigstellung zu §5/§6:** Die DE-Session hat im **echten Browser
+(EU-IP, `Meteor.userId()` = null)** genau den Aufruf der Karte ausgeführt:
+```js
+Zones.getFilteredZones({ managedZones: true })   // anonym → 195 Zonen, alle Polygone
+```
+→ Der **richtige öffentliche Filter ist `{managedZones:true}`** (nicht der leere
+`{}`, der 0 liefert). MT ist damit **direkt per DDP abrufbar**, kein Login nötig.
+
+> ⚠️ Mein früherer Headless-/US-Nachtest (§6) bekam bei `{managedZones:true}`
+> „no access" und bei `{}` 0. Das war **kontext-/geo-abhängig**: aus einem
+> echten EU-Browser funktioniert `{managedZones:true}` anonym (maßgeblich).
+> → In der App den DDP-Aufruf aus EU-Kontext mit korrekten Headern machen; der
+> Browser-Export (§7) bleibt Fallback.
+
+### ⚠️ Höhen richtig interpretieren (DE-Session)
+- `_raw.maxHeight` (Werte 60/120/400/1200/**8800** …) = **Luftraumdecke
+  (vermutlich Fuß)**, **KEIN Drohnenlimit**.
+- Das echte Auto-Freigabe-Limit steht im **Namenstext** („Auto Authorised
+  maximum XX m AGL") → als **`auto_limit_m`** (AGL, Meter) parsen (betrifft die
+  9 LUQA-Flughafenzonen). **Vor Festverdrahtung gegen die Malta-AIP prüfen.**
+- **161/195 Zonen enthalten Kontakt-E-Mails** im Namen (Pilot braucht sie für die
+  Freigabe) → bei Weitergabe ggf. trennen (`label` ohne Kontakt + `kontakt_email`).
+
+**Status MT: direkt abrufbar** (DDP `{managedZones:true}`, 195 Zonen); der
+Browser-Export unten ist nur noch Fallback/Offline-Weg.
+
+---
+
+## 7. Alternativer Weg: Browser-Export der gerenderten Zonen (DE-Session, 2026-11-15)
 
 Da der direkte DDP-Aufruf nicht greift (`Zones.getFilteredZones({})` → **0**,
 der echte Filter blieb unbekannt), werden die Zonen **aus dem bereits

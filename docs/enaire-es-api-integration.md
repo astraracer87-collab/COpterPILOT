@@ -212,3 +212,35 @@ Alle Layer live als GeoJSON geholt (`features/`-Zähler bestätigt). Übersicht:
 ### Höhenfilter
 `where=RESTRICCION_LOWER < 120` – Feld existiert nur auf Layern mit Höhen;
 pro Layer prüfen (Flugplatz-Punktlayer haben es nicht).
+
+---
+
+## Anhang ES: vollständige Layer-Liste + Skript (DE-Session, 2026-11-15)
+
+**Werkzeug im Repo:** [`docs/tools/spain/enaire_es_geozones.py`](tools/spain/enaire_es_geozones.py)
+(requests) → je Layer eine GeoJSON + Gesamtdatei, Paging über `resultOffset`.
+
+Basis `https://servais.enaire.es/insignias/rest/services/` (direkt, **nicht** der
+Webseiten-Proxy `drones.enaire.es/proxy_Insignia`). Alle Layer: `f=geojson`,
+`outSR=4326`, Paging; `GFID` = stabiler Schlüssel; `LASTMOD_DATE` für Diffs.
+
+| Layer | Pfad | Anz. | max |
+|---|---|---|---|
+| EAC/FIZ | `NSF/Drones_ZG_Aero_V3/MapServer/1` | 223 | 2000 |
+| Aeródromos (Schutzzonen) | `NSF/Drones_ZG_Aero_V3/MapServer/6` | 1.305 | 2000 |
+| Restringidas (P/R/TSA/TRA) | `NSF/Drones_ZG_Aero_V3/MapServer/10` | 370 | 2000 |
+| RVF (Foto) | `NSF/Drones_ZG_Aero_V3/MapServer/3` | 119 | 2000 |
+| Avisos | `NSF/Drones_ZG_Aero_V3/MapServer/2` | – | 2000 |
+| **Infraestructuras** | `NSF/Drones_ZG_Infra_V0/MapServer/11` | **14.163** | 4000 |
+| Urbano | `NSF/Drones_ZG_Urbano_V0/MapServer/11` | 4 | 2000 |
+| NOTAM (dynamisch) | `NOTAM/NOTAM_UAS_APP_V3/MapServer/1` | 744 | 3000 |
+| ENP (Naturschutz) | `ENP/ENP_APP_Local_V4/MapServer/0` | 1.814 | 2000 |
+| ZEPA (Vogelschutz) | `ENP/ENP_APP_Local_V4/MapServer/1` | 1.321 | 2000 |
+
+- **Höhen:** `RESTRICCION_LOWER`/`RESTRICCION_UPPER` (Meter, drohnenmaßgeblich);
+  Infra-Layer nutzt ED-269-nahe Felder (`type`, `lower`/`upper`+Reference).
+- Polygone teils **mit Löchern** (Ring-Zonen) → innere Ringe behalten. Überlappung
+  → strengste Zone (kleinstes `RESTRICCION_UPPER`). `REMARKS_TXT*` enthält **HTML**.
+- NOTAM stündlich (`itemB`/`itemC` filtern); Rest täglich. Attribution „© ENAIRE – AIS".
+- ⚠️ Dienstnamen `_V3`/`_V0` können sich mit neuer Version ändern → dann Web-Map-
+  Definition (`…/insigniap/sharing/rest/content/items/b0449bba…/data?f=json`) neu lesen.

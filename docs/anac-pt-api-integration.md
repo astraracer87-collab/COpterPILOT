@@ -135,3 +135,80 @@ curl -s -A "$UA" "https://dnt.anac.pt/index.php?action=download-json-ed269" \
          restr:([.features[].restriction]|group_by(.)|map({(.[0]):length})|add),
          geom:([.features[].geometry[0].horizontalProjection.type]|group_by(.)|map({(.[0]):length})|add)}'
 ```
+
+---
+
+## 7. Anhang: native ED-318-Variante & Render-Details (DE-Session, 2026-11-15)
+
+Zusätzlich zur ED-269-Datei (§3) wurde die **native Variante**
+`?action=download-json` (ED-318, `sourceType: "anac_ed318"`) vollständig
+analysiert. **357 Features:** 248 `Polygon`, 20 `MultiPolygon`, **89 `Point`
+(allesamt Kreise**, Radius 1.000–9.260 m). Der Server liefert nur **aktive**
+Zonen (`isActive: true`); kein clientseitiger Zeitfilter.
+
+### 7.1 Höhen-`layer` + Einheiten-Fallen ⚠️
+Die native Geometrie trägt die Höhen in einem **`layer`-Objekt** (nicht im
+ED-269-`geometry[]`-Array):
+```json
+"layer": { "upper":120, "upperReference":"AGL", "lower":0, "lowerReference":"AGL", "uom":"m" }
+```
+Verteilung der Einheiten – **unbedingt robust normalisieren:**
+| upperReference / uom | Anzahl |
+|---|---|
+| AGL / `m` | 351 |
+| AGL / `M` (Großbuchstabe!) | 1 |
+| AMSL / `ft` | 3 |
+| AMSL / `m` | 2 |
+→ `uom` **case-insensitive** behandeln, `ft→m` (×0.3048), AGL/AMSL beibehalten.
+
+### 7.2 Kreis→Polygon (fertiger Code aus `app.js`)
+Kreis = `Point` + `extent:{subType:"Circle", radius:<m>}`. Umrechnung
+(Großkreis, 64 Segmente, Ring geschlossen) – deckt auch NL/GoDrone-Punktradien ab:
+```js
+function circleToPolygon(center, radiusMeters, steps = 64) {
+  const [lng, lat] = center.map(Number);
+  const R = 6378137, ad = radiusMeters / R, out = [];
+  for (let i = 0; i <= steps; i++) {
+    const brg = (i / steps) * 2 * Math.PI;
+    const la = lat * Math.PI/180, lo = lng * Math.PI/180;
+    const tLat = Math.asin(Math.sin(la)*Math.cos(ad) + Math.cos(la)*Math.sin(ad)*Math.cos(brg));
+    const tLng = lo + Math.atan2(Math.sin(brg)*Math.sin(ad)*Math.cos(la),
+                                 Math.cos(ad) - Math.sin(la)*Math.sin(tLat));
+    out.push([tLng*180/Math.PI, tLat*180/Math.PI]);
+  }
+  return { type: 'Polygon', coordinates: [out] };
+}
+```
+`GeometryCollection` → zu `MultiPolygon` zusammenführen. Bei großen Radien 128
+Segmente nehmen.
+
+### 7.3 `applicabilitySchedule` mit BMCT/EECT ⚠️
+Zeitfenster können statt Uhrzeiten `BMCT`/`EECT` tragen
+(`[{"day":"ANY","startTime":"BMCT","endTime":"EECT"}]`) = *Begin Morning / End
+Evening Civil Twilight*. Für „jetzt aktiv?" muss die App die **bürgerliche
+Dämmerung** am Ort berechnen (z. B. SunCalc). Reine `startDateTime`/`endDateTime`
+(§3) bleiben davon unberührt.
+
+### 7.4 Farben & sonstiges
+- **`mapColor`** (Hex) ist von ANAC pro Zone gesetzt → direkt fürs Rendering
+  nehmen (Fallback = Kategorie-Farbe). Füllung ~0,14–0,2, Rand 3 px.
+- `zoneType` (native) = `PROHIBITED`/`REQ_AUTHORIZATION`/`CONDITIONAL`/
+  `NO_RESTRICTION` (Schreibweise mit **Z**, anders als ED-269 `REQ_AUTHORISATION`).
+- Kategorien (Flughäfen/CTR/ATZ/Militär/Helipads/Naturparks …) werden client-
+  seitig aus `otherReasonInfo`/`name`/`primaryReason` abgeleitet – nur nötig,
+  wenn wir dieselben Filter wollen; für Geo-Awareness genügen `zoneType`+Höhen.
+
+### 7.5 ProCiv-Zusatzlayer (nicht Teil der ANAC-Geozonen)
+Die Karte zeigt zusätzlich **Zivilschutz-Einsätze** (Waldbrände etc.) aus einem
+ArcGIS-FeatureServer (`prociv-agserver.geomai.mai.gov.pt/.../Ocorrencias_Base/
+FeatureServer/0`). Rechtsgrundlage UAS.OPEN.060/UAS.SPEC.060. **Separate
+Freigabe** nötig, falls gewünscht.
+
+### 7.6 Welche Variante nehmen?
+- **ED-318 (`download-json`)** = reichhaltiger (`mapColor`, `layer`, Kategorien-
+  Rohfelder). Lokale Empfehlung.
+- **ED-269 (`download-json-ed269`)** = EU-Standard, passt direkt auf die
+  vorhandene Pipeline (§4).
+→ Beide sind dieselben Zonen; der Einheiten-/Kreis-Normalisierer (7.1/7.2) gilt
+für beide. Da unser Stack schon ED-269 verarbeitet, bleibt **ED-269 die
+Primärquelle**; die ED-318-Felder nur bei Bedarf (Farben/Kategorien) ergänzen.
