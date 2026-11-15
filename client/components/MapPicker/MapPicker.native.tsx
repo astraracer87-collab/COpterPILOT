@@ -99,6 +99,10 @@ interface MapPickerProps {
   showCenterPin?: boolean;
   hideMarker?: boolean;
   showMapStyleSwitcher?: boolean;
+  /** "segmented" (Standard): Chip-Leiste unten mittig. "compact": einzelner
+   *  Kartentyp-Button unten links, der eine kleine Liste aufklappt — für
+   *  flache Karten im Querformat, damit die Chips nie Pin/Umkreis verdecken. */
+  mapStyleSwitcherVariant?: "segmented" | "compact";
   /** Zeichnet die vorläufigen Innen-/Außenbereich-Höhenbänder (CTR) als
    *  konzentrische Ringe um nahe Flughafen-Referenzen. */
   showCtrBands?: boolean;
@@ -477,7 +481,7 @@ const MAP_HTML = `<!DOCTYPE html>
 </html>`;
 
 const MapPicker = forwardRef<MapPickerRef, MapPickerProps>(
-  ({ initialRegion, selectedLocation, locationName, onMapPress, onMapLongPress, onRegionChangeComplete, style, radiusMeters, radiusStrokeColor, radiusFillColor, geozoneLayers, countryIso, allCountriesGeozones, showCenterPin, hideMarker, showMapStyleSwitcher = true, showCtrBands, windFacilityPoints = [], energyInfrastructureItems = [], routeWaypoints, onWaypointPress, onWaypointDragEnd }, ref) => {
+  ({ initialRegion, selectedLocation, locationName, onMapPress, onMapLongPress, onRegionChangeComplete, style, radiusMeters, radiusStrokeColor, radiusFillColor, geozoneLayers, countryIso, allCountriesGeozones, showCenterPin, hideMarker, showMapStyleSwitcher = true, mapStyleSwitcherVariant = "segmented", showCtrBands, windFacilityPoints = [], energyInfrastructureItems = [], routeWaypoints, onWaypointPress, onWaypointDragEnd }, ref) => {
     const webRef = useRef<WebView>(null);
     const colorScheme = useColorScheme();
     const isDark = colorScheme === "dark";
@@ -485,6 +489,7 @@ const MapPicker = forwardRef<MapPickerRef, MapPickerProps>(
     const [mapStyle, setMapStyle] = useState<MapStyle>("grayscale");
     const mapStyleChangedRef = useRef(false);
     const [legendOpen, setLegendOpen] = useState(true);
+    const [styleMenuOpen, setStyleMenuOpen] = useState(false);
     const [selectedCtrIcao, setSelectedCtrIcao] = useState<string | null>(null);
     const [settledRegion, setSettledRegion] = useState<Region | null>(null);
     const settledRegionRef = useRef<Region | null>(null);
@@ -948,7 +953,47 @@ const MapPicker = forwardRef<MapPickerRef, MapPickerProps>(
             <Text style={lockedHintStyles.text}>{geozoneTruncationHint(GEOZONE_VECTOR_MAX_FEATURES)}</Text>
           </View>
         ) : null}
-        {showMapStyleSwitcher ? (
+        {showMapStyleSwitcher && mapStyleSwitcherVariant === "compact" ? (
+          <View style={switchStyles.compactContainer} pointerEvents="box-none" testID="map-style-compact">
+            {styleMenuOpen ? (
+              <View style={switchStyles.compactMenu}>
+                {MAP_STYLE_OPTIONS.map((opt) => (
+                  <Pressable
+                    key={opt.id}
+                    style={[
+                      switchStyles.compactItem,
+                      mapStyle === opt.id ? switchStyles.segmentActive : undefined,
+                    ]}
+                    onPress={() => {
+                      changeMapStyle(opt.id);
+                      setStyleMenuOpen(false);
+                    }}
+                    testID={`button-map-style-${opt.id}`}
+                  >
+                    <Text style={[
+                      switchStyles.segmentLabel,
+                      mapStyle === opt.id ? switchStyles.segmentLabelActive : undefined,
+                    ]}>
+                      {opt.label}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            ) : null}
+            <Pressable
+              style={switchStyles.compactButton}
+              onPress={() => setStyleMenuOpen((v) => !v)}
+              accessibilityRole="button"
+              accessibilityLabel="Kartentyp wählen"
+              testID="button-map-style-toggle"
+            >
+              <Feather name="layers" size={15} color="#FFFFFF" />
+              <Text style={[switchStyles.segmentLabel, switchStyles.segmentLabelActive]}>
+                {MAP_STYLE_OPTIONS.find((o) => o.id === mapStyle)?.label ?? "Karte"}
+              </Text>
+            </Pressable>
+          </View>
+        ) : showMapStyleSwitcher ? (
           <View style={switchStyles.container}>
             {MAP_STYLE_OPTIONS.map((opt) => (
               <Pressable
@@ -1134,6 +1179,33 @@ const switchStyles = StyleSheet.create({
   },
   segmentLabelActive: {
     color: "#FFFFFF",
+  },
+  compactContainer: {
+    position: "absolute",
+    left: 10,
+    bottom: 10,
+    alignItems: "flex-start",
+    zIndex: 15,
+  },
+  compactMenu: {
+    backgroundColor: "rgba(20, 30, 48, 0.88)",
+    borderRadius: 12,
+    padding: 3,
+    marginBottom: 6,
+  },
+  compactItem: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 9,
+  },
+  compactButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "rgba(20, 30, 48, 0.82)",
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
   },
 });
 

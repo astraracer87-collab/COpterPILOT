@@ -1,6 +1,6 @@
 import { openLink } from "@/lib/webBrowser";
 import React, { useState, useRef, useMemo, useEffect, useCallback } from "react";
-import { View, StyleSheet, TextInput, TouchableOpacity, Alert, Platform, Keyboard, ActivityIndicator, ScrollView, Pressable, FlatList, Modal, Linking } from "react-native";
+import { View, StyleSheet, TextInput, TouchableOpacity, Alert, Platform, Keyboard, ActivityIndicator, ScrollView, Pressable, FlatList, Modal, Linking, useWindowDimensions } from "react-native";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RouteProp } from "@react-navigation/native";
@@ -158,6 +158,10 @@ export default function PlanningLocationScreen() {
   const { theme } = useTheme();
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
+  // Querformat (z. B. DJI RC Pro 2, 1920x1080): Karte in voller Höhe links,
+  // kompaktes Seiten-Panel rechts statt der halbhohen Bottom-Card.
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const isLandscape = windowWidth > windowHeight;
   const mapRef = useRef<MapPickerRef>(null);
 
   const [detailZone, setDetailZone] = useState<GeozoneFeatureInfo | null>(null);
@@ -801,7 +805,7 @@ export default function PlanningLocationScreen() {
                 </View>
               </Pressable>
             )}
-            style={{ maxHeight: 280 }}
+            style={{ maxHeight: isLandscape ? Math.max(140, Math.min(240, windowHeight - headerHeight - 120)) : 280 }}
           />
         )}
       </View>
@@ -1024,7 +1028,14 @@ export default function PlanningLocationScreen() {
 
   return (
     <ThemedView style={styles.container}>
-      <View style={[styles.mapContainer, { marginTop: headerHeight }]}>
+      <View
+        style={isLandscape ? [styles.landscapeBody, { paddingTop: headerHeight }] : styles.portraitBody}
+        testID={isLandscape ? "planning-location-landscape" : "planning-location-portrait"}
+      >
+      <View
+        style={[styles.mapContainer, isLandscape ? undefined : { marginTop: headerHeight }]}
+        testID="planning-location-map"
+      >
         {/* Auch für Länder ohne eigene Geozonen-Daten zeigen wir UNSERE
             interaktive Karte (Pin + Umkreis). Das Geozonen-Overlay bleibt dort
             leer; die offizielle Staatskarte ist separat per Button erreichbar. */}
@@ -1040,12 +1051,13 @@ export default function PlanningLocationScreen() {
           radiusFillColor={beyondVlos ? "rgba(217, 119, 6, 0.18)" : undefined}
           allCountriesGeozones
           showCtrBands
+          mapStyleSwitcherVariant={isLandscape ? "compact" : "segmented"}
           windFacilityPoints={planningWindFacilityPoints}
           energyInfrastructureItems={planningEnergyInfrastructureItems}
           onRegionChangeComplete={onEnergyMapRegionChange}
         />
 
-        <View style={[styles.searchContainer, { top: Spacing.lg }]}>
+        <View style={[styles.searchContainer, { top: Spacing.lg }, isLandscape ? styles.searchContainerLandscape : undefined]}>
           <View style={[styles.searchBar, { backgroundColor: theme.backgroundDefault }]}>
             <Feather name="search" size={20} color={theme.textTertiary} />
             <TextInput disableFullscreenUI
@@ -1083,8 +1095,29 @@ export default function PlanningLocationScreen() {
         </TouchableOpacity>
       </View>
 
-      <View style={[styles.bottomSheet, { backgroundColor: theme.backgroundDefault, paddingBottom: insets.bottom + Spacing.lg }]}>
-        <ScrollView style={styles.bottomSheetScroll} showsVerticalScrollIndicator={false} nestedScrollEnabled>
+      <View
+        style={
+          isLandscape
+            ? [styles.sidePanel, { backgroundColor: theme.backgroundDefault, borderLeftColor: theme.border, paddingBottom: insets.bottom + Spacing.md, paddingRight: Math.max(insets.right, Spacing.lg) }]
+            : [styles.bottomSheet, { backgroundColor: theme.backgroundDefault, paddingBottom: insets.bottom + Spacing.lg }]
+        }
+        testID={isLandscape ? "planning-location-side-panel" : "planning-location-bottom-sheet"}
+      >
+        <ScrollView
+          style={isLandscape ? styles.sidePanelScroll : styles.bottomSheetScroll}
+          contentContainerStyle={isLandscape ? styles.sidePanelScrollContent : undefined}
+          showsVerticalScrollIndicator={isLandscape}
+          keyboardShouldPersistTaps="handled"
+          nestedScrollEnabled
+        >
+          {isLandscape && !selectedLocation ? (
+            <View style={[styles.geozoneHint, { backgroundColor: theme.backgroundSecondary }]} testID="planning-location-empty-hint">
+              <Feather name="map-pin" size={14} color={theme.textSecondary} />
+              <ThemedText style={[styles.geozoneHintText, { color: theme.textSecondary }]}>
+                Tippe auf die Karte oder suche einen Ort, um den Standort zu wählen.
+              </ThemedText>
+            </View>
+          ) : null}
           {selectedLocation ? (
             <View style={styles.locationInfo}>
               <View style={styles.locationHeader}>
@@ -1494,7 +1527,9 @@ export default function PlanningLocationScreen() {
           onPress={handleContinue}
           disabled={!selectedLocation || detectingCountry}
           loading={detectingCountry}
+          testID="button-confirm-location"
         />
+      </View>
       </View>
 
       <Modal
@@ -1787,6 +1822,44 @@ const styles = StyleSheet.create({
   bottomSheetScroll: {
     flexGrow: 0,
     marginBottom: Spacing.md,
+  },
+  portraitBody: {
+    flex: 1,
+  },
+  landscapeBody: {
+    flex: 1,
+    flexDirection: "row",
+  },
+  // Querformat: Suche links oben über der Karte, schmaler, damit rechts oben
+  // die CTR-Legende frei bleibt.
+  searchContainerLandscape: {
+    right: undefined,
+    width: "55%",
+    maxWidth: 440,
+  },
+  // Querformat: rechtes Seiten-Panel (~1/3 Breite). Inhalt scrollt, der
+  // Bestätigen-Button bleibt unten angeheftet. Feste Breite + flex-Spalte,
+  // damit das Panel beim Einblenden der Tastatur (resize) nicht springt,
+  // sondern nur der Scrollbereich kürzer wird.
+  sidePanel: {
+    width: "34%",
+    minWidth: 280,
+    maxWidth: 440,
+    paddingLeft: Spacing.lg,
+    paddingTop: Spacing.md,
+    borderLeftWidth: StyleSheet.hairlineWidth,
+    shadowColor: "#000",
+    shadowOffset: { width: -4, height: 0 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  sidePanelScroll: {
+    flex: 1,
+    marginBottom: Spacing.sm,
+  },
+  sidePanelScrollContent: {
+    paddingBottom: Spacing.sm,
   },
   locationInfo: {
     marginBottom: Spacing.md,

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { View, StyleSheet, ScrollView, ActivityIndicator, RefreshControl, Pressable, Modal, Platform } from "react-native";
+import { View, StyleSheet, ScrollView, ActivityIndicator, RefreshControl, Pressable, Modal, Platform, useWindowDimensions } from "react-native";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
@@ -23,6 +23,10 @@ function getWindDirectionArrow(degrees: number): string {
 
 export default function DipulWeatherScreen() {
   const { theme } = useTheme();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  // Querformat (RC Pro 2): Kartentyp-Auswahl als kompakter Button in der Ecke,
+  // damit die Chips auf der flachen Karte nicht den Pin verdecken.
+  const isLandscape = windowWidth > windowHeight;
   const headerHeight = useHeaderHeight();
   const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState(true);
@@ -543,6 +547,7 @@ export default function DipulWeatherScreen() {
             }}
             selectedLocation={selectedMapLocation}
             onMapPress={handleMapPress}
+            mapStyleSwitcherVariant={isLandscape ? "compact" : "segmented"}
           />
 
           <View style={[styles.mapHint, { backgroundColor: theme.backgroundSecondary }]}>
