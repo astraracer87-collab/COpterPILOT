@@ -86,9 +86,9 @@ GET https://data-cloud.flightradar24.com/zones/fcgi/feed.js
   direkt per `fetch`** abrufen (nur ein `User-Agent` setzen) – wie die ADS-B-
   Quellen. Der frühere Vermerk „FR24 nur mit Browser-UA nutzbar"
   (`aggregator.ts`) ist damit entschärft: Browser-UA reicht.
-- ⚠️ Getestet von einer IP, zu einem Zeitpunkt. FR24 kann die Cloudflare-Regeln
-  ändern oder pro IP/Region drosseln → auf echtem Gerät gegenprüfen und
-  defensiv behandeln (Fallback, `sourceStatus`).
+- ✅ **Inzwischen von DE-IP über mehrere Regionen bestätigt** (siehe §3.6): kein
+  Block, keine Pflicht-Header, keine Drossel bis ~5 req/s. Langzeitverhalten
+  bleibt offen → defensiv behandeln (Fallback, `sourceStatus`, Backoff).
 
 ### 3.4 Antwortformat
 JSON-Objekt. Nicht-numerische Schlüssel (`full_count`, `version`, `stats`)
@@ -308,3 +308,42 @@ UA="Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 Chrome/120 Mobil
 curl -s -A "$UA" "https://data-cloud.flightradar24.com/zones/fcgi/feed.js?bounds=53.9,53.0,9.0,10.5&adsb=1&mlat=1&estimated=1&gliders=1&limit=5000" \
   | jq 'to_entries | map(select(.key|test("^[0-9]"))) | {n: length, sample: .[0].value}'
 ```
+
+---
+
+## 3.6 ✅ Verifiziert von DE-IP (2026-11-15) – alle Testpunkte bestanden
+
+Gegenprüfung des Testplans (T1–T10) von einer **DE/Vodafone-IP** mit echten
+`curl`-Abrufen. **Gesamturteil: der Feed ist ohne jede Hürde nutzbar** – kein
+Cloudflare-Block, keine Pflicht-Header, keine spürbare Drosselung. **Freigegeben.**
+
+| Test | Ergebnis |
+|---|---|
+| T1 Grundabruf | HTTP **200**, valides JSON (`full_count`, `version:4`, echte Flüge) |
+| T2 Header | **ohne jeden Header 200** (auch ohne User-Agent); `origin`/`referer` **nicht** nötig → in RN reicht schlichtes `fetch(url)` |
+| T3 Rate-Limit | 20 Abrufe in 3,8 s (~5,3 req/s) → **20× 200**, keine 429 |
+| T4 Bounds | `full_count` = **globaler** Zähler (~18,5k), **nicht** in-bounds. DE-Bounds 510 Flüge, EU-Bounds 1.442 → weit unter `limit=5000`, keine Kappung |
+| T5 Feldschema | **1:1 bestätigt** (Ryanair NRN→AGP); ft/kt/fpm |
+| T6 Keys | `stats=1` → `stats`-Block; Nicht-Ziffer-Keys (`full_count`/`version`/`stats`) überspringen |
+| T7 ohne Hex | 16/510 (~3 %) ohne `icao24` (MLAT/estimated) → `fr24-<id>` |
+| T8 Mehrwert | vs. adsb.lol: 392 Hex überlappen (Dedupe), **102 nur FR24** + 16 Hex-lose → **additiv** |
+| T9 Detail | `clickhandler/?flight=<id>` → 200, 23 KB, **ohne Auth** |
+| T10 Stabilität | DE/EU/Nordmeer alle 200; **leere Region → nur `full_count`/`version`, 0 Flüge** |
+
+### Konsequenzen für die Umsetzung (bestätigt)
+1. **Keine Header nötig** – `fetch(url)` genügt (optional Mobile-UA, schadet nicht).
+2. **Poll-Intervall:** kein Limit bis ~5 req/s; konservativ **≥ 4–5 s** je Abruf.
+   **Keine Kachelung** für lokale Ausschnitte; erst kacheln, wenn die **gelieferte
+   Key-Zahl** `limit` erreicht. ⚠️ `full_count` ist **global**, nicht die
+   Ausschnitts-Zahl – für Kappungserkennung die Key-Zahl gegen `limit` prüfen.
+3. **Feldschema** bestätigt (§3.4-Tabelle gilt 1:1).
+4. **Defensive-Handling (Pflicht):** Antwort kann nur `full_count`/`version` sein
+   (→ 0 Targets, kein Fehler); Hex-lose → `fr24-<id>`; Dedupe über `icao24`,
+   FR24-Only behalten; bei 403/429/leer → Fallback + `sourceStatus` + Backoff.
+
+### Offen / Einschränkung
+- **Langzeit** (Stunden, viele Tageszeiten) nicht dauergetestet – nur
+  Momentaufnahmen über mehrere Regionen. FR24 kann die Regeln jederzeit ändern →
+  das Defensive-Handling (4.) ist der Schutz, gelegentlich nachmessen.
+- **FR24-Zustimmung schriftlich ablegen** (gleiche Nutzung wie die Webseite,
+  solange nichts bezahlt wird).

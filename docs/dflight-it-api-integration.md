@@ -432,3 +432,55 @@ entscheidende offene Punkt, nicht die Technik.
   **Fixture lässt sich sofort mit Davids Login ziehen**.
 - **Offen für Produktiv:** (a) Service-Account/Client-Credentials von D-Flight,
   (b) **Lizenz-/Weitergabe-Freigabe**. Bis dahin **🔑**.
+
+---
+
+## Anhang IT (2): Integrationsmodell = Nutzer-Login in den Einstellungen (FESTGELEGT)
+
+**Entscheidung des Product Owners:** IT wird **pro Nutzer** gelöst. Der Pilot
+hinterlegt seine **eigenen d-flight-Zugangsdaten in den App-Einstellungen**; die
+App meldet sich damit bei d-flight an und ruft die Zonen mit **seinem** Token ab —
+genau wie die d-flight-Web-App. Kein Service-Account, kein globaler Export nötig.
+
+> Rechtlich sauber: Jeder Nutzer ruft **seine eigenen Daten mit seinem eigenen
+> Konto** zum **persönlichen Gebrauch** ab (deckt sich mit der d-flight-Bedingung).
+> Die App verteilt keine fremd beschafften Daten weiter, sondern ist Client für
+> das Konto des Nutzers.
+
+### Ablauf in der App
+1. **Einstellungen → „Italien (d-flight)":** Felder *Benutzername* + *Passwort*.
+   Speicherung **verschlüsselt im Gerät** (`expo-secure-store`/Keychain), **nie**
+   im Klartext, **nie** fest im Code. In `shared/privacyPolicy.ts` ergänzen.
+2. **Login (Keycloak Password Grant):**
+   ```
+   POST https://www.d-flight.it/auth/realms/DFlight/protocol/openid-connect/token
+   Content-Type: application/x-www-form-urlencoded
+   grant_type=password&client_id=web-app&username=<user>&password=<pw>&scope=openid
+   → { access_token (≈5 min), refresh_token, expires_in }
+   ```
+   - `access_token` im Speicher halten, bei Ablauf via `grant_type=refresh_token`
+     erneuern; bei `invalid_grant`/401 → Nutzer zur erneuten Eingabe auffordern.
+   - ⚠️ **Voraussetzung:** der Keycloak-Client erlaubt „Direct Access Grants".
+     Falls d-flight das für `web-app` gesperrt hat, **Fallback:** In-App-Browser-
+     Login (Authorization-Code-Flow gegen denselben Realm) und nur den
+     Refresh-Token sichern. Beim Bau einmal prüfen, welcher Flow greift.
+3. **Datenabruf (WFS, mit Bearer):** `D-FLIGHT:ATM09_INFO` als GeoJSON
+   (+ optional `CTR/ATZ/P/R/D`, `NO_FLY_ZONE` mit Zeit-`viewparams`), siehe
+   Anhang IT §Daten-Weg. `shared/italianGeozones.ts` mappt `ATM09_INFO`-Felder
+   (`lower_limit_m`/`upper_limit_m` schon in Metern, `rule`/`regola`,
+   `valid_from`/`valid_to`) aufs interne Modell.
+4. **Nur bei hinterlegten Zugangsdaten aktiv:** Ohne Login zeigt die App für IT
+   einen Hinweis „d-flight-Login in den Einstellungen hinterlegen"; es werden
+   keine IT-Zonen geladen. `"it"` entsprechend konditional in die Länderliste.
+5. **Caching:** Token 5 min → nicht pro Kartenbewegung neu abrufen; Zonen nach
+   erfolgreichem Login einmal laden und lokal cachen (Refresh täglich bzw. bei
+   NFZ häufiger), bei Fehler letzten Stand behalten.
+
+### Hinweise
+- Die öffentlichen Web-App-Keycloak-Clientdaten nur als `client_id` verwenden
+  (das ist üblich für öffentliche SPA-Clients); **kein** Client-Secret einbauen.
+- Ein D-Flight-Konto ist für Italien-Flüge ohnehin Pflicht → die Login-Hürde ist
+  für IT-Nutzer kein zusätzlicher Aufwand.
+- **Status IT:** Integrationsmodell steht (Nutzer-Login in Einstellungen → WFS).
+  Umsetzbar, sobald der Login-Flow (Password-Grant vs. Auth-Code) einmal am
+  echten Client verifiziert ist.

@@ -29,7 +29,7 @@ Pro Land gibt es ein eigenes Detaildokument (`docs/<land>-…-integration.md`).
 | **BG** | CAA Bulgaria | keine | GeoServer WFS (ED-269-nah) | ✅ einsatzbereit | `bulgaria-caa-api-integration.md` |
 | **SI** | CAA Slovenia / Slovenia Control | keine | ArcGIS FeatureServer (Web Map dyn.) | ✅ einsatzbereit (aktuelle Mai-2026-Karte, Skript) | `slovenia-caa-api-integration.md` |
 | **LU** | Geoportail Luxembourg | keine (CC0) | ED-269 / OGC Features | 🔑 Modul `luGeozones.ts` gebaut (nicht eingebunden), Feed defekt → auf OGC umstellen | `luxembourg-geozones-integration.md` |
-| **IT** | d-flight | Login (Keycloak, Token) | GeoServer-WFS (GeoJSON) | 🔑 WFS abrufbar mit Login (ATM09_INFO 3.876); offen: Service-Account + Lizenzfreigabe | `dflight-it-api-integration.md` |
+| **IT** | d-flight | **Nutzer-Login (Einstellungen)** | GeoServer-WFS (GeoJSON) | 🔑→🛠 Modell steht: Nutzer hinterlegt d-flight-Login → WFS (ATM09_INFO 3.876); Login-Flow verifizieren | `dflight-it-api-integration.md` |
 | **PL** | PANSA DroneMap | API-Key (`x-api-key`) → Bearer | KML | ✅ live abgerufen (DE-IP): 1.774 Zonen | `pansa-pl-api-integration.md` |
 | **ES** | ENAIRE | keine | ED-318 (ArcGIS MapServer) | ✅ KOMPLETT abgerufen (DE-IP, ~21k Feat.) | `enaire-es-api-integration.md` |
 | **MT** | iDronect / Transport Malta | keine (DDP) | Meteor-DDP (GeoJSON) | ✅ direkt abrufbar (`{managedZones:true}`, 195 Zonen) | `idronect-mt-api-integration.md` |
@@ -48,8 +48,10 @@ Pro Land gibt es ein eigenes Detaildokument (`docs/<land>-…-integration.md`).
 **Zusammenfassung (31 Länder):** 29× ✅ einsatzbereit · 2× 🔑 Zugang offen.
 MT direkt per DDP (`{managedZones:true}`); GR über Produktions-Worker (EU-IP).
 **Nur noch IT und HU offen:**
-- **IT** – WFS liefert die Zonen mit eingeloggtem Token (Fixture sofort ziehbar),
-  aber Produktiv braucht **Service-Account + Lizenz-/Weitergabefreigabe** von D-Flight.
+- **IT** – gelöst über **Nutzer-Login in den Einstellungen**: jeder Pilot
+  hinterlegt seine d-flight-Zugangsdaten, die App zieht die Zonen per WFS mit
+  seinem Token (rechtlich = persönlicher Gebrauch, kein Service-Account/Weitergabe
+  nötig). Umsetzbar, Login-Flow (Password-Grant vs. Auth-Code) einmal verifizieren.
 - **HU** – öffentlich nur Raster; Vektor nur per Login/Betreiber-Export. Neu verifiziert (DE-Session): EE, FR, DK, CH (+LI), NO, SE, LV;
 RO/PL/ES live abgerufen; GB offizieller AIXM-Datensatz. Fertige Export-Skripte
 unter `docs/tools/<land>/` für PL, SE, SK, ES, RO, CY, CZ, SI, GR, MT.
