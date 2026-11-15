@@ -243,7 +243,7 @@ describe("Griechenland – Bild-Overlay + Import aus dagr_geozonen.py", () => {
     assert.equal(m.accessGate, "import");
     assert.match(getGeozoneSource("GR")!.manualCheckHint!, /^Für Griechenland zeigt die Karte die Zonen nur als Bild \(HASP\/DAGR\)/);
     assert.equal(buildCountryGeozoneConfigs().GR.featureInfoType, "ed269-cached");
-    assert.deepEqual(GEOZONE_IMPORT_ONLY_ISOS, ["MT", "GR"]);
+    assert.deepEqual(GEOZONE_IMPORT_ONLY_ISOS, ["GR"]); // MT seit 2026-11 online (DDP)
   });
 
   it("Datum und Erkennung", () => {
@@ -273,7 +273,7 @@ describe("Griechenland – Bild-Overlay + Import aus dagr_geozonen.py", () => {
   });
 });
 
-describe("MT/GR – Gerätecache & Freischaltung (wie früher RO)", () => {
+describe("GR – Gerätecache & Freischaltung (wie früher RO/MT); MT: Import als Rückfall im Online-Land", () => {
   const realFetch = globalThis.fetch;
   beforeEach(() => {
     __resetEd269StoreForTests();
@@ -286,7 +286,20 @@ describe("MT/GR – Gerätecache & Freischaltung (wie früher RO)", () => {
     setCountryAccessAvailable("GR", false);
   });
 
-  for (const iso of ["MT", "GR"]) {
+  it("MT: eigene Karte ohne Import (online), Import des Browser-Exports als Rückfall möglich", async () => {
+    assert.equal(hasOwnMap("MT"), true);
+    assert.equal(isEd269VectorIso("MT", hasOwnMap), true);
+    assert.equal(canImportEd269Dataset("MT"), true);
+    const parsed = parseGeozoneImport(mtRaw, { iso: "MT", now: NOW });
+    assert.equal(parsed.format, "mt-tmcad");
+    await importEd269Dataset("MT", parsed.features as unknown as GeoFeature[], { source: parsed.format, importedAt: NOW.getTime(), fileName: "x.geojson" });
+    const zones = await queryEd269CachedFeaturesFrom("", 36.042, 14.2404, 1, "MT");
+    assert.ok(zones.length > 0 && zones[0].restriction === "PROHIBITED");
+    await deleteEd269Dataset("MT");
+    assert.equal(hasOwnMap("MT"), true);
+  });
+
+  for (const iso of ["GR"]) {
     it(`${iso}: ohne Import keine eigene Karte und kein Netzabruf; Import schaltet frei, Entfernen sperrt`, async () => {
       let fetched = false;
       globalThis.fetch = (async () => {

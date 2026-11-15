@@ -281,7 +281,7 @@ export default function PlanningRestrictionsScreen() {
   // Der Schalter "Alle Geozonen anzeigen" hebt den Filter auf.
   const { geozones, hiddenAboveGeozones } = useMemo(() => {
     // Vektor-Länder aus der Quellen-Registry (ED-269-Gerätecache inkl. LI);
-    // Nur-Import-Länder (MT, GR) zählen erst mit gespeichertem Bestand.
+    // Nur-Import-Länder (GR) zählen erst mit gespeichertem Bestand.
     const isFilterable = (gz: GeozoneFeatureInfo) => isEd269VectorIso(gz.country || countryIso, hasOwnMap);
     if (showAllGeozones) return { geozones: rawGeozones, hiddenAboveGeozones: [] as GeozoneFeatureInfo[] };
     const filterable = rawGeozones.filter(isFilterable);

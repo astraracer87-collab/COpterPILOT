@@ -989,3 +989,155 @@ Product Owner: Ist das Live-Radar aktiv und geht die App in den Hintergrund
   Hintergrund-Meldungen für Geozonen/NOTAM melden nur Neues (der Vordergrund
   markiert die Reiter bei jeder Prüfung). Die Gebietsprüfung nutzt den
   RA-Radius aus den globalen TCAS-Einstellungen wie der Screen.
+
+## Stand PL-JSON + Aktivierungen und MT online per DDP (2026-11-15)
+
+Ersetzt die PL- und MT-Punkte aus „Stand Länder-Update PL/RO/MT/GR/ES“.
+Aus der US-Cloud nicht live testbar (PANSA geo-geblockt, iDronect nur aus
+EU-Browser-Kontext) – gebaut aus Doku, Referenzskript und Fixtures.
+
+- **PL – Abruf** (client/lib/geozoneDirect/polandSource.ts): Login unverändert
+  (`POST /v1/front/login`, `x-api-key` → `access_token`), dann JSON mit beiden
+  Headern: `/v1/zones` + `/v1/zones/types` (Pflicht; Zonen/Typen 6 h im
+  Speicher), `/v1/activ/timeslices`, `/v1/activ/activations`, `/v1/notams`
+  (optional, bei jedem Abruf neu). 401/403 → einmal neu einloggen. Scheitert der
+  JSON-Weg (oder liefert 0 Zonen) → **KML-Rückfall** wie bisher
+  (`loadPoland` → `via: "kml"`). Größen-Schätzung PL 10 MB.
+- **PL – Normalisierung** (shared/polishGeozones.ts `normalizePansaZonesJson`,
+  Referenz docs/tools/poland/pansa_geozones.py):
+  - Beschränkung: `PL_TYPE_TABLE`; MTMA/MATZ wie TMA/ATZ; sonst Kategorie aus
+    `/v1/zones/types` (DRA-P/R/I); sonst vorsorglich REQ_AUTHORISATION
+    (`plTypeUnknown`). RPA-Ampel `etc.status`/`custom_color` → Text „RPA-Ampel:
+    GELB (Farbe …)“ + `plRpaStatus`/`plRpaColor`; Beschränkung bleibt laut Typ
+    (Doku nennt keine Zuordnung Ampel → Beschränkung; nie gelockert). Die
+    App-Farbe kommt weiter aus der Restriction-Policy.
+  - Unterzonen `etc.master` → `plParent` + „Teil von: CTR EPKK (… die strengere
+    Regel gilt)“. Kreise `etc.primitive` (CIRCLE, centre [lon,lat], radius m) →
+    64-Eck über geozoneKit `wktCircleRing` (statt des Ersatz-Polygons).
+  - Ausgrauen per **Höhe**, nicht per Typ: alle Typen bleiben, nur FIS
+    (Fluginfo-Sektoren über das ganze Land) wird verworfen.
+  - **Höhenbezug (Entscheidung)**: Untergrenze > 0 = MSL laut Doku – in beiden
+    Lesarten vorsichtig (MSL → AGL zieht die höchste Geländehöhe ab; wäre der
+    Wert AGL, wird nur weniger ausgegraut; ohne Gelände nie). „Deutlich über
+    120 m AGL“ (z. B. RMZ ab 2500 ft) wird damit ausgegraut. Obergrenze ohne
+    Bezug (UNKNOWN), weil eine MSL-Obergrenze unter dem Gelände ausblenden
+    würde. FL/STD liefert die JSON-Antwort nicht gesondert (Zahlen in ft). Der
+    KML-Rückfall bleibt bei UNKNOWN.
+  - **Zeitgesteuerte Typen** `PL_TIME_CONTROLLED_TYPES` (TRA, TSA, TS, TR,
+    MRT, EA) ohne `acts.H24`: applicability-Fenster aus Timeslices, AUP/UUP
+    (`etc.upType`) und NOTAM-`notamActivations` (Join über `name`, nicht UID)
+    plus ein offenes Fenster ab dem **Abdeckungshorizont** (spätestes
+    Fensterende aus Timeslices/Aktivierungen, höchstens 36 h nach Abruf, ohne
+    solches Ende = Abrufzeit) – danach gilt die Zone vorsorglich wieder als
+    aktiv (`zoneActivityAt`). Kein Platzhalter 2100-12-31 (AT/LT-Regel für
+    MCTR). Gültigkeitsfenster > 30 Tage → bleibt „dauerhafte“ Zone
+    (geozoneTemporary). **Ohne Aktivierungsdaten** (Abruf gescheitert): keine
+    Fenster = aktiv + „Aktivierung prüfen (AUP): … vorsorglich als aktiv
+    gewertet“ (`plActivationUnknown`). Andere Typen (P/R/D, CTR …) bleiben
+    dauerhaft aktiv; ihre Fenster erscheinen nur als Text. `start`/`stop` der
+    Zone → `validStartTs`/`validEndTs`.
+  - NOTAMs: `active: false` entfällt; mit Zone → Fenster/Text; ohne Zone mit
+    eigener Geometrie (`geojson`/`geometry`, Feldname nicht dokumentiert) →
+    temporäre Zone (`isNotam`, `_notamEligible`); ohne beides nur gezählt.
+  - Fixture **handgebaut** aus den dokumentierten Feldern:
+    docs/fixtures/pansa_zones_json_handbuilt.json (Kopie in
+    client/lib/__tests__/fixtures/); Test polishGeozonesJson.test.ts (Typen,
+    Kreise, Höhen/Ausgrauen, Fenster/Horizont, NOTAM, ohne Aktivierungen,
+    Speicher, Token-Erneuerung, KML-Rückfall).
+- **MT – Abruf** (client/lib/geozoneDirect/maltaSource.ts): WebSocket
+  `wss://tmcad.idronect.com/websocket` (Origin-Header
+  `https://tmcad.idronect.com` als 3. Argument `{ headers }` des
+  RN-WebSockets; Browser setzt ihn selbst), `connect` → `connected` →
+  `method Zones.getFilteredZones [{managedZones:true}] id "1"`, Ping → Pong,
+  `result id "1"` bzw. Fehler („no access“ …), Zeitlimit 45 s, Verbindung wird
+  immer geschlossen. Ergebnis (flightArea = Feature/FeatureCollection/
+  Geometrie + Felder; zoneId ersatzweise `_id`) → Roh-Export-Schema →
+  `normalizeMalteseImport(…, { origin: "online" })` (Quelle „Transport Malta
+  / iDronect“, Kontakt mit Zusatz „für Genehmigungsanfragen“, maxHeight =
+  Luftraumdecke ft nur Info, LUQA `auto_limit_m`). 0 Zonen → Fehler
+  (gespeicherter Bestand/Import bleibt). Test maltaSource.test.ts mit
+  nachgespielter DDP-Sitzung aus mt_zones_sample.geojson.
+- **MT – Registry**: `...vector` (ed269-vector/ed269-store), kein Import-Gate
+  mehr (eigene Karte ohne Import), `temporary: "none"` (keine Zeitfenster →
+  keine 24-h-Temporär-Warnung, kein 10-min-Neuladen), `loadsFullCountry`,
+  Größe 1 MB. Fetcher `MT: fetchMalta` in ED269_FETCHERS. Lizenz: „automatisierter
+  Abruf laut Freigabe von Transport Malta (vom PO bestätigt)“, Hinweis
+  Kontakt-E-Mails. Datei-Import bleibt Rückfall wie bei RO (Hinweis in den
+  Offline-Einstellungen angepasst; ein erfolgreicher Online-Abruf ersetzt ihn).
+  `GEOZONE_IMPORT_ONLY_SOURCE_ISOS` = nur noch GR; Stale-Hinweis eines alten
+  MT-Imports lautet jetzt „online aktualisieren“.
+- **Nur auf dem Gerät prüfbar**: PANSA-JSON (Felder, Größe/Dauer ≈ 7,6 MB,
+  `acts`-Struktur, NOTAM-Text-/Geometrie-Feldnamen, Höhenbezug gegen
+  `/v1/zones/filtered?max_height=`), echte Fixture mit `--dump-dir`
+  nachliefern; iDronect-DDP aus der App (EU): liefert `{managedZones:true}`
+  anonym Zonen, akzeptiert der Server den Origin-Header aus RN, Antwortgröße.
+- **Offen**: Datenschutzerklärung (shared/privacyPolicy.ts) zu den
+  angezeigten Kontakt-E-Mails nicht geändert (Rechtstext – PO/Recht).
+
+## Stand GB: NATS-AIXM 5.1 als Primärquelle (2026-11-15)
+
+- **Quelle** (Registry `GB`, shared/geozoneSourceMeta.ts): primär der amtliche
+  NATS-Digitaldatensatz „UK UAS Flight Restrictions“ (AIXM 5.1), Rückfall die
+  bisherige Google-My-Maps-KML. `temporary: "none"` (Datensatz enthält keine
+  NOTAM/AIP SUP) → bei Prüfungen kein 10-min-Neuladen mehr (vorher wurde die
+  2-MB-KML wie ein ED-269-Feed mit temporären Zonen behandelt); `maxAgeMs` 6 h
+  bleibt als günstige Prüfung, `staleWarnAfterMs` 28 Tage (AIRAC).
+- **Abruf** (client/lib/geozoneDirect/ukSource.ts, `loadUnitedKingdom(env)`):
+  Datei `…/UAS_AREA_1/EG_UAS_FR_DS_AREA1_FULL_<YYYYMMDD>_XML.zip` des laufenden
+  AIRAC-Zyklus (Effective Date ≤ heute, `ukAixmCandidateDates`; der schon
+  veröffentlichte nächste Zyklus wird erst ab seinem Datum genommen), bei 404
+  der Vorgänger. Server kennt **If-Modified-Since** (304 geprüft), **kein
+  ETag**: liegt derselbe AIRAC-Stand auf dem Gerät (`ukAirac` der gespeicherten
+  Features), wird mit If-Modified-Since = Speicherzeitpunkt gefragt → 304 →
+  gespeicherte Zonen (kein Download/Parsen). Jeder AIXM-Fehler (Netz, 404,
+  Prüfsumme, Parser, 0 Zonen) → KML-Rückfall mit Log; beide scheitern → Fehler
+  (Gerätebestand bleibt).
+- **Integrität**: `.sha256` liegt IM ZIP (nicht daneben, Doku korrigiert);
+  SHA-256 der XML (pure TS, shared/sha256.ts, inkrementell – expo-crypto
+  `digest` ist nativ/nicht inkrementell und unter tsx nicht testbar) muss
+  passen, sonst `AixmIntegrityError` → Rückfall.
+- **Parser** (shared/geozoneKit/aixm.ts, RN-frei): fflate-`Unzip` streamend
+  (16-KB-Stücke) → `DecodeUTF8` → `AixmMemberSplitter` (hasMember-Blöcke) →
+  `parseXml` je Block (Tokenizer aus kml.ts) → schlanke Objekte; Pause
+  (`setTimeout 0`) alle 10 Blöcke. GeoBorder-Verweise (`curveMember
+  xlink:href`, 6 Küsten-/Fluss-Zonen) werden am Ende aufgelöst.
+  **Winkel = Peilung ab Nord im Uhrzeigersinn** (nicht wie in der Doku
+  vermutet „ab Ost gegen den Uhrzeigersinn“), Richtung = Vorzeichen
+  end − start (negative Winkel kommen vor); Bogen/Kreis in 3°-Schritten,
+  Radius auf WGS84 (Vincenty; Kugel gab Kreisflächen +0,6 %), Großkreiskanten
+  > 10 km verdichtet. Geprüft gegen das NATS-KML desselben Zyklus: 1.069/1.069
+  Gebiete, Flächen ±1,2 % (Rest = gröbere Kreis-Polygone bzw. gerade Kanten im
+  KML); mit „mathematischen“ Winkeln wichen ≈ 600 Gebiete deutlich ab (bis Faktor 10).
+- **Normalisierung** (`normalizeUkAixmWithStats`, shared/ukGeozones.ts): P →
+  PROHIBITED, R (inkl. FRZ/RPZ, HMP, NSA) → REQ_AUTHORISATION, D → CONDITIONAL
+  (wie bisher). Höhen über `parseHeight` mit uom FT/FL/M und Bezug SFC → AGL,
+  MSL → MSL, STD → STD; fehlender Bezug → UNKNOWN (kommt im Datensatz nicht
+  vor). Höhenfilter wie KML (Untergrenze > 500 ft AGL bzw. > 3.800 m MSL/STD
+  verworfen: 22 Danger Areas ab FL125+). Ergebnis Zyklus 29.10.2026: 1.047
+  Zonen (308 FRZ, 504 RPZ, 36 R, 197 D, 2 P). Meldung: vorhandenes
+  UK-Wörterbuch (`parseUkRemarkBody`, Satzregeln) + neue Regeln für
+  Aktivierungstexte und AIP-Zeiten („Mon-Thu 0800-1700 (0700-1600)“ →
+  „Mo–Do 0800–1700 (Sommer 0700–1600) … (Zeiten UTC)“), englischer
+  Originaltext aus den strukturierten Feldern. Aktivierung: Status
+  (ACTIVE/AVBL_FOR_ACTIVATION/OTHER) als Zeile; Zonen „nur bei Aktivierung“
+  bleiben vorsichtshalber aktiv; nur Timesheets in UTC ohne Tagesbereich
+  (EGD218A/B: SS–SR) → `applicability` → `zoneActivityAt`.
+- **FRZ + RPZ**: gemeinsamer Designator-Stamm (`ukZoneGroupStem`, Suffix-
+  Buchstabe) → `ukGroup`, `ukGroupName`, `ukGroupMembers` + Zeile „Gehört zu:
+  Flugbeschränkungszone <Flugplatz> (<Stamm>) – FRZ und Runway Protection
+  Zones bilden rechtlich EINE zusammenhängende Zone … Teile: …“; Geometrien
+  bleiben getrennt (138 Gruppen).
+- **Leistung** (Node 22, Zyklus 29.10.2026, 0,5 MB ZIP / 11,8 MB XML): Entpacken
+  + SHA-256 + Parsen 0,6–0,75 s gesamt (SHA-256 allein ≈ 0,18 s, Parsen ≈
+  0,22–0,37 s, Normalisieren ≈ 0,12 s), längster Block ohne Pause ≈ 27 ms,
+  Heap ≈ 85 MB. Auf dem Gerät (Hermes) erfahrungsgemäß 5–10× langsamer →
+  mehrere Sekunden im Hintergrund, aber in kurzen Stücken.
+- **Tests**: client/lib/__tests__/ukAixm.test.ts (SHA-256-Vektoren/Stückelung,
+  lat/lon-Tausch, Bogen/Kreis/Einheiten, Peilungs-Konvention an echten
+  Nachbarpunkten, Flächen gegen NATS-KML, GeoBorder, ZIP/Prüfsumme,
+  Gruppierung, Einstufung, Höhen, Aktivierung, Dateiwahl, 304, KML-Rückfall;
+  optional `UK_AIXM_ZIP=<zip>` gegen den Gesamtdatensatz);
+  restrictionPolicy.test.ts um die neue Fixture ergänzt.
+- **Offen / Gerät**: Laufzeit und Speicher unter Hermes messen (Android RC);
+  `res.arrayBuffer()` für 0,5 MB auf dem Gerät; Darstellung FRZ+RPZ in der
+  Zonen-Info; Lizenz/AGB (kommerzielle Weitergabe) gegen die UK-Vereinbarung.

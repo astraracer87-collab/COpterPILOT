@@ -21,7 +21,8 @@
  * - "tiled": großer Bestand im Offline-Kachelspeicher (geozoneTiles/, DE/FR/CZ/ES)
  * - "wms": nur WMS-Abfrage (derzeit kein Land; DE/FR fallen ohne Paket darauf zurück)
  * - "xyz-raster": nur Bild-Overlay ohne Zonenabfrage (HU; GR zusätzlich mit Datei-Import)
- * - "import-only": kein erreichbarer Feed, nur Datei-Import (MT)
+ * - "import-only": kein erreichbarer Feed, nur Datei-Import (derzeit kein Land;
+ *   MT seit 2026-11 online per DDP)
  * - "login": Vektor-Feed nur mit eigenem Zugang des Nutzers (IT d-flight)
  */
 export type GeozoneSourceKind = "ed269-vector" | "tiled" | "wms" | "xyz-raster" | "import-only" | "login";
@@ -58,7 +59,7 @@ export interface GeozoneRefreshPolicy {
  * - "separate": eigener Abruf mit eigenem Stand (DE: dipul-Ebene
  *   temporaere_betriebseinschraenkungen, tileStore temp.json)
  * - "none": Quelle veröffentlicht keine temporären Zonen bzw. sie lassen sich
- *   nicht aktualisieren (FR-Karte, CZ-ED-318-Paket, HU-/GR-Bild, MT-/GR-Import)
+ *   nicht aktualisieren (FR-Karte, CZ-ED-318-Paket, HU-/GR-Bild, GR-Import)
  */
 export type GeozoneTemporarySource = "dataset" | "separate" | "none";
 
@@ -96,7 +97,7 @@ export interface GeozoneSourceMeta {
    * zwischengespeichert) – Karte zeichnet dann Vektorzonen statt nichts.
    */
   liveVectorQuery?: boolean;
-  /** Zonen nur mit Zugang (IT), Offline-Paket (CZ) bzw. Import (MT, GR) */
+  /** Zonen nur mit Zugang (IT), Offline-Paket (CZ) bzw. Import (GR) */
   accessGate?: GeozoneAccessGate;
   /** Hinweis, wenn der Zugang fehlt bzw. der Abruf daran scheitert */
   accessHint?: string;
@@ -166,7 +167,7 @@ const TILE_POLICY: GeozoneRefreshPolicy = { maxAgeMs: TILE_STORE_REFRESH_MS, sta
 // DE/ES: Kachelspeicher + eigener Abruf der temporären Zonen (dipul-Ebene bzw. ENAIRE-NOTAM).
 const TILE_POLICY_DE: GeozoneRefreshPolicy = { ...TILE_POLICY, ...TEMP_POLICY };
 // Import: kein automatischer Abruf; Altersschwelle wie beim ED-269-Gerätecache.
-// Importe (MT, GR) lassen sich nicht online aktualisieren, nur neu importieren.
+// Importe (GR) lassen sich nicht online aktualisieren, nur neu importieren.
 // Warnung erst nach einem AIRAC-Zyklus (28 Tage), nicht schon nach 24 h.
 const IMPORT_POLICY: GeozoneRefreshPolicy = { maxAgeMs: null, staleWarnAfterMs: TILE_STORE_REFRESH_MS };
 
@@ -380,6 +381,8 @@ export const GEOZONE_SOURCE_META: readonly GeozoneSourceMeta[] = [
     labelDe: "Polen",
     ...vector,
     provider: "Polska Agencja Żeglugi Powietrznej (PAŻP / PANSA) – DroneMap",
+    usage:
+      "Alle Zonen und Lufträume (JSON /v1/zones inkl. TRA/TSA/MRT, RPA-Sektoren, CTR/ATZ, P/R/D) mit Aktivierungen (AUP/UUP, Timeslices) und NOTAMs; KML der Drohnenzonen als Rückfall.",
     license:
       "Schriftliche Freigabe von PAŻP/PANSA, vom Product Owner bestätigt (2026-11-15), für den dokumentierten Umfang: statische Zonen über /v1/zones und KML, Zonentypen (/v1/zones/types), Aktivierungen und NOTAM-Endpunkte wie dokumentiert",
     writtenPermission: true,
@@ -397,13 +400,24 @@ export const GEOZONE_SOURCE_META: readonly GeozoneSourceMeta[] = [
     url: "https://utm.ans.lt",
   },
   {
+    // Primär NATS-Digitaldatensatz (AIXM 5.1, je AIRAC-Zyklus eine Datei),
+    // Rückfall Google-My-Maps-KML der NATS-Karte (client/lib/geozoneDirect/ukSource.ts).
+    // Aktualisierung: alle 6 h eine günstige Prüfung – gleicher AIRAC-Stand →
+    // If-Modified-Since (304, kein Download); neuer Zyklus ab Effective Date →
+    // voller Download (≈ 0,5 MB). Keine temporären Zonen (NOTAM/AIP SUP sind
+    // nicht im Datensatz) → kein 10-min-Neuladen bei Prüfungen.
     iso: "GB",
     labelDe: "Vereinigtes Königreich",
     ...vector,
-    provider: "UK Civil Aviation Authority / NATS – UK AIP (ENR 5.1)",
-    license: "Nutzungsbedingungen von NATS / UK CAA",
+    temporary: "none",
+    provider: "NATS (UK AIS) / UK Civil Aviation Authority – UK AIP ENR 5.1, Digitaldatensatz „UK UAS Flight Restrictions“ (AIXM 5.1)",
+    usage:
+      "Drohnen-Geozonen (Prohibited/Restricted/Danger Areas inkl. Flugplatz-FRZ/RPZ) als Vektordaten je AIRAC-Zyklus; Rückfall: NATS-Karte (Google My Maps, KML).",
+    license:
+      "© NATS Limited – Datensatz-Bedingungen: „For aviation use only“, Zugang/Nutzung „Unrestricted“, „Not for resale“; Nutzungsbedingungen von NATS / UK CAA",
     writtenPermission: false,
-    url: "https://www.caa.co.uk",
+    url: "https://nats-uk.ead-it.com/cms-nats/opencms/en/Publications/digital-datasets/",
+    note: "NOTAMs und AIP-Ergänzungen (SUP) sind nicht enthalten – vor dem Flug separat prüfen.",
   },
   {
     // d-flight: GeoServer-WFS (ATM09_INFO, NO_FLY_ZONE, NOTAM) nur mit eigenem
@@ -532,22 +546,25 @@ export const GEOZONE_SOURCE_META: readonly GeozoneSourceMeta[] = [
     // url: TILE_STORE_ATTRIBUTION.CZ.url – ergänzt die Client-Registry
   },
   {
-    // Transport Malta / iDronect: kein Feed (DDP-Filter unbekannt) – Zonen nur
-    // per Datei-Import des manuellen Browser-Exports (docs/tools/malta/).
+    // Transport Malta / iDronect: online per Meteor-DDP
+    // Zones.getFilteredZones({managedZones:true}) (geozoneDirect/maltaSource.ts,
+    // Doku §6a). Datei-Import des Browser-Exports (docs/tools/malta/) bleibt
+    // Rückfall wie bei RO (ein erfolgreicher Online-Abruf ersetzt ihn).
     iso: "MT",
     labelDe: "Malta",
-    kind: "import-only",
-    refresh: IMPORT_POLICY,
-    offline: "import",
-    accessGate: "import",
-    accessHint: "Geozonen-Datei nicht importiert",
+    ...vector,
+    loadsFullCountry: true, // 195 Zonen, ~400 KB
+    // Die iDronect-Zonen tragen keine Zeitfenster (keine NOTAM-/Temporär-Ebene).
+    temporary: "none",
     provider: "Transport Malta – Civil Aviation Directorate (TMCAD) / iDronect",
     usage:
-      "Drohnen-Geozonen nur per Datei-Import: Zonen am PC aus der öffentlichen Karte tmcad.idronect.com exportieren (Browser-Konsole) und in den Offline-Einstellungen importieren.",
-    license: "Öffentlich angezeigte Daten, Nutzung laut Freigabe von Transport Malta",
+      "Drohnen-Geozonen der öffentlichen Karte tmcad.idronect.com, automatisch per DDP (WebSocket) geladen; Datei-Import des Browser-Exports als Rückfall.",
+    license:
+      "Öffentlich angezeigte Daten; automatisierter Abruf laut Freigabe von Transport Malta (vom Product Owner bestätigt, 2026-11-15)",
     writtenPermission: true,
     url: "https://tmcad.idronect.com/map",
-    note: "Kein automatischer Abruf; Stand = Datum des Imports. Höheneinheit der Quelle nicht angegeben (vermutlich ft).",
+    note:
+      "Zonennamen enthalten Kontakt-E-Mails der zuständigen Stellen; sie werden dem Piloten für Genehmigungsanfragen angezeigt. Höhenwert der Quelle (maxHeight) ist die Luftraumdecke (vermutlich ft), kein Drohnenlimit.",
   },
   {
     // HASP/HCAA (DAGR): nur WMS-Raster (Bild); Host blockt Nicht-Browser-
@@ -617,8 +634,9 @@ export const ED269_STORE_ISOS: string[] = isos((m) => m.offline === "ed269-store
 export const ED269_STORE_ISOS_WITH_ALIASES: string[] = withAliases(ED269_STORE_ISOS);
 
 /**
- * Bestand nur per Datei-Import (kein erreichbarer Vektor-Feed): MT
- * (import-only) und GR (Bild-Overlay mit optionalem Import).
+ * Bestand nur per Datei-Import (kein erreichbarer Vektor-Feed): GR
+ * (Bild-Overlay mit optionalem Import). MT ist seit 2026-11 ein Vektor-Feed
+ * (DDP), sein Datei-Import ist nur Rückfall.
  */
 export const GEOZONE_IMPORT_ONLY_SOURCE_ISOS: string[] = isos((m) => m.offline === "import");
 
@@ -632,7 +650,7 @@ export const TILE_STORE_SOURCE_ISOS: string[] = isos((m) => m.offline === "tile-
  */
 export const OWN_MAP_SOURCE_ISOS: string[] = isos((m) => !m.manualCheckOnly || m.accessGate === "import");
 
-/** Zugangsgebundene Länder (IT Login, CZ Offline-Paket, MT/GR Import). */
+/** Zugangsgebundene Länder (IT Login, CZ Offline-Paket, GR Import). */
 export const ACCESS_GATED_SOURCE_ISOS: string[] = isos((m) => !!m.accessGate);
 
 /** Pro-Land-Override des Vektor-Mindestzooms. */

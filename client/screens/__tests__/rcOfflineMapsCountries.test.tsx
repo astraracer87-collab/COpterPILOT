@@ -281,8 +281,15 @@ describe("tiled vector geozones (DE/FR/CZ) and Liechtenstein", () => {
     expect(defaultConfig("DE").wohngebiete).toBe(true);
   });
 
-  it("Malta/Griechenland: geozones only via file import (no download attempt, no GR raster tiles)", async () => {
-    for (const iso of ["MT", "GR"]) {
+  it("Malta: online vector dataset since 2026-11 via DDP (import stays as fallback)", async () => {
+    const mt = offlineCountries().find((c) => c.iso === "MT")!;
+    expect(mt.geozoneKind).toBe("vector");
+    await startCountryDownload({ ...defaultConfig("MT"), map: false, obstacles: false }, () => {}, () => {}, () => false);
+    expect(mockRefreshEd269).toHaveBeenCalledWith("MT");
+  });
+
+  it("Griechenland: geozones only via file import (no download attempt, no GR raster tiles)", async () => {
+    for (const iso of ["GR"]) {
       const c = offlineCountries().find((x) => x.iso === iso)!;
       expect(c.geozoneKind).toBe("import");
       expect(c.hasGeozones).toBe(true);

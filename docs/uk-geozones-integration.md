@@ -137,7 +137,10 @@ NATS veröffentlicht die UAS-Beschränkungen als amtlichen **Digital Dataset**
   `https://nats-uk.ead-it.com/cms-nats/export/sites/default/en/Publications/digital-datasets/UAS_AREA_1/`
 - **Dateischema:** `EG_UAS_FR_DS_AREA1_FULL_<YYYYMMDD>_<XML|KML>.zip`
   (`<YYYYMMDD>` = AIRAC-Effective-Date; aktueller **und** nächster Zyklus liegen
-  online). XML-ZIP ~0,5 MB (entpackt ~11,9 MB) + `.sha256` + `export-filter.xml`.
+  online). XML-ZIP ~0,5 MB (entpackt ~11,9 MB); **im ZIP** liegen `<name>.xml`,
+  `<name>.sha256` („<hex> *<name>.xml“) und `export-filter.xml` (eine `.sha256`
+  neben dem ZIP gibt es nicht – 404). Server: `Last-Modified` + If-Modified-Since
+  (304), kein ETag.
 - **Zyklus:** alle **28 Tage** (AIRAC). **Keine** temporären Zonen (NOTAM/AIP SUP).
 
 ### 7.1 Umfang (AIRAC 26.11.2026): 1.069 Features
@@ -178,9 +181,18 @@ Höhen: FRZ/RPZ immer 0–2.000 ft SFC; Danger/Restricted teils MSL oder FL (STD
   | `LineStringSegment` | 93 | Punktliste direkt |
   | `ArcByCenterPoint` | 564 | Mittelpunkt + `gml:radius` (uom `[nmi_i]`=1.852 m) + `startAngle`/`endAngle` → in Stützpunkte (2–5°) zerlegen |
   | `CircleByCenterPoint` | 200 | Vollkreis → densifizieren |
-- Winkel nach GML: von **Ost gegen den Uhrzeigersinn** (mathematisch) – Bogen-
-  richtung aus Start/End ableiten und **gegen die NATS-Karte visuell prüfen**.
-- Radius-Einheit prüfen (`[nmi_i]`, ggf. `KM`/`M`). Ring schließen.
+- ~~Winkel nach GML: von Ost gegen den Uhrzeigersinn (mathematisch)~~ –
+  **korrigiert (Prüfung an den echten Daten, 2026-11-15):** `startAngle`/
+  `endAngle` sind **Peilungen ab Nord im Uhrzeigersinn**; Richtung = Vorzeichen
+  von end − start (größer → im Uhrzeigersinn; negative Winkel kommen vor). Belegt:
+  Bogenenden treffen die Nachbarpunkte des Rings auf < 15 m, Flächen aller 1.069
+  Gebiete = NATS-KML ±1,2 % (mit „mathematischen“ Winkeln ≈ 600 Ausreißer).
+- Radius-Einheit prüfen: im Datensatz `[nmi_i]` (757), `m` (5), `[ft_i]` (2).
+  Radien als WGS84-Distanz (Kugel: Kreisflächen ≈ 0,6 % zu groß). Ring schließen.
+- Punkte stehen als `gml:pointProperty/aixm:Point/gml:pos` (kein `posList`).
+- 6 Gebiete (EGD012/031/138D/401/710/802) verweisen mit `curveMember
+  xlink:href="urn:uuid:…"` auf eine **GeoBorder** (Küste/Fluss, am Dateiende) –
+  Abschnitt zwischen dem Punkt davor und danach übernehmen.
 - Alternative ohne Bogenlogik: KML nehmen (Bögen schon in Linien) – dafür kleine
   Lücken zwischen Nachbarzonen und Attribute nur als HTML.
 
@@ -192,7 +204,7 @@ Höhen: FRZ/RPZ immer 0–2.000 ft SFC; Danger/Restricted teils MSL oder FL (STD
    6. Diff gegen Vorzyklus über `gml:identifier`. 7. Datenstand (AIRAC) +
    NOTAM-Hinweis in der App.
 
-→ `shared/ukGeozones.ts`: statt KML-Freitext (§4) den AIXM-Parser nutzen; R→
+→ `shared/ukGeozones.ts`: statt KML-Freitext (§4) den AIXM-Parser nutzen (umgesetzt, §8); R→
 `REQ_AUTHORISATION`/`RESTRICTED`, P→`PROHIBITED`, D→Gefahrengebiet. **Status GB:
 einsatzbereit (offizieller AIXM-Datensatz).**
 
@@ -201,3 +213,33 @@ einsatzbereit (offizieller AIXM-Datensatz).**
   abgleichen (kommerziell/Weitergabe). Spez-PDF `SPC_AIM006 V2.0` auf
   Aktivierungs-Codes/Note-Purposes durchsehen. Push/Feed für neue Zyklen bei NATS
   erfragen (aktuell nur Datei-Download).
+
+---
+
+## 8. Stand der Umsetzung (2026-11-15)
+
+**Status GB: AIXM-Primärquelle umgesetzt, KML bleibt Rückfall.**
+
+- **Abruf** `client/lib/geozoneDirect/ukSource.ts`: Datei des laufenden AIRAC-
+  Zyklus (Effective Date ≤ heute; der schon veröffentlichte nächste Zyklus
+  wird erst ab seinem Datum genutzt), bei 404 der Vorgänger. Gleicher AIRAC-
+  Stand auf dem Gerät → If-Modified-Since → 304 → kein Download. SHA-256 der
+  XML gegen die `.sha256` im ZIP ist Pflicht. Jeder AIXM-Fehler → Google-My-
+  Maps-KML (§2–§6), beide scheitern → gespeicherter Bestand bleibt.
+- **Parser** `shared/geozoneKit/aixm.ts` (ohne DOMParser, streamend, Pausen
+  für den JS-Thread), **SHA-256** `shared/sha256.ts`, **Normalisierung**
+  `normalizeUkAixmWithStats` in `shared/ukGeozones.ts` (Mapping §7.2; P →
+  PROHIBITED, R/FRZ/RPZ → REQ_AUTHORISATION, D → CONDITIONAL; Höhen mit
+  Einheit/Bezug, nie pauschal AGL; FRZ+RPZ über den Stamm gruppiert,
+  Geometrien getrennt; Aktivierung als Text, SS–SR-Timesheets als Zeitplan).
+- **Zahlen Zyklus 29.10.2026:** 1.069 Airspaces (+ 7 GeoBorder), SHA-256 ok;
+  nach Höhenfilter 1.047 Zonen (22 Danger Areas ab ≥ FL125 verworfen), 138
+  FRZ/RPZ-Gruppen; Flächen = NATS-KML ±1,2 %. Node: ≈ 0,6–0,75 s für Entpacken,
+  Prüfsumme und Parsen.
+- **Registry:** `temporary: "none"` (keine NOTAM/SUP im Datensatz), Lizenztext
+  aus den Datensatz-Metadaten („For aviation use only“, „Not for resale“).
+- **Fixture:** `client/lib/__tests__/fixtures/gb-nats-aixm-sample.xml`
+  (11 echte Gebiete + 1 GeoBorder). Tests: `client/lib/__tests__/ukAixm.test.ts`.
+- **Offen:** Hermes-Laufzeit/Speicher auf dem Gerät messen; §7.5 (Lizenz/AGB,
+  Spez-PDF, Push/Feed) unverändert offen; Freitext-Zeiten wie „In the period
+  0001 hours on 16th May …“ bleiben englisch (Zone gilt dann als aktiv).

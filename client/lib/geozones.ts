@@ -614,7 +614,7 @@ export async function queryEd269CachedFeaturesWithStatus(
   // (geozoneDirect/ed269Store, auf dem Gerät gespeichert, Stand/„stale“ laut
   // Registry). Der frühere Rückfall auf die Features des Offline-Pakets ist
   // entfallen (B7/S6): das Paket wird aus genau diesem Bestand erzeugt, lieferte
-  // offline aber „ok“ ohne Datenalter und hätte einen gelöschten Import (MT/GR)
+  // offline aber „ok“ ohne Datenalter und hätte einen gelöschten Import (GR)
   // wiederbelebt. Kein Bestand = Abdeckungslücke ("missing").
   return queryEd269CachedFeaturesWithStatusFrom("", lat, lon, radiusKm, iso, limit, fullCountry, maxValidityDays);
 }
@@ -1689,7 +1689,7 @@ export async function queryGeozonesInArea(
  * Wie queryGeozonesInArea, liefert aber zusätzlich, für welche Länder die
  * Abfrage tatsächlich Daten hatte (Review-Fix 4). Ein Abruffehler, ein
  * fehlender Datensatz (z. B. CZ ohne Offline-Paket, IT ohne d-flight-Login,
- * MT ohne Import) oder ein Land ohne automatische Prüfung (HU) erscheint als
+ * GR ohne Import) oder ein Land ohne automatische Prüfung (HU) erscheint als
  * Quelle mit status missing/error/unsupported und senkt `coverage` auf
  * "partial"/"unavailable" — statt still als "keine Zonen" (grün) zu gelten.
  */

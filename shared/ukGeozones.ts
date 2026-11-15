@@ -1,4 +1,7 @@
-// Vereinigtes Königreich (GB) – Normalisierung der UK-AIP-KML (Google My Maps
+// Vereinigtes Königreich (GB). PRIMÄR: NATS-Digitaldatensatz AIXM 5.1
+// (`normalizeUkAixmWithStats`, Abschnitt am Dateiende; Parser in
+// shared/geozoneKit/aixm.ts). RÜCKFALL: die folgende Normalisierung der
+// UK-AIP-KML (Google My Maps
 // „UK AIP“, von den britischen Behörden bereitgestellt; Inhalt: AIP ENR 5.1
 // Danger/Prohibited/Restricted Areas inkl. der drohnenspezifischen
 // Flugplatz-FRZ, Gefängnis- und National-Security-Act-Zonen). Siehe
@@ -43,9 +46,10 @@ import {
 import { FT_M, normalizeVRef, parseHeight } from "./geozoneKit/heights";
 import { round1 } from "./geozoneKit/text";
 import { localizedExtendedProperties, messageWithOriginal, pushHints } from "./geozoneKit/messages";
+import type { AixmActivation, AixmAirspace, AixmDataset, AixmLimit, AixmTimesheet } from "./geozoneKit/aixm";
 
 export const GB_GEOZONE_SOURCE_LABEL = "UK AIP (CAA)";
-export const GB_ATTRIBUTION = "UK AIP (CAA) – Danger, Prohibited und Restricted Areas";
+export const GB_ATTRIBUTION = "UK AIP ENR 5.1 (CAA/NATS) – Danger, Prohibited und Restricted Areas inkl. Flugplatz-FRZ; Datensatz © NATS Limited";
 export const UK_AIP_MAP_ID = "1BktWMPYNuh6N5_IPngyq8jW80nAWXI8d";
 /** Unkomprimierte KML (forcekml=1, ~2 MB). */
 export const UK_AIP_KML_URL = `https://www.google.com/maps/d/kml?mid=${UK_AIP_MAP_ID}&forcekml=1`;
@@ -122,7 +126,10 @@ export function formatUkLimitDe(l: UkLimit | null | undefined): string {
   if (l.flightLevel != null) return `FL${l.flightLevel} (≈ ${fmtNum(l.meters ?? 0)} m, Standarddruck)`;
   const base = l.feet != null ? `${fmtNum(l.feet)} ft` : `${fmtNum(l.meters ?? 0)} m`;
   const approx = l.feet != null ? ` (≈ ${fmtNum(l.meters ?? 0)} m)` : "";
-  return l.reference === "AGL" ? `${base} über Grund${approx}` : `${base} MSL${approx}`;
+  if (l.reference === "AGL") return `${base} über Grund${approx}`;
+  if (l.reference === "STD") return `${base} Druckhöhe (STD)${approx}`;
+  if (l.reference == null) return `${base}${approx} – Bezug unbekannt`;
+  return `${base} MSL${approx}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -222,6 +229,15 @@ const SENTENCE_RULES: SentenceRule[] = [
   [/^Restricted airspace active H24\.?$/i, () => "Beschränkter Luftraum – durchgehend aktiv (H24)."],
   [/^Unmanned Aircraft Restriction\.?$/i, () => "Beschränkung für unbemannte Luftfahrzeuge."],
   [/^H24\.?$/i, () => "Durchgehend aktiv (H24)."],
+  // AIXM-Aktivierungshinweise (NATS-Datensatz)
+  [/^(?:And )?(?:as )?Activated by NOTAM\.?$/i, () => "Aktivierung per NOTAM."],
+  [/^Only available HN\.?$/i, () => "Nur nachts (HN, Sonnenuntergang bis Sonnenaufgang) aktivierbar."],
+  [/^See above\.?$/i, () => ""],
+  [/^OTHER\.?$/, () => ""],
+  [/^activity periods to be published by NOTAM\.?$/i, () => "Aktivitätszeiten werden per NOTAM bekanntgegeben."],
+  [/^Not available Sat\/Sun\/PH\.?$/i, () => "Nicht aktiv an Samstagen, Sonntagen und Feiertagen."],
+  [/^Not permanently active\.?$/i, () => "Nicht dauerhaft aktiv."],
+  [/^Periods when restrictions in place promulgated by J Series NOTAM\.?$/i, () => "Zeiten der Beschränkung werden per NOTAM (J-Serie) bekanntgegeben."],
   [/^National Police Air Service activity\.?$/i, () => "Flugbetrieb des National Police Air Service (Polizeihubschrauber)."],
   [
     /^Unmanned aircraft flights? not permitted unless permission has been granted by the relevant Air Traffic Service unit or aerodrome operator\.?$/i,
@@ -297,6 +313,30 @@ const SENTENCE_RULES: SentenceRule[] = [
   [/^Contact(?: online)?:? (\S+@\S+?)(?: or (.+?))?\.?$/i, (m) => `Kontakt: ${m[1]}${m[2] ? ` oder ${m[2]}` : ""}.`],
   [/^Contact(?: online)?: (.+?)\.?$/i, (m) => `Kontakt: ${germanizeServiceText(m[1])}.`],
 ];
+
+const UK_DAY_DE: Record<string, string> = { MON: "Mo", TUE: "Di", WED: "Mi", THU: "Do", FRI: "Fr", SAT: "Sa", SUN: "So" };
+const UK_TIMES_RE =
+  /^(?:(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)(?:-(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun))?|\d{4}-\d{4}|\(\d{4}-\d{4}\)|SR ?(?:to|-) ?SS|and as activated by NOTAM|[,;.\s])+$/i;
+
+/**
+ * Aktivierungszeiten der AIP („Mon-Thu 0800-1700 (0700-1600), Fri 0800-1400
+ * (0700-1300); and as activated by NOTAM.“) → deutsch. UK-AIP-Konvention:
+ * Zeiten in UTC, Klammerzeiten gelten im Sommer. null, wenn der Satz mehr
+ * enthält als Tage, Zeiten und „and as activated by NOTAM“.
+ */
+export function translateUkTimesSentence(sentence: string): string | null {
+  const s = sentence.replace(/\s+/g, " ").trim();
+  if (!s || !/\d{4}-\d{4}|SR ?(?:to|-) ?SS/i.test(s) || !UK_TIMES_RE.test(s)) return null;
+  const de = s
+    .replace(/[.\s]+$/, "")
+    .replace(/\b(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\b/gi, (d) => UK_DAY_DE[d.toUpperCase()])
+    .replace(/\b([A-Z][a-z])-([A-Z][a-z])\b/g, "$1–$2")
+    .replace(/\((\d{4})-(\d{4})\)/g, "(Sommer $1–$2)")
+    .replace(/\b(\d{4})-(\d{4})\b/g, "$1–$2")
+    .replace(/\bSR ?(?:to|-) ?SS\b/gi, "Sonnenaufgang bis Sonnenuntergang")
+    .replace(/;?\s*and as activated by NOTAM/i, " sowie bei Aktivierung per NOTAM");
+  return `${de} (Zeiten UTC).`;
+}
 
 /** Einen Satz übersetzen; null, wenn keine Regel passt. */
 export function translateUkSentence(sentence: string): string | null {
@@ -376,6 +416,18 @@ export function parseUkDescription(html: string | undefined): UkParsedDescriptio
     body = rest;
   }
 
+  parseUkRemarkBody(body, out);
+  out.emails = [...new Set(vertical.match(EMAIL_RE) ?? [])];
+  out.urls = [...new Set(vertical.match(URL_RE) ?? [])];
+  return out;
+}
+
+/**
+ * Bemerkungsteil (nach „Lower limit“ in der KML bzw. die AIXM-Hinweise) in
+ * Abschnitte zerlegen: Activity/Service/Contact/SUA Authority, Rechtsgrundlagen
+ * (SI), Geländehöhe, E-Mail-Kontakte und freie Bemerkungen. Schreibt in `out`.
+ */
+export function parseUkRemarkBody(body: string, out: UkParsedDescription): void {
   const paragraphs = body.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
   const services: string[] = [];
   const contacts: string[] = [];
@@ -432,9 +484,6 @@ export function parseUkDescription(html: string | undefined): UkParsedDescriptio
   }
   if (services.length) out.service = services.join(" ");
   if (contacts.length) out.contact = contacts.join(" ");
-  out.emails = [...new Set(vertical.match(EMAIL_RE) ?? [])];
-  out.urls = [...new Set(vertical.match(URL_RE) ?? [])];
-  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -507,10 +556,23 @@ function designatorOf(name: string): string | undefined {
 }
 
 /** Deutsche, strukturierte Beschreibung + englischer Originaltext. */
-export function buildUkMessageDe(folder: UkFolder, d: UkParsedDescription, isFrz: boolean): string {
+export interface UkMessageOptions {
+  /** Typzeile ersetzen (AIXM: FRZ/RPZ) */
+  typeDe?: string;
+  /** Zusätzliche Zeilen direkt nach der Höhe (AIXM: Gruppe FRZ+RPZ, Aktivierung) */
+  extraLines?: string[];
+  /** Quellenzeile ersetzen */
+  sourceLine?: string;
+}
+
+/** Quellenzeile der Google-My-Maps-KML (Rückfall). */
+const UK_KML_SOURCE_LINE = `Quelle: ${GB_GEOZONE_SOURCE_LABEL} – nur zur Information, nicht zur Navigation. Kurzfristige Beschränkungen (NOTAMs) und aktuelle Aktivierungen sind in dieser Karte nicht enthalten – vor dem Flug zusätzlich prüfen.`;
+
+export function buildUkMessageDe(folder: UkFolder, d: UkParsedDescription, isFrz: boolean, opts: UkMessageOptions = {}): string {
   const lines: string[] = [];
-  lines.push(`Typ: ${isFrz ? "Flugbeschränkungszone (FRZ) um einen Flugplatz – Restricted Area" : TYPE_DE[folder]}`);
+  lines.push(`Typ: ${opts.typeDe ?? (isFrz ? "Flugbeschränkungszone (FRZ) um einen Flugplatz – Restricted Area" : TYPE_DE[folder])}`);
   lines.push(`Höhe laut AIP: ${formatUkLimitDe(d.lower)} bis ${formatUkLimitDe(d.upper)}`);
+  if (opts.extraLines) lines.push(...opts.extraLines);
   if (d.activities.length > 0) {
     const de = [...new Set(d.activities.map((a) => translateUkActivity(a).de))];
     lines.push(`Aktivität: ${de.join(", ")}`);
@@ -521,8 +583,8 @@ export function buildUkMessageDe(folder: UkFolder, d: UkParsedDescription, isFrz
   for (const para of d.remarks) {
     for (const s of sentences(para)) {
       const de = translateUkSentence(s);
-      if (de) {
-        if (!hints.includes(de)) hints.push(de);
+      if (de != null) {
+        if (de && !hints.includes(de)) hints.push(de);
       } else if (/^(?:Flight|Flights) (?:is )?(?:not )?permitted\b/i.test(s)) {
         exemptions = true;
       } else if (/^(?:Guernsey )?SI\b/.test(s)) {
@@ -542,7 +604,7 @@ export function buildUkMessageDe(folder: UkFolder, d: UkParsedDescription, isFrz
   if (d.siteElevation && d.siteElevation.meters != null) {
     lines.push(`Geländehöhe am Standort: ${formatUkLimitDe({ ...d.siteElevation, reference: "MSL" })}`);
   }
-  lines.push(`Quelle: ${GB_GEOZONE_SOURCE_LABEL} – nur zur Information, nicht zur Navigation. Kurzfristige Beschränkungen (NOTAMs) und aktuelle Aktivierungen sind in dieser Karte nicht enthalten – vor dem Flug zusätzlich prüfen.`);
+  lines.push(opts.sourceLine ?? UK_KML_SOURCE_LINE);
   // Seitliche Grenzen (Koordinatenliste) nur, wenn kurz – lange Listen zeigt die Karte.
   const original = [d.lateral && d.lateral.length <= UK_MAX_LATERAL_TEXT ? d.lateral : "", d.englishText].filter(Boolean).join("\n");
   return messageWithOriginal(lines, original);
@@ -639,4 +701,377 @@ export function normalizeUkKmlWithStats(kml: string, opts: UkNormalizeOptions = 
 /** KML-Text → normalisierte Features. */
 export function normalizeUkKml(kml: string, opts: UkNormalizeOptions = {}): UkFeature[] {
   return normalizeUkKmlWithStats(kml, opts).features;
+}
+
+// ===========================================================================
+// PRIMÄRQUELLE: NATS-Digitaldatensatz „UK UAS Flight Restrictions“ (AIXM 5.1)
+// (docs/uk-geozones-integration.md §7). Dieselben 1.069 Gebiete wie die
+// Google-My-Maps-KML, aber strukturiert: exakte Kreise/Bögen, Höhen mit
+// Einheit und Bezug, Aktivierung, stabile UUID. Die KML bleibt Rückfall.
+// ===========================================================================
+
+/** Download-Ordner (ohne Anmeldung). */
+export const UK_NATS_AIXM_BASE_URL =
+  "https://nats-uk.ead-it.com/cms-nats/export/sites/default/en/Publications/digital-datasets/UAS_AREA_1/";
+/** Bezeichnung des Datensatzes für Meldungen/Datenquellen. */
+export const UK_NATS_AIXM_LABEL = "NATS-Digitaldatensatz „UK UAS Flight Restrictions“ (AIXM 5.1)";
+
+/** AIRAC-Bezug: AIRAC 2401 = 25.01.2024 (Zyklus 28 Tage, 00:00 UTC). */
+const UK_AIRAC_EPOCH_MS = Date.UTC(2024, 0, 25);
+const UK_AIRAC_CYCLE_MS = 28 * 86_400_000;
+
+/** Beginn (ms, UTC) des zum Zeitpunkt `now` gültigen AIRAC-Zyklus. */
+export function ukAiracCycleStart(now: number = Date.now()): number {
+  return UK_AIRAC_EPOCH_MS + Math.floor((now - UK_AIRAC_EPOCH_MS) / UK_AIRAC_CYCLE_MS) * UK_AIRAC_CYCLE_MS;
+}
+
+function yyyymmdd(ms: number): string {
+  return new Date(ms).toISOString().slice(0, 10).replace(/-/g, "");
+}
+
+/**
+ * Kandidaten-Datumsstempel der AIXM-Datei, neueste zuerst: der laufende
+ * AIRAC-Zyklus (Effective Date ≤ heute) und `back` Vorgänger (falls NATS den
+ * laufenden noch nicht/nicht mehr anbietet). Der nächste Zyklus liegt oft schon
+ * online, gilt aber erst ab seinem Effective Date – er wird bewusst NICHT
+ * vorgezogen.
+ */
+export function ukAixmCandidateDates(now: number = Date.now(), back = 1): string[] {
+  const start = ukAiracCycleStart(now);
+  const out: string[] = [];
+  for (let k = 0; k <= back; k++) out.push(yyyymmdd(start - k * UK_AIRAC_CYCLE_MS));
+  return out;
+}
+
+/** URL der XML-ZIP-Datei eines AIRAC-Datums (YYYYMMDD). */
+export function ukAixmZipUrl(date: string): string {
+  return `${UK_NATS_AIXM_BASE_URL}EG_UAS_FR_DS_AREA1_FULL_${date}_XML.zip`;
+}
+
+/** "2026-10-29T00:00:00Z" / "20261029" → "2026-10-29" (sonst undefined). */
+export function ukAiracIsoDate(v: string | undefined): string | undefined {
+  if (!v) return undefined;
+  const m = v.match(/^(\d{4})-?(\d{2})-?(\d{2})/);
+  return m ? `${m[1]}-${m[2]}-${m[3]}` : undefined;
+}
+
+function deDate(iso: string | undefined): string {
+  if (!iso) return "unbekannt";
+  const [y, m, d] = iso.split("-");
+  return `${d}.${m}.${y}`;
+}
+
+// ---------------------------------------------------------------------------
+// FRZ + RPZ eines Flugplatzes gruppieren
+// ---------------------------------------------------------------------------
+
+/**
+ * Designator-Stamm einer Flugplatz-Zone: FRZ und RPZ eines Flugplatzes teilen
+ * den Stamm und unterscheiden sich im Buchstaben-Suffix (EGR1U010A = FRZ,
+ * EGR1U010B…E = RPZ). Nur für localType FRZ/RPZ; sonst undefined.
+ */
+export function ukZoneGroupStem(designator: string | undefined, localType: string | undefined): string | undefined {
+  if (!designator || !/^(FRZ|RPZ)$/i.test(localType ?? "")) return undefined;
+  const m = designator.toUpperCase().match(/^(.*\d)[A-Z]$/);
+  return m ? m[1] : designator.toUpperCase();
+}
+
+/** Flugplatzname aus „KEMBLE RWY 26G“ bzw. „KEMBLE“. */
+function aerodromeName(name: string | undefined): string {
+  return String(name ?? "").replace(/\s+RWY\b.*$/i, "").replace(/\s+FRZ$/i, "").trim();
+}
+
+// ---------------------------------------------------------------------------
+// Höhen und Aktivierung
+// ---------------------------------------------------------------------------
+
+/** AIXM-Grenze → UkLimit (Bezug SFC → AGL, MSL → MSL, STD/FL → STD; fehlend → unbekannt). */
+export function ukLimitFromAixm(l: AixmLimit | null | undefined): UkLimit | null {
+  if (!l) return null;
+  const v = l.value.trim().toUpperCase();
+  const uom = (l.uom ?? "").toUpperCase();
+  const ref = (l.reference ?? "").toUpperCase();
+  if (v === "UNL" || v === "UNLTD") return { unlimited: true, raw: "UNL" };
+  if (v === "GND" || v === "SFC" || (Number(v) === 0 && (ref === "SFC" || ref === "GND"))) {
+    return { meters: 0, reference: "AGL", raw: "SFC" };
+  }
+  const n = Number(v);
+  if (!Number.isFinite(n)) return null;
+  if (uom === "FL" || ref === "STD") {
+    const fl = uom === "FL" ? n : null;
+    const h = parseHeight(n, uom === "FL" ? "FL" : uom || "ft", "STD");
+    return {
+      meters: round1(h?.m ?? 0),
+      reference: "STD",
+      ...(fl != null ? { flightLevel: fl } : { feet: uom === "M" ? undefined : n }),
+      raw: fl != null ? `FL${fl}` : `${n} ${uom || "FT"} STD`,
+    };
+  }
+  const isFt = uom !== "M";
+  const h = parseHeight(n, isFt ? "ft" : "m", ref || undefined);
+  const reference: UkReference | undefined = !ref ? undefined : h?.ref === "AGL" ? "AGL" : h?.ref === "MSL" ? "MSL" : undefined;
+  return {
+    meters: round1(h?.m ?? (isFt ? n * FT_M : n)),
+    ...(reference ? { reference } : {}),
+    ...(isFt ? { feet: n } : {}),
+    raw: `${n} ${isFt ? "FT" : "M"}${ref ? ` ${ref}` : ""}`,
+  };
+}
+
+const ACTIVATION_STATUS_DE: Record<string, string> = {
+  ACTIVE: "aktiv (laut AIP)",
+  AVBL_FOR_ACTIVATION:
+    "nur bei Bedarf aktiviert (z. B. per NOTAM) – die App wertet das Gebiet vorsichtshalber als aktiv; aktuellen Status vor dem Flug prüfen",
+  INACTIVE: "inaktiv (laut AIP)",
+  OTHER: "besondere Regelung (siehe Zeiten/Hinweise)",
+};
+
+/** Timesheets → ED-269-applicability (nur sicher abbildbare: UTC, ohne Tagesbereich, nicht „excluded“). */
+export function ukApplicabilityFromAixm(acts: AixmActivation[]): any[] | undefined {
+  const schedule: any[] = [];
+  for (const a of acts) {
+    for (const t of a.timesheets) {
+      if (t.excluded) return undefined;
+      if (t.timeReference && !/^UTC$/i.test(t.timeReference)) return undefined;
+      if (t.dayTil || t.startDate || t.endDate) return undefined;
+      const hasTime = t.startTime || t.startEvent;
+      const hasEnd = t.endTime || t.endEvent;
+      if (!hasTime || !hasEnd) return undefined;
+      const e: Record<string, string> = {};
+      if (t.day && !/^ANY$/i.test(t.day)) e.day = t.day.toUpperCase();
+      if (t.startTime) e.startTime = t.startTime;
+      else if (t.startEvent) e.startEvent = t.startEvent.toUpperCase();
+      if (t.endTime) e.endTime = t.endTime;
+      else if (t.endEvent) e.endEvent = t.endEvent.toUpperCase();
+      schedule.push(e);
+    }
+  }
+  return schedule.length ? [{ schedule }] : undefined;
+}
+
+function timesheetDe(t: AixmTimesheet): string {
+  const ev = (e?: string) => (e === "SR" ? "Sonnenaufgang" : e === "SS" ? "Sonnenuntergang" : e ?? "?");
+  const from = t.startTime ? `${t.startTime} UTC` : ev(t.startEvent);
+  const to = t.endTime ? `${t.endTime} UTC` : ev(t.endEvent);
+  const day = t.day && !/^ANY$/i.test(t.day) ? `${t.day}${t.dayTil ? `–${t.dayTil}` : ""} ` : "";
+  return `${t.excluded ? "nicht " : ""}${day}${from} bis ${to}`;
+}
+
+function timesheetEn(t: AixmTimesheet): string {
+  const day = t.day ? `${t.day}${t.dayTil ? `-${t.dayTil}` : ""} ` : "";
+  return `${t.excluded ? "EXCLUDED " : ""}${day}${t.startTime ?? t.startEvent ?? "?"}-${t.endTime ?? t.endEvent ?? "?"}${t.timeReference ? ` ${t.timeReference}` : ""}`;
+}
+
+// ---------------------------------------------------------------------------
+// Normalisierung
+// ---------------------------------------------------------------------------
+
+const AIXM_FOLDER: Record<string, UkFolder> = { P: "Prohibited", R: "Restricted", D: "Danger" };
+
+const LOCAL_TYPE_DE: Record<string, string> = {
+  FRZ: "Flugbeschränkungszone (FRZ) um einen Flugplatz – Restricted Area",
+  RPZ: "Runway Protection Zone (RPZ) – Teil der Flugbeschränkungszone (FRZ) des Flugplatzes",
+};
+
+interface UkAixmRecord {
+  a: AixmAirspace;
+  folder: UkFolder;
+  designator: string;
+  geometry: { type: "Polygon" | "MultiPolygon"; coordinates: any };
+  lower: UkLimit | null;
+  upper: UkLimit | null;
+  stem?: string;
+}
+
+function aixmGeometry(a: AixmAirspace): UkAixmRecord["geometry"] | null {
+  const round = (v: number) => Math.round(v * 1e6) / 1e6;
+  const polys: number[][][][] = [];
+  for (const v of a.volumes) {
+    if (/^SUBTR/i.test(v.operation ?? "")) continue; // Ausschnitt: nicht als Fläche zeichnen
+    for (const p of v.polygons) polys.push(p.map((r) => r.map((c) => [round(c[0]), round(c[1])])));
+  }
+  if (polys.length === 0) return null;
+  return polys.length === 1 ? { type: "Polygon", coordinates: polys[0] } : { type: "MultiPolygon", coordinates: polys };
+}
+
+/** Englischer Originaltext aus den strukturierten AIXM-Feldern. */
+function aixmEnglishText(a: AixmAirspace, lower: UkLimit | null, upper: UkLimit | null): string {
+  const parts: string[] = [];
+  parts.push(`Upper limit: ${upper?.raw ?? "unknown"}\nLower limit: ${lower?.raw ?? "unknown"}`);
+  const notes = a.notes.map((n) => n.text.trim()).filter(Boolean);
+  if (notes.length) parts.push(notes.join("\n\n"));
+  for (const act of a.activations) {
+    const bits = [act.status ? `Status: ${act.status}` : "", ...act.timesheets.map(timesheetEn), ...act.notes.map((n) => n.text.trim())].filter(Boolean);
+    if (bits.length) parts.push(`Activation: ${bits.join(" / ")}`);
+  }
+  return parts.join("\n\n");
+}
+
+export interface UkAixmNormalizeOptions extends UkNormalizeOptions {
+  /** AIRAC-Datum des Datensatzes (sonst aus den Daten) */
+  airac?: string;
+}
+
+/**
+ * AIXM-Lufträume → App-Features (gleiches Property-Schema wie die KML-
+ * Normalisierung) + Verwerfungsstatistik. FRZ und RPZ eines Flugplatzes
+ * bleiben getrennte Flächen, tragen aber den gemeinsamen Stamm (`ukGroup`) und
+ * eine Zeile „Gehört zu …“ in der Meldung.
+ */
+export function normalizeUkAixmWithStats(
+  input: AixmDataset | AixmAirspace[],
+  opts: UkAixmNormalizeOptions = {},
+): UkNormalizeResult & { airac?: string; groups: number } {
+  const airspaces = Array.isArray(input) ? input : input.airspaces;
+  const airac = ukAiracIsoDate(opts.airac ?? (Array.isArray(input) ? undefined : input.validTime) ?? airspaces.find((a) => a.validTime)?.validTime);
+  const maxAgl = opts.maxLowerAglMeters ?? UK_MAX_LOWER_AGL_M;
+  const maxMsl = opts.maxLowerMslMeters ?? UK_MAX_LOWER_MSL_M;
+  const dropped: UkNormalizeResult["dropped"] = [];
+  const records: UkAixmRecord[] = [];
+
+  for (const a of airspaces) {
+    const designator = (a.designator ?? "").toUpperCase();
+    const label = [designator, a.name].filter(Boolean).join(" ") || a.uuid || "?";
+    const folder = AIXM_FOLDER[(a.type ?? "").toUpperCase()];
+    if (!folder) {
+      dropped.push({ name: label, reason: "unknown_folder" });
+      continue;
+    }
+    const geometry = aixmGeometry(a);
+    if (!geometry) {
+      dropped.push({ name: label, reason: "no_geometry" });
+      continue;
+    }
+    const vol = a.volumes[0];
+    const lower = ukLimitFromAixm(vol?.lower);
+    const upper = ukLimitFromAixm(vol?.upper);
+    const lowerMeters = lower?.meters ?? 0;
+    if (lower?.reference === "AGL" && lowerMeters > maxAgl) {
+      dropped.push({ name: label, reason: "lower_agl", lower: lower.raw });
+      continue;
+    }
+    if ((lower?.reference === "MSL" || lower?.reference === "STD") && lowerMeters > maxMsl) {
+      dropped.push({ name: label, reason: "lower_msl", lower: lower.raw });
+      continue;
+    }
+    records.push({ a, folder, designator: designator || a.uuid || label, geometry, lower, upper, stem: ukZoneGroupStem(designator, a.localType) });
+  }
+
+  // Gruppen FRZ + RPZ (nur Gruppen mit mehr als einem Teil)
+  const groups = new Map<string, UkAixmRecord[]>();
+  for (const r of records) if (r.stem) groups.set(r.stem, [...(groups.get(r.stem) ?? []), r]);
+  for (const [k, v] of groups) {
+    if (v.length < 2) groups.delete(k);
+    else v.sort((x, y) => x.designator.localeCompare(y.designator));
+  }
+
+  const features: UkFeature[] = [];
+  const ids = new Map<string, number>();
+  for (const r of records) {
+    const { a, folder } = r;
+    const localType = (a.localType ?? "").toUpperCase() || undefined;
+    const english = aixmEnglishText(a, r.lower, r.upper);
+    const d: UkParsedDescription = {
+      lateral: "",
+      upper: r.upper,
+      lower: r.lower,
+      activities: [],
+      legal: [],
+      emails: [],
+      urls: [],
+      remarks: [],
+      englishText: english,
+    };
+    const noteBody = a.notes.map((n) => n.text.trim()).filter(Boolean).join("\n\n");
+    parseUkRemarkBody(noteBody, d);
+    d.emails = [...new Set(english.match(EMAIL_RE) ?? [])];
+    d.urls = [...new Set(english.match(URL_RE) ?? [])];
+    const isFrz = localType === "FRZ" || localType === "RPZ" || /\bFRZ\b/.test(noteBody);
+
+    const extra: string[] = [];
+    const group = r.stem ? groups.get(r.stem) : undefined;
+    let groupName: string | undefined;
+    if (group) {
+      groupName = aerodromeName((group.find((g) => (g.a.localType ?? "").toUpperCase() === "FRZ") ?? group[0]).a.name);
+      const parts = group.map((g) => `${g.designator} ${(g.a.localType ?? "").toUpperCase()}${/RWY/i.test(g.a.name ?? "") ? ` (${(g.a.name ?? "").replace(/^.*?\b(RWY\b.*)$/i, "$1")})` : ""}`);
+      extra.push(
+        `Gehört zu: Flugbeschränkungszone ${groupName} (${r.stem}) – FRZ und Runway Protection Zones bilden rechtlich EINE zusammenhängende Zone, auch wenn Karten Lücken zeigen. Teile: ${parts.join(", ")}`,
+      );
+    }
+    for (const act of a.activations) {
+      const st = act.status ? ACTIVATION_STATUS_DE[act.status.toUpperCase()] ?? act.status : undefined;
+      const times = act.timesheets.map(timesheetDe);
+      const notesDe: string[] = [];
+      const english: string[] = [];
+      for (const n of act.notes) {
+        for (const s of sentences(n.text)) {
+          const de = translateUkTimesSentence(s) ?? translateUkSentence(s);
+          if (de == null) english.push(s);
+          else if (de && !notesDe.includes(de)) notesDe.push(de);
+        }
+      }
+      const bits = [
+        st,
+        times.length ? `Zeiten: ${times.join("; ")}` : "",
+        ...notesDe,
+        english.length ? `laut AIP (englisch): ${english.join(" ")}` : "",
+      ].filter(Boolean);
+      if (bits.length) extra.push(`Aktivierung: ${bits.join(" – ")}`);
+    }
+
+    const sourceLine = `Quelle: ${GB_GEOZONE_SOURCE_LABEL} – ${UK_NATS_AIXM_LABEL}, AIRAC ${deDate(airac)} – nur zur Information, nicht zur Navigation. Kurzfristige Beschränkungen (NOTAMs, AIP SUP) sind nicht enthalten – vor dem Flug zusätzlich prüfen.`;
+    const message = buildUkMessageDe(folder, d, isFrz, {
+      typeDe: localType ? LOCAL_TYPE_DE[localType] : undefined,
+      extraLines: extra,
+      sourceLine,
+    });
+
+    const name = [r.designator, (a.name ?? "").replace(/\s+/g, " ").trim()].filter(Boolean).join(" ");
+    const props: Record<string, any> = {
+      identifier: r.designator,
+      name,
+      restriction: RESTRICTION_BY_FOLDER[folder],
+      lowerMeters: r.lower?.meters ?? 0,
+      lowerReference: r.lower ? r.lower.reference ?? "UNKNOWN" : "AGL",
+      upperReference: r.upper?.unlimited ? "MSL" : r.upper?.reference ?? "UNKNOWN",
+      message,
+      extendedProperties: localizedExtendedProperties(message, english, "en"),
+      country: "GBR",
+      source: GB_GEOZONE_SOURCE_LABEL,
+      ukDataset: "NATS-AIXM",
+      ukAirac: airac,
+      ukUuid: a.uuid,
+      ukZoneType: folder,
+      ukLocalType: localType,
+      ukFrz: isFrz || undefined,
+      ukGroup: group ? r.stem : undefined,
+      ukGroupName: groupName,
+      ukGroupMembers: group ? group.map((g) => g.designator) : undefined,
+      ukLowerLimit: r.lower?.raw,
+      ukUpperLimit: r.upper?.raw,
+      ukActivation: a.activations.find((x) => x.status)?.status,
+    };
+    if (r.upper?.meters != null && !r.upper.unlimited) props.upperMeters = r.upper.meters;
+    const applicability = ukApplicabilityFromAixm(a.activations);
+    if (applicability) props.applicability = applicability;
+    if (d.activities.length > 0) props.ukActivities = d.activities;
+    if (d.authority) props.ukAuthority = d.authority;
+    if (d.emails[0]) props.contactEmail = d.emails[0];
+    const portal = d.urls.find((u) => /portal\.caa\.co\.uk|airportal\.aero/i.test(u));
+    if (portal) {
+      props.applicationUrl = portal;
+      props.applicationUrlLabel = /caa\.co\.uk/i.test(portal) ? "Antrag (CAA-Portal ACOMS)" : "Antrag (Air Portal)";
+    }
+    for (const k of Object.keys(props)) if (props[k] === undefined) delete props[k];
+    const n = (ids.get(r.designator) ?? 0) + 1;
+    ids.set(r.designator, n);
+    if (n > 1) props.identifier = `${r.designator}#${n}`;
+    features.push({ type: "Feature", id: String(props.identifier), geometry: r.geometry, properties: props });
+  }
+  return { features, dropped, airac, groups: groups.size };
+}
+
+/** AIXM-Datensatz → normalisierte Features. */
+export function normalizeUkAixm(input: AixmDataset | AixmAirspace[], opts: UkAixmNormalizeOptions = {}): UkFeature[] {
+  return normalizeUkAixmWithStats(input, opts).features;
 }

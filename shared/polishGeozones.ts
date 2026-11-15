@@ -48,9 +48,10 @@ import {
   parseKmlPlacemarks,
   type KmlPlacemark,
 } from "./geozoneKit/kml";
-import { flToM, parseHeight } from "./geozoneKit/heights";
+import { flToM, ftToM, parseHeight } from "./geozoneKit/heights";
+import { wktCircleRing } from "./geozoneKit/wkt";
 import { round1 } from "./geozoneKit/text";
-import { localizedExtendedProperties, messageWithOriginal, sourceLineDe } from "./geozoneKit/messages";
+import { localizedExtendedProperties, messageWithOriginal, originalBlock, sourceLineDe } from "./geozoneKit/messages";
 
 export const PL_GEOZONE_SOURCE_LABEL = "PANSA DroneMap";
 export const PL_ATTRIBUTION = "© Polska Agencja Żeglugi Powietrznej (PAŻP)";
@@ -628,4 +629,531 @@ export function normalizePolishPlacemarks(pms: KmlPlacemark[], opts: PlNormalize
 /** KML-Text der PANSA-API → normalisierte Features. */
 export function normalizePolishKml(kml: string, opts: PlNormalizeOptions = {}): PlFeature[] {
   return normalizePolishPlacemarks(parseKmlPlacemarks(kml), opts);
+}
+
+// ===========================================================================
+// JSON-Weg `/v1/zones` (Doku §10, Referenz docs/tools/poland/pansa_geozones.py)
+// ===========================================================================
+//
+// Reicher als das KML (3.170 statt 1.774 Zonen: + TRA, RPA, MRT, TSA, TMA,
+// CTR/ATZ/MCTR, RMZ, P/R/D). Hülle aller Endpunkte: { properties: [...], status }.
+//
+// Zone: uid, name (= Join-Schlüssel der Aktivierungen), type, min/max (ft;
+// Bezug laut Doku AMSL, siehe unten), description{en,pl}, contact,
+// start/stop (befristete Zone), acts{H24}, etc{primitive, master, status,
+// custom_color}, geojson (Polygon).
+//
+// Beschränkung: PL_TYPE_TABLE; unbekannte Typen über die Kategorie aus
+// `/v1/zones/types` (DRA-P/R/I), MTMA/MATZ wie TMA/ATZ (Referenzskript), sonst
+// vorsorglich REQ_AUTHORISATION. RPA-Ampel (etc.status/custom_color) wird als
+// Text/Property übernommen; die Beschränkung bleibt laut Typ (RPA →
+// Genehmigung) – die Doku nennt keine Zuordnung Ampel → Beschränkung, gelockert
+// wird nie.
+//
+// Ausgrauen per HÖHE, nicht per Typ: alle Typen bleiben (außer FIS – Fluginfo-
+// Sektoren über das ganze Land, keine Drohnenrelevanz). ENTSCHEIDUNG Höhenbezug
+// (Doku: ft AMSL, Plausibilität spricht eher für AGL, nicht live geklärt):
+//  - Untergrenze > 0 → MSL (laut Doku). Das ist in BEIDEN Lesarten vorsichtig:
+//    der Höhenfilter rechnet MSL mit der höchsten Geländehöhe in AGL um; wäre
+//    der Wert in Wahrheit AGL, ist die errechnete AGL-Untergrenze nur KLEINER
+//    → es wird höchstens weniger ausgegraut, nie fälschlich. Ohne Geländehöhe
+//    blendet der Filter MSL nie aus. „Deutlich über 120 m AGL“ wird so sicher
+//    erkannt.
+//  - Obergrenze → Bezug leer (UNKNOWN): eine MSL-Obergrenze unter dem Gelände
+//    würde ausblenden – bei einer in Wahrheit AGL-Obergrenze im Bergland
+//    fälschlich. UNKNOWN blendet nie aus.
+//
+// Zeitgesteuerte Typen (PL_TIME_CONTROLLED_TYPES: TRA/TSA/TS/TR/MRT/EA) sind
+// NICHT dauerhaft aktiv (außer acts.H24): Join über den Zonennamen mit
+// /v1/activ/timeslices, /v1/activ/activations (AUP/UUP) und /v1/notams →
+// applicability-Fenster (zoneActivityAt). Nach dem Abdeckungshorizont der
+// Aktivierungsdaten (spätestes Fensterende, höchstens 36 h nach Abruf) gilt die
+// Zone vorsorglich wieder als aktiv. Ohne Aktivierungsdaten (Abruf
+// fehlgeschlagen): keine Fenster = aktiv + Hinweis „Aktivierung prüfen (AUP)“.
+// Andere Typen bleiben dauerhaft; vorhandene Fenster erscheinen nur als Text.
+// NOTAMs ohne passende Zone, aber mit eigener Geometrie → temporäre Zone
+// (isNotam); ohne Geometrie nur gezählt.
+
+export const PANSA_ZONES_URL = `${PANSA_API_BASE}/v1/zones`;
+export const PANSA_ZONE_TYPES_URL = `${PANSA_API_BASE}/v1/zones/types`;
+export const PANSA_TIMESLICES_URL = `${PANSA_API_BASE}/v1/activ/timeslices`;
+export const PANSA_ACTIVATIONS_URL = `${PANSA_API_BASE}/v1/activ/activations`;
+export const PANSA_NOTAMS_URL = `${PANSA_API_BASE}/v1/notams`;
+
+/** Zeitgesteuerte Typen: aktiv nur laut Aktivierung (AUP/UUP/Timeslice/NOTAM) bzw. acts.H24. */
+export const PL_TIME_CONTROLLED_TYPES: readonly string[] = ["TRA", "TSA", "TS", "TR", "MRT", "EA"];
+/** Typen, die der JSON-Weg verwirft (Fluginformationssektoren über das ganze Land). */
+export const PL_JSON_DROPPED_TYPES: readonly string[] = ["FIS"];
+/** Abdeckungshorizont der Aktivierungsdaten höchstens so weit nach dem Abruf. */
+export const PANSA_ACTIVATION_HORIZON_MAX_MS = 36 * 60 * 60 * 1000;
+/** Offenes Fenster „nach dem Horizont vorsorglich aktiv“ (kein 2100-Platzhalter, s. AT/LT). */
+const OPEN_AFTER_HORIZON_MS = 365 * 24 * 60 * 60 * 1000;
+
+export const PANSA_AUP_HINT_DE = "Aktivierung prüfen (AUP)";
+
+/** RPA-Ampel (etc.status) → deutscher Text. Beschränkung bleibt laut Typ. */
+export const PL_RPA_STATUS_DE: Readonly<Record<string, string>> = {
+  RED: "ROT",
+  YELLOW: "GELB",
+  BLUE: "BLAU",
+  GREEN: "GRÜN",
+};
+
+/** API-Hülle `{ properties: [...], status }` → Liste (wie `_props` im Referenzskript). */
+export function pansaList(resp: unknown): any[] {
+  if (Array.isArray(resp)) return resp;
+  if (resp && typeof resp === "object" && "properties" in (resp as any)) {
+    const p = (resp as any).properties;
+    return Array.isArray(p) ? p : [];
+  }
+  return [];
+}
+
+export type PansaCategory = "DRA-P" | "DRA-R" | "DRA-I";
+
+export interface PansaTypeInfo {
+  name: string;
+  category: PansaCategory | null;
+  descriptionEn?: string;
+  descriptionPl?: string;
+}
+
+/** `/v1/zones/types` → Typname → Kategorie + Beschreibung (category_map im Referenzskript). */
+export function pansaTypeInfos(types: unknown): Map<string, PansaTypeInfo> {
+  const out = new Map<string, PansaTypeInfo>();
+  for (const t of pansaList(types)) {
+    if (!t || typeof t !== "object" || !t.name) continue;
+    const en = String(t.description?.en ?? "").trim();
+    const pl = String(t.description?.pl ?? "").trim();
+    const head = en.toUpperCase().slice(0, 20);
+    const category = (["DRA-P", "DRA-R", "DRA-I"] as const).find((c) => head.includes(c)) ?? null;
+    out.set(String(t.name).toUpperCase(), {
+      name: String(t.name),
+      category,
+      ...(en ? { descriptionEn: en } : {}),
+      ...(pl ? { descriptionPl: pl } : {}),
+    });
+  }
+  return out;
+}
+
+const CATEGORY_RESTRICTION: Record<PansaCategory, PlRestriction> = {
+  "DRA-P": "PROHIBITED",
+  "DRA-R": "REQ_AUTHORISATION",
+  "DRA-I": "NO_RESTRICTION",
+};
+
+export interface PansaJsonType {
+  code: string;
+  restriction: PlRestriction;
+  labelDe?: string;
+  /** Typ weder in der Tabelle noch in /v1/zones/types erkannt */
+  unknown?: boolean;
+}
+
+/** Typ der JSON-Zone → Beschränkung (Tabelle, dann M-Präfix, dann Kategorie, sonst vorsorglich Genehmigung). */
+export function pansaJsonType(rawType: unknown, types?: Map<string, PansaTypeInfo>): PansaJsonType {
+  const code = canon(String(rawType ?? "")).replace(/[\s_-]+/g, "");
+  const direct = PL_TYPE_TABLE[code];
+  if (direct) return { code, restriction: direct.restriction, labelDe: direct.labelDe };
+  // MTMA/MATZ (militärisch) wie TMA/ATZ (Referenzskript: cats.get(type[1:])).
+  if (code.length > 1 && code.startsWith("M") && PL_TYPE_TABLE[code.slice(1)]) {
+    const base = PL_TYPE_TABLE[code.slice(1)];
+    return { code, restriction: base.restriction, labelDe: `Militärisch – ${base.labelDe}` };
+  }
+  const cat = types?.get(code)?.category ?? (code.length > 1 && code.startsWith("M") ? types?.get(code.slice(1))?.category : null);
+  if (cat) return { code, restriction: CATEGORY_RESTRICTION[cat] };
+  return { code: code || "?", restriction: "REQ_AUTHORISATION", unknown: true };
+}
+
+export interface PansaActivationWindow {
+  start: number | null;
+  stop: number | null;
+  /** TIMESLICE | AUP | UUP | NOTAM … */
+  source: string;
+  minFt?: number;
+  maxFt?: number;
+  notam?: string;
+}
+
+function parseTs(v: unknown): number | null {
+  if (v == null || v === "") return null;
+  if (typeof v === "number") return Number.isFinite(v) ? v : null;
+  const t = Date.parse(String(v));
+  return Number.isFinite(t) ? t : null;
+}
+
+function finiteNum(v: unknown): number | undefined {
+  if (v == null || v === "") return undefined;
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+/** Join-Schlüssel: Zonenname (nicht die UID!), Groß-/Leerzeichen-normiert. */
+export function pansaNameKey(name: unknown): string {
+  return String(name ?? "").replace(/\s+/g, " ").trim().toUpperCase();
+}
+
+export interface PansaNotamInfo {
+  series: string;
+  zonename?: string;
+  text?: string;
+  windows: PansaActivationWindow[];
+  geometry?: { type: string; coordinates: unknown };
+}
+
+function notamText(n: any): string | undefined {
+  for (const k of ["text", "message", "content", "e", "itemE", "fullText"]) {
+    const v = n?.[k];
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  return undefined;
+}
+
+function notamGeometry(n: any): { type: string; coordinates: unknown } | undefined {
+  for (const k of ["geojson", "geometry"]) {
+    const g = n?.[k];
+    if (g && typeof g === "object" && (g.type === "Polygon" || g.type === "MultiPolygon") && Array.isArray(g.coordinates)) return g;
+  }
+  return undefined;
+}
+
+/** Aktive NOTAMs (`active` ≠ false) mit ihren Fenstern (`notamActivations`). */
+export function pansaNotams(notams: unknown): PansaNotamInfo[] {
+  const out: PansaNotamInfo[] = [];
+  for (const n of pansaList(notams)) {
+    if (!n || typeof n !== "object" || n.active === false) continue;
+    const series = String(n.series ?? n.id ?? n.number ?? "").trim() || "?";
+    const windows: PansaActivationWindow[] = [];
+    for (const na of Array.isArray(n.notamActivations) ? n.notamActivations : []) {
+      windows.push({ start: parseTs(na?.start), stop: parseTs(na?.stop), source: "NOTAM", notam: series });
+    }
+    if (windows.length === 0 && (n.start || n.stop)) {
+      windows.push({ start: parseTs(n.start), stop: parseTs(n.stop), source: "NOTAM", notam: series });
+    }
+    const text = notamText(n);
+    const geometry = notamGeometry(n);
+    out.push({
+      series,
+      ...(n.zonename ? { zonename: String(n.zonename) } : {}),
+      ...(text ? { text } : {}),
+      windows,
+      ...(geometry ? { geometry } : {}),
+    });
+  }
+  return out;
+}
+
+/**
+ * Fenster je Zonenname aus timeslices (designator), activations (designator,
+ * etc.upType) und NOTAMs (zonename) – wie build_geojson im Referenzskript.
+ */
+export function pansaActivationWindows(
+  timeslices: unknown,
+  activations: unknown,
+  notams: PansaNotamInfo[] = [],
+): Map<string, PansaActivationWindow[]> {
+  const out = new Map<string, PansaActivationWindow[]>();
+  const add = (name: unknown, w: PansaActivationWindow) => {
+    const key = pansaNameKey(name);
+    if (!key) return;
+    const list = out.get(key) ?? [];
+    list.push(w);
+    out.set(key, list);
+  };
+  for (const ts of pansaList(timeslices)) {
+    add(ts?.designator, { start: parseTs(ts?.start), stop: parseTs(ts?.stop), source: "TIMESLICE", minFt: finiteNum(ts?.min), maxFt: finiteNum(ts?.max) });
+  }
+  for (const a of pansaList(activations)) {
+    add(a?.designator, {
+      start: parseTs(a?.start),
+      stop: parseTs(a?.stop),
+      source: String(a?.etc?.upType ?? "AUP"),
+      minFt: finiteNum(a?.min),
+      maxFt: finiteNum(a?.max),
+    });
+  }
+  for (const n of notams) if (n.zonename) for (const w of n.windows) add(n.zonename, w);
+  return out;
+}
+
+/**
+ * Abdeckungshorizont der Aktivierungsdaten: spätestes Fensterende aus
+ * timeslices/activations nach `now`, höchstens now + 36 h; ohne solches Ende
+ * = now (danach gilt jede zeitgesteuerte Zone vorsorglich als aktiv).
+ */
+export function pansaActivationHorizon(windows: Map<string, PansaActivationWindow[]>, now: number): number {
+  let max = now;
+  for (const list of windows.values()) {
+    for (const w of list) {
+      if (w.source === "NOTAM" || w.stop == null) continue;
+      if (w.stop > max) max = w.stop;
+    }
+  }
+  return Math.min(max, now + PANSA_ACTIVATION_HORIZON_MAX_MS);
+}
+
+function utcText(ts: number | null): string {
+  return ts == null ? "offen" : `${new Date(ts).toISOString().slice(0, 16).replace("T", " ")} UTC`;
+}
+
+function windowText(w: PansaActivationWindow): string {
+  const h = w.minFt != null || w.maxFt != null ? ` (${w.minFt != null ? `${w.minFt} ft` : "?"} – ${w.maxFt != null ? `${w.maxFt} ft` : "?"})` : "";
+  return `${utcText(w.start)} – ${utcText(w.stop)} · ${w.source}${w.notam && w.source === "NOTAM" ? ` ${w.notam}` : ""}${h}`;
+}
+
+/** Kreis aus etc.primitive (CIRCLE, centre [lon,lat], radius m) → Polygon; sonst null. */
+export function pansaCircleGeometry(primitive: unknown): { type: "Polygon"; coordinates: number[][][] } | null {
+  const p = primitive as any;
+  if (!p || String(p.type ?? "").toUpperCase() !== "CIRCLE") return null;
+  const c = Array.isArray(p.centre) ? p.centre : Array.isArray(p.center) ? p.center : null;
+  const lon = Number(c?.[0]);
+  const lat = Number(c?.[1]);
+  const r = Number(p.radius);
+  if (!Number.isFinite(lon) || !Number.isFinite(lat) || !(r > 0) || Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
+  return { type: "Polygon", coordinates: [wktCircleRing(lon, lat, r)] };
+}
+
+function validGeometry(g: any): { type: string; coordinates: unknown } | null {
+  if (!g || typeof g !== "object") return null;
+  if ((g.type === "Polygon" || g.type === "MultiPolygon") && Array.isArray(g.coordinates) && g.coordinates.length > 0) {
+    return { type: g.type, coordinates: g.coordinates };
+  }
+  return null;
+}
+
+function contactText(c: unknown): string | undefined {
+  if (c == null) return undefined;
+  if (typeof c === "string") return c.trim() || undefined;
+  if (typeof c === "object") {
+    const parts = Object.entries(c as Record<string, unknown>)
+      .filter(([, v]) => v != null && v !== "" && typeof v !== "object")
+      .map(([k, v]) => `${k}: ${v}`);
+    return parts.length > 0 ? parts.join(", ") : undefined;
+  }
+  return String(c);
+}
+
+export interface PansaJsonContext {
+  /** Abrufzeitpunkt (Fenster/Horizont relativ dazu) */
+  now: number;
+  types?: Map<string, PansaTypeInfo>;
+  /** Fenster je Zonenname (Aktivierungen und/oder NOTAMs); null = nichts geladen */
+  windows: Map<string, PansaActivationWindow[]> | null;
+  /** timeslices bzw. activations geladen – nur dann gelten Fenster als Aktivitätsplan */
+  activationsLoaded: boolean;
+  /** Abdeckungshorizont (pansaActivationHorizon); nur mit activationsLoaded */
+  horizon?: number;
+}
+
+/** Eine `/v1/zones`-Zone → App-Feature; null = übersprungen (ohne Geometrie, FIS). */
+export function normalizePansaZone(z: any, ctx: PansaJsonContext): PlFeature | null {
+  if (!z || typeof z !== "object") return null;
+  const etc = (z.etc && typeof z.etc === "object" ? z.etc : {}) as Record<string, any>;
+  const geometry = pansaCircleGeometry(etc.primitive) ?? validGeometry(z.geojson) ?? validGeometry(z.geometry);
+  if (!geometry) return null;
+  const type = pansaJsonType(z.type, ctx.types);
+  if (PL_JSON_DROPPED_TYPES.includes(type.code)) return null;
+  const name = String(z.name ?? "").trim() || String(z.uid ?? type.code);
+  const uid = String(z.uid ?? z.id ?? `${type.code}:${name}`);
+  const typeInfo = ctx.types?.get(type.code);
+
+  // Höhen (siehe Kopf: Untergrenze MSL laut Doku, Obergrenze Bezug unbekannt)
+  const minFt = finiteNum(z.min);
+  const maxFt = finiteNum(z.max);
+  const lowerGnd = minFt == null || minFt <= 0;
+  const lowerMeters = lowerGnd ? 0 : round1(ftToM(minFt as number));
+  const upperMeters = maxFt != null && maxFt > 0 ? round1(ftToM(maxFt)) : undefined;
+
+  // Zeit
+  const h24 = !!(z.acts && typeof z.acts === "object" && z.acts.H24);
+  const validStartTs = parseTs(z.start);
+  const validEndTs = parseTs(z.stop);
+  const key = pansaNameKey(z.name);
+  const windows = ctx.windows ? ctx.windows.get(key) ?? [] : [];
+  const timeControlled = PL_TIME_CONTROLLED_TYPES.includes(type.code) && !h24;
+  let applicability: any[] | undefined;
+  const horizon = ctx.horizon ?? ctx.now;
+  if (timeControlled && ctx.activationsLoaded) {
+    const openEnd = new Date(horizon + OPEN_AFTER_HORIZON_MS).toISOString();
+    applicability = windows
+      .filter((w) => w.stop == null || w.stop >= ctx.now - 24 * 60 * 60 * 1000)
+      .map((w) => ({
+        permanent: "NO",
+        startDateTime: new Date(w.start ?? ctx.now).toISOString(),
+        endDateTime: w.stop != null ? new Date(w.stop).toISOString() : openEnd,
+      }));
+    applicability.push({ permanent: "NO", startDateTime: new Date(horizon).toISOString(), endDateTime: openEnd });
+  }
+
+  // Meldung
+  const rpaStatus = etc.status != null ? String(etc.status).toUpperCase() : undefined;
+  const rpaColor = etc.custom_color != null && String(etc.custom_color).trim() ? String(etc.custom_color).trim() : undefined;
+  const master = etc.master != null && String(etc.master).trim() ? String(etc.master).trim() : undefined;
+  const lines: string[] = [];
+  lines.push(
+    `PANSA-Zonentyp: ${type.unknown ? `unbekannt (${String(z.type ?? "?")})` : `${type.code}${type.labelDe ? ` – ${type.labelDe}` : ""}`}`,
+  );
+  lines.push(RESTRICTION_DE[type.restriction]);
+  if (type.unknown) lines.push("Zonentyp in den PANSA-Daten nicht erkannt – vorsorglich als genehmigungspflichtig dargestellt.");
+  if (master) lines.push(`Teil von: ${master} (Ober- und Unterzone beachten – die strengere Regel gilt).`);
+  if (rpaStatus || rpaColor) {
+    lines.push(
+      `RPA-Ampel: ${rpaStatus ? PL_RPA_STATUS_DE[rpaStatus] ?? rpaStatus : "?"}${rpaColor ? ` (Farbe ${rpaColor})` : ""} – Farbe kodiert die zulässige Höhe/Bedingung laut PANSA DroneMap; Bedingungen dort prüfen.`,
+    );
+  }
+  lines.push(
+    `Höhe laut PANSA: ${lowerGnd ? "GND" : `${ftText(minFt as number)} AMSL (laut Doku)`} bis ${maxFt != null ? `${ftText(maxFt)} (Bezug nicht gesichert)` : "?"}.`,
+  );
+  if (validStartTs != null || validEndTs != null) lines.push(`Gültig: ${utcText(validStartTs)} bis ${utcText(validEndTs)}`);
+  if (h24) lines.push("Dauerhaft aktiv (H24).");
+  if (timeControlled) {
+    if (!ctx.activationsLoaded) {
+      lines.push(`${PANSA_AUP_HINT_DE}: zeitgesteuerte Zone, Aktivierungsdaten nicht geladen – vorsorglich als aktiv gewertet.`);
+    } else {
+      lines.push(
+        `Zeitgesteuerte Zone – aktiv nur laut Aktivierung (AUP/UUP, Timeslices, NOTAM). Ab ${utcText(horizon)} liegen keine Aktivierungsdaten vor – dann vorsorglich als aktiv gewertet; ${PANSA_AUP_HINT_DE}.`,
+      );
+    }
+  }
+  if (windows.length > 0) {
+    lines.push(`Aktivierungen${timeControlled && ctx.activationsLoaded ? "" : " (nur Information – Zone gilt als aktiv)"}:`);
+    for (const w of windows.slice(0, 8)) lines.push(`– ${windowText(w)}`);
+    if (windows.length > 8) lines.push(`– … ${windows.length - 8} weitere`);
+  }
+  const contact = contactText(z.contact);
+  if (contact) lines.push(`Kontakt: ${contact}`);
+  lines.push(sourceLineDe("PANSA DroneMap", PL_ATTRIBUTION, "Tagesaktuelle Luftraum-Aktivierungen (AUP/UUP) und NOTAMs"));
+  const desc = z.description && typeof z.description === "object" ? z.description : {};
+  const str = (v: unknown) => (typeof v === "string" ? v : null);
+  const original = originalBlock([str(desc.en), str(desc.pl), typeInfo?.descriptionEn, typeInfo?.descriptionPl]);
+  const message = messageWithOriginal(lines, original || null);
+
+  const props: Record<string, any> = {
+    identifier: uid,
+    zoneId: `PL-${uid}`,
+    name,
+    restriction: type.restriction,
+    originalType: z.type != null ? String(z.type) : undefined,
+    lowerMeters,
+    lowerReference: lowerGnd ? "AGL" : "AMSL",
+    upperMeters,
+    altitudeText: `${lowerGnd ? "GND" : `${minFt} ft`} – ${maxFt != null ? `${maxFt} ft` : "?"}`,
+    message,
+    extendedProperties: localizedExtendedProperties(message, original || null, "en"),
+    country: "POL",
+    source: PL_GEOZONE_SOURCE_LABEL,
+    attribution: PL_ATTRIBUTION,
+    plZoneType: type.unknown ? undefined : type.code,
+    plTypeUnknown: type.unknown || undefined,
+    plAltitudeSource: "json",
+    plParent: master,
+    plRpaStatus: rpaStatus,
+    plRpaColor: rpaColor,
+    plH24: h24 || undefined,
+    plTimeControlled: timeControlled || undefined,
+    plActivationUnknown: timeControlled && !ctx.activationsLoaded ? true : undefined,
+    plShape: etc.primitive?.type ? String(etc.primitive.type).toUpperCase() : undefined,
+    validStartTs: validStartTs ?? undefined,
+    validEndTs: validEndTs ?? undefined,
+    applicability,
+    notamsUrl: PANSA_AUP_URL,
+    notamsUrlLabel: "PANSA AUP/UUP (heute aktive Lufträume)",
+  };
+  for (const k of Object.keys(props)) if (props[k] === undefined) delete props[k];
+  return { type: "Feature", id: `PL-${uid}`, geometry, properties: props };
+}
+
+/** NOTAM mit eigener Geometrie ohne passende Zone → temporäre Zone (isNotam). */
+export function normalizePansaNotamZone(n: PansaNotamInfo, now: number): PlFeature | null {
+  if (!n.geometry) return null;
+  const windows = n.windows.filter((w) => w.stop == null || w.stop >= now);
+  if (n.windows.length > 0 && windows.length === 0) return null; // abgelaufen
+  const lines = [`NOTAM ${n.series} (PANSA)${n.zonename ? ` · Zone ${n.zonename}` : ""}`, RESTRICTION_DE.REQ_AUTHORISATION];
+  for (const w of windows.slice(0, 8)) lines.push(`– ${windowText(w)}`);
+  lines.push(sourceLineDe("PANSA DroneMap – NOTAM", PL_ATTRIBUTION, "den vollständigen NOTAM-Text"));
+  const message = messageWithOriginal(lines, n.text ?? null);
+  const props: Record<string, any> = {
+    identifier: `NOTAM-${n.series}`,
+    zoneId: `PL-NOTAM-${n.series}`,
+    name: `NOTAM ${n.series}`,
+    restriction: "REQ_AUTHORISATION",
+    message,
+    extendedProperties: localizedExtendedProperties(message, n.text ?? null, "en"),
+    country: "POL",
+    source: PL_GEOZONE_SOURCE_LABEL,
+    attribution: PL_ATTRIBUTION,
+    isNotam: true,
+    _notamEligible: true,
+    applicability:
+      windows.length > 0
+        ? windows.map((w) => ({
+            permanent: "NO",
+            ...(w.start != null ? { startDateTime: new Date(w.start).toISOString() } : {}),
+            ...(w.stop != null ? { endDateTime: new Date(w.stop).toISOString() } : {}),
+          }))
+        : undefined,
+    notamsUrl: PANSA_AUP_URL,
+    notamsUrlLabel: "PANSA AUP/UUP (heute aktive Lufträume)",
+  };
+  for (const k of Object.keys(props)) if (props[k] === undefined) delete props[k];
+  return { type: "Feature", id: `PL-NOTAM-${n.series}`, geometry: n.geometry, properties: props };
+}
+
+export interface PansaJsonRaw {
+  zones: unknown;
+  types?: unknown;
+  /** undefined/null = nicht geladen */
+  timeslices?: unknown;
+  activations?: unknown;
+  notams?: unknown;
+}
+
+export interface PansaJsonResult {
+  features: PlFeature[];
+  zoneCount: number;
+  notamZoneCount: number;
+  /** NOTAMs ohne Zone und ohne Geometrie (nicht darstellbar) */
+  notamUnplaced: number;
+  activationsLoaded: boolean;
+  horizon: number | null;
+}
+
+/**
+ * `/v1/zones` (+ Typen, Aktivierungen, NOTAMs) → App-Features. Aktivierungen
+ * gelten als geladen, wenn timeslices ODER activations vorliegen.
+ */
+export function normalizePansaZonesJson(raw: PansaJsonRaw, now: number = Date.now()): PansaJsonResult {
+  const types = raw.types != null ? pansaTypeInfos(raw.types) : undefined;
+  const notams = raw.notams != null ? pansaNotams(raw.notams) : [];
+  const activationsLoaded = raw.timeslices != null || raw.activations != null;
+  const windows = activationsLoaded || notams.length > 0 ? pansaActivationWindows(raw.timeslices, raw.activations, notams) : null;
+  const horizon = activationsLoaded && windows ? pansaActivationHorizon(windows, now) : null;
+  const ctx: PansaJsonContext = { now, types, windows, activationsLoaded, horizon: horizon ?? undefined };
+  const features: PlFeature[] = [];
+  const seen = new Set<string>();
+  const zoneNames = new Set<string>();
+  let zoneCount = 0;
+  for (const z of pansaList(raw.zones)) {
+    // Ohne Aktivierungsdaten erscheinen NOTAM-Fenster nur als Text (Zone bleibt aktiv).
+    const f = normalizePansaZone(z, ctx);
+    if (!f) continue;
+    if (seen.has(f.properties.zoneId)) continue;
+    seen.add(f.properties.zoneId);
+    zoneNames.add(pansaNameKey(z.name));
+    features.push(f);
+    zoneCount++;
+  }
+  let notamZoneCount = 0;
+  let notamUnplaced = 0;
+  for (const n of notams) {
+    if (n.zonename && zoneNames.has(pansaNameKey(n.zonename))) continue;
+    const f = normalizePansaNotamZone(n, now);
+    if (f && !seen.has(f.properties.zoneId)) {
+      seen.add(f.properties.zoneId);
+      features.push(f);
+      notamZoneCount++;
+    } else if (!f && !n.geometry) notamUnplaced++;
+  }
+  return { features, zoneCount, notamZoneCount, notamUnplaced, activationsLoaded, horizon };
 }

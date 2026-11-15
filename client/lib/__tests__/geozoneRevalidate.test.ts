@@ -64,7 +64,7 @@ describe("Teil A: dauerhafte vs. temporäre Zonen – Schwellen", () => {
     assert.equal(isSourceDataStale("AT", now - 29 * DAY, now), true);
     assert.equal(isTemporaryDataStale("AT", now - 23 * H, now), false);
     assert.equal(isTemporaryDataStale("AT", now - 25 * H, now), true);
-    // FR-Karte, CZ-Paket, MT-/GR-Import, HU: keine temporären Zonen
+    // FR-Karte, CZ-Paket, GR-Import, HU, MT (DDP-Zonen ohne Zeitfenster): keine temporären Zonen
     for (const iso of ["FR", "CZ", "MT", "GR", "HU"]) assert.equal(isTemporaryDataStale(iso, 0, now), false, iso);
     // RO lädt seit 2026-11 online inkl. NOTAM-UAV (temporär im Bestand)
     assert.equal(temporarySourceOf("RO"), "dataset");

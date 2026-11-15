@@ -71,7 +71,7 @@ const LEVELS: DetailLevel[] = [11, 12, 13, 14, 15];
 const KIND_LABEL: Record<string, string> = { map: "Karte", sat: "Satellit", geo: "Geozonen" };
 
 // Hinweis je Land, warum/wie eine Geozonen-Datei importiert wird (Nur-Import-
-// Länder MT/GR, Rückfall RO).
+// Land GR, Rückfall RO/MT).
 const IMPORT_HINTS: Record<string, { text: string; url?: string; linkLabel?: string }> = {
   RO: {
     text:
@@ -83,10 +83,12 @@ const IMPORT_HINTS: Record<string, { text: string; url?: string; linkLabel?: str
   },
   MT: {
     text:
-      "Malta: kein automatischer Abruf möglich. Am PC tmcad.idronect.com/map öffnen und warten, bis die orangen Zonen " +
-      "erscheinen → F12 → Konsole → Skript export_tmcad_geozonen.js einfügen (Doku: docs/tools/malta) → die geladene " +
-      "Datei malta_geozonen_roh_<Datum>.geojson (oder malta_geozonen.geojson aus normalisieren.py) hier importieren. " +
-      "Bis dahin Zonen manuell prüfen. Monatlich bzw. vor Einsätzen neu exportieren.",
+      "Die Zonen werden automatisch von Transport Malta / iDronect geladen (öffentliche Karte, Zonennamen mit " +
+      "Kontakt-E-Mails für Genehmigungsanfragen). Nur falls die Fernsteuerung den Server nicht erreicht: am PC " +
+      "tmcad.idronect.com/map öffnen, warten bis die orangen Zonen erscheinen → F12 → Konsole → Skript " +
+      "export_tmcad_geozonen.js einfügen (Doku: docs/tools/malta) → die geladene Datei malta_geozonen_roh_<Datum>.geojson " +
+      "(oder malta_geozonen.geojson aus normalisieren.py) hier importieren (ein späterer erfolgreicher Online-Abruf " +
+      "ersetzt den Import).",
     url: MT_TMCAD_MAP_URL,
     linkLabel: "Transport Malta / iDronect",
   },

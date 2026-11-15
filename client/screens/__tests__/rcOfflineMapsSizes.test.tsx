@@ -126,8 +126,10 @@ describe("Größen-Schätzung je Nutzungsstufe", () => {
     expect(estimateBaseGeozonesMB("NL")).toBe(23);
     expect(estimateBaseGeozonesMB("AT")).toBeLessThanOrEqual(5);
     expect(estimateBaseGeozonesMB("AT")).toBeGreaterThan(0);
-    // Nur Datei-Import: nichts zu laden
-    expect(estimateBaseGeozonesMB("MT")).toBe(0);
+    // Nur Datei-Import (GR): nichts zu laden; MT seit 2026-11 online (≈ 0,4 MB)
+    expect(estimateBaseGeozonesMB("GR")).toBe(0);
+    expect(estimateBaseGeozonesMB("MT")).toBe(1);
+    expect(estimateBaseGeozonesMB("PL")).toBe(10);
   });
 
   test("Offline = Basis + Karte/Luftbild/Hindernisse/Zusatzteile laut Optionen", () => {
@@ -163,7 +165,8 @@ test("Einstellungen zeigen je Land die Größe je Stufe neben der Auswahl – au
   // FR ist aus: Schätzung trotzdem sichtbar (vor der Wahl)
   expect(sizesText(tree, "FR")).toMatch(/^Online ≈ 115 MB · Offline ≈ /);
   expect(sizesText(tree, "CH")).toMatch(/^Online ≈ 18 MB · Offline ≈ /);
-  expect(sizesText(tree, "MT")).toMatch(/^Online: kein Download · Offline ≈ /);
+  expect(sizesText(tree, "GR")).toMatch(/^Online: kein Download · Offline ≈ /);
+  expect(sizesText(tree, "MT")).toMatch(/^Online ≈ 1,0 MB · Offline ≈ /);
   act(() => tree.unmount());
 });
 

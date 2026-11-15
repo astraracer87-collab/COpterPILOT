@@ -1,11 +1,10 @@
 // Malta (Transport Malta CAD / iDronect, tmcad.idronect.com) – Normalisierung
-// des MANUELLEN Browser-Exports für den Datei-Import. Siehe
-// docs/idronect-mt-api-integration.md §7 und docs/tools/malta/README.md.
-//
-// Es gibt keinen automatischen Abruf: Die öffentlichen Zonen kommen nur über
-// die Meteor-DDP-Methode Zones.getFilteredZones (Filter-Parameter unbekannt;
-// automatisierter Bezug erst mit Datenfreigabe). Der Nutzer exportiert die
-// gerenderten Zonen am PC (export_tmcad_geozonen.js) und importiert die Datei.
+// der Zonen aus dem ONLINE-Abruf (Meteor-DDP Zones.getFilteredZones
+// ({managedZones:true}), client/lib/geozoneDirect/maltaSource.ts, Doku §6a)
+// und des manuellen Browser-Exports für den Datei-Import (Rückfall; Doku §7,
+// docs/tools/malta/README.md). Der DDP-Abruf liefert dieselben Felder wie der
+// Roh-Export (flightArea-GeoJSON + zoneId, name, forbidden, minHeight, …) und
+// läuft durch denselben Normalisierer (Option `origin: "online"`).
 //
 // Drei Dateiformate werden erkannt:
 //  1. Roh-Export (`malta_geozonen_roh_<datum>.geojson`, Layer „operator-zones“):
@@ -40,7 +39,10 @@ import { ftToM } from "./geozoneKit/heights";
 import { round1 } from "./geozoneKit/text";
 import { localizedExtendedProperties, messageWithOriginal, sourceLineDe } from "./geozoneKit/messages";
 
-export const MT_GEOZONE_SOURCE_LABEL = "Transport Malta / iDronect (Datei-Import)";
+/** Quellen-Label (Popup-Untertitel) – Online-Abruf per DDP. */
+export const MT_GEOZONE_SOURCE_LABEL = "Transport Malta / iDronect";
+/** Label importierter Zonen (Datei-Import als Rückfall). */
+export const MT_GEOZONE_IMPORT_SOURCE_LABEL = "Transport Malta / iDronect (Datei-Import)";
 export const MT_GEOZONE_ATTRIBUTION = "© Transport Malta CAD / iDronect";
 export const MT_TMCAD_MAP_URL = "https://tmcad.idronect.com/map";
 
@@ -108,8 +110,14 @@ function fmtRaw(v: number | null): string {
   return v == null ? "–" : String(Math.round(v * 10) / 10);
 }
 
+export interface MtNormalizeOptions {
+  /** Herkunft: Datei-Import (Standard) oder Online-Abruf per DDP. */
+  origin?: "import" | "online";
+}
+
 /** Ein Feature (Roh- oder normalisierter Export) → App-Feature; null = übersprungen. */
-export function normalizeMalteseFeature(f: any, idx = 0): MtFeature | null {
+export function normalizeMalteseFeature(f: any, idx = 0, opts: MtNormalizeOptions = {}): MtFeature | null {
+  const online = opts.origin === "online";
   if (!f || typeof f !== "object" || !f.geometry) return null;
   const g = f.geometry;
   if (g.type !== "Polygon" && g.type !== "MultiPolygon") return null;
@@ -164,8 +172,10 @@ export function normalizeMalteseFeature(f: any, idx = 0): MtFeature | null {
   if (radius != null && radius > 0) lines.push(`Kreiszone mit Radius ca. ${Math.round(radius)} m.`);
   if (maxPilots != null && maxPilots > 0) lines.push(`Höchstzahl gleichzeitiger Piloten: ${maxPilots}.`);
   if (cost != null && cost > 0) lines.push(`Gebühr laut Quelle: ${cost}.`);
-  if (contact) lines.push(`Kontakt: ${contact}`);
-  lines.push(sourceLineDe("Transport Malta CAD / iDronect (manueller Export)", MT_GEOZONE_ATTRIBUTION));
+  if (contact) lines.push(`Kontakt: ${contact}${online ? " (für Genehmigungsanfragen laut Quelle)" : ""}`);
+  lines.push(
+    sourceLineDe(online ? "Transport Malta CAD / iDronect (online)" : "Transport Malta CAD / iDronect (manueller Export)", MT_GEOZONE_ATTRIBUTION),
+  );
   const message = messageWithOriginal(lines, original && original !== name ? original : null);
 
   const props: Record<string, any> = {
@@ -177,10 +187,11 @@ export function normalizeMalteseFeature(f: any, idx = 0): MtFeature | null {
     message,
     extendedProperties: localizedExtendedProperties(message, original && original !== name ? original : null, "en"),
     country: "MLT",
-    source: MT_GEOZONE_SOURCE_LABEL,
+    source: online ? MT_GEOZONE_SOURCE_LABEL : MT_GEOZONE_IMPORT_SOURCE_LABEL,
     attribution: MT_GEOZONE_ATTRIBUTION,
     contactEmail: email,
-    mtImportVariant: variant,
+    mtImportVariant: online ? undefined : variant,
+    mtOnline: online || undefined,
     // Untergrenze vorsichtig als ft (Bezug leer = UNKNOWN); KEINE Obergrenze:
     // maxHeight ist die Luftraumdecke, nicht das Zonenvolumen (siehe Kopf).
     lowerMeters: lowerGnd ? 0 : round1(ftToM(minH as number)),
@@ -196,11 +207,11 @@ export function normalizeMalteseFeature(f: any, idx = 0): MtFeature | null {
 }
 
 /** Feature-Liste → App-Features (archivierte entfallen, Dubletten über zoneId). */
-export function normalizeMalteseImport(features: any[]): MtFeature[] {
+export function normalizeMalteseImport(features: any[], opts: MtNormalizeOptions = {}): MtFeature[] {
   const out: MtFeature[] = [];
   const seen = new Set<string>();
   features.forEach((f, i) => {
-    const n = normalizeMalteseFeature(f, i);
+    const n = normalizeMalteseFeature(f, i, opts);
     if (!n) return;
     const key = n.properties.zoneId;
     if (seen.has(key)) return;

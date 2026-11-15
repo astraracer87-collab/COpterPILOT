@@ -1,7 +1,7 @@
 // Geozonen-Datei-Import (serverloser Rückfall bzw. einziger Weg für Länder
-// ohne erreichbaren Feed): MT (manueller iDronect-Export), GR (Export des
-// PC-Skripts dagr_geozonen.py) und als Rückfall RO (ROMATSA-Datei, falls die
-// Fernsteuerung den Server nicht erreicht) – grundsätzlich für jedes Land mit
+// ohne erreichbaren Feed): GR (Export des PC-Skripts dagr_geozonen.py) und als
+// Rückfall RO (ROMATSA-Datei) bzw. MT (manueller iDronect-Export), falls die
+// Fernsteuerung den Server nicht erreicht – grundsätzlich für jedes Land mit
 // ED-269-Gerätecache.
 //
 // Akzeptiert .json/.geojson oder .zip (erste .json/.geojson im Archiv) und
@@ -41,7 +41,7 @@ import { normalizeRomanianNotam, normalizeRomanianZone } from "./romanianGeozone
 
 export { RO_ROMATSA_DRONES_URL } from "./romanianGeozones";
 /** Länder ohne erreichbaren Vektor-Feed: Geozonen nur per Datei-Import
- * (Registry: offline "import" – MT, GR). */
+ * (Registry: offline "import" – GR). */
 export const GEOZONE_IMPORT_ONLY_ISOS: string[] = [...GEOZONE_IMPORT_ONLY_SOURCE_ISOS];
 
 export type GeozoneImportFormat = "ed269" | "ed318" | "geojson" | "mt-tmcad" | "gr-dagr" | "ro-romatsa";

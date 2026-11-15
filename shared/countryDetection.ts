@@ -969,7 +969,7 @@ export function hasOwnMap(iso?: string | null): boolean {
 
 // Länder, deren Geozonen nur mit eigenem Zugang ladbar sind (IT: d-flight)
 // bzw. nur als gespeichertes Offline-Paket vorliegen (CZ: ŘLP-ED-318-Kacheln;
-// MT/GR: nur per Datei-Import).
+// GR: nur per Datei-Import).
 // Ohne Zugang/Paket gelten sie als „ohne eigene Daten“, damit der Hinweis zur
 // manuellen Prüfung erscheint. Quelle: `accessGate` in der Registry.
 const ACCESS_GATED_COUNTRIES = new Set(ACCESS_GATED_SOURCE_ISOS);

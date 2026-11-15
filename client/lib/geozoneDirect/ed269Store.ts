@@ -38,7 +38,7 @@ import { trackDownload } from "../downloadActivity";
 //   Zonencheck und Offline-Nutzung funktionieren identisch), mit `imported`.
 // - Eine fehlgeschlagene automatische Aktualisierung lässt den Import stehen;
 //   eine ERFOLGREICHE Online-Aktualisierung ersetzt ihn (aktuellere amtliche Daten).
-// - Länder ohne erreichbaren Feed (GEOZONE_IMPORT_ONLY_ISOS: MT, GR) werden
+// - Länder ohne erreichbaren Feed (GEOZONE_IMPORT_ONLY_ISOS: GR) werden
 //   nie aus dem Netz geladen; sie gelten erst mit Import als „eigene Daten“
 //   (setCountryAccessAvailable → hasOwnMap).
 function isImportOnly(iso: string): boolean {

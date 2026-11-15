@@ -47,7 +47,7 @@ const sorted = (xs: readonly string[]) => [...xs].sort();
 // Schnappschuss der bis B4 hart kodierten Listen – nichts darf still wegfallen.
 // ---------------------------------------------------------------------------
 const OLD = {
-  ED269_DIRECT_COUNTRIES: ["at", "be", "dk", "nl", "ee", "ch", "fi", "no", "ie", "lu", "se", "pt", "pl", "lt", "it", "gb", "is", "cy", "hr", "si", "bg", "lv", "sk", "ro"],
+  ED269_DIRECT_COUNTRIES: ["at", "be", "dk", "nl", "ee", "ch", "fi", "no", "ie", "lu", "se", "pt", "pl", "lt", "it", "gb", "is", "cy", "hr", "si", "bg", "lv", "sk", "ro", "mt"],
   ED269_SOURCE_LABELS: {
     AT: "Austro Control (ED-269)",
     BE: "skeyes / Droneguide (ED-269)",
@@ -74,17 +74,17 @@ const OLD = {
     IS: "Samgöngustofa (ISAVIA)",
     GB: "UK AIP (CAA)",
     RO: "ROMATSA",
-    MT: "Transport Malta / iDronect (Datei-Import)",
+    MT: "Transport Malta / iDronect",
     GR: "HASP / DAGR (Datei-Import)",
   } as Record<string, string>,
-  // PlanningRestrictionsScreen (VECTOR_ISOS, zweimal) – MT/GR nur mit Import (RO seit 2026-11 online)
-  PLANNING_VECTOR_ISOS: ["AT", "BE", "DK", "NL", "EE", "CH", "LI", "FI", "NO", "SE", "IE", "LU", "PT", "PL", "LT", "IT", "GB", "IS", "CY", "HR", "SI", "BG", "LV", "SK", "RO"],
+  // PlanningRestrictionsScreen (VECTOR_ISOS, zweimal) – GR nur mit Import (RO und MT seit 2026-11 online)
+  PLANNING_VECTOR_ISOS: ["MT", "AT", "BE", "DK", "NL", "EE", "CH", "LI", "FI", "NO", "SE", "IE", "LU", "PT", "PL", "LT", "IT", "GB", "IS", "CY", "HR", "SI", "BG", "LV", "SK", "RO"],
   OWN_MAP_DATA_COUNTRIES: ["DE", "FR", "CH", "LU", "NL", "AT", "BE", "DK", "EE", "FI", "NO", "IE", "SE", "PT", "ES", "PL", "LT", "IT", "GB", "IS", "CY", "HR", "SI", "BG", "LV", "CZ", "SK", "RO", "MT", "GR"],
-  ACCESS_GATED_COUNTRIES: ["IT", "CZ", "MT", "GR"],
+  ACCESS_GATED_COUNTRIES: ["IT", "CZ", "GR"],
   GEOZONE_VECTOR_COUNTRY_MIN_ZOOM: { BE: 7, AT: 7, DE: 10, FR: 10, ES: 10, CZ: 10 } as Record<string, number>,
-  GEOZONE_VECTOR_FULL_COUNTRY_ISOS: ["BE", "AT"],
+  GEOZONE_VECTOR_FULL_COUNTRY_ISOS: ["BE", "AT", "MT"],
   TILE_STORE_ISOS: ["DE", "FR", "ES", "CZ"],
-  GEOZONE_IMPORT_ONLY_ISOS: ["MT", "GR"],
+  GEOZONE_IMPORT_ONLY_ISOS: ["GR"],
   // COUNTRY_GEOZONE_CONFIGS (geozones.ts): Schlüssel in Reihenfolge + featureInfoType
   COUNTRY_GEOZONE_CONFIGS: [
     ["DE", "wms-plain"], ["CH", "ed269-cached"], ["LU", "ed269-cached"], ["NL", "ed269-cached"], ["FR", "wms-fr"],
@@ -206,10 +206,10 @@ describe("Quellen-Registry: abgeleitete Listen = frühere Listen", () => {
     for (const [iso, label] of Object.entries(OLD.ED269_SOURCE_LABELS)) assert.equal(ED269_SOURCE_LABELS[iso], label, iso);
   });
 
-  it("Höhenfilter-Vektorländer der Planung (MT/GR nur mit Import)", () => {
-    const own = (withImport: boolean) => (iso: string) => (iso === "MT" || iso === "GR" ? withImport : hasOwnMap(iso));
+  it("Höhenfilter-Vektorländer der Planung (GR nur mit Import)", () => {
+    const own = (withImport: boolean) => (iso: string) => (iso === "GR" ? withImport : hasOwnMap(iso));
     for (const withImport of [false, true]) {
-      const expected = [...OLD.PLANNING_VECTOR_ISOS, ...(withImport ? ["MT", "GR"] : [])];
+      const expected = [...OLD.PLANNING_VECTOR_ISOS, ...(withImport ? ["GR"] : [])];
       for (const iso of ALL_ISOS) assert.equal(isEd269VectorIso(iso, own(withImport)), expected.includes(iso), `${iso} (Import ${withImport})`);
       assert.equal(isEd269VectorIso(null, own(withImport)), false);
       assert.equal(isEd269VectorIso("li", own(withImport)), true);
@@ -318,7 +318,7 @@ describe("getSourceDataStatus / veraltet → CAUTION", () => {
     assert.equal(isSourceDataStale("HU", 0), false);
   });
 
-  it("Datei-Import (MT): Stand = Importzeit; nach 28 Tagen veraltet → Abdeckung stale → CAUTION mit Hinweis „neu importieren“", async () => {
+  it("Datei-Import (MT, Rückfall im Online-Land): Stand = Importzeit; nach 28 Tagen veraltet → Abdeckung stale → CAUTION", async () => {
     const now = Date.now();
     const importedAt = now - 2 * 3_600_000;
     await importEd269Dataset("MT", [JSON.parse(JSON.stringify(RO_FEATURE))], { source: "test", importedAt, fileName: "mt.json" });
@@ -326,7 +326,7 @@ describe("getSourceDataStatus / veraltet → CAUTION", () => {
     assert.equal(fresh.fetchedAt, importedAt);
     assert.equal(fresh.ageMs, 2 * 3_600_000);
     assert.equal(fresh.stale, false);
-    assert.equal(fresh.kind, "import-only");
+    assert.equal(fresh.kind, "ed269-vector");
     assert.equal(fresh.imported, true);
     const r1 = await queryEd269CachedFeaturesWithStatusFrom("", 44.45, 26.1, 10, "MT");
     assert.equal(r1.status, "ok");
@@ -348,7 +348,8 @@ describe("getSourceDataStatus / veraltet → CAUTION", () => {
     const caution = coverageChecks({ context: "precheck", sources: [{ iso: "MT", status: r2.status, fetchedAt: r2.fetchedAt }], now });
     assert.deepEqual(caution.map((c) => [c.id, c.severity]), [["coverage:MT:stale", "caution"]]);
     assert.equal(caution[0].dataAge?.stale, true);
-    assert.match(caution[0].title, /neu importieren/);
+    // MT ist seit 2026-11 ein Online-Land (DDP) – Hinweis „online aktualisieren“ statt „neu importieren“
+    assert.match(caution[0].title, /online aktualisieren/);
     assert.equal(aggregate(caution).verdict, "caution");
   });
 

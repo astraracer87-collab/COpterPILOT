@@ -49,6 +49,8 @@ import { norwayFeaturesFromBody } from "../geozoneDirect/norwaySource";
 import { normalizeLatvianZones } from "../../../shared/latvianGeozones";
 import { normalizeSpanishFeatures, type EsRawFeature } from "../../../shared/spanishGeozones";
 import { unitedKingdomFeaturesFromKml } from "../geozoneDirect/ukSource";
+import { normalizeUkAixm } from "../../../shared/ukGeozones";
+import { parseAixmDatasetSync } from "../../../shared/geozoneKit/aixm";
 import { normalizeGodroneFeature } from "../../../shared/dutchGeozones";
 import { croatiaFeaturesFromPushes } from "../geozoneDirect/croatiaSource";
 import { normalizeIcelandicZones } from "../../../shared/icelandicGeozones";
@@ -60,6 +62,7 @@ import { finlandFeaturesFromBody } from "../geozoneDirect/finlandSource";
 import { polandFeaturesFromKml } from "../geozoneDirect/polandSource";
 import { normalizeRomanianGeozones } from "../../../shared/romanianGeozones";
 import { normalizeMalteseImport } from "../../../shared/malteseGeozones";
+import { normalizePansaZonesJson } from "../../../shared/polishGeozones";
 import { normalizeEnaireInsigniasFeature, tagEsInsigniasFeature } from "../../../shared/spanishGeozones";
 
 const FIX = path.join(__dirname, "fixtures");
@@ -246,6 +249,7 @@ const FIXTURE_SOURCES: { fixture: string[]; iso: string; features: () => any[] }
     features: () => normalizeSpanishFeatures(esRaw("ZGUAS_Urbano", json("es-enaire-wfs-sample.json").ZGUAS_Urbano), NOW),
   },
   { fixture: ["gb-uk-aip-sample.kml"], iso: "GB", features: () => unitedKingdomFeaturesFromKml(text("gb-uk-aip-sample.kml")) },
+  { fixture: ["gb-nats-aixm-sample.xml"], iso: "GB", features: () => normalizeUkAixm(parseAixmDatasetSync(text("gb-nats-aixm-sample.xml"))) as any[] },
   {
     fixture: ["godrone-amsterdam.json"],
     iso: "NL",
@@ -287,6 +291,12 @@ const FIXTURE_SOURCES: { fixture: string[]; iso: string; features: () => any[] }
   },
   { fixture: ["traficom-uas-zones-sample.json"], iso: "FI", features: () => finlandFeaturesFromBody(json("traficom-uas-zones-sample.json"), NOW) },
   { fixture: ["pansa_kml_sample.kml"], iso: "PL", features: () => polandFeaturesFromKml(text("pansa_kml_sample.kml")) },
+  {
+    // HANDGEBAUT aus den dokumentierten /v1/zones-Feldern (keine echte Antwort)
+    fixture: ["pansa_zones_json_handbuilt.json"],
+    iso: "PL",
+    features: () => normalizePansaZonesJson(json("pansa_zones_json_handbuilt.json"), NOW.getTime()).features,
+  },
   {
     fixture: ["ro_zones_sample.geojson", "ro_notam_sample.geojson"],
     iso: "RO",

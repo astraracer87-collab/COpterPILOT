@@ -81,10 +81,12 @@ const VECTOR_GEO_MB = 3;
  * Typische Größen der ED-269-Landesdateien (Gerätecache, unkomprimiertes
  * JSON), soweit deutlich über dem Standardwert – Stand 15.11.2026 laut
  * Quellen-Kommentaren in geozoneDirect/: CH BAZL ≈ 18 MB (deckt LI ab),
- * NL GoDrone ≈ 23 MB, LV ≈ 13 MB, HR ≈ 3,7 MB. Alle übrigen ED-269-Länder
- * liegen bei ≤ 3 MB (FI ≈ 1,7 MB, GB-KML ≈ 2 MB, …) → VECTOR_GEO_MB.
+ * NL GoDrone ≈ 23 MB, LV ≈ 13 MB, HR ≈ 3,7 MB, PL PANSA-JSON /v1/zones ≈ 7,6 MB
+ * Rohdaten (+ deutsche Meldungen, geschätzt ≈ 10 MB), MT iDronect ≈ 0,4 MB.
+ * Alle übrigen ED-269-Länder liegen bei ≤ 3 MB (FI ≈ 1,7 MB, GB-KML ≈ 2 MB, …)
+ * → VECTOR_GEO_MB.
  */
-export const VECTOR_GEO_MB_BY_ISO: Record<string, number> = { CH: 18, LI: 18, NL: 23, LV: 13, HR: 4 };
+export const VECTOR_GEO_MB_BY_ISO: Record<string, number> = { CH: 18, LI: 18, NL: 23, LV: 13, HR: 4, PL: 10, MT: 1 };
 /**
  * Gekachelter Vektor-Speicher (geozoneTiles/): gemessene Gerätegrößen
  * (komprimierte Datensätze + Index), Stand 15.11.2026:
@@ -161,7 +163,7 @@ function fillTemplate(t: string, x: number, y: number, z: number): string {
 // Konfiguration
 // ---------------------------------------------------------------------------
 
-// "import": kein Online-Feed erreichbar (MT, GR) – nur per Datei-Import in den ED-269-Gerätecache
+// "import": kein Online-Feed erreichbar (GR) – nur per Datei-Import in den ED-269-Gerätecache
 export type GeozoneOfflineKind = "tiles" | "vector" | "tilestore" | "import" | "none";
 
 export interface OfflineCountryInfo {
@@ -187,7 +189,7 @@ export interface OfflineCountryInfo {
 export function geozoneOfflineKind(iso: string): GeozoneOfflineKind {
   const offline = getGeozoneSourceMeta(iso)?.offline;
   if (offline === "tile-store") return "tilestore";
-  // Import-Länder (MT, GR): nur Datei-Import. GR-Bildkacheln sind zeitgefiltert
+  // Import-Länder (GR): nur Datei-Import. GR-Bildkacheln sind zeitgefiltert
   // (heute..morgen) und werden bewusst nicht offline gespeichert.
   if (offline === "import") return "import";
   if (geozoneTemplates(iso).length > 0) return "tiles";

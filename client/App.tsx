@@ -13,7 +13,7 @@ import { DownloadActivityBar } from "@/components/DownloadActivityBar";
 // Übersetzungs-Cache der Behördentexte laden (offline) und neue Texte nachziehen
 startZoneTranslation();
 initDflightAccessFlag();
-// Nur per Datei importierbare Länder (MT, GR): „eigene Daten“, sobald ein Import vorliegt
+// Nur per Datei importierbare Länder (GR): „eigene Daten“, sobald ein Import vorliegt
 initEd269ImportFlags();
 // Offline-Geozonen DE/FR/CZ (Kachelspeicher): Bestand bekannt machen, AIRAC-Aktualisierung
 startGeozoneTileStore();

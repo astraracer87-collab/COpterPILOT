@@ -317,8 +317,8 @@ describe("hasOwnMap klassifiziert Länder ohne eigene Geozonen-Daten korrekt", (
   });
 
   it("weitere datenlose Länder werden als ohne eigene Karte erkannt", () => {
-    // RO lädt seit 2026-11 online (eigene Karte); MT/GR erst mit Datei-Import
-    for (const iso of ["CZ", "HU", "GR", "MT"]) {
+    // RO und MT laden seit 2026-11 online (eigene Karte); GR erst mit Datei-Import
+    for (const iso of ["CZ", "HU", "GR"]) {
       assert.equal(hasOwnMap(iso), false, `${iso} sollte keine eigene Karte haben`);
     }
   });

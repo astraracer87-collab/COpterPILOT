@@ -1,0 +1,690 @@
+{
+ "_comment": "HANDGEBAUT (keine echte PANSA-Antwort): aus den in docs/pansa-pl-api-integration.md §10 und docs/tools/poland/pansa_geozones.py dokumentierten Feldern/Hüllen zusammengesetzt (uid, name, type, min/max ft, description{en,pl}, acts.H24, etc.primitive/master/status/custom_color, geojson; timeslices/activations designator/start/stop/min/max/etc.upType; notams series/zonename/active/notamActivations). Echte Antwort von EU-IP mit --dump-dir sichern und ersetzen.",
+ "zones": {
+  "properties": [
+   {
+    "uid": "a1b2-drap-2550",
+    "name": "DRA-P 2550",
+    "othername": null,
+    "country": "PL",
+    "type": "DRAP",
+    "min": 0,
+    "max": 600,
+    "description": {
+     "en": "DRA-P – drone flights prohibited.",
+     "pl": "DRA-P – zakaz lotów BSP."
+    },
+    "contact": null,
+    "start": null,
+    "stop": null,
+    "acts": {
+     "H24": true
+    },
+    "etc": {},
+    "geojson": {
+     "type": "Polygon",
+     "coordinates": [
+      [
+       [
+        21.0,
+        52.2
+       ],
+       [
+        21.02,
+        52.2
+       ],
+       [
+        21.02,
+        52.220000000000006
+       ],
+       [
+        21.0,
+        52.220000000000006
+       ],
+       [
+        21.0,
+        52.2
+       ]
+      ]
+     ]
+    },
+    "modified": "2026-11-01T00:00:00Z",
+    "source": "PANSA "
+   },
+   {
+    "uid": "c3-ctr1km-epkk",
+    "name": "EPKK CTR1KM",
+    "type": "CTR1KM",
+    "min": 0,
+    "max": 500,
+    "description": {
+     "en": "1 km zone around aerodrome."
+    },
+    "acts": {
+     "H24": true
+    },
+    "etc": {
+     "master": "CTR EPKK"
+    },
+    "geojson": {
+     "type": "Polygon",
+     "coordinates": [
+      [
+       [
+        19.78,
+        50.07
+       ],
+       [
+        19.8,
+        50.07
+       ],
+       [
+        19.8,
+        50.09
+       ],
+       [
+        19.78,
+        50.09
+       ],
+       [
+        19.78,
+        50.07
+       ]
+      ]
+     ]
+    }
+   },
+   {
+    "uid": "d4-rpa51",
+    "name": "RA RPA51",
+    "type": "RPA",
+    "min": 0,
+    "max": 330,
+    "description": {
+     "en": "RPA sector, flights up to 100 m AGL after notification."
+    },
+    "acts": {
+     "H24": true
+    },
+    "etc": {
+     "master": "CTR EPRA",
+     "status": "YELLOW",
+     "custom_color": "#f9a825"
+    },
+    "geojson": {
+     "type": "Polygon",
+     "coordinates": [
+      [
+       [
+        21.2,
+        51.38
+       ],
+       [
+        21.22,
+        51.38
+       ],
+       [
+        21.22,
+        51.400000000000006
+       ],
+       [
+        21.2,
+        51.400000000000006
+       ],
+       [
+        21.2,
+        51.38
+       ]
+      ]
+     ]
+    }
+   },
+   {
+    "uid": "e5-tra-active",
+    "name": "EPTR12A",
+    "type": "TRA",
+    "min": 0,
+    "max": 9500,
+    "description": {
+     "en": "Temporary reserved area."
+    },
+    "acts": {},
+    "etc": {},
+    "geojson": {
+     "type": "Polygon",
+     "coordinates": [
+      [
+       [
+        18.5,
+        53.5
+       ],
+       [
+        18.7,
+        53.5
+       ],
+       [
+        18.7,
+        53.7
+       ],
+       [
+        18.5,
+        53.7
+       ],
+       [
+        18.5,
+        53.5
+       ]
+      ]
+     ]
+    }
+   },
+   {
+    "uid": "f6-tra-h24",
+    "name": "EPTR99",
+    "type": "TRA",
+    "min": 0,
+    "max": 5000,
+    "acts": {
+     "H24": true
+    },
+    "etc": {},
+    "geojson": {
+     "type": "Polygon",
+     "coordinates": [
+      [
+       [
+        18.9,
+        53.9
+       ],
+       [
+        19.0,
+        53.9
+       ],
+       [
+        19.0,
+        54.0
+       ],
+       [
+        18.9,
+        54.0
+       ],
+       [
+        18.9,
+        53.9
+       ]
+      ]
+     ]
+    }
+   },
+   {
+    "uid": "g7-mrt",
+    "name": "MRT 22",
+    "type": "MRT",
+    "min": 0,
+    "max": 1000,
+    "acts": {},
+    "etc": {},
+    "geojson": {
+     "type": "Polygon",
+     "coordinates": [
+      [
+       [
+        16.0,
+        52.0
+       ],
+       [
+        16.3,
+        52.0
+       ],
+       [
+        16.3,
+        52.3
+       ],
+       [
+        16.0,
+        52.3
+       ],
+       [
+        16.0,
+        52.0
+       ]
+      ]
+     ]
+    }
+   },
+   {
+    "uid": "h8-tsa-notam",
+    "name": "EPTS05",
+    "type": "TSA",
+    "min": 0,
+    "max": 3000,
+    "acts": {},
+    "etc": {},
+    "geojson": {
+     "type": "Polygon",
+     "coordinates": [
+      [
+       [
+        17.0,
+        51.0
+       ],
+       [
+        17.1,
+        51.0
+       ],
+       [
+        17.1,
+        51.1
+       ],
+       [
+        17.0,
+        51.1
+       ],
+       [
+        17.0,
+        51.0
+       ]
+      ]
+     ]
+    }
+   },
+   {
+    "uid": "i9-p-circle",
+    "name": "EP P1",
+    "type": "P",
+    "min": 0,
+    "max": 3500,
+    "acts": {
+     "H24": true
+    },
+    "etc": {
+     "primitive": {
+      "type": "CIRCLE",
+      "centre": [
+       21.0122,
+       52.2297
+      ],
+      "radius": 1500
+     }
+    },
+    "geojson": {
+     "type": "Polygon",
+     "coordinates": [
+      [
+       [
+        21.0,
+        52.22
+       ],
+       [
+        21.03,
+        52.22
+       ],
+       [
+        21.03,
+        52.25
+       ],
+       [
+        21.0,
+        52.25
+       ],
+       [
+        21.0,
+        52.22
+       ]
+      ]
+     ]
+    }
+   },
+   {
+    "uid": "j10-mtma",
+    "name": "MTMA EPDE",
+    "type": "MTMA",
+    "min": 1500,
+    "max": 9500,
+    "acts": {
+     "H24": true
+    },
+    "etc": {},
+    "geojson": {
+     "type": "Polygon",
+     "coordinates": [
+      [
+       [
+        21.6,
+        52.3
+       ],
+       [
+        21.8,
+        52.3
+       ],
+       [
+        21.8,
+        52.5
+       ],
+       [
+        21.6,
+        52.5
+       ],
+       [
+        21.6,
+        52.3
+       ]
+      ]
+     ]
+    }
+   },
+   {
+    "uid": "k11-fis",
+    "name": "FIS WARSZAWA",
+    "type": "FIS",
+    "min": 0,
+    "max": 9500,
+    "acts": {
+     "H24": true
+    },
+    "etc": {},
+    "geojson": {
+     "type": "Polygon",
+     "coordinates": [
+      [
+       [
+        14.0,
+        49.0
+       ],
+       [
+        24.0,
+        49.0
+       ],
+       [
+        24.0,
+        59.0
+       ],
+       [
+        14.0,
+        59.0
+       ],
+       [
+        14.0,
+        49.0
+       ]
+      ]
+     ]
+    }
+   },
+   {
+    "uid": "l12-unknown",
+    "name": "NEW ZONE 1",
+    "type": "XYZ",
+    "min": 0,
+    "max": 400,
+    "acts": {
+     "H24": true
+    },
+    "etc": {},
+    "geojson": {
+     "type": "Polygon",
+     "coordinates": [
+      [
+       [
+        20.0,
+        50.5
+       ],
+       [
+        20.02,
+        50.5
+       ],
+       [
+        20.02,
+        50.52
+       ],
+       [
+        20.0,
+        50.52
+       ],
+       [
+        20.0,
+        50.5
+       ]
+      ]
+     ]
+    }
+   },
+   {
+    "uid": "m13-rmz",
+    "name": "RMZ EPLL",
+    "type": "RMZ",
+    "min": 2500,
+    "max": 6500,
+    "acts": {
+     "H24": true
+    },
+    "etc": {},
+    "geojson": {
+     "type": "Polygon",
+     "coordinates": [
+      [
+       [
+        19.3,
+        51.7
+       ],
+       [
+        19.5,
+        51.7
+       ],
+       [
+        19.5,
+        51.900000000000006
+       ],
+       [
+        19.3,
+        51.900000000000006
+       ],
+       [
+        19.3,
+        51.7
+       ]
+      ]
+     ]
+    }
+   },
+   {
+    "uid": "n14-trf-temp",
+    "name": "EP TFR 7",
+    "type": "TFR",
+    "min": 0,
+    "max": 2000,
+    "start": "2026-11-15T06:00:00Z",
+    "stop": "2026-11-16T18:00:00Z",
+    "acts": {},
+    "etc": {},
+    "geojson": {
+     "type": "Polygon",
+     "coordinates": [
+      [
+       [
+        22.5,
+        51.2
+       ],
+       [
+        22.52,
+        51.2
+       ],
+       [
+        22.52,
+        51.220000000000006
+       ],
+       [
+        22.5,
+        51.220000000000006
+       ],
+       [
+        22.5,
+        51.2
+       ]
+      ]
+     ]
+    }
+   },
+   {
+    "uid": "o15-nogeom",
+    "name": "BROKEN",
+    "type": "DRAR",
+    "min": 0,
+    "max": 100
+   }
+  ],
+  "status": 200
+ },
+ "types": {
+  "properties": [
+   {
+    "name": "DRAP",
+    "description": {
+     "en": "DRA-P Drone Restricted Area – Prohibited",
+     "pl": "DRA-P"
+    }
+   },
+   {
+    "name": "RPA",
+    "description": {
+     "en": "DRA-R RPA sector",
+     "pl": "DRA-R"
+    }
+   },
+   {
+    "name": "TRA",
+    "description": {
+     "en": "DRA-R Temporary Reserved Area",
+     "pl": "DRA-R"
+    }
+   },
+   {
+    "name": "XYZ",
+    "description": {
+     "en": "DRA-P new type",
+     "pl": ""
+    }
+   },
+   {
+    "name": "RMZ",
+    "description": {
+     "en": "DRA-I Radio Mandatory Zone"
+    }
+   }
+  ],
+  "status": 200
+ },
+ "timeslices": {
+  "properties": [
+   {
+    "designator": "EPTR12A",
+    "start": "2026-11-15T08:00:00Z",
+    "stop": "2026-11-15T14:00:00Z",
+    "min": 0,
+    "max": 9500
+   }
+  ],
+  "status": 200
+ },
+ "activations": {
+  "properties": [
+   {
+    "designator": "EPTR12A",
+    "start": "2026-11-16T08:00:00Z",
+    "stop": "2026-11-16T12:00:00Z",
+    "min": 0,
+    "max": 6500,
+    "etc": {
+     "upType": "UUP"
+    }
+   },
+   {
+    "designator": "EPR 15",
+    "start": "2026-11-16T00:00:00Z",
+    "stop": "2026-11-16T06:00:00Z",
+    "etc": {
+     "upType": "AUP"
+    }
+   }
+  ],
+  "status": 200
+ },
+ "notams": {
+  "properties": [
+   {
+    "series": "A1234/26",
+    "zonename": "EPTS05",
+    "active": true,
+    "text": "TSA EPTS05 ACT",
+    "notamActivations": [
+     {
+      "start": "2026-11-15T10:00:00Z",
+      "stop": "2026-11-15T16:00:00Z"
+     }
+    ]
+   },
+   {
+    "series": "B0042/26",
+    "zonename": "UAV AREA KRAKOW",
+    "active": true,
+    "text": "UAV FLT RESTRICTED",
+    "notamActivations": [
+     {
+      "start": "2026-11-15T07:00:00Z",
+      "stop": "2026-11-15T20:00:00Z"
+     }
+    ],
+    "geojson": {
+     "type": "Polygon",
+     "coordinates": [
+      [
+       [
+        19.9,
+        50.05
+       ],
+       [
+        19.91,
+        50.05
+       ],
+       [
+        19.91,
+        50.059999999999995
+       ],
+       [
+        19.9,
+        50.059999999999995
+       ],
+       [
+        19.9,
+        50.05
+       ]
+      ]
+     ]
+    }
+   },
+   {
+    "series": "C0001/26",
+    "zonename": "SOMEWHERE",
+    "active": true,
+    "notamActivations": [
+     {
+      "start": "2026-11-15T07:00:00Z",
+      "stop": "2026-11-15T20:00:00Z"
+     }
+    ]
+   },
+   {
+    "series": "D0002/26",
+    "zonename": "EPTS05",
+    "active": false,
+    "notamActivations": [
+     {
+      "start": "2026-11-20T07:00:00Z",
+      "stop": "2026-11-20T20:00:00Z"
+     }
+    ]
+   }
+  ],
+  "status": 200
+ }
+}

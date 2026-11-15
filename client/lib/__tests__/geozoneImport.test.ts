@@ -118,52 +118,55 @@ describe("Geozonen-Import – Formaterkennung & Parsing", () => {
   });
 });
 
-describe("Geozonen-Import – Gerätecache & Freischaltung der Nur-Import-Länder (MT)", () => {
+describe("Geozonen-Import – Gerätecache & Freischaltung der Nur-Import-Länder (GR; MT seit 2026-11 online)", () => {
   const realFetch = globalThis.fetch;
   beforeEach(() => {
     __resetEd269StoreForTests();
-    setCountryAccessAvailable("MT", false);
+    setCountryAccessAvailable("GR", false);
   });
   afterEach(() => {
     globalThis.fetch = realFetch;
   });
 
-  it("MT ist Nur-Import-Land (RO lädt seit 2026-11 online): ohne Import keine eigene Karte, kein Netzabruf", async () => {
-    assert.deepEqual(GEOZONE_IMPORT_ONLY_ISOS, ["MT", "GR"]);
+  it("GR ist Nur-Import-Land (RO und MT laden seit 2026-11 online): ohne Import keine eigene Karte, kein Netzabruf", async () => {
+    assert.deepEqual(GEOZONE_IMPORT_ONLY_ISOS, ["GR"]);
+    // MT: Online-Land mit Import als Rückfall – eigene Karte ohne Import
+    assert.equal(hasOwnMap("MT"), true);
+    assert.equal(canImportEd269Dataset("MT"), true);
     let fetched = false;
     globalThis.fetch = (async () => {
       fetched = true;
       throw new Error("kein Netz");
     }) as typeof fetch;
-    assert.equal(hasOwnMap("MT"), false);
-    assert.equal(canImportEd269Dataset("MT"), true);
-    assert.equal(await getEd269Dataset("MT", { forceRefresh: true }), null);
-    assert.equal(await refreshEd269Dataset("MT"), false);
+    assert.equal(hasOwnMap("GR"), false);
+    assert.equal(canImportEd269Dataset("GR"), true);
+    assert.equal(await getEd269Dataset("GR", { forceRefresh: true }), null);
+    assert.equal(await refreshEd269Dataset("GR"), false);
     assert.equal(fetched, false);
     await initEd269ImportFlags();
-    assert.equal(hasOwnMap("MT"), false);
+    assert.equal(hasOwnMap("GR"), false);
   });
 
   it("Import → Karte/Zonencheck nutzen den Bestand; Entfernen sperrt wieder", async () => {
-    const { features } = parseGeozoneImport(roGeojson, { iso: "MT", source: "Test (Datei-Import)", now: NOW });
-    const ds = await importEd269Dataset("MT", features as unknown as GeoFeature[], {
+    const { features } = parseGeozoneImport(roGeojson, { iso: "GR", source: "Test (Datei-Import)", now: NOW });
+    const ds = await importEd269Dataset("GR", features as unknown as GeoFeature[], {
       source: "GeoJSON",
       importedAt: NOW.getTime(),
       fileName: "Restricted_zones_for_UAS.json",
     });
-    assert.equal(ds.iso, "mt");
-    assert.ok(ds.features.every((f) => f.properties._country === "mt" && Array.isArray(f.bbox)));
-    assert.equal(hasOwnMap("MT"), true);
-    assert.deepEqual(getEd269DatasetStatus("MT").imported, {
+    assert.equal(ds.iso, "gr");
+    assert.ok(ds.features.every((f) => f.properties._country === "gr" && Array.isArray(f.bbox)));
+    assert.equal(hasOwnMap("GR"), true);
+    assert.deepEqual(getEd269DatasetStatus("GR").imported, {
       source: "GeoJSON",
       importedAt: NOW.getTime(),
       fileName: "Restricted_zones_for_UAS.json",
     });
-    const zones = await queryEd269CachedFeaturesFrom("", 44.44, 26.07, 2, "MT");
+    const zones = await queryEd269CachedFeaturesFrom("", 44.44, 26.07, 2, "GR");
     assert.ok(zones.some((z) => z.name === "LRR01 Cotroceni" && z.restriction === "PROHIBITED"));
-    await deleteEd269Dataset("MT");
-    assert.equal(hasOwnMap("MT"), false);
-    assert.equal(await getEd269Dataset("MT"), null);
+    await deleteEd269Dataset("GR");
+    assert.equal(hasOwnMap("GR"), false);
+    assert.equal(await getEd269Dataset("GR"), null);
   });
 
   it("Import in einem Online-Land: Fehlschlag lässt ihn stehen, Erfolg ersetzt ihn", async () => {

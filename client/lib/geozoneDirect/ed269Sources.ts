@@ -27,6 +27,7 @@ import { fetchCyprus } from "./cyprusSource";
 import { fetchIceland } from "./icelandSource";
 import { fetchUnitedKingdom } from "./ukSource";
 import { fetchRomania } from "./romaniaSource";
+import { fetchMalta } from "./maltaSource";
 
 export const LT_GEOZONE_SOURCE_LABEL = "Oro navigacija (ED-269)";
 import { fetchSweden } from "./swedenSource";
@@ -54,8 +55,8 @@ export type GeoFeature = {
 // Länder, deren Geozonen als ED-269-/GeoJSON-Vektordaten mit automatischem
 // Abruf vorliegen (kein WMS) – aus der Quellen-Registry (kind "ed269-vector"
 // bzw. "login"), kleingeschrieben. NL kommt aus GoDrone (LVNL); DE/FR/CZ nutzen
-// den Kachelspeicher, HU/GR nur ein Bild-Overlay, MT (und GR optional) nur den
-// Datei-Import.
+// den Kachelspeicher, HU/GR nur ein Bild-Overlay, GR optional den Datei-Import;
+// MT seit 2026-11 online per DDP (maltaSource.ts).
 export const ED269_DIRECT_COUNTRIES: readonly string[] = ED269_FETCH_ISOS.map((iso) => iso.toLowerCase());
 
 export function isEd269DirectCountry(iso: string): boolean {
@@ -521,6 +522,7 @@ export const ED269_FETCHERS: Readonly<Record<string, () => Promise<GeoFeature[]>
   LV: fetchLatvia,
   SK: fetchSlovakia,
   RO: fetchRomania,
+  MT: fetchMalta,
 };
 
 /** Gebündelte Basisdaten je Land (Registry-Flag bundledFallback). */
