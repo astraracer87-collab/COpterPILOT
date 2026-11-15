@@ -32,6 +32,7 @@ import { HR_GEOZONE_ATTRIBUTION } from "../../shared/croatianGeozones";
 import { CH_GEOZONE_ATTRIBUTION } from "../../shared/swissGeozones";
 import { NO_GEOZONE_ATTRIBUTION } from "../../shared/norwegianGeozones";
 import { SI_GEOZONE_ATTRIBUTION } from "../../shared/slovenianGeozones";
+import { SK_DU_ATTRIBUTION, SK_GEOZONE_ATTRIBUTION } from "../../shared/slovakGeozones";
 import { SE_GEOZONE_ATTRIBUTION } from "../../shared/swedishGeozones";
 import { ES_GEOZONE_ATTRIBUTION } from "../../shared/spanishGeozones";
 import { IT_GEOZONE_ATTRIBUTION } from "../../shared/italianGeozones";
@@ -546,6 +547,13 @@ export const GEOZONE_SOURCE_META: Record<string, GeozoneSourceMeta> = {
     attributions: [SI_GEOZONE_ATTRIBUTION],
     writtenPermission: true,
     url: "https://www.caa.si",
+  },
+  SK: {
+    provider:
+      "Dopravný úrad SR (Drohnenzonen „Zemepisné oblasti UAS“) / Letové prevádzkové služby SR (Lufträume)",
+    attributions: [SK_DU_ATTRIBUTION, SK_GEOZONE_ATTRIBUTION],
+    writtenPermission: true,
+    url: "https://letectvo.nsat.sk/bezpilotne-letectvo/zemepisne-oblasti-uas/",
   },
   HR: {
     provider:

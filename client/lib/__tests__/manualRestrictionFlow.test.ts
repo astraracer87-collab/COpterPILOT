@@ -317,7 +317,7 @@ describe("hasOwnMap klassifiziert Länder ohne eigene Geozonen-Daten korrekt", (
   });
 
   it("weitere datenlose Länder werden als ohne eigene Karte erkannt", () => {
-    for (const iso of ["CZ", "HU", "GR", "SK"]) {
+    for (const iso of ["CZ", "HU", "GR", "RO"]) {
       assert.equal(hasOwnMap(iso), false, `${iso} sollte keine eigene Karte haben`);
     }
   });

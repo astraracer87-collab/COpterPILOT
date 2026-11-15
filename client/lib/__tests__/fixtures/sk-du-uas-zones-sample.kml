@@ -1,0 +1,1041 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:gx="http://www.google.com/kml/ext/2.2" xmlns:kml="http://www.opengis.net/kml/2.2" xmlns:atom="http://www.w3.org/2005/Atom">
+<Document>
+	<name>Aktuálne - 30.10.2026.kml</name>
+	<StyleMap id="kmlwb-circle">
+		<Pair>
+			<key>normal</key>
+			<styleUrl>#kmlwb-circle-normal</styleUrl>
+		</Pair>
+		<Pair>
+			<key>highlight</key>
+			<styleUrl>#kmlwb-circle-highlight</styleUrl>
+		</Pair>
+	</StyleMap>
+	<Style id="kmlwb-circle-highlight">
+		<IconStyle>
+			<color>ffa2f6d6</color>
+			<scale>1.5</scale>
+			<Icon>
+				<href>http://maps.google.com/mapfiles/kml/paddle/wht-blank.png</href>
+			</Icon>
+			<hotSpot x="0.5" y="0" xunits="fraction" yunits="fraction"/>
+		</IconStyle>
+		<ListStyle>
+			<bgColor>ffd1faea</bgColor>
+		</ListStyle>
+		<LineStyle>
+			<color>ff0000ff</color>
+			<width>1.5</width>
+		</LineStyle>
+		<PolyStyle>
+			<color>990000ff</color>
+			<outline>0</outline>
+		</PolyStyle>
+	</Style>
+	<Style id="kmlwb-circle-highlight01">
+		<IconStyle>
+			<color>ffa2f6d6</color>
+			<scale>1.5</scale>
+			<Icon>
+				<href>http://maps.google.com/mapfiles/kml/paddle/wht-blank.png</href>
+			</Icon>
+			<hotSpot x="0.5" y="0" xunits="fraction" yunits="fraction"/>
+		</IconStyle>
+		<ListStyle>
+			<bgColor>ffd1faea</bgColor>
+		</ListStyle>
+		<LineStyle>
+			<color>ff00ffff</color>
+			<width>1.5</width>
+		</LineStyle>
+		<PolyStyle>
+			<color>4d00ffff</color>
+			<outline>0</outline>
+		</PolyStyle>
+	</Style>
+	<Style id="kmlwb-circle-highlight10">
+		<IconStyle>
+			<color>ffa2f6d6</color>
+			<scale>1.5</scale>
+			<Icon>
+				<href>http://maps.google.com/mapfiles/kml/paddle/wht-blank.png</href>
+			</Icon>
+			<hotSpot x="0.5" y="0" xunits="fraction" yunits="fraction"/>
+		</IconStyle>
+		<ListStyle>
+			<bgColor>ffd1faea</bgColor>
+		</ListStyle>
+		<LineStyle>
+			<color>ff00ffff</color>
+			<width>1.5</width>
+		</LineStyle>
+		<PolyStyle>
+			<color>4d00ffff</color>
+			<outline>0</outline>
+		</PolyStyle>
+	</Style>
+	<Style id="kmlwb-circle-highlight120">
+		<IconStyle>
+			<color>ffa2f6d6</color>
+			<scale>1.5</scale>
+			<Icon>
+				<href>http://maps.google.com/mapfiles/kml/paddle/wht-blank.png</href>
+			</Icon>
+			<hotSpot x="0.5" y="0" xunits="fraction" yunits="fraction"/>
+		</IconStyle>
+		<ListStyle>
+			<bgColor>ffd1faea</bgColor>
+		</ListStyle>
+		<LineStyle>
+			<color>ff00ffff</color>
+			<width>1.5</width>
+		</LineStyle>
+		<PolyStyle>
+			<color>4d00ffff</color>
+			<outline>0</outline>
+		</PolyStyle>
+	</Style>
+	<Style id="kmlwb-circle-highlight30">
+		<IconStyle>
+			<color>ffa2f6d6</color>
+			<scale>1.5</scale>
+			<Icon>
+				<href>http://maps.google.com/mapfiles/kml/paddle/wht-blank.png</href>
+			</Icon>
+			<hotSpot x="0.5" y="0" xunits="fraction" yunits="fraction"/>
+		</IconStyle>
+		<ListStyle>
+			<bgColor>ffd1faea</bgColor>
+		</ListStyle>
+		<LineStyle>
+			<color>ff00ffff</color>
+			<width>1.5</width>
+		</LineStyle>
+		<PolyStyle>
+			<color>4d00ffff</color>
+			<outline>0</outline>
+		</PolyStyle>
+	</Style>
+	<Style id="kmlwb-circle-highlight90">
+		<IconStyle>
+			<color>ffa2f6d6</color>
+			<scale>1.5</scale>
+			<Icon>
+				<href>http://maps.google.com/mapfiles/kml/paddle/wht-blank.png</href>
+			</Icon>
+			<hotSpot x="0.5" y="0" xunits="fraction" yunits="fraction"/>
+		</IconStyle>
+		<ListStyle>
+			<bgColor>ffd1faea</bgColor>
+		</ListStyle>
+		<LineStyle>
+			<color>ff00ffff</color>
+			<width>1.5</width>
+		</LineStyle>
+		<PolyStyle>
+			<color>4d00ffff</color>
+			<outline>0</outline>
+		</PolyStyle>
+	</Style>
+	<Style id="kmlwb-circle-normal">
+		<IconStyle>
+			<color>ffa2f6d6</color>
+			<Icon>
+				<href>http://maps.google.com/mapfiles/kml/paddle/wht-blank.png</href>
+			</Icon>
+			<hotSpot x="0.5" y="0" xunits="fraction" yunits="fraction"/>
+		</IconStyle>
+		<ListStyle>
+			<bgColor>ffd1faea</bgColor>
+		</ListStyle>
+		<LineStyle>
+			<color>ff0000ff</color>
+		</LineStyle>
+		<PolyStyle>
+			<color>990000ff</color>
+			<outline>0</outline>
+		</PolyStyle>
+	</Style>
+	<Style id="kmlwb-circle-normal00">
+		<IconStyle>
+			<color>ffa2f6d6</color>
+			<Icon>
+				<href>http://maps.google.com/mapfiles/kml/paddle/wht-blank.png</href>
+			</Icon>
+			<hotSpot x="0.5" y="0" xunits="fraction" yunits="fraction"/>
+		</IconStyle>
+		<ListStyle>
+			<bgColor>ffd1faea</bgColor>
+		</ListStyle>
+		<LineStyle>
+			<color>ff00ffff</color>
+		</LineStyle>
+		<PolyStyle>
+			<color>4d00ffff</color>
+			<outline>0</outline>
+		</PolyStyle>
+	</Style>
+	<Style id="kmlwb-circle-normal02">
+		<IconStyle>
+			<color>ffa2f6d6</color>
+			<Icon>
+				<href>http://maps.google.com/mapfiles/kml/paddle/wht-blank.png</href>
+			</Icon>
+			<hotSpot x="0.5" y="0" xunits="fraction" yunits="fraction"/>
+		</IconStyle>
+		<ListStyle>
+			<bgColor>ffd1faea</bgColor>
+		</ListStyle>
+		<LineStyle>
+			<color>ff00ffff</color>
+		</LineStyle>
+		<PolyStyle>
+			<color>4d00ffff</color>
+			<outline>0</outline>
+		</PolyStyle>
+	</Style>
+	<Style id="kmlwb-circle-normal22">
+		<IconStyle>
+			<color>ffa2f6d6</color>
+			<Icon>
+				<href>http://maps.google.com/mapfiles/kml/paddle/wht-blank.png</href>
+			</Icon>
+			<hotSpot x="0.5" y="0" xunits="fraction" yunits="fraction"/>
+		</IconStyle>
+		<ListStyle>
+			<bgColor>ffd1faea</bgColor>
+		</ListStyle>
+		<LineStyle>
+			<color>ff00ffff</color>
+		</LineStyle>
+		<PolyStyle>
+			<color>4d00ffff</color>
+			<outline>0</outline>
+		</PolyStyle>
+	</Style>
+	<Style id="kmlwb-circle-normal6">
+		<IconStyle>
+			<color>ffa2f6d6</color>
+			<Icon>
+				<href>http://maps.google.com/mapfiles/kml/paddle/wht-blank.png</href>
+			</Icon>
+			<hotSpot x="0.5" y="0" xunits="fraction" yunits="fraction"/>
+		</IconStyle>
+		<ListStyle>
+			<bgColor>ffd1faea</bgColor>
+		</ListStyle>
+		<LineStyle>
+			<color>ff00ffff</color>
+		</LineStyle>
+		<PolyStyle>
+			<color>4d00ffff</color>
+			<outline>0</outline>
+		</PolyStyle>
+	</Style>
+	<Style id="kmlwb-circle-normal80">
+		<IconStyle>
+			<color>ffa2f6d6</color>
+			<Icon>
+				<href>http://maps.google.com/mapfiles/kml/paddle/wht-blank.png</href>
+			</Icon>
+			<hotSpot x="0.5" y="0" xunits="fraction" yunits="fraction"/>
+		</IconStyle>
+		<ListStyle>
+			<bgColor>ffd1faea</bgColor>
+		</ListStyle>
+		<LineStyle>
+			<color>ff00ffff</color>
+		</LineStyle>
+		<PolyStyle>
+			<color>4d00ffff</color>
+			<outline>0</outline>
+		</PolyStyle>
+	</Style>
+	<StyleMap id="kmlwb-circle03">
+		<Pair>
+			<key>normal</key>
+			<styleUrl>#kmlwb-circle-normal80</styleUrl>
+		</Pair>
+		<Pair>
+			<key>highlight</key>
+			<styleUrl>#kmlwb-circle-highlight90</styleUrl>
+		</Pair>
+	</StyleMap>
+	<StyleMap id="kmlwb-circle101">
+		<Pair>
+			<key>normal</key>
+			<styleUrl>#kmlwb-circle-normal6</styleUrl>
+		</Pair>
+		<Pair>
+			<key>highlight</key>
+			<styleUrl>#kmlwb-circle-highlight120</styleUrl>
+		</Pair>
+	</StyleMap>
+	<StyleMap id="kmlwb-circle140">
+		<Pair>
+			<key>normal</key>
+			<styleUrl>#kmlwb-circle-normal02</styleUrl>
+		</Pair>
+		<Pair>
+			<key>highlight</key>
+			<styleUrl>#kmlwb-circle-highlight30</styleUrl>
+		</Pair>
+	</StyleMap>
+	<StyleMap id="kmlwb-circle32">
+		<Pair>
+			<key>normal</key>
+			<styleUrl>#kmlwb-circle-normal00</styleUrl>
+		</Pair>
+		<Pair>
+			<key>highlight</key>
+			<styleUrl>#kmlwb-circle-highlight10</styleUrl>
+		</Pair>
+	</StyleMap>
+	<StyleMap id="kmlwb-circle43">
+		<Pair>
+			<key>normal</key>
+			<styleUrl>#kmlwb-circle-normal22</styleUrl>
+		</Pair>
+		<Pair>
+			<key>highlight</key>
+			<styleUrl>#kmlwb-circle-highlight01</styleUrl>
+		</Pair>
+	</StyleMap>
+	<StyleMap id="msn_ylw-pushpin10">
+		<Pair>
+			<key>normal</key>
+			<styleUrl>#sn_ylw-pushpin01</styleUrl>
+		</Pair>
+		<Pair>
+			<key>highlight</key>
+			<styleUrl>#sh_ylw-pushpin1</styleUrl>
+		</Pair>
+	</StyleMap>
+	<Style id="sh_ylw-pushpin1">
+		<IconStyle>
+			<scale>1.2</scale>
+		</IconStyle>
+		<LineStyle>
+			<color>ff00ffff</color>
+		</LineStyle>
+		<PolyStyle>
+			<color>4d00ffff</color>
+		</PolyStyle>
+	</Style>
+	<Style id="sn_ylw-pushpin01">
+		<LineStyle>
+			<color>ff00ffff</color>
+		</LineStyle>
+		<PolyStyle>
+			<color>4d00ffff</color>
+		</PolyStyle>
+	</Style>
+	<Style id="style_CONDITIONAL">
+		<LineStyle>
+			<color>9900ffff</color>
+		</LineStyle>
+		<PolyStyle>
+			<color>9900ffff</color>
+		</PolyStyle>
+	</Style>
+	<Style id="style_PROHIBITED">
+		<LineStyle>
+			<color>990000ff</color>
+		</LineStyle>
+		<PolyStyle>
+			<color>990000ff</color>
+		</PolyStyle>
+	</Style>
+	<Style id="style_PROHIBITED2">
+		<LineStyle>
+			<color>990000ff</color>
+		</LineStyle>
+		<PolyStyle>
+			<color>990000ff</color>
+		</PolyStyle>
+	</Style>
+	<Folder>
+		<name>Aktuálne</name>
+		<open>1</open>
+		<Folder>
+			<name>Stále</name>
+			<open>1</open>
+			<Document>
+				<name>RUAS004M - RUAS008M</name>
+				<StyleMap id="style_CONDITIONAL60">
+					<Pair>
+						<key>normal</key>
+						<styleUrl>#style_CONDITIONAL7</styleUrl>
+					</Pair>
+					<Pair>
+						<key>highlight</key>
+						<styleUrl>#style_CONDITIONAL8</styleUrl>
+					</Pair>
+				</StyleMap>
+				<Style id="style_CONDITIONAL7">
+					<LineStyle>
+						<color>9900ffff</color>
+					</LineStyle>
+					<PolyStyle>
+						<color>9900ffff</color>
+					</PolyStyle>
+				</Style>
+				<Style id="style_CONDITIONAL8">
+					<LineStyle>
+						<color>9900ffff</color>
+					</LineStyle>
+					<PolyStyle>
+						<color>9900ffff</color>
+					</PolyStyle>
+				</Style>
+				<Placemark>
+					<name>RUAS004M</name>
+					<Snippet maxLines="0"></Snippet>
+					<description><![CDATA[<table style="font-family:Arial,Verdana,Times;font-size:12px;width:100%;border-collapse:collapse;background:#ffffff;">
+
+<tr style="background:#ffff00;">
+<td colspan="2" style="border:1px solid black;padding:9px;text-align:center;">
+<div style="font-weight:bold;font-size:16px;color:#1a1305;">PODMIENENÁ PREVÁDZKA UAS</div>
+<div style="font-size:12px;font-style:italic;font-weight:normal;color:#1a1305;opacity:0.9;margin-top:3px;">CONDITIONAL UAS OPERATION</div>
+</td>
+</tr>
+
+<tr>
+<td style="border:1px solid black;padding:6px;width:35%;background:#f4f4f4;">
+    <div style="font-weight:bold;">Označenie</div>
+    <div style="font-size:10px;font-style:italic;font-weight:normal;color:#666666;border-top:1px dotted #999999;margin-top:3px;padding-top:2px;">Identification</div>
+  </td>
+<td style="border:1px solid black;padding:6px;">RUAS004M</td>
+</tr>
+<tr>
+<td style="border:1px solid black;padding:6px;background:#f4f4f4;">
+    <div style="font-weight:bold;">Obmedzenie</div>
+    <div style="font-size:10px;font-style:italic;font-weight:normal;color:#666666;border-top:1px dotted #999999;margin-top:3px;padding-top:2px;">Restriction</div>
+  </td>
+<td style="border:1px solid black;padding:6px;">Let UAS povolený na základe predchádzajúceho súhlasu správcu príslušného chráneného objektu / UAS flight permitted only with the prior approval of the operator of the relevant protected facility.</td>
+</tr>
+<tr>
+<td style="border:1px solid black;padding:6px;background:#f4f4f4;">
+    <div style="font-weight:bold;">Doba platnosti</div>
+    <div style="font-size:10px;font-style:italic;font-weight:normal;color:#666666;border-top:1px dotted #999999;margin-top:3px;padding-top:2px;">Validity period</div>
+  </td>
+<td style="border:1px solid black;padding:6px;"><div>stála</div><div style="font-size:10px;font-style:italic;color:#666666;border-top:1px dotted #cccccc;margin-top:3px;padding-top:2px;">permanent</div></td>
+</tr>
+<tr>
+<td style="border:1px solid black;padding:6px;background:#f4f4f4;">
+    <div style="font-weight:bold;">Výška</div>
+    <div style="font-size:10px;font-style:italic;font-weight:normal;color:#666666;border-top:1px dotted #999999;margin-top:3px;padding-top:2px;">Height</div>
+  </td>
+<td style="border:1px solid black;padding:6px;">GND - 120m AGL</td>
+</tr>
+
+</table>]]></description>
+					<styleUrl>#style_CONDITIONAL60</styleUrl>
+					<Polygon>
+						<outerBoundaryIs>
+							<LinearRing>
+								<coordinates>
+									17.09445,48.16057222222222,0 17.09456111111111,48.16070000000001,0 17.09453055555555,48.16080277777777,0 17.09411944444444,48.16109166666665,0 17.09376111111111,48.16073888888888,0 17.09445,48.16057222222222,0 
+								</coordinates>
+							</LinearRing>
+						</outerBoundaryIs>
+					</Polygon>
+				</Placemark>
+				</Document>
+			<Document>
+				<name>MOSR</name>
+				<Style id="style_CONDITIONAL100">
+					<LineStyle>
+						<color>9900ffff</color>
+					</LineStyle>
+					<PolyStyle>
+						<color>9900ffff</color>
+					</PolyStyle>
+				</Style>
+				<Style id="style_CONDITIONAL11">
+					<LineStyle>
+						<color>9900ffff</color>
+					</LineStyle>
+					<PolyStyle>
+						<color>9900ffff</color>
+					</PolyStyle>
+				</Style>
+				<StyleMap id="style_CONDITIONAL12">
+					<Pair>
+						<key>normal</key>
+						<styleUrl>#style_CONDITIONAL100</styleUrl>
+					</Pair>
+					<Pair>
+						<key>highlight</key>
+						<styleUrl>#style_CONDITIONAL13</styleUrl>
+					</Pair>
+				</StyleMap>
+				<Style id="style_CONDITIONAL13">
+					<LineStyle>
+						<color>9900ffff</color>
+					</LineStyle>
+					<PolyStyle>
+						<color>9900ffff</color>
+					</PolyStyle>
+				</Style>
+				<Style id="style_CONDITIONAL14">
+					<LineStyle>
+						<color>9900ffff</color>
+					</LineStyle>
+					<PolyStyle>
+						<color>9900ffff</color>
+					</PolyStyle>
+				</Style>
+				<StyleMap id="style_CONDITIONAL9">
+					<Pair>
+						<key>normal</key>
+						<styleUrl>#style_CONDITIONAL14</styleUrl>
+					</Pair>
+					<Pair>
+						<key>highlight</key>
+						<styleUrl>#style_CONDITIONAL11</styleUrl>
+					</Pair>
+				</StyleMap>
+				<Document>
+					<name>RUAS 100 - 268</name>
+					<Style id="style_CONDITIONAL0">
+						<LineStyle>
+							<color>9900ffff</color>
+						</LineStyle>
+						<PolyStyle>
+							<color>9900ffff</color>
+						</PolyStyle>
+					</Style>
+					<Style id="style_CONDITIONAL15">
+						<LineStyle>
+							<color>9900ffff</color>
+						</LineStyle>
+						<PolyStyle>
+							<color>9900ffff</color>
+						</PolyStyle>
+					</Style>
+					<Placemark>
+						<name>RUAS120M</name>
+						<Snippet maxLines="0"></Snippet>
+						<description><![CDATA[<table style="font-family:Arial,Verdana,Times;font-size:12px;width:100%;border-collapse:collapse;background:#ffffff;">
+
+<tr style="background:#ffff00;">
+<td colspan="2" style="border:1px solid black;padding:9px;text-align:center;">
+<div style="font-weight:bold;font-size:16px;color:#1a1305;">PODMIENENÁ PREVÁDZKA UAS</div>
+<div style="font-size:12px;font-style:italic;font-weight:normal;color:#1a1305;opacity:0.9;margin-top:3px;">CONDITIONAL UAS OPERATION</div>
+</td>
+</tr>
+
+<tr>
+<td style="border:1px solid black;padding:6px;width:35%;background:#f4f4f4;">
+    <div style="font-weight:bold;">Označenie</div>
+    <div style="font-size:10px;font-style:italic;font-weight:normal;color:#666666;border-top:1px dotted #999999;margin-top:3px;padding-top:2px;">Identification</div>
+  </td>
+<td style="border:1px solid black;padding:6px;">RUAS120M</td>
+</tr>
+<tr>
+<td style="border:1px solid black;padding:6px;background:#f4f4f4;">
+    <div style="font-weight:bold;">Obmedzenie</div>
+    <div style="font-size:10px;font-style:italic;font-weight:normal;color:#666666;border-top:1px dotted #999999;margin-top:3px;padding-top:2px;">Restriction</div>
+  </td>
+<td style="border:1px solid black;padding:6px;">Let povolený iba s predhadzujúcim povolením kritického subjektu / Flight permitted only with the prior authorization of the critical entity.</td>
+</tr>
+<tr>
+<td style="border:1px solid black;padding:6px;background:#f4f4f4;">
+    <div style="font-weight:bold;">Doba platnosti</div>
+    <div style="font-size:10px;font-style:italic;font-weight:normal;color:#666666;border-top:1px dotted #999999;margin-top:3px;padding-top:2px;">Validity period</div>
+  </td>
+<td style="border:1px solid black;padding:6px;"><div>stála</div><div style="font-size:10px;font-style:italic;color:#666666;border-top:1px dotted #cccccc;margin-top:3px;padding-top:2px;">permanent</div></td>
+</tr>
+<tr>
+<td style="border:1px solid black;padding:6px;background:#f4f4f4;">
+    <div style="font-weight:bold;">Výška</div>
+    <div style="font-size:10px;font-style:italic;font-weight:normal;color:#666666;border-top:1px dotted #999999;margin-top:3px;padding-top:2px;">Height</div>
+  </td>
+<td style="border:1px solid black;padding:6px;">GND - 120m AGL</td>
+</tr>
+
+</table>]]></description>
+						<styleUrl>#style_CONDITIONAL0</styleUrl>
+						<Polygon>
+							<outerBoundaryIs>
+								<LinearRing>
+									<coordinates>
+										17.08008300000006,48.15253532160593,0 17.0802151276331,48.15253099105087,0 17.08034598273844,48.1525180410935,0 17.08047430504598,48.15249659645544,0 17.08059885868317,48.15246686367078,0 17.08071844407857,48.15242912909656,0 17.08083190951731,48.15238375615459,0 17.08093816223379,48.15233118183072,0 17.08103617893676,48.15227191246572,0 17.08112501566529,48.1522065188781,0 17.08120381687979,48.15213563086599,0 17.08127182370072,48.15205993114102,0 17.08132838121674,48.15198014875249,0 17.08137294479025,48.15189705206566,0 17.0814050853013,48.15181144136113,0 17.08142449327806,48.15172414112728,0 17.08143098187475,48.15163599211954,0 17.0814244886692,48.15154784326322,0 17.08140507626081,48.1514605434778,0 17.08137293166556,48.15137493350151,0 17.08132836451205,48.1512918377947,0 17.08127180405825,48.15121205660037,0 17.08120379505419,48.15113635823781,0 17.08112499249535,48.15106547170404,0 17.08103615531286,48.15100007965383,0 17.08093813906385,48.15094081182622,0 17.08083188769172,48.15088823898066,0 17.0807184244361,48.15084286740112,0 17.08059884197849,48.1508051340211,0 17.08047429192129,48.15077540221647,0 17.08034597369794,48.15075395830664,0 17.08021512302423,48.1507410087977,0 17.08008300000006,48.15073667839408,0 17.07995087697577,48.1507410087977,0 17.07982002630206,48.15075395830664,0 17.07969170807871,48.15077540221647,0 17.07956715802152,48.1508051340211,0 17.0794475755639,48.15084286740112,0 17.07933411230829,48.15088823898066,0 17.07922786093616,48.15094081182622,0 17.07912984468715,48.15100007965383,0 17.07904100750466,48.15106547170404,0 17.07896220494581,48.15113635823781,0 17.07889419594176,48.15121205660037,0 17.07883763548796,48.1512918377947,0 17.07879306833445,48.15137493350151,0 17.0787609237392,48.1514605434778,0 17.0787415113308,48.15154784326322,0 17.07873501812526,48.15163599211954,0 17.07874150672194,48.15172414112728,0 17.07876091469871,48.15181144136113,0 17.07879305520976,48.15189705206566,0 17.07883761878327,48.15198014875249,0 17.07889417629929,48.15205993114102,0 17.07896218312021,48.15213563086599,0 17.07904098433471,48.1522065188781,0 17.07912982106325,48.15227191246572,0 17.07922783776621,48.15233118183072,0 17.07933409048269,48.15238375615459,0 17.07944755592143,48.15242912909656,0 17.07956714131683,48.15246686367078,0 17.07969169495402,48.15249659645544,0 17.07982001726157,48.1525180410935,0 17.07995087236691,48.15253099105087,0 17.08008300000006,48.15253532160593,0 
+									</coordinates>
+								</LinearRing>
+							</outerBoundaryIs>
+						</Polygon>
+					</Placemark>
+					</Document>
+<Placemark>
+					<name>RUAS019M</name>
+					<Snippet maxLines="0"></Snippet>
+					<description><![CDATA[<table style="font-family:Arial,Verdana,Times;font-size:12px;width:100%;border-collapse:collapse;background:#ffffff;">
+
+<tr style="background:#ffff00;">
+<td colspan="2" style="border:1px solid black;padding:9px;text-align:center;">
+<div style="font-weight:bold;font-size:16px;color:#1a1305;">PODMIENENÁ PREVÁDZKA UAS</div>
+<div style="font-size:12px;font-style:italic;font-weight:normal;color:#1a1305;opacity:0.9;margin-top:3px;">CONDITIONAL UAS OPERATION</div>
+</td>
+</tr>
+
+<tr>
+<td style="border:1px solid black;padding:6px;width:35%;background:#f4f4f4;">
+    <div style="font-weight:bold;">Označenie</div>
+    <div style="font-size:10px;font-style:italic;font-weight:normal;color:#666666;border-top:1px dotted #999999;margin-top:3px;padding-top:2px;">Identification</div>
+  </td>
+<td style="border:1px solid black;padding:6px;">RUAS019M</td>
+</tr>
+<tr>
+<td style="border:1px solid black;padding:6px;background:#f4f4f4;">
+    <div style="font-weight:bold;">Obmedzenie</div>
+    <div style="font-size:10px;font-style:italic;font-weight:normal;color:#666666;border-top:1px dotted #999999;margin-top:3px;padding-top:2px;">Restriction</div>
+  </td>
+<td style="border:1px solid black;padding:6px;">Let UAS je povolený iba na základe predchádzajúceho súhlasu Ministerstva obrany Slovenskej republiky, ktoré sú vybavené systémom diaľkovej identifikácie. / UAS Flights permitted only on the prior approval of the Ministry of Defence of the Slovak Republic, which are equipped with a remote identification system.
+</td>
+</tr>
+<tr>
+<td style="border:1px solid black;padding:6px;background:#f4f4f4;">
+    <div style="font-weight:bold;">Doba platnosti</div>
+    <div style="font-size:10px;font-style:italic;font-weight:normal;color:#666666;border-top:1px dotted #999999;margin-top:3px;padding-top:2px;">Validity period</div>
+  </td>
+<td style="border:1px solid black;padding:6px;"><div>stála</div><div style="font-size:10px;font-style:italic;color:#666666;border-top:1px dotted #cccccc;margin-top:3px;padding-top:2px;">permanent</div></td>
+</tr>
+<tr>
+<td style="border:1px solid black;padding:6px;background:#f4f4f4;">
+    <div style="font-weight:bold;">Výška</div>
+    <div style="font-size:10px;font-style:italic;font-weight:normal;color:#666666;border-top:1px dotted #999999;margin-top:3px;padding-top:2px;">Height</div>
+  </td>
+<td style="border:1px solid black;padding:6px;">GND - 500m AGL</td>
+</tr>
+
+</table>]]></description>
+					<styleUrl>#style_CONDITIONAL12</styleUrl>
+					<Polygon>
+						<outerBoundaryIs>
+							<LinearRing>
+								<coordinates>
+									17.80583333333334,48.41386123951402,0 17.80689577549663,48.41382659078932,0 17.80794798145212,48.41372297844228,0 17.80897981373812,48.41355140073363,0 17.80998133142748,48.41331351072802,0 17.81094288601093,48.41301160034795,0 17.81185521444604,48.41264857826637,0 17.81270952847137,48.41222794185171,0 17.81349759932016,48.41175374343776,0 17.81421183701627,48.41123055124438,0 17.81484536348592,48.41066340532831,0 17.8153920787812,48.41005776898956,0 17.81584671977691,48.40941947610402,0 17.81620491077922,48.40875467489141,0 17.8164632055599,48.40806976866187,0 17.81661912041727,48.40737135411356,0 17.81667115794824,48.40666615777689,0 17.81661882131027,48.40596097121843,0 17.81646261884043,48.40526258562887,0 17.81620405899457,48.4045777264258,0 17.81584563566082,48.40391298850015,0 17.81539080399546,48.40327477273001,0 17.81484394701988,48.40266922437157,0 17.81421033330389,48.40210217391972,0 17.81349606614833,48.40157908100581,0 17.81270802475899,48.40110498187133,0 17.81185379798001,48.40068444092088,0 17.81094161122508,48.40032150681962,0 17.80998024731127,48.40001967355496,0 17.80897896195347,48.39978184683631,0 17.80794739473265,48.39961031615413,0 17.80689547638963,48.39950673276584,0 17.80583333333334,48.39947209381932,0 17.80477119027705,48.39950673276584,0 17.80371927193403,48.39961031615413,0 17.80268770471309,48.39978184683631,0 17.80168641935529,48.40001967355496,0 17.80072505544149,48.40032150681962,0 17.79981286868667,48.40068444092088,0 17.79895864190757,48.40110498187133,0 17.79817060051835,48.40157908100581,0 17.79745633336279,48.40210217391972,0 17.79682271964668,48.40266922437157,0 17.79627586267122,48.40327477273001,0 17.79582103100586,48.40391298850015,0 17.79546260767211,48.4045777264258,0 17.79520404782625,48.40526258562887,0 17.79504784535641,48.40596097121843,0 17.79499550871844,48.40666615777689,0 17.79504754624941,48.40737135411356,0 17.79520346110678,48.40806976866187,0 17.79546175588746,48.40875467489141,0 17.79581994688976,48.40941947610402,0 17.79627458788548,48.41005776898956,0 17.79682130318065,48.41066340532831,0 17.79745482965041,48.41123055124438,0 17.79816906734652,48.41175374343776,0 17.79895713819531,48.41222794185171,0 17.79981145222064,48.41264857826637,0 17.80072378065574,48.41301160034795,0 17.8016853352392,48.41331351072802,0 17.80268685292856,48.41355140073363,0 17.80371868521456,48.41372297844228,0 17.80477089117005,48.41382659078932,0 17.80583333333334,48.41386123951402,0 
+								</coordinates>
+							</LinearRing>
+						</outerBoundaryIs>
+					</Polygon>
+				</Placemark>
+				</Document>
+			<Folder>
+				<name>CTR</name>
+				<Placemark>
+					<name>Letisko Bratislava - M. R. Štefánik</name>
+					<Snippet maxLines="0"></Snippet>
+					<description><![CDATA[<table style="font-family:Arial,Verdana,Times;font-size:12px;width:100%;border-collapse:collapse;background:#ffffff;">
+
+<tr style="background:#ffff00;">
+<td colspan="2" style="border:1px solid black;padding:9px;text-align:center;">
+<div style="font-weight:bold;font-size:16px;color:#1a1305;">PODMIENENÁ PREVÁDZKA UAS</div>
+<div style="font-size:12px;font-style:italic;font-weight:normal;color:#1a1305;opacity:0.9;margin-top:3px;">CONDITIONAL UAS OPERATION</div>
+</td>
+</tr>
+
+<tr>
+<td style="border:1px solid black;padding:6px;width:35%;background:#f4f4f4;">
+    <div style="font-weight:bold;">Označenie</div>
+    <div style="font-size:10px;font-style:italic;font-weight:normal;color:#666666;border-top:1px dotted #999999;margin-top:3px;padding-top:2px;">Identification</div>
+  </td>
+<td style="border:1px solid black;padding:6px;">RUAS001-LZBAAD-D</td>
+</tr>
+<tr>
+<td style="border:1px solid black;padding:6px;background:#f4f4f4;">
+    <div style="font-weight:bold;">Obmedzenie</div>
+    <div style="font-size:10px;font-style:italic;font-weight:normal;color:#666666;border-top:1px dotted #999999;margin-top:3px;padding-top:2px;">Restriction</div>
+  </td>
+<td style="border:1px solid black;padding:6px;">Civilná prevádzka UAS je povolená len v osobitnej kategórii UAS. / Civil UAS operations are permitted only in the specific category of UAS.
+</td>
+</tr>
+<tr>
+<td style="border:1px solid black;padding:6px;background:#f4f4f4;">
+    <div style="font-weight:bold;">Doba platnosti</div>
+    <div style="font-size:10px;font-style:italic;font-weight:normal;color:#666666;border-top:1px dotted #999999;margin-top:3px;padding-top:2px;">Validity period</div>
+  </td>
+<td style="border:1px solid black;padding:6px;"><div>Stála  </a></p></div><div style="font-size:10px;font-style:italic;color:#666666;border-top:1px dotted #cccccc;margin-top:3px;padding-top:2px;">permanent </a></p></div></td>
+</tr>
+<tr>
+<td style="border:1px solid black;padding:6px;background:#f4f4f4;">
+    <div style="font-weight:bold;">Výška</div>
+    <div style="font-size:10px;font-style:italic;font-weight:normal;color:#666666;border-top:1px dotted #999999;margin-top:3px;padding-top:2px;">Height</div>
+  </td>
+<td style="border:1px solid black;padding:6px;">GND - 120m AGL</td>
+</tr>
+
+</table>]]></description>
+					<styleUrl>#kmlwb-circle140</styleUrl>
+					<MultiGeometry>
+						<altitudeMode>relativeToGround</altitudeMode>
+						<LineString>
+							<tessellate>1</tessellate>
+							<altitudeMode>relativeToGround</altitudeMode>
+							<coordinates>
+								17.211602,48.21490900000001,120 17.210426,48.214888,120 17.20925,48.214854,120 17.208076,48.214806,120 17.206903,48.214745,120 17.205732,48.214669,120 17.204563,48.214581,120 17.203397,48.21447800000001,120 17.202233,48.214362,120 17.201073,48.21423299999999,120 17.199916,48.21408999999999,120 17.198764,48.213933,120 17.197615,48.213764,120 17.196471,48.21358,120 17.195332,48.21338399999999,120 17.194199,48.213174,120 17.193071,48.212951,120 17.191949,48.212716,120 17.190834,48.212467,120 17.189725,48.212205,120 17.188623,48.21193,120 17.187529,48.211642,120 17.186442,48.211342,120 17.185363,48.211029,120 17.184293,48.210704,120 17.183231,48.210366,120 17.182179,48.210016,120 17.181136,48.20965400000001,120 17.180102,48.20927999999999,120 17.179079,48.208893,120 17.178065,48.208495,120 17.177063,48.208085,120 17.176071,48.207664,120 17.17509,48.20723100000001,120 17.174121,48.20678600000001,120 17.173164,48.206331,120 17.172219,48.205864,120 17.171286,48.205387,120 17.170366,48.204898,120 17.169459,48.20439900000001,120 17.168565,48.20389,120 17.167684,48.20337,120 17.166817,48.20284,120 17.165965,48.20230000000001,120 17.165126,48.20174999999999,120 17.164303,48.201191,120 17.163494,48.20062200000001,120 17.1627,48.20004399999999,120 17.161921,48.19945599999999,120 17.161158,48.19886,120 17.16041,48.198255,120 17.159679,48.197641,120 17.158963,48.197018,120 17.158264,48.19638800000001,120 17.157582,48.195749,120 17.156917,48.19510300000001,120 17.156268,48.194449,120 17.155637,48.193788,120 17.155024,48.193119,120 17.154428,48.192443,120 17.153849,48.191761,120 17.153289,48.191071,120 17.152747,48.190376,120 17.152223,48.189674,120 17.151718,48.188966,120 17.151231,48.188252,120 17.150763,48.187533,120 17.150314,48.186809,120 17.149884,48.186079,120 17.149473,48.185345,120 17.149081,48.18460600000001,120 17.148709,48.183862,120 17.148357,48.183114,120 17.148024,48.182362,120 17.14771,48.181607,120 17.147417,48.180848,120 17.147143,48.180085,120 17.14689,48.17932,120 17.146657,48.17855100000001,120 17.146443,48.17778,120 17.14625,48.177007,120 17.146078,48.17623199999999,120 17.145925,48.175454,120 17.145793,48.174676,120 17.145681,48.17389500000001,120 17.14559,48.17311399999999,120 17.145519,48.17233099999999,120 17.145469,48.171548,120 17.145439,48.170764,120 17.14543,48.16998,120 17.145442,48.169196,120 17.145473,48.168413,120 17.145526,48.16763,120 17.145598,48.166847,120 17.145692,48.166066,120 17.145805,48.165286,120 17.145939,48.164507,120 17.146094,48.16372999999999,120 17.146269,48.162954,120 17.146463,48.162181,120 17.146679,48.161411,120 17.146914,48.160643,120 17.147169,48.159877,120 17.147445,48.15911500000001,120 17.14774,48.15835700000001,120 17.148055,48.15760099999999,120 17.14839,48.15685,120 17.148744,48.156102,120 17.149118,48.15535899999999,120 17.149511,48.154621,120 17.149923,48.153886,120 17.150355,48.153157,120 17.150805,48.152433,120 17.151275,48.151715,120 17.151763,48.151002,120 17.152269,48.150294,120 17.152795,48.149593,120 17.153338,48.148898,120 17.153899,48.14820900000001,120 17.154479,48.14752699999999,120 17.155076,48.146852,120 17.15569,48.14618400000001,120 17.156322,48.145523,120 17.156971,48.14487,120 17.157638,48.144224,120 17.158321,48.143586,120 17.15902,48.14295599999999,120 17.159736,48.142335,120 17.160468,48.141722,120 17.161216,48.141117,120 17.161979,48.140521,120 17.162758,48.13993500000001,120 17.163552,48.13935699999999,120 17.164362,48.138789,120 17.165185,48.13823,120 17.166024,48.137681,120 17.166876,48.137142,120 17.167743,48.136612,120 17.168623,48.136093,120 17.169517,48.135584,120 17.170423,48.13508600000001,120 17.171343,48.134598,120 17.172275,48.134122,120 17.17322,48.133656,120 17.174177,48.13320099999999,120 17.175145,48.132757,120 17.176125,48.13232499999999,120 17.177116,48.131904,120 17.178117,48.131494,120 17.17913,48.131097,120 17.180152,48.130711,120 17.181185,48.130337,120 17.182227,48.12997599999999,120 17.183278,48.129626,120 17.184338,48.12928899999999,120 17.185407,48.128964,120 17.186484,48.128652,120 17.18757,48.128352,120 17.188662,48.128065,120 17.189763,48.127791,120 17.19087,48.12752900000001,120 17.191984,48.127281,120 17.193104,48.127045,120 17.19423,48.126823,120 17.195362,48.126613,120 17.196499,48.126417,120 17.197641,48.12623399999999,120 17.198788,48.126065,120 17.199938,48.125909,120 17.201093,48.125766,120 17.202252,48.125637,120 17.203413,48.125521,120 17.204577,48.12541900000001,120 17.205744,48.12533,120 17.206913,48.125255,120 17.208084,48.125194,120 17.209256,48.125146,120 17.21043,48.125112,120 17.211604,48.125091,120 17.212778,48.125084,120 17.213952,48.125091,120 17.215126,48.125112,120 17.2163,48.125146,120 17.217472,48.125194,120 17.218643,48.125255,120 17.219812,48.12533,120 17.220979,48.12541900000001,120 17.222143,48.125521,120 17.223304,48.125637,120 17.224463,48.125766,120 17.225618,48.125909,120 17.226768,48.126065,120 17.227915,48.12623399999999,120 17.229057,48.126417,120 17.230194,48.126613,120 17.231326,48.126823,120 17.232452,48.127045,120 17.233572,48.127281,120 17.234686,48.12752900000001,120 17.235793,48.127791,120 17.236894,48.128065,120 17.237986,48.128352,120 17.239072,48.128652,120 17.240149,48.128964,120 17.241218,48.12928899999999,120 17.242278,48.129626,120 17.243329,48.12997599999999,120 17.244371,48.130337,120 17.245404,48.130711,120 17.246426,48.131097,120 17.247439,48.131494,120 17.24844,48.131904,120 17.249431,48.13232499999999,120 17.250411,48.132757,120 17.251379,48.13320099999999,120 17.252336,48.133656,120 17.253281,48.134122,120 17.254213,48.134598,120 17.255133,48.13508600000001,120 17.256039,48.135584,120 17.256933,48.136093,120 17.257813,48.136612,120 17.25868,48.137142,120 17.259532,48.137681,120 17.260371,48.13823,120 17.261194,48.138789,120 17.262004,48.13935699999999,120 17.262798,48.13993500000001,120 17.263577,48.140521,120 17.26434,48.141117,120 17.265088,48.141722,120 17.26582,48.142335,120 17.266536,48.14295599999999,120 17.267235,48.143586,120 17.267918,48.144224,120 17.268585,48.14487,120 17.269234,48.145523,120 17.269866,48.14618400000001,120 17.27048,48.146852,120 17.271077,48.14752699999999,120 17.271657,48.14820900000001,120 17.272218,48.148898,120 17.272761,48.149593,120 17.273287,48.150294,120 17.273793,48.151002,120 17.274281,48.151715,120 17.274751,48.152433,120 17.275201,48.153157,120 17.275633,48.153886,120 17.276045,48.154621,120 17.276438,48.15535899999999,120 17.276812,48.156102,120 17.277166,48.15685,120 17.277501,48.15760099999999,120 17.277816,48.15835700000001,120 17.278111,48.15911500000001,120 17.278387,48.159877,120 17.278642,48.160643,120 17.278877,48.161411,120 17.279093,48.162181,120 17.279287,48.162954,120 17.279462,48.16372999999999,120 17.279617,48.164507,120 17.279751,48.165286,120 17.279864,48.166066,120 17.279958,48.166847,120 17.28003,48.16763,120 17.280083,48.168413,120 17.280114,48.169196,120 17.280126,48.16998,120 17.280117,48.170764,120 17.280087,48.171548,120 17.280037,48.17233099999999,120 17.279966,48.17311399999999,120 17.279875,48.17389500000001,120 17.279763,48.174676,120 17.279631,48.175454,120 17.279478,48.17623199999999,120 17.279306,48.177007,120 17.279113,48.17778,120 17.278899,48.17855100000001,120 17.278666,48.17932,120 17.278413,48.180085,120 17.278139,48.180848,120 17.277846,48.181607,120 17.277532,48.182362,120 17.277199,48.183114,120 17.276847,48.183862,120 17.276475,48.18460600000001,120 17.276083,48.185345,120 17.275672,48.186079,120 17.275242,48.186809,120 17.274793,48.187533,120 17.274325,48.188252,120 17.273838,48.188966,120 17.273333,48.189674,120 17.272809,48.190376,120 17.272267,48.191071,120 17.271707,48.191761,120 17.271128,48.192443,120 17.270532,48.193119,120 17.269919,48.193788,120 17.269288,48.194449,120 17.268639,48.19510300000001,120 17.267974,48.195749,120 17.267292,48.19638800000001,120 17.266593,48.197018,120 17.265877,48.197641,120 17.265146,48.198255,120 17.264398,48.19886,120 17.263635,48.19945599999999,120 17.262856,48.20004399999999,120 17.262062,48.20062200000001,120 17.261253,48.201191,120 17.26043,48.20174999999999,120 17.259591,48.20230000000001,120 17.258739,48.20284,120 17.257872,48.20337,120 17.256991,48.20389,120 17.256097,48.20439900000001,120 17.25519,48.204898,120 17.25427,48.205387,120 17.253337,48.205864,120 17.252392,48.206331,120 17.251435,48.20678600000001,120 17.250466,48.20723100000001,120 17.249485,48.207664,120 17.248493,48.208085,120 17.247491,48.208495,120 17.246477,48.208893,120 17.245454,48.20927999999999,120 17.24442,48.20965400000001,120 17.243377,48.210016,120 17.242325,48.210366,120 17.241263,48.210704,120 17.240193,48.211029,120 17.239114,48.211342,120 17.238027,48.211642,120 17.236933,48.21193,120 17.235831,48.212205,120 17.234722,48.212467,120 17.233607,48.212716,120 17.232485,48.212951,120 17.231357,48.213174,120 17.230224,48.21338399999999,120 17.229085,48.21358,120 17.227941,48.213764,120 17.226792,48.213933,120 17.22564,48.21408999999999,120 17.224483,48.21423299999999,120 17.223323,48.214362,120 17.222159,48.21447800000001,120 17.220993,48.214581,120 17.219824,48.214669,120 17.218653,48.214745,120 17.21748,48.214806,120 17.216306,48.214854,120 17.21513,48.214888,120 17.213954,48.21490900000001,120 17.212778,48.214916,120 17.211602,48.21490900000001,120 
+							</coordinates>
+						</LineString>
+						<Polygon>
+							<altitudeMode>relativeToGround</altitudeMode>
+							<outerBoundaryIs>
+								<LinearRing>
+									<coordinates>
+										17.211602,48.21490900000001,120 17.210426,48.214888,120 17.20925,48.214854,120 17.208076,48.214806,120 17.206903,48.214745,120 17.205732,48.214669,120 17.204563,48.214581,120 17.203397,48.21447800000001,120 17.202233,48.214362,120 17.201073,48.21423299999999,120 17.199916,48.21408999999999,120 17.198764,48.213933,120 17.197615,48.213764,120 17.196471,48.21358,120 17.195332,48.21338399999999,120 17.194199,48.213174,120 17.193071,48.212951,120 17.191949,48.212716,120 17.190834,48.212467,120 17.189725,48.212205,120 17.188623,48.21193,120 17.187529,48.211642,120 17.186442,48.211342,120 17.185363,48.211029,120 17.184293,48.210704,120 17.183231,48.210366,120 17.182179,48.210016,120 17.181136,48.20965400000001,120 17.180102,48.20927999999999,120 17.179079,48.208893,120 17.178065,48.208495,120 17.177063,48.208085,120 17.176071,48.207664,120 17.17509,48.20723100000001,120 17.174121,48.20678600000001,120 17.173164,48.206331,120 17.172219,48.205864,120 17.171286,48.205387,120 17.170366,48.204898,120 17.169459,48.20439900000001,120 17.168565,48.20389,120 17.167684,48.20337,120 17.166817,48.20284,120 17.165965,48.20230000000001,120 17.165126,48.20174999999999,120 17.164303,48.201191,120 17.163494,48.20062200000001,120 17.1627,48.20004399999999,120 17.161921,48.19945599999999,120 17.161158,48.19886,120 17.16041,48.198255,120 17.159679,48.197641,120 17.158963,48.197018,120 17.158264,48.19638800000001,120 17.157582,48.195749,120 17.156917,48.19510300000001,120 17.156268,48.194449,120 17.155637,48.193788,120 17.155024,48.193119,120 17.154428,48.192443,120 17.153849,48.191761,120 17.153289,48.191071,120 17.152747,48.190376,120 17.152223,48.189674,120 17.151718,48.188966,120 17.151231,48.188252,120 17.150763,48.187533,120 17.150314,48.186809,120 17.149884,48.186079,120 17.149473,48.185345,120 17.149081,48.18460600000001,120 17.148709,48.183862,120 17.148357,48.183114,120 17.148024,48.182362,120 17.14771,48.181607,120 17.147417,48.180848,120 17.147143,48.180085,120 17.14689,48.17932,120 17.146657,48.17855100000001,120 17.146443,48.17778,120 17.14625,48.177007,120 17.146078,48.17623199999999,120 17.145925,48.175454,120 17.145793,48.174676,120 17.145681,48.17389500000001,120 17.14559,48.17311399999999,120 17.145519,48.17233099999999,120 17.145469,48.171548,120 17.145439,48.170764,120 17.14543,48.16998,120 17.145442,48.169196,120 17.145473,48.168413,120 17.145526,48.16763,120 17.145598,48.166847,120 17.145692,48.166066,120 17.145805,48.165286,120 17.145939,48.164507,120 17.146094,48.16372999999999,120 17.146269,48.162954,120 17.146463,48.162181,120 17.146679,48.161411,120 17.146914,48.160643,120 17.147169,48.159877,120 17.147445,48.15911500000001,120 17.14774,48.15835700000001,120 17.148055,48.15760099999999,120 17.14839,48.15685,120 17.148744,48.156102,120 17.149118,48.15535899999999,120 17.149511,48.154621,120 17.149923,48.153886,120 17.150355,48.153157,120 17.150805,48.152433,120 17.151275,48.151715,120 17.151763,48.151002,120 17.152269,48.150294,120 17.152795,48.149593,120 17.153338,48.148898,120 17.153899,48.14820900000001,120 17.154479,48.14752699999999,120 17.155076,48.146852,120 17.15569,48.14618400000001,120 17.156322,48.145523,120 17.156971,48.14487,120 17.157638,48.144224,120 17.158321,48.143586,120 17.15902,48.14295599999999,120 17.159736,48.142335,120 17.160468,48.141722,120 17.161216,48.141117,120 17.161979,48.140521,120 17.162758,48.13993500000001,120 17.163552,48.13935699999999,120 17.164362,48.138789,120 17.165185,48.13823,120 17.166024,48.137681,120 17.166876,48.137142,120 17.167743,48.136612,120 17.168623,48.136093,120 17.169517,48.135584,120 17.170423,48.13508600000001,120 17.171343,48.134598,120 17.172275,48.134122,120 17.17322,48.133656,120 17.174177,48.13320099999999,120 17.175145,48.132757,120 17.176125,48.13232499999999,120 17.177116,48.131904,120 17.178117,48.131494,120 17.17913,48.131097,120 17.180152,48.130711,120 17.181185,48.130337,120 17.182227,48.12997599999999,120 17.183278,48.129626,120 17.184338,48.12928899999999,120 17.185407,48.128964,120 17.186484,48.128652,120 17.18757,48.128352,120 17.188662,48.128065,120 17.189763,48.127791,120 17.19087,48.12752900000001,120 17.191984,48.127281,120 17.193104,48.127045,120 17.19423,48.126823,120 17.195362,48.126613,120 17.196499,48.126417,120 17.197641,48.12623399999999,120 17.198788,48.126065,120 17.199938,48.125909,120 17.201093,48.125766,120 17.202252,48.125637,120 17.203413,48.125521,120 17.204577,48.12541900000001,120 17.205744,48.12533,120 17.206913,48.125255,120 17.208084,48.125194,120 17.209256,48.125146,120 17.21043,48.125112,120 17.211604,48.125091,120 17.212778,48.125084,120 17.213952,48.125091,120 17.215126,48.125112,120 17.2163,48.125146,120 17.217472,48.125194,120 17.218643,48.125255,120 17.219812,48.12533,120 17.220979,48.12541900000001,120 17.222143,48.125521,120 17.223304,48.125637,120 17.224463,48.125766,120 17.225618,48.125909,120 17.226768,48.126065,120 17.227915,48.12623399999999,120 17.229057,48.126417,120 17.230194,48.126613,120 17.231326,48.126823,120 17.232452,48.127045,120 17.233572,48.127281,120 17.234686,48.12752900000001,120 17.235793,48.127791,120 17.236894,48.128065,120 17.237986,48.128352,120 17.239072,48.128652,120 17.240149,48.128964,120 17.241218,48.12928899999999,120 17.242278,48.129626,120 17.243329,48.12997599999999,120 17.244371,48.130337,120 17.245404,48.130711,120 17.246426,48.131097,120 17.247439,48.131494,120 17.24844,48.131904,120 17.249431,48.13232499999999,120 17.250411,48.132757,120 17.251379,48.13320099999999,120 17.252336,48.133656,120 17.253281,48.134122,120 17.254213,48.134598,120 17.255133,48.13508600000001,120 17.256039,48.135584,120 17.256933,48.136093,120 17.257813,48.136612,120 17.25868,48.137142,120 17.259532,48.137681,120 17.260371,48.13823,120 17.261194,48.138789,120 17.262004,48.13935699999999,120 17.262798,48.13993500000001,120 17.263577,48.140521,120 17.26434,48.141117,120 17.265088,48.141722,120 17.26582,48.142335,120 17.266536,48.14295599999999,120 17.267235,48.143586,120 17.267918,48.144224,120 17.268585,48.14487,120 17.269234,48.145523,120 17.269866,48.14618400000001,120 17.27048,48.146852,120 17.271077,48.14752699999999,120 17.271657,48.14820900000001,120 17.272218,48.148898,120 17.272761,48.149593,120 17.273287,48.150294,120 17.273793,48.151002,120 17.274281,48.151715,120 17.274751,48.152433,120 17.275201,48.153157,120 17.275633,48.153886,120 17.276045,48.154621,120 17.276438,48.15535899999999,120 17.276812,48.156102,120 17.277166,48.15685,120 17.277501,48.15760099999999,120 17.277816,48.15835700000001,120 17.278111,48.15911500000001,120 17.278387,48.159877,120 17.278642,48.160643,120 17.278877,48.161411,120 17.279093,48.162181,120 17.279287,48.162954,120 17.279462,48.16372999999999,120 17.279617,48.164507,120 17.279751,48.165286,120 17.279864,48.166066,120 17.279958,48.166847,120 17.28003,48.16763,120 17.280083,48.168413,120 17.280114,48.169196,120 17.280126,48.16998,120 17.280117,48.170764,120 17.280087,48.171548,120 17.280037,48.17233099999999,120 17.279966,48.17311399999999,120 17.279875,48.17389500000001,120 17.279763,48.174676,120 17.279631,48.175454,120 17.279478,48.17623199999999,120 17.279306,48.177007,120 17.279113,48.17778,120 17.278899,48.17855100000001,120 17.278666,48.17932,120 17.278413,48.180085,120 17.278139,48.180848,120 17.277846,48.181607,120 17.277532,48.182362,120 17.277199,48.183114,120 17.276847,48.183862,120 17.276475,48.18460600000001,120 17.276083,48.185345,120 17.275672,48.186079,120 17.275242,48.186809,120 17.274793,48.187533,120 17.274325,48.188252,120 17.273838,48.188966,120 17.273333,48.189674,120 17.272809,48.190376,120 17.272267,48.191071,120 17.271707,48.191761,120 17.271128,48.192443,120 17.270532,48.193119,120 17.269919,48.193788,120 17.269288,48.194449,120 17.268639,48.19510300000001,120 17.267974,48.195749,120 17.267292,48.19638800000001,120 17.266593,48.197018,120 17.265877,48.197641,120 17.265146,48.198255,120 17.264398,48.19886,120 17.263635,48.19945599999999,120 17.262856,48.20004399999999,120 17.262062,48.20062200000001,120 17.261253,48.201191,120 17.26043,48.20174999999999,120 17.259591,48.20230000000001,120 17.258739,48.20284,120 17.257872,48.20337,120 17.256991,48.20389,120 17.256097,48.20439900000001,120 17.25519,48.204898,120 17.25427,48.205387,120 17.253337,48.205864,120 17.252392,48.206331,120 17.251435,48.20678600000001,120 17.250466,48.20723100000001,120 17.249485,48.207664,120 17.248493,48.208085,120 17.247491,48.208495,120 17.246477,48.208893,120 17.245454,48.20927999999999,120 17.24442,48.20965400000001,120 17.243377,48.210016,120 17.242325,48.210366,120 17.241263,48.210704,120 17.240193,48.211029,120 17.239114,48.211342,120 17.238027,48.211642,120 17.236933,48.21193,120 17.235831,48.212205,120 17.234722,48.212467,120 17.233607,48.212716,120 17.232485,48.212951,120 17.231357,48.213174,120 17.230224,48.21338399999999,120 17.229085,48.21358,120 17.227941,48.213764,120 17.226792,48.213933,120 17.22564,48.21408999999999,120 17.224483,48.21423299999999,120 17.223323,48.214362,120 17.222159,48.21447800000001,120 17.220993,48.214581,120 17.219824,48.214669,120 17.218653,48.214745,120 17.21748,48.214806,120 17.216306,48.214854,120 17.21513,48.214888,120 17.213954,48.21490900000001,120 17.212778,48.214916,120 17.211602,48.21490900000001,120 
+									</coordinates>
+								</LinearRing>
+							</outerBoundaryIs>
+						</Polygon>
+					</MultiGeometry>
+				</Placemark>
+				<Placemark xsi:schemaLocation="http://www.opengis.net/kml/2.2 https://developers.google.com/kml/schema/kml22gx.xsd">
+					<name>CTR Štefánik</name>
+					<Snippet maxLines="0"></Snippet>
+					<description><![CDATA[<table style="font-family:Arial,Verdana,Times;font-size:12px;width:100%;border-collapse:collapse;background:#ffffff;">
+
+<tr style="background:#ffff00;">
+<td colspan="2" style="border:1px solid black;padding:9px;text-align:center;">
+<div style="font-weight:bold;font-size:16px;color:#1a1305;">PODMIENENÁ PREVÁDZKA UAS</div>
+<div style="font-size:12px;font-style:italic;font-weight:normal;color:#1a1305;opacity:0.9;margin-top:3px;">CONDITIONAL UAS OPERATION</div>
+</td>
+</tr>
+
+<tr>
+<td style="border:1px solid black;padding:6px;width:35%;background:#f4f4f4;">
+    <div style="font-weight:bold;">Označenie</div>
+    <div style="font-size:10px;font-style:italic;font-weight:normal;color:#666666;border-top:1px dotted #999999;margin-top:3px;padding-top:2px;">Identification</div>
+  </td>
+<td style="border:1px solid black;padding:6px;">RUAS001-LZBACTR-D</td>
+</tr>
+<tr>
+<td style="border:1px solid black;padding:6px;background:#f4f4f4;">
+    <div style="font-weight:bold;">Obmedzenie</div>
+    <div style="font-size:10px;font-style:italic;font-weight:normal;color:#666666;border-top:1px dotted #999999;margin-top:3px;padding-top:2px;">Restriction</div>
+  </td>
+<td style="border:1px solid black;padding:6px;">Civilná prevádzka UAS je povolená len v osobitnej kategórii UAS s výnimkou atypického vzdušného priestoru. / Civil UAS operations are permitted only in the specific category of UAS, with the exception of atypical airspace.
+</td>
+</tr>
+<tr>
+<td style="border:1px solid black;padding:6px;background:#f4f4f4;">
+    <div style="font-weight:bold;">Doba platnosti</div>
+    <div style="font-size:10px;font-style:italic;font-weight:normal;color:#666666;border-top:1px dotted #999999;margin-top:3px;padding-top:2px;">Validity period</div>
+  </td>
+<td style="border:1px solid black;padding:6px;"><div>Stála  </a></p></div><div style="font-size:10px;font-style:italic;color:#666666;border-top:1px dotted #cccccc;margin-top:3px;padding-top:2px;">permanent </a></p></div></td>
+</tr>
+<tr>
+<td style="border:1px solid black;padding:6px;background:#f4f4f4;">
+    <div style="font-weight:bold;">Výška</div>
+    <div style="font-size:10px;font-style:italic;font-weight:normal;color:#666666;border-top:1px dotted #999999;margin-top:3px;padding-top:2px;">Height</div>
+  </td>
+<td style="border:1px solid black;padding:6px;">30 - 120m AGL</td>
+</tr>
+
+</table>]]></description>
+					<styleUrl>#msn_ylw-pushpin10</styleUrl>
+					<Polygon>
+						<outerBoundaryIs>
+							<LinearRing>
+								<coordinates>
+									17.3330555556,48.31805555560001,0 17.2947222222,48.3163888889,0 17.2286111111,48.31250000000003,0 17.0591666667,48.30222222219999,0 17.0127777778,48.24916666670001,0 17.0571666667,48.14372222219998,0 17.0571975278,48.1437226667,0 17.05735825,48.1417919722,0 17.0594504167,48.14122486110001,0 17.0593578889,48.14034891669999,0 17.0603944722,48.1396596389,0 17.0612638056,48.13821116669999,0 17.0616379444,48.13599647219999,0 17.0601467778,48.1357549722,0 17.0620630833,48.13253749999998,0 17.0626198333,48.13177105559998,0 17.0655636111,48.1293428889,0 17.0640824167,48.12873944440003,0 17.0643424444,48.128066,0 17.0654449722,48.12801533330003,0 17.0661668889,48.12820472219997,0 17.0676276944,48.12743091670001,0 17.0678600556,48.12701422219999,0 17.0671402778,48.1264224444,0 17.0678271944,48.12586411109999,0 17.06768225,48.12529783330001,0 17.0688428056,48.12411436110001,0 17.0682358056,48.12359780560003,0 17.0675255833,48.12350669440002,0 17.06679575,48.1236961667,0 17.0653806111,48.12324947220004,0 17.0632117778,48.1235025833,0 17.0621856389,48.12302155559999,0 17.0626246389,48.12171908330001,0 17.0635920833,48.12089688890001,0 17.0640472778,48.12086188890001,0 17.0667481944,48.1186746944,0 17.0679718333,48.11816927780001,0 17.0681992778,48.117075,0 17.068049,48.11658383330001,0 17.0686416667,48.11612500000001,0 17.0730274722,48.11449244440001,0 17.0745908333,48.11455611109998,0 17.0770720556,48.11509888890001,0 17.0728762222,48.11029063889999,0 17.07908225,48.1078936944,0 17.0774187222,48.10594988889999,0 17.0833408611,48.10252069439999,0 17.0837311944,48.10299952779999,0 17.09271425,48.0996386667,0 17.0877713056,48.09655638890001,0 17.0931461389,48.09142369439999,0 17.0913256667,48.09056363889997,0 17.0896392778,48.09223022219999,0 17.0764367778,48.08620008330001,0 17.0745638333,48.08591447219999,0 17.0731394444,48.08337424999999,0 17.0748571111,48.0826399167,0 17.0717403333,48.08117083329998,0 17.07155875,48.08092422220003,0 17.0789150833,48.0782371389,0 17.0744407778,48.0731312778,0 17.072236,48.0704496111,0 17.0867943889,48.06535869440003,0 17.0754959722,48.05906658329999,0 17.0717102222,48.0562404444,0 17.0701685,48.05700530560003,0 17.0682479444,48.05539577780002,0 17.0716250833,48.05376150000001,0 17.0760965556,48.05229927779996,0 17.0844516389,48.05028838890001,0 17.0856950556,48.04927855559999,0 17.0877922222,48.0456773889,0 17.0804568333,48.04025591669999,0 17.0742419444,48.0363411667,0 17.0750769722,48.03577627779998,0 17.0674199167,48.0314311389,0 17.0699286667,48.03041786110001,0 17.071472,48.02939580559998,0 17.0735127222,48.0286096667,0 17.0782926111,48.02633052779999,0 17.08034775,48.0258837778,0 17.0848309444,48.0238388889,0 17.0870883611,48.02256380559996,0 17.0895369722,48.02052669440001,0 17.0898622222,48.01978666669996,0 17.099257,48.02510299999997,0 17.1100583611,48.03122552779996,0 17.1132727222,48.03007013890002,0 17.1150128333,48.02961627780002,0 17.1179396944,48.02788127779999,0 17.1202960556,48.0259697222,0 17.1220349722,48.02415822220002,0 17.1267274167,48.02092786110001,0 17.1311925556,48.02298758329997,0 17.1330103889,48.02238419439995,0 17.1366178333,48.02289050000001,0 17.1387546389,48.02167827779999,0 17.1423641667,48.01951786109998,0 17.1438484167,48.02019888889998,0 17.1486045833,48.01477438889997,0 17.1517363889,48.01245894440001,0 17.1542341944,48.01105024999994,0 17.1607787222,48.00665619440006,0 17.1625440278,48.00812208330001,0 17.1735339167,48.01232061109999,0 17.1788263056,48.0135391389,0 17.1908456667,48.01750963890001,0 17.194058,48.01842441669998,0 17.1984018611,48.01767488889999,0 17.1996306667,48.01970941670001,0 17.2021514167,48.02009122219999,0 17.2070813056,48.01907180559996,0 17.2142015278,48.01905822219999,0 17.2206886944,48.01643455560003,0 17.2267156667,48.01623211110002,0 17.2335794444,48.01819236110003,0 17.2362745556,48.01857613890004,0 17.2404160278,48.02056552779999,0 17.2418522222,48.02246786109995,0 17.2447526944,48.02039888889999,0 17.2461206111,48.01844105559999,0 17.2468758056,48.01558319439999,0 17.2476180278,48.00841627779999,0 17.2477966667,48.00477586110003,0 17.2491301944,48.00302436110002,0 17.2510484167,48.0014168056,0 17.2576564167,47.99866705560001,0 17.2646187778,47.9972986667,0 17.2658333333,47.99694444440002,0 17.4169444444,48.1019444444,0 17.3755555556,48.12861111109995,0 17.3786100169,48.13468435879994,0 17.3812742215,48.14083668220002,0 17.3834297658,48.14707766610005,0 17.3850699573,48.15338847179998,0 17.3861896531,48.15975004320001,0 17.3867852775,48.16614316399999,0 17.3868548351,48.1725485151,0 17.3863979191,48.17894673369997,0 17.3854157153,48.1853184711,0 17.3839110004,48.1916444519,0 17.3818881362,48.19790553160001,0 17.3793530585,48.20408275580002,0 17.3763132617,48.2101574168,0 17.3727777778,48.21611111109996,0 17.4302777778,48.25583333329994,0 17.3330555556,48.31805555560001,0 
+								</coordinates>
+							</LinearRing>
+						</outerBoundaryIs>
+					</Polygon>
+				</Placemark>
+				<Placemark xsi:schemaLocation="http://www.opengis.net/kml/2.2 https://developers.google.com/kml/schema/kml22gx.xsd">
+					<name>CTR Pieštany</name>
+					<Snippet maxLines="0"></Snippet>
+					<description><![CDATA[<table style="font-family:Arial,Verdana,Times;font-size:12px;width:100%;border-collapse:collapse;background:#ffffff;">
+
+<tr style="background:#ffff00;">
+<td colspan="2" style="border:1px solid black;padding:9px;text-align:center;">
+<div style="font-weight:bold;font-size:16px;color:#1a1305;">PODMIENENÁ PREVÁDZKA UAS</div>
+<div style="font-size:12px;font-style:italic;font-weight:normal;color:#1a1305;opacity:0.9;margin-top:3px;">CONDITIONAL UAS OPERATION</div>
+</td>
+</tr>
+
+<tr>
+<td style="border:1px solid black;padding:6px;width:35%;background:#f4f4f4;">
+    <div style="font-weight:bold;">Označenie</div>
+    <div style="font-size:10px;font-style:italic;font-weight:normal;color:#666666;border-top:1px dotted #999999;margin-top:3px;padding-top:2px;">Identification</div>
+  </td>
+<td style="border:1px solid black;padding:6px;">RUAS003-LZPPCTR-D</td>
+</tr>
+<tr>
+<td style="border:1px solid black;padding:6px;background:#f4f4f4;">
+    <div style="font-weight:bold;">Obmedzenie</div>
+    <div style="font-size:10px;font-style:italic;font-weight:normal;color:#666666;border-top:1px dotted #999999;margin-top:3px;padding-top:2px;">Restriction</div>
+  </td>
+<td style="border:1px solid black;padding:6px;">Civilná prevádzka UAS je povolená len v osobitnej kategórii UAS s výnimkou atypického vzdušného priestoru. / Civil UAS operations are permitted only in the specific category of UAS, with the exception of atypical airspace.
+</td>
+</tr>
+<tr>
+<td style="border:1px solid black;padding:6px;background:#f4f4f4;">
+    <div style="font-weight:bold;">Doba platnosti</div>
+    <div style="font-size:10px;font-style:italic;font-weight:normal;color:#666666;border-top:1px dotted #999999;margin-top:3px;padding-top:2px;">Validity period</div>
+  </td>
+<td style="border:1px solid black;padding:6px;"><div><a href="https://aim.lps.sk/web/index.php?fn=200&lng=sk&sess=C3ZoIscduMlFkn966ADTYnmHrPlRhlEsJJBDGJ">Počas prevádzkových hodín stanovišťa riadenia letovej prevádzky (TWR) Piešťany  </a></p></div><div style="font-size:10px;font-style:italic;color:#666666;border-top:1px dotted #cccccc;margin-top:3px;padding-top:2px;"><a href="https://aim.lps.sk/web/index.php?fn=200&lng=sk&sess=C3ZoIscduMlFkn966ADTYnmHrPlRhlEsJJBDGJ">During operations hours of the Piešťany air traffic control Tower (TWR) </a></p></div></td>
+</tr>
+<tr>
+<td style="border:1px solid black;padding:6px;background:#f4f4f4;">
+    <div style="font-weight:bold;">Výška</div>
+    <div style="font-size:10px;font-style:italic;font-weight:normal;color:#666666;border-top:1px dotted #999999;margin-top:3px;padding-top:2px;">Height</div>
+  </td>
+<td style="border:1px solid black;padding:6px;">30 - 120m AGL</td>
+</tr>
+
+</table>]]></description>
+					<styleUrl>#msn_ylw-pushpin10</styleUrl>
+					<Polygon>
+						<extrude>1</extrude>
+						<outerBoundaryIs>
+							<LinearRing>
+								<coordinates>
+									17.7877777778,48.8047222222,0 17.7358333333,48.7925,0 17.6616666667,48.5883333333,0 17.6651673071,48.5825123435,0 17.6688625386,48.57675353010001,0 17.6730178416,48.5711346235,0 17.6776210979,48.565671807,0 17.6826589118,48.5603808092,0 17.68811665,48.55527685920001,0 17.6939784848,48.5503746431,0 17.7002274402,48.5456882628,0 17.7068454418,48.5412311952,0 17.7138133693,48.5370162545,0 17.7211111111,48.5330555556,0 17.6916666667,48.45222222220001,0 17.8311111111,48.4297222222,0 17.8608333333,48.5105555556,0 17.8700364214,48.51189519510001,0 17.8791282383,48.51353395480001,0 17.8880751635,48.51549401119999,0 17.8968515322,48.5177697455,0 17.9054321586,48.5203546329,0 17.913792408,48.5232412612,0 17.9219082655,48.5264213517,0 17.9297564044,48.5298857826,0 17.9373142528,48.53362461430001,0 17.9445600573,48.5376271178,0 17.9514729456,48.54188180490001,0 17.9580329862,48.5463764606,0 17.9642212454,48.5510981778,0 17.9700198426,48.5560333934,0 17.9754120015,48.5611679274,0 17.9803820997,48.5664870226,0 17.9849157137,48.5719753866,0 17.9889996622,48.5776172355,0 17.9926220449,48.5833963387,0 17.9957722782,48.58929606509999,0 17.9984411272,48.59529943089999,0 18.0006207341,48.60138914769999,0 18.0023046427,48.6075476723,0 18.0034878187,48.61375725680001,0 18.0041666667,48.62,0 17.9919444444,48.7069444444,0 17.7877777778,48.8047222222,0 
+								</coordinates>
+							</LinearRing>
+						</outerBoundaryIs>
+					</Polygon>
+				</Placemark>
+				</Folder>
+			<Folder>
+				<name>DÚ</name>
+				<open>1</open>
+				<Placemark>
+					<name>R00001D</name>
+					<Snippet maxLines="0"></Snippet>
+					<description><![CDATA[<table style="font-family:Arial,Verdana,Times;font-size:12px;width:100%;border-collapse:collapse;background:#ffffff;">
+
+<tr style="background:#ffff00;">
+<td colspan="2" style="border:1px solid black;padding:9px;text-align:center;">
+<div style="font-weight:bold;font-size:16px;color:#1a1305;">PODMIENENÁ PREVÁDZKA UAS</div>
+<div style="font-size:12px;font-style:italic;font-weight:normal;color:#1a1305;opacity:0.9;margin-top:3px;">CONDITIONAL UAS OPERATION</div>
+</td>
+</tr>
+
+<tr>
+<td style="border:1px solid black;padding:6px;width:35%;background:#f4f4f4;">
+    <div style="font-weight:bold;">Označenie</div>
+    <div style="font-size:10px;font-style:italic;font-weight:normal;color:#666666;border-top:1px dotted #999999;margin-top:3px;padding-top:2px;">Identification</div>
+  </td>
+<td style="border:1px solid black;padding:6px;">R00001D</td>
+</tr>
+<tr>
+<td style="border:1px solid black;padding:6px;background:#f4f4f4;">
+    <div style="font-weight:bold;">Obmedzenie</div>
+    <div style="font-size:10px;font-style:italic;font-weight:normal;color:#666666;border-top:1px dotted #999999;margin-top:3px;padding-top:2px;">Restriction</div>
+  </td>
+<td style="border:1px solid black;padding:6px;">Civilná prevádzka UAS v zemepisnej oblasti je povolená len pre lety UAS vykonávaných na účely plnenia pracovných úloh Národnej zoologickej záhrady Bojnice a po jej predchádzajúcom súhlase, a to bez ohľadu na to, kto je prevádzkovateľom UAS /
+
+Civil UAS operations within the geographical zone are permitted only for UAS flights conducted for the purpose of carrying out work-related tasks of the National Zoological Garden Bojnice and subject to its prior consent, regardless of who the UAS operator is.
+</td>
+</tr>
+<tr>
+<td style="border:1px solid black;padding:6px;background:#f4f4f4;">
+    <div style="font-weight:bold;">Doba platnosti</div>
+    <div style="font-size:10px;font-style:italic;font-weight:normal;color:#666666;border-top:1px dotted #999999;margin-top:3px;padding-top:2px;">Validity period</div>
+  </td>
+<td style="border:1px solid black;padding:6px;"><div>stála</div><div style="font-size:10px;font-style:italic;color:#666666;border-top:1px dotted #cccccc;margin-top:3px;padding-top:2px;">permanent</div></td>
+</tr>
+<tr>
+<td style="border:1px solid black;padding:6px;background:#f4f4f4;">
+    <div style="font-weight:bold;">Výška</div>
+    <div style="font-size:10px;font-style:italic;font-weight:normal;color:#666666;border-top:1px dotted #999999;margin-top:3px;padding-top:2px;">Height</div>
+  </td>
+<td style="border:1px solid black;padding:6px;">GND - 120m AGL</td>
+</tr>
+
+</table>]]></description>
+					<styleUrl>#style_CONDITIONAL</styleUrl>
+					<Polygon>
+						<outerBoundaryIs>
+							<LinearRing>
+								<coordinates>
+									18.5773558,48.7809997,0 18.577335,48.78095379999999,0 18.5774422,48.78093269999999,0 18.5775345,48.7811359,0 18.5775476,48.78118540000001,0 18.5792015,48.7812334,0 18.5793218,48.78098390000001,0 18.5793985,48.7809249,0 18.5797333,48.7808918,0 18.5798791,48.7809316,0 18.5800379,48.7809064,0 18.580078,48.7809,0 18.5800816,48.7808304,0 18.5805141,48.780779,0 18.5805236,48.78082750000001,0 18.5805278,48.7808471,0 18.5805591,48.7808605,0 18.5806541,48.7812931,0 18.5803359,48.7812802,0 18.5803098,48.7813303,0 18.5799991,48.7813759,0 18.579656,48.7815216,0 18.5795656,48.7816505,0 18.5795287,48.7817902,0 18.5794298,48.78199779999999,0 18.5794248,48.78207119999999,0 18.5790963,48.7824708,0 18.5788506,48.782726,0 18.5788163,48.782712,0 18.5787868,48.78269989999999,0 18.5786736,48.78287300000001,0 18.5784897,48.7831737,0 18.5783929,48.783435,0 18.5783796,48.7834637,0 18.5783675,48.78348969999999,0 18.5783495,48.78378969999999,0 18.5783456,48.7838458,0 18.5783138,48.7838858,0 18.578246,48.78397129999999,0 18.5782617,48.7839952,0 18.578278,48.7840199,0 18.578107,48.78426420000001,0 18.5776305,48.7846827,0 18.5774308,48.784763,0 18.5772834,48.7848216,0 18.5771583,48.78486669999999,0 18.5770248,48.7849068,0 18.5762438,48.7851367,0 18.5755234,48.7853138,0 18.5754378,48.7852788,0 18.5754207,48.78527179999999,0 18.5754161,48.7852768,0 18.5753937,48.7852675,0 18.5753652,48.7852556,0 18.5752868,48.78533340000001,0 18.5752567,48.7853466,0 18.5752636,48.7853988,0 18.5752013,48.7854192,0 18.5740198,48.7858627,0 18.5731067,48.7862296,0 18.5726994,48.7863615,0 18.5726128,48.7863424,0 18.5725889,48.7863681,0 18.5725594,48.7863999,0 18.5723504,48.7864278,0 18.5713644,48.786544,0 18.570722,48.7866197,0 18.5706104,48.7866306,0 18.5697923,48.7866989,0 18.5697751,48.78604769999999,0 18.569778,48.7854367,0 18.5694592,48.78286159999999,0 18.5727728,48.7820734,0 18.5737344,48.78202610000001,0 18.5740346,48.7820187,0 18.5744805,48.7820137,0 18.5746326,48.78202400000001,0 18.5758427,48.782083,0 18.5764954,48.78169519999999,0 18.5766518,48.78128049999999,0 18.5769417,48.7810922,0 18.5770202,48.7812159,0 18.5770747,48.78120559999999,0 18.5772237,48.781176,0 18.5771837,48.7810965,0 18.5771785,48.7810861,0 18.5771372,48.7810041,0 18.5772336,48.78098270000001,0 18.5772521,48.781021,0 18.5773054,48.7810104,0 18.5773558,48.7809997,0 
+								</coordinates>
+							</LinearRing>
+						</outerBoundaryIs>
+					</Polygon>
+				</Placemark>
+				<Placemark>
+					<name>UAS PUAS001-D</name>
+					<Snippet maxLines="0"></Snippet>
+					<description><![CDATA[<table style="font-family:Arial,Verdana,Times;font-size:12px;width:100%;border-collapse:collapse;background:#ffffff;">
+
+<tr style="background:#ff0000;">
+<td colspan="2" style="border:1px solid black;padding:9px;text-align:center;">
+<div style="font-weight:bold;font-size:16px;color:#1a1305;">ZAKÁZANÁ PREVÁDZKA UAS</div>
+<div style="font-size:12px;font-style:italic;font-weight:normal;color:#1a1305;opacity:0.9;margin-top:3px;">PROHIBITED UAS OPERATION</div>
+</td>
+</tr>
+
+<tr>
+<td style="border:1px solid black;padding:6px;width:35%;background:#f4f4f4;">
+    <div style="font-weight:bold;">Označenie</div>
+    <div style="font-size:10px;font-style:italic;font-weight:normal;color:#666666;border-top:1px dotted #999999;margin-top:3px;padding-top:2px;">Identification</div>
+  </td>
+<td style="border:1px solid black;padding:6px;">PUAS001-D</td>
+</tr>
+<tr>
+<td style="border:1px solid black;padding:6px;background:#f4f4f4;">
+    <div style="font-weight:bold;">Obmedzenie</div>
+    <div style="font-size:10px;font-style:italic;font-weight:normal;color:#666666;border-top:1px dotted #999999;margin-top:3px;padding-top:2px;">Restriction</div>
+  </td>
+<td style="border:1px solid black;padding:6px;">Prevádzka civilných letov UAS je zakázaná / Operations of civil UAS are prohibited.
+</td>
+</tr>
+<tr>
+<td style="border:1px solid black;padding:6px;background:#f4f4f4;">
+    <div style="font-weight:bold;">Doba platnosti</div>
+    <div style="font-size:10px;font-style:italic;font-weight:normal;color:#666666;border-top:1px dotted #999999;margin-top:3px;padding-top:2px;">Validity period</div>
+  </td>
+<td style="border:1px solid black;padding:6px;"><div>stála</div><div style="font-size:10px;font-style:italic;color:#666666;border-top:1px dotted #cccccc;margin-top:3px;padding-top:2px;">permanent</div></td>
+</tr>
+<tr>
+<td style="border:1px solid black;padding:6px;background:#f4f4f4;">
+    <div style="font-weight:bold;">Výška</div>
+    <div style="font-size:10px;font-style:italic;font-weight:normal;color:#666666;border-top:1px dotted #999999;margin-top:3px;padding-top:2px;">Height</div>
+  </td>
+<td style="border:1px solid black;padding:6px;">GND - 120m AGL</td>
+</tr>
+
+</table>]]></description>
+					<styleUrl>#kmlwb-circle</styleUrl>
+					<MultiGeometry>
+						<LineString>
+							<tessellate>1</tessellate>
+							<coordinates>
+								22.184202,48.755692,0 22.184083,48.75569000000001,0 22.183964,48.755686,0 22.183846,48.755682,0 22.183727,48.755675,0 22.183609,48.75566800000001,0 22.183491,48.755659,0 22.183373,48.755649,0 22.183255,48.755637,0 22.183138,48.755624,0 22.183021,48.75561,0 22.182905,48.75559400000001,0 22.182788,48.755577,0 22.182673,48.755559,0 22.182558,48.75554,0 22.182443,48.75551899999999,0 22.182329,48.755496,0 22.182216,48.75547300000001,0 22.182103,48.75544799999999,0 22.181991,48.755422,0 22.181879,48.755394,0 22.181769,48.75536499999999,0 22.181659,48.755335,0 22.18155,48.755304,0 22.181442,48.75527200000001,0 22.181334,48.755238,0 22.181228,48.755203,0 22.181123,48.755167,0 22.181018,48.755129,0 22.180915,48.75509100000001,0 22.180812,48.755051,0 22.180711,48.75501,0 22.18061,48.754968,0 22.180511,48.754925,0 22.180413,48.75488,0 22.180317,48.754835,0 22.180221,48.754788,0 22.180127,48.75474,0 22.180034,48.75469199999999,0 22.179942,48.754642,0 22.179851,48.754591,0 22.179762,48.75453900000001,0 22.179675,48.754486,0 22.179588,48.75443200000001,0 22.179504,48.754377,0 22.17942,48.75432099999999,0 22.179338,48.75426400000001,0 22.179258,48.754206,0 22.179179,48.754148,0 22.179102,48.754088,0 22.179027,48.754028,0 22.178953,48.753966,0 22.17888,48.75390400000001,0 22.178809,48.75384099999999,0 22.17874,48.753777,0 22.178673,48.753713,0 22.178607,48.753647,0 22.178544,48.753581,0 22.178481,48.753514,0 22.178421,48.753447,0 22.178363,48.753378,0 22.178306,48.75331,0 22.178251,48.75324,0 22.178198,48.75316999999999,0 22.178147,48.75309899999999,0 22.178097,48.75302800000001,0 22.17805,48.75295599999999,0 22.178005,48.752883,0 22.177961,48.75281,0 22.177919,48.75273700000001,0 22.17788,48.752663,0 22.177842,48.752589,0 22.177806,48.75251400000001,0 22.177772,48.752439,0 22.177741,48.752363,0 22.177711,48.752287,0 22.177683,48.752211,0 22.177657,48.752135,0 22.177634,48.75205800000001,0 22.177612,48.75198099999999,0 22.177592,48.751903,0 22.177575,48.751826,0 22.177559,48.751748,0 22.177546,48.75166999999999,0 22.177535,48.751592,0 22.177525,48.75151399999999,0 22.177518,48.751436,0 22.177513,48.75135800000001,0 22.17751,48.751279,0 22.177509,48.75120099999999,0 22.17751,48.751122,0 22.177513,48.75104399999999,0 22.177518,48.750966,0 22.177525,48.750887,0 22.177535,48.750809,0 22.177546,48.750731,0 22.17756,48.750653,0 22.177575,48.750576,0 22.177593,48.75049800000001,0 22.177612,48.750421,0 22.177634,48.75034400000001,0 22.177658,48.75026699999999,0 22.177683,48.75019,0 22.177711,48.750114,0 22.177741,48.750038,0 22.177773,48.749963,0 22.177807,48.74988800000001,0 22.177842,48.749813,0 22.17788,48.74973899999999,0 22.17792,48.74966499999999,0 22.177961,48.749591,0 22.178005,48.749518,0 22.17805,48.749446,0 22.178098,48.749374,0 22.178147,48.749303,0 22.178198,48.749232,0 22.178251,48.749162,0 22.178306,48.749092,0 22.178363,48.74902300000001,0 22.178422,48.748955,0 22.178482,48.74888800000001,0 22.178544,48.748821,0 22.178608,48.748755,0 22.178674,48.748689,0 22.178741,48.748625,0 22.17881,48.748561,0 22.178881,48.748498,0 22.178953,48.748436,0 22.179027,48.74837400000001,0 22.179103,48.74831400000001,0 22.17918,48.748254,0 22.179259,48.748195,0 22.179339,48.748138,0 22.179421,48.748081,0 22.179504,48.74802499999999,0 22.179589,48.74797,0 22.179675,48.747916,0 22.179763,48.747863,0 22.179852,48.74781100000001,0 22.179942,48.74776,0 22.180034,48.74771,0 22.180127,48.747662,0 22.180222,48.747614,0 22.180317,48.747567,0 22.180414,48.74752199999999,0 22.180512,48.747477,0 22.180611,48.747434,0 22.180711,48.747392,0 22.180813,48.747351,0 22.180915,48.747311,0 22.181019,48.747273,0 22.181123,48.747235,0 22.181229,48.74719900000001,0 22.181335,48.747164,0 22.181442,48.74713,0 22.18155,48.747098,0 22.181659,48.74706599999999,0 22.181769,48.747036,0 22.18188,48.747008,0 22.181991,48.74698,0 22.182103,48.746954,0 22.182216,48.74692899999999,0 22.182329,48.746906,0 22.182443,48.746883,0 22.182558,48.746862,0 22.182673,48.746843,0 22.182789,48.74682500000001,0 22.182905,48.746808,0 22.183021,48.74679200000001,0 22.183138,48.74677800000001,0 22.183255,48.74676500000001,0 22.183373,48.74675299999999,0 22.183491,48.74674300000001,0 22.183609,48.746734,0 22.183727,48.746727,0 22.183846,48.74672,0 22.183965,48.746716,0 22.184083,48.746712,0 22.184202,48.74671,0 22.184321,48.746709,0 22.18444,48.74671,0 22.184559,48.746712,0 22.184677,48.746716,0 22.184796,48.74672,0 22.184915,48.746727,0 22.185033,48.746734,0 22.185151,48.74674300000001,0 22.185269,48.74675299999999,0 22.185387,48.74676500000001,0 22.185504,48.74677800000001,0 22.185621,48.74679200000001,0 22.185737,48.746808,0 22.185853,48.74682500000001,0 22.185969,48.746843,0 22.186084,48.746862,0 22.186199,48.746883,0 22.186313,48.746906,0 22.186426,48.74692899999999,0 22.186539,48.746954,0 22.186651,48.74698,0 22.186762,48.747008,0 22.186873,48.747036,0 22.186983,48.74706599999999,0 22.187092,48.747098,0 22.1872,48.74713,0 22.187307,48.747164,0 22.187413,48.74719900000001,0 22.187519,48.747235,0 22.187623,48.747273,0 22.187727,48.747311,0 22.187829,48.747351,0 22.187931,48.747392,0 22.188031,48.747434,0 22.18813,48.747477,0 22.188228,48.74752199999999,0 22.188325,48.747567,0 22.18842,48.747614,0 22.188515,48.747662,0 22.188608,48.74771,0 22.1887,48.74776,0 22.18879,48.74781100000001,0 22.188879,48.747863,0 22.188967,48.747916,0 22.189053,48.74797,0 22.189138,48.74802499999999,0 22.189221,48.748081,0 22.189303,48.748138,0 22.189383,48.748195,0 22.189462,48.748254,0 22.189539,48.74831400000001,0 22.189615,48.74837400000001,0 22.189689,48.748436,0 22.189761,48.748498,0 22.189832,48.748561,0 22.189901,48.748625,0 22.189968,48.748689,0 22.190034,48.748755,0 22.190098,48.748821,0 22.19016,48.74888800000001,0 22.19022,48.748955,0 22.190279,48.74902300000001,0 22.190336,48.749092,0 22.190391,48.749162,0 22.190444,48.749232,0 22.190495,48.749303,0 22.190544,48.749374,0 22.190592,48.749446,0 22.190637,48.749518,0 22.190681,48.749591,0 22.190722,48.74966499999999,0 22.190762,48.74973899999999,0 22.1908,48.749813,0 22.190835,48.74988800000001,0 22.190869,48.749963,0 22.190901,48.750038,0 22.190931,48.750114,0 22.190959,48.75019,0 22.190984,48.75026699999999,0 22.191008,48.75034400000001,0 22.19103,48.750421,0 22.191049,48.75049800000001,0 22.191067,48.750576,0 22.191082,48.750653,0 22.191096,48.750731,0 22.191107,48.750809,0 22.191117,48.750887,0 22.191124,48.750966,0 22.191129,48.75104399999999,0 22.191132,48.751122,0 22.191133,48.75120099999999,0 22.191132,48.751279,0 22.191129,48.75135800000001,0 22.191124,48.751436,0 22.191117,48.75151399999999,0 22.191107,48.751592,0 22.191096,48.75166999999999,0 22.191083,48.751748,0 22.191067,48.751826,0 22.19105,48.751903,0 22.19103,48.75198099999999,0 22.191008,48.75205800000001,0 22.190985,48.752135,0 22.190959,48.752211,0 22.190931,48.752287,0 22.190901,48.752363,0 22.19087,48.752439,0 22.190836,48.75251400000001,0 22.1908,48.752589,0 22.190762,48.752663,0 22.190723,48.75273700000001,0 22.190681,48.75281,0 22.190637,48.752883,0 22.190592,48.75295599999999,0 22.190545,48.75302800000001,0 22.190495,48.75309899999999,0 22.190444,48.75316999999999,0 22.190391,48.75324,0 22.190336,48.75331,0 22.190279,48.753378,0 22.190221,48.753447,0 22.190161,48.753514,0 22.190098,48.753581,0 22.190035,48.753647,0 22.189969,48.753713,0 22.189902,48.753777,0 22.189833,48.75384099999999,0 22.189762,48.75390400000001,0 22.189689,48.753966,0 22.189615,48.754028,0 22.18954,48.754088,0 22.189463,48.754148,0 22.189384,48.754206,0 22.189304,48.75426400000001,0 22.189222,48.75432099999999,0 22.189138,48.754377,0 22.189054,48.75443200000001,0 22.188967,48.754486,0 22.18888,48.75453900000001,0 22.188791,48.754591,0 22.1887,48.754642,0 22.188608,48.75469199999999,0 22.188515,48.75474,0 22.188421,48.754788,0 22.188325,48.754835,0 22.188229,48.75488,0 22.188131,48.754925,0 22.188032,48.754968,0 22.187931,48.75501,0 22.18783,48.755051,0 22.187727,48.75509100000001,0 22.187624,48.755129,0 22.187519,48.755167,0 22.187414,48.755203,0 22.187308,48.755238,0 22.1872,48.75527200000001,0 22.187092,48.755304,0 22.186983,48.755335,0 22.186873,48.75536499999999,0 22.186763,48.755394,0 22.186651,48.755422,0 22.186539,48.75544799999999,0 22.186426,48.75547300000001,0 22.186313,48.755496,0 22.186199,48.75551899999999,0 22.186084,48.75554,0 22.185969,48.755559,0 22.185854,48.755577,0 22.185737,48.75559400000001,0 22.185621,48.75561,0 22.185504,48.755624,0 22.185387,48.755637,0 22.185269,48.755649,0 22.185151,48.755659,0 22.185033,48.75566800000001,0 22.184915,48.755675,0 22.184796,48.755682,0 22.184678,48.755686,0 22.184559,48.75569000000001,0 22.18444,48.755692,0 22.184321,48.75569300000001,0 22.184202,48.755692,0 
+							</coordinates>
+						</LineString>
+						<Polygon>
+							<outerBoundaryIs>
+								<LinearRing>
+									<coordinates>
+										22.184202,48.755692,0 22.184083,48.75569000000001,0 22.183964,48.755686,0 22.183846,48.755682,0 22.183727,48.755675,0 22.183609,48.75566800000001,0 22.183491,48.755659,0 22.183373,48.755649,0 22.183255,48.755637,0 22.183138,48.755624,0 22.183021,48.75561,0 22.182905,48.75559400000001,0 22.182788,48.755577,0 22.182673,48.755559,0 22.182558,48.75554,0 22.182443,48.75551899999999,0 22.182329,48.755496,0 22.182216,48.75547300000001,0 22.182103,48.75544799999999,0 22.181991,48.755422,0 22.181879,48.755394,0 22.181769,48.75536499999999,0 22.181659,48.755335,0 22.18155,48.755304,0 22.181442,48.75527200000001,0 22.181334,48.755238,0 22.181228,48.755203,0 22.181123,48.755167,0 22.181018,48.755129,0 22.180915,48.75509100000001,0 22.180812,48.755051,0 22.180711,48.75501,0 22.18061,48.754968,0 22.180511,48.754925,0 22.180413,48.75488,0 22.180317,48.754835,0 22.180221,48.754788,0 22.180127,48.75474,0 22.180034,48.75469199999999,0 22.179942,48.754642,0 22.179851,48.754591,0 22.179762,48.75453900000001,0 22.179675,48.754486,0 22.179588,48.75443200000001,0 22.179504,48.754377,0 22.17942,48.75432099999999,0 22.179338,48.75426400000001,0 22.179258,48.754206,0 22.179179,48.754148,0 22.179102,48.754088,0 22.179027,48.754028,0 22.178953,48.753966,0 22.17888,48.75390400000001,0 22.178809,48.75384099999999,0 22.17874,48.753777,0 22.178673,48.753713,0 22.178607,48.753647,0 22.178544,48.753581,0 22.178481,48.753514,0 22.178421,48.753447,0 22.178363,48.753378,0 22.178306,48.75331,0 22.178251,48.75324,0 22.178198,48.75316999999999,0 22.178147,48.75309899999999,0 22.178097,48.75302800000001,0 22.17805,48.75295599999999,0 22.178005,48.752883,0 22.177961,48.75281,0 22.177919,48.75273700000001,0 22.17788,48.752663,0 22.177842,48.752589,0 22.177806,48.75251400000001,0 22.177772,48.752439,0 22.177741,48.752363,0 22.177711,48.752287,0 22.177683,48.752211,0 22.177657,48.752135,0 22.177634,48.75205800000001,0 22.177612,48.75198099999999,0 22.177592,48.751903,0 22.177575,48.751826,0 22.177559,48.751748,0 22.177546,48.75166999999999,0 22.177535,48.751592,0 22.177525,48.75151399999999,0 22.177518,48.751436,0 22.177513,48.75135800000001,0 22.17751,48.751279,0 22.177509,48.75120099999999,0 22.17751,48.751122,0 22.177513,48.75104399999999,0 22.177518,48.750966,0 22.177525,48.750887,0 22.177535,48.750809,0 22.177546,48.750731,0 22.17756,48.750653,0 22.177575,48.750576,0 22.177593,48.75049800000001,0 22.177612,48.750421,0 22.177634,48.75034400000001,0 22.177658,48.75026699999999,0 22.177683,48.75019,0 22.177711,48.750114,0 22.177741,48.750038,0 22.177773,48.749963,0 22.177807,48.74988800000001,0 22.177842,48.749813,0 22.17788,48.74973899999999,0 22.17792,48.74966499999999,0 22.177961,48.749591,0 22.178005,48.749518,0 22.17805,48.749446,0 22.178098,48.749374,0 22.178147,48.749303,0 22.178198,48.749232,0 22.178251,48.749162,0 22.178306,48.749092,0 22.178363,48.74902300000001,0 22.178422,48.748955,0 22.178482,48.74888800000001,0 22.178544,48.748821,0 22.178608,48.748755,0 22.178674,48.748689,0 22.178741,48.748625,0 22.17881,48.748561,0 22.178881,48.748498,0 22.178953,48.748436,0 22.179027,48.74837400000001,0 22.179103,48.74831400000001,0 22.17918,48.748254,0 22.179259,48.748195,0 22.179339,48.748138,0 22.179421,48.748081,0 22.179504,48.74802499999999,0 22.179589,48.74797,0 22.179675,48.747916,0 22.179763,48.747863,0 22.179852,48.74781100000001,0 22.179942,48.74776,0 22.180034,48.74771,0 22.180127,48.747662,0 22.180222,48.747614,0 22.180317,48.747567,0 22.180414,48.74752199999999,0 22.180512,48.747477,0 22.180611,48.747434,0 22.180711,48.747392,0 22.180813,48.747351,0 22.180915,48.747311,0 22.181019,48.747273,0 22.181123,48.747235,0 22.181229,48.74719900000001,0 22.181335,48.747164,0 22.181442,48.74713,0 22.18155,48.747098,0 22.181659,48.74706599999999,0 22.181769,48.747036,0 22.18188,48.747008,0 22.181991,48.74698,0 22.182103,48.746954,0 22.182216,48.74692899999999,0 22.182329,48.746906,0 22.182443,48.746883,0 22.182558,48.746862,0 22.182673,48.746843,0 22.182789,48.74682500000001,0 22.182905,48.746808,0 22.183021,48.74679200000001,0 22.183138,48.74677800000001,0 22.183255,48.74676500000001,0 22.183373,48.74675299999999,0 22.183491,48.74674300000001,0 22.183609,48.746734,0 22.183727,48.746727,0 22.183846,48.74672,0 22.183965,48.746716,0 22.184083,48.746712,0 22.184202,48.74671,0 22.184321,48.746709,0 22.18444,48.74671,0 22.184559,48.746712,0 22.184677,48.746716,0 22.184796,48.74672,0 22.184915,48.746727,0 22.185033,48.746734,0 22.185151,48.74674300000001,0 22.185269,48.74675299999999,0 22.185387,48.74676500000001,0 22.185504,48.74677800000001,0 22.185621,48.74679200000001,0 22.185737,48.746808,0 22.185853,48.74682500000001,0 22.185969,48.746843,0 22.186084,48.746862,0 22.186199,48.746883,0 22.186313,48.746906,0 22.186426,48.74692899999999,0 22.186539,48.746954,0 22.186651,48.74698,0 22.186762,48.747008,0 22.186873,48.747036,0 22.186983,48.74706599999999,0 22.187092,48.747098,0 22.1872,48.74713,0 22.187307,48.747164,0 22.187413,48.74719900000001,0 22.187519,48.747235,0 22.187623,48.747273,0 22.187727,48.747311,0 22.187829,48.747351,0 22.187931,48.747392,0 22.188031,48.747434,0 22.18813,48.747477,0 22.188228,48.74752199999999,0 22.188325,48.747567,0 22.18842,48.747614,0 22.188515,48.747662,0 22.188608,48.74771,0 22.1887,48.74776,0 22.18879,48.74781100000001,0 22.188879,48.747863,0 22.188967,48.747916,0 22.189053,48.74797,0 22.189138,48.74802499999999,0 22.189221,48.748081,0 22.189303,48.748138,0 22.189383,48.748195,0 22.189462,48.748254,0 22.189539,48.74831400000001,0 22.189615,48.74837400000001,0 22.189689,48.748436,0 22.189761,48.748498,0 22.189832,48.748561,0 22.189901,48.748625,0 22.189968,48.748689,0 22.190034,48.748755,0 22.190098,48.748821,0 22.19016,48.74888800000001,0 22.19022,48.748955,0 22.190279,48.74902300000001,0 22.190336,48.749092,0 22.190391,48.749162,0 22.190444,48.749232,0 22.190495,48.749303,0 22.190544,48.749374,0 22.190592,48.749446,0 22.190637,48.749518,0 22.190681,48.749591,0 22.190722,48.74966499999999,0 22.190762,48.74973899999999,0 22.1908,48.749813,0 22.190835,48.74988800000001,0 22.190869,48.749963,0 22.190901,48.750038,0 22.190931,48.750114,0 22.190959,48.75019,0 22.190984,48.75026699999999,0 22.191008,48.75034400000001,0 22.19103,48.750421,0 22.191049,48.75049800000001,0 22.191067,48.750576,0 22.191082,48.750653,0 22.191096,48.750731,0 22.191107,48.750809,0 22.191117,48.750887,0 22.191124,48.750966,0 22.191129,48.75104399999999,0 22.191132,48.751122,0 22.191133,48.75120099999999,0 22.191132,48.751279,0 22.191129,48.75135800000001,0 22.191124,48.751436,0 22.191117,48.75151399999999,0 22.191107,48.751592,0 22.191096,48.75166999999999,0 22.191083,48.751748,0 22.191067,48.751826,0 22.19105,48.751903,0 22.19103,48.75198099999999,0 22.191008,48.75205800000001,0 22.190985,48.752135,0 22.190959,48.752211,0 22.190931,48.752287,0 22.190901,48.752363,0 22.19087,48.752439,0 22.190836,48.75251400000001,0 22.1908,48.752589,0 22.190762,48.752663,0 22.190723,48.75273700000001,0 22.190681,48.75281,0 22.190637,48.752883,0 22.190592,48.75295599999999,0 22.190545,48.75302800000001,0 22.190495,48.75309899999999,0 22.190444,48.75316999999999,0 22.190391,48.75324,0 22.190336,48.75331,0 22.190279,48.753378,0 22.190221,48.753447,0 22.190161,48.753514,0 22.190098,48.753581,0 22.190035,48.753647,0 22.189969,48.753713,0 22.189902,48.753777,0 22.189833,48.75384099999999,0 22.189762,48.75390400000001,0 22.189689,48.753966,0 22.189615,48.754028,0 22.18954,48.754088,0 22.189463,48.754148,0 22.189384,48.754206,0 22.189304,48.75426400000001,0 22.189222,48.75432099999999,0 22.189138,48.754377,0 22.189054,48.75443200000001,0 22.188967,48.754486,0 22.18888,48.75453900000001,0 22.188791,48.754591,0 22.1887,48.754642,0 22.188608,48.75469199999999,0 22.188515,48.75474,0 22.188421,48.754788,0 22.188325,48.754835,0 22.188229,48.75488,0 22.188131,48.754925,0 22.188032,48.754968,0 22.187931,48.75501,0 22.18783,48.755051,0 22.187727,48.75509100000001,0 22.187624,48.755129,0 22.187519,48.755167,0 22.187414,48.755203,0 22.187308,48.755238,0 22.1872,48.75527200000001,0 22.187092,48.755304,0 22.186983,48.755335,0 22.186873,48.75536499999999,0 22.186763,48.755394,0 22.186651,48.755422,0 22.186539,48.75544799999999,0 22.186426,48.75547300000001,0 22.186313,48.755496,0 22.186199,48.75551899999999,0 22.186084,48.75554,0 22.185969,48.755559,0 22.185854,48.755577,0 22.185737,48.75559400000001,0 22.185621,48.75561,0 22.185504,48.755624,0 22.185387,48.755637,0 22.185269,48.755649,0 22.185151,48.755659,0 22.185033,48.75566800000001,0 22.184915,48.755675,0 22.184796,48.755682,0 22.184678,48.755686,0 22.184559,48.75569000000001,0 22.18444,48.755692,0 22.184321,48.75569300000001,0 22.184202,48.755692,0 
+									</coordinates>
+								</LinearRing>
+							</outerBoundaryIs>
+						</Polygon>
+					</MultiGeometry>
+				</Placemark>
+			</Folder>
+		</Folder>
+		<Folder>
+			<name>Dočasné</name>
+			<open>1</open>
+			<Placemark>
+				<name>PUAS0159M</name>
+				<Snippet maxLines="0"></Snippet>
+				<description><![CDATA[<table style="font-family:Arial,Verdana,Times;font-size:12px;width:100%;border-collapse:collapse;background:#ffffff;">
+
+<tr style="background:#ff0000;">
+<td colspan="2" style="border:1px solid black;padding:9px;text-align:center;">
+<div style="font-weight:bold;font-size:16px;color:#ffffff;">ZAKÁZANÁ PREVÁDZKA UAS</div>
+<div style="font-size:12px;font-style:italic;font-weight:normal;color:#ffffff;opacity:0.9;margin-top:3px;">UAS OPERATION PROHIBITED</div>
+</td>
+</tr>
+
+<tr>
+<td style="border:1px solid black;padding:6px;width:35%;background:#f4f4f4;">
+    <div style="font-weight:bold;">Označenie</div>
+    <div style="font-size:10px;font-style:italic;font-weight:normal;color:#666666;border-top:1px dotted #999999;margin-top:3px;padding-top:2px;">Identification</div>
+  </td>
+<td style="border:1px solid black;padding:6px;">PUAS0159M</td>
+</tr>
+<tr>
+<td style="border:1px solid black;padding:6px;background:#f4f4f4;">
+    <div style="font-weight:bold;">Obmedzenie</div>
+    <div style="font-size:10px;font-style:italic;font-weight:normal;color:#666666;border-top:1px dotted #999999;margin-top:3px;padding-top:2px;">Restriction</div>
+  </td>
+<td style="border:1px solid black;padding:6px;">Zákaz vykonávania civilných letov UAS  / Civil UAS flights are prohibited</td>
+</tr>
+<tr>
+<td style="border:1px solid black;padding:6px;background:#f4f4f4;">
+    <div style="font-weight:bold;">Doba platnosti</div>
+    <div style="font-size:10px;font-style:italic;font-weight:normal;color:#666666;border-top:1px dotted #999999;margin-top:3px;padding-top:2px;">Validity period</div>
+  </td>
+<td style="border:1px solid black;padding:6px;"><div>10.11.2026 06:00 GMT+1 – 10.11.2026 18:00 GMT+1</div></td>
+</tr>
+<tr>
+<td style="border:1px solid black;padding:6px;background:#f4f4f4;">
+    <div style="font-weight:bold;">Výška</div>
+    <div style="font-size:10px;font-style:italic;font-weight:normal;color:#666666;border-top:1px dotted #999999;margin-top:3px;padding-top:2px;">Height</div>
+  </td>
+<td style="border:1px solid black;padding:6px;">GND - 5000ft AMSL</td>
+</tr>
+
+</table>]]></description>
+				<styleUrl>#style_PROHIBITED</styleUrl>
+				<Polygon>
+					<outerBoundaryIs>
+						<LinearRing>
+							<coordinates>
+								17.10000000000002,48.16470526014797,0 17.10330396771326,48.16459695083485,0 17.10657607489759,48.16427306733791,0 17.10978476945661,48.16373673287335,0 17.11289911312656,48.16299311919726,0 17.11588908084434,48.16204939654609,0 17.11872585114554,48.16091466424337,0 17.12138208474744,48.15959986265419,0 17.12383218859566,48.15811766735102,0 17.12605256280244,48.15648236652871,0 17.12802182808002,48.15470972286882,0 17.12972103147433,48.15281682120391,0 17.13113382842289,48.15082190346992,0 17.13224663940161,48.14874419255501,0 17.13304877968358,48.14660370676031,0 17.13353256099617,48.14442106667442,0 17.13369336414894,48.14221729633515,0 17.1335296819841,48.14001362060269,0 17.13304313229798,48.13783126070154,0 17.1322384406684,48.13569122990217,0 17.13112339341444,48.133614131308,0 17.1297087612021,48.13161995968901,0 17.12800819408324,48.12972790926064,0 17.12603808902793,48.12795618924624,0 17.12381743126241,48.12632184898326,0 17.12136761097145,48.12484061423948,0 17.11871221714603,48.12352673629599,0 17.11587681056835,48.1223928552301,0 17.11288867811413,48.12144987869427,0 17.10977657071976,48.12070687733924,0 17.10657042750927,48.1201709978703,0 17.1033010886996,48.11984739455827,0 17.10000000000002,48.11973917985204,0 17.09669891130034,48.11984739455827,0 17.09342957249066,48.1201709978703,0 17.09022342928029,48.12070687733924,0 17.08711132188591,48.12144987869427,0 17.08412318943169,48.1223928552301,0 17.08128778285402,48.12352673629599,0 17.07863238902848,48.12484061423948,0 17.07618256873752,48.12632184898326,0 17.073961910972,48.12795618924624,0 17.0719918059167,48.12972790926064,0 17.07029123879795,48.13161995968901,0 17.0688766065856,48.133614131308,0 17.06776155933164,48.13569122990217,0 17.06695686770195,48.13783126070154,0 17.06647031801594,48.14001362060269,0 17.06630663585111,48.14221729633515,0 17.06646743900376,48.14442106667442,0 17.06695122031647,48.14660370676031,0 17.06775336059843,48.14874419255501,0 17.06886617157716,48.15082190346992,0 17.0702789685256,48.15281682120391,0 17.07197817192002,48.15470972286882,0 17.0739474371976,48.15648236652871,0 17.07616781140428,48.15811766735102,0 17.07861791525261,48.15959986265419,0 17.0812741488545,48.16091466424337,0 17.08411091915571,48.16204939654609,0 17.08710088687349,48.16299311919726,0 17.09021523054344,48.16373673287335,0 17.09342392510234,48.16427306733791,0 17.09669603228679,48.16459695083485,0 17.10000000000002,48.16470526014797,0 
+							</coordinates>
+						</LinearRing>
+					</outerBoundaryIs>
+				</Polygon>
+			</Placemark>
+			<Placemark>
+				<name>PUAS0160M</name>
+				<Snippet maxLines="0"></Snippet>
+				<description><![CDATA[<table style="font-family:Arial,Verdana,Times;font-size:12px;width:100%;border-collapse:collapse;background:#ffffff;">
+
+<tr style="background:#ff0000;">
+<td colspan="2" style="border:1px solid black;padding:9px;text-align:center;">
+<div style="font-weight:bold;font-size:16px;color:#ffffff;">ZAKÁZANÁ PREVÁDZKA UAS</div>
+<div style="font-size:12px;font-style:italic;font-weight:normal;color:#ffffff;opacity:0.9;margin-top:3px;">UAS OPERATION PROHIBITED</div>
+</td>
+</tr>
+
+<tr>
+<td style="border:1px solid black;padding:6px;width:35%;background:#f4f4f4;">
+    <div style="font-weight:bold;">Označenie</div>
+    <div style="font-size:10px;font-style:italic;font-weight:normal;color:#666666;border-top:1px dotted #999999;margin-top:3px;padding-top:2px;">Identification</div>
+  </td>
+<td style="border:1px solid black;padding:6px;">PUAS0160M</td>
+</tr>
+<tr>
+<td style="border:1px solid black;padding:6px;background:#f4f4f4;">
+    <div style="font-weight:bold;">Obmedzenie</div>
+    <div style="font-size:10px;font-style:italic;font-weight:normal;color:#666666;border-top:1px dotted #999999;margin-top:3px;padding-top:2px;">Restriction</div>
+  </td>
+<td style="border:1px solid black;padding:6px;">Zákaz vykonávania civilných letov UAS / Civil UAS flights are prohibited</td>
+</tr>
+<tr>
+<td style="border:1px solid black;padding:6px;background:#f4f4f4;">
+    <div style="font-weight:bold;">Doba platnosti</div>
+    <div style="font-size:10px;font-style:italic;font-weight:normal;color:#666666;border-top:1px dotted #999999;margin-top:3px;padding-top:2px;">Validity period</div>
+  </td>
+<td style="border:1px solid black;padding:6px;"><div>12.11.2026 00:01 GMT+1 – 13.11.2026 17:00 GMT+1</div></td>
+</tr>
+<tr>
+<td style="border:1px solid black;padding:6px;background:#f4f4f4;">
+    <div style="font-weight:bold;">Výška</div>
+    <div style="font-size:10px;font-style:italic;font-weight:normal;color:#666666;border-top:1px dotted #999999;margin-top:3px;padding-top:2px;">Height</div>
+  </td>
+<td style="border:1px solid black;padding:6px;">GND - 5000ft AMSL</td>
+</tr>
+
+</table>]]></description>
+				<styleUrl>#style_PROHIBITED</styleUrl>
+				<gx:balloonVisibility>1</gx:balloonVisibility>
+				<Polygon>
+					<outerBoundaryIs>
+						<LinearRing>
+							<coordinates>
+								17.10000000000002,48.16470526014797,0 17.10330396771326,48.16459695083485,0 17.10657607489759,48.16427306733791,0 17.10978476945661,48.16373673287335,0 17.11289911312656,48.16299311919726,0 17.11588908084434,48.16204939654609,0 17.11872585114554,48.16091466424337,0 17.12138208474744,48.15959986265419,0 17.12383218859566,48.15811766735102,0 17.12605256280244,48.15648236652871,0 17.12802182808002,48.15470972286882,0 17.12972103147433,48.15281682120391,0 17.13113382842289,48.15082190346992,0 17.13224663940161,48.14874419255501,0 17.13304877968358,48.14660370676031,0 17.13353256099617,48.14442106667442,0 17.13369336414894,48.14221729633515,0 17.1335296819841,48.14001362060269,0 17.13304313229798,48.13783126070154,0 17.1322384406684,48.13569122990217,0 17.13112339341444,48.133614131308,0 17.1297087612021,48.13161995968901,0 17.12800819408324,48.12972790926064,0 17.12603808902793,48.12795618924624,0 17.12381743126241,48.12632184898326,0 17.12136761097145,48.12484061423948,0 17.11871221714603,48.12352673629599,0 17.11587681056835,48.1223928552301,0 17.11288867811413,48.12144987869427,0 17.10977657071976,48.12070687733924,0 17.10657042750927,48.1201709978703,0 17.1033010886996,48.11984739455827,0 17.10000000000002,48.11973917985204,0 17.09669891130034,48.11984739455827,0 17.09342957249066,48.1201709978703,0 17.09022342928029,48.12070687733924,0 17.08711132188591,48.12144987869427,0 17.08412318943169,48.1223928552301,0 17.08128778285402,48.12352673629599,0 17.07863238902848,48.12484061423948,0 17.07618256873752,48.12632184898326,0 17.073961910972,48.12795618924624,0 17.0719918059167,48.12972790926064,0 17.07029123879795,48.13161995968901,0 17.0688766065856,48.133614131308,0 17.06776155933164,48.13569122990217,0 17.06695686770195,48.13783126070154,0 17.06647031801594,48.14001362060269,0 17.06630663585111,48.14221729633515,0 17.06646743900376,48.14442106667442,0 17.06695122031647,48.14660370676031,0 17.06775336059843,48.14874419255501,0 17.06886617157716,48.15082190346992,0 17.0702789685256,48.15281682120391,0 17.07197817192002,48.15470972286882,0 17.0739474371976,48.15648236652871,0 17.07616781140428,48.15811766735102,0 17.07861791525261,48.15959986265419,0 17.0812741488545,48.16091466424337,0 17.08411091915571,48.16204939654609,0 17.08710088687349,48.16299311919726,0 17.09021523054344,48.16373673287335,0 17.09342392510234,48.16427306733791,0 17.09669603228679,48.16459695083485,0 17.10000000000002,48.16470526014797,0 
+							</coordinates>
+						</LinearRing>
+					</outerBoundaryIs>
+				</Polygon>
+			</Placemark>
+			</Folder>
+		<atom:link rel="app" href="https://www.google.com/earth/about/versions/#earth-pro" title="Google Earth Pro 7.3.7.1327"></atom:link>
+	</Folder>
+</Document>
+</kml>

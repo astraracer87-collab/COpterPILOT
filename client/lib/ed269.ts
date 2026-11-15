@@ -10,6 +10,7 @@ import { PT_GEOZONE_SOURCE_LABEL } from "../../shared/portugueseGeozones";
 import { ES_GEOZONE_SOURCE_LABEL } from "../../shared/spanishGeozones";
 import { PL_GEOZONE_SOURCE_LABEL } from "../../shared/polishGeozones";
 import { IT_GEOZONE_SOURCE_LABEL } from "../../shared/italianGeozones";
+import { SK_GEOZONE_SOURCE_LABEL } from "../../shared/slovakGeozones";
 import { LV_GEOZONE_SOURCE_LABEL } from "../../shared/latvianGeozones";
 import { BG_GEOZONE_SOURCE_LABEL } from "../../shared/bulgarianGeozones";
 import { SI_GEOZONE_SOURCE_LABEL } from "../../shared/slovenianGeozones";
@@ -89,6 +90,7 @@ export const ED269_SOURCE_LABELS: Record<string, string> = {
   PL: PL_GEOZONE_SOURCE_LABEL,
   LT: "Oro navigacija (ED-269)",
   IT: IT_GEOZONE_SOURCE_LABEL,
+  SK: SK_GEOZONE_SOURCE_LABEL,
   LV: LV_GEOZONE_SOURCE_LABEL,
   BG: BG_GEOZONE_SOURCE_LABEL,
   SI: SI_GEOZONE_SOURCE_LABEL,

@@ -18,6 +18,7 @@ import { fetchIreland, fetchLuxembourg, fetchPortugal } from "./irelandLuxSource
 import { fetchSpain } from "./spainSource";
 import { fetchPoland } from "./polandSource";
 import { fetchItaly } from "./italySource";
+import { fetchSlovakia } from "./slovakiaSource";
 import { fetchLatvia } from "./latviaSource";
 import { fetchBulgaria } from "./bulgariaSource";
 import { fetchSlovenia } from "./sloveniaSource";
@@ -52,7 +53,7 @@ export type GeoFeature = {
 // Länder, deren Geozonen als ED-269-/GeoJSON-Vektordaten vorliegen (kein WMS).
 // NL kommt aus GoDrone (LVNL). DE/CH/LU/FR werden über ihre WMS-/WFS-Pfade
 // abgefragt.
-export const ED269_DIRECT_COUNTRIES = ["at", "be", "dk", "nl", "ee", "ch", "fi", "no", "ie", "lu", "se", "pt", "es", "pl", "lt", "it", "gb", "is", "cy", "hr", "si", "bg", "lv"] as const;
+export const ED269_DIRECT_COUNTRIES = ["at", "be", "dk", "nl", "ee", "ch", "fi", "no", "ie", "lu", "se", "pt", "es", "pl", "lt", "it", "gb", "is", "cy", "hr", "si", "bg", "lv", "sk"] as const;
 
 export function isEd269DirectCountry(iso: string): boolean {
   return (ED269_DIRECT_COUNTRIES as readonly string[]).includes(String(iso || "").toLowerCase());
@@ -481,6 +482,7 @@ export async function fetchEd269CountryFeatures(iso: string): Promise<GeoFeature
   else if (c === "si") features = await fetchSlovenia();
   else if (c === "bg") features = await fetchBulgaria();
   else if (c === "lv") features = await fetchLatvia();
+  else if (c === "sk") features = await fetchSlovakia();
   else throw new Error(`Kein Vektor-Geozonen-Feed für ${iso}`);
   return roundFeatureCoords(features);
 }
