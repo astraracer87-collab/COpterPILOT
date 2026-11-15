@@ -162,13 +162,13 @@ describe("BAZL (CH/FL) – Normalisierung des echten Auszugs", () => {
     assert.ok(out.some((f) => f.properties.upperMeters === 150));
   });
 
-  it("Vereinfachung + Rundung verkleinern die Geometrie, Ringe bleiben geschlossen", () => {
+  it("Geometrie behält die volle Genauigkeit, Ringe bleiben geschlossen", () => {
     const rawPts = ed269.features.reduce(
       (s: number, z: any) => s + z.geometry.reduce((a: number, g: any) => a + countPoints(g.horizontalProjection.coordinates), 0),
       0,
     );
     const outPts = features.reduce((s, f) => s + countPoints(f.geometry.coordinates), 0);
-    assert.ok(outPts < rawPts * 0.8, `${outPts} von ${rawPts} Punkten`);
+    assert.ok(outPts >= rawPts - 5, `${outPts} von ${rawPts} Punkten (keine Vereinfachung)`);
     for (const f of features) {
       const polys = f.geometry.type === "Polygon" ? [f.geometry.coordinates] : f.geometry.coordinates;
       for (const poly of polys) {
@@ -176,8 +176,8 @@ describe("BAZL (CH/FL) – Normalisierung des echten Auszugs", () => {
           assert.ok(ring.length >= 4);
           assert.deepEqual(ring[0], ring[ring.length - 1]);
           for (const [x, y] of ring) {
-            assert.equal(Math.round(x * 1e5) / 1e5, x);
-            assert.equal(Math.round(y * 1e5) / 1e5, y);
+            assert.equal(Math.round(x * 1e7) / 1e7, x);
+            assert.equal(Math.round(y * 1e7) / 1e7, y);
           }
         }
       }

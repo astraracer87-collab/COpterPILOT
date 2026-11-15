@@ -32,9 +32,11 @@ const CH_UNLIMITED = 99999;
 
 // Douglas-Peucker-Toleranz in Grad (≈ 5,5 m Nord-Süd, ≈ 3,8 m Ost-West auf
 // 47° N). Die Naturschutz-/Jagdbanngebiete sind sehr detailreich digitalisiert.
-export const CH_SIMPLIFY_TOLERANCE_DEG = 0.00005;
+// 0 = keine Vereinfachung, volle Genauigkeit der BAZL-Daten
+export const CH_SIMPLIFY_TOLERANCE_DEG = 0;
 // Nachkommastellen der gespeicherten Koordinaten (5 ≈ 1,1 m).
-export const CH_COORD_DECIMALS = 5;
+// 7 Nachkommastellen ≈ 1 cm – praktisch die Originalgenauigkeit
+export const CH_COORD_DECIMALS = 7;
 
 export type SwissFeature = {
   type: "Feature";

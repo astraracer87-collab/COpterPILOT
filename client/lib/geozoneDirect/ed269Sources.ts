@@ -82,7 +82,8 @@ const FETCH_TIMEOUT_MS = 60_000;
 
 // Nachkommastellen für die Speicherung (5 ≈ 1,1 m) – verkleinert die mehrere
 // MB großen Datensätze auf dem Gerät spürbar ohne sichtbare Formänderung.
-const VECTOR_COORD_DECIMALS = 5;
+// 7 Nachkommastellen ≈ 1 cm: volle Genauigkeit der Originaldaten bleibt erhalten
+const VECTOR_COORD_DECIMALS = 7;
 
 async function fetchJson(url: string, timeoutMs: number = FETCH_TIMEOUT_MS): Promise<any> {
   const controller = new AbortController();

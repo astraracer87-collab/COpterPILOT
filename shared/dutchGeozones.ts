@@ -168,7 +168,10 @@ function simplifyRing(ring: number[][], tol: number): number[][] {
 }
 
 /** Vereinfacht Polygone (ca. 5 m Toleranz) – v. a. die sehr detailreichen Naturschutzgebiete. */
-export function simplifyGeometry(g: { type: string; coordinates: any }, tolDeg = 0.00005): { type: string; coordinates: any } {
+// Standard: KEINE Vereinfachung – die Zonen behalten die volle Genauigkeit der
+// Originaldaten (Wunsch des Product Owners). Toleranz > 0 nur bei Bedarf.
+export function simplifyGeometry(g: { type: string; coordinates: any }, tolDeg = 0): { type: string; coordinates: any } {
+  if (!(tolDeg > 0)) return g;
   if (g.type === "Polygon") return { type: g.type, coordinates: g.coordinates.map((r: number[][]) => simplifyRing(r, tolDeg)) };
   if (g.type === "MultiPolygon") {
     return { type: g.type, coordinates: g.coordinates.map((poly: number[][][]) => poly.map((r) => simplifyRing(r, tolDeg))) };

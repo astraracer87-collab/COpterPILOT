@@ -182,7 +182,7 @@ describe("Schweden – WFS-Luftraum (LFV)", () => {
     assert.equal(isSwedishMilitaryCtr({ NAMEOFAREA: "Sector b", POSITIONINDICATOR: "ESSL" }), true);
   });
 
-  it("RWY5K Genehmigung, HKP1K Auflagen, Geometrie vereinfacht", () => {
+  it("RWY5K Genehmigung, HKP1K Auflagen, Geometrie in voller Genauigkeit", () => {
     const rwy = ofLayer("RWY5K")[0];
     assert.equal(rwy.properties.restriction, "REQ_AUTHORISATION");
     assert.equal(rwy.properties.zoneId, "SE-RWY5K-ESST");
@@ -192,7 +192,7 @@ describe("Schweden – WFS-Luftraum (LFV)", () => {
     assert.match(hkp.properties.name, /SKELLEFTEÅ LASARETT/);
     const rawPts = JSON.stringify(wfs.HKP1K[0].geometry.coordinates).split("],[").length;
     const pts = JSON.stringify(hkp.geometry.coordinates).split("],[").length;
-    assert.ok(pts < rawPts, `vereinfacht ${rawPts} → ${pts}`);
+    assert.equal(pts, rawPts, `volle Genauigkeit: ${rawPts} → ${pts}`);
   });
 
   it("R-Gebiete: RESTRICTED, verbotene als PROHIBITED, hohe Untergrenze verworfen", () => {
