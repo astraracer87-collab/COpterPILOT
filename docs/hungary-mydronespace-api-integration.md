@@ -92,6 +92,30 @@ Zonen-Objekte (`/api/zones`) tragen laut App-Modell u. a.:
 
 ---
 
+## 5a. Öffentlicher Vektor-Weg aktiv geprüft (2026-11-15) – wirklich zu ⛔
+
+Gegengeprüft, ob HU einen GR-artigen Umweg hat (GR: WMS `GetMap&FORMAT=kml`
+liefert echte Polygone ohne Login). **Ergebnis: nein.** Der WMTS-Tile-Server
+(„R-SYS Tile Server") gibt **nur Raster** her:
+
+- **GetTile-Formate:** nur `image/png` / `image/jpeg` – **kein** Vektor-Tile
+  (MVT) und **kein** GeoJSON. Also keine Geometrien aus den Kacheln.
+- **GetFeatureInfo:** in den Capabilities zwar deklariert, aber serverseitig
+  **nicht implementiert** – KVP (`INFOFORMAT` **und** `INFO_FORMAT`,
+  json/geojson/html/xml) → `HTTP 400 "Not implemented"`; RESTful → OGC
+  `ExceptionReport`. Also auch **keine** Punktabfrage wie bei GR.
+- **Kein öffentlicher Download/Endpoint:** `…/aixm`, `…/data/aixm.json`,
+  `…/api/zones/public`, `…/api/public/zones` → alle `404`. `…/api/geometries`
+  → `404`. WMS/WFS/GeoServer-Pfade → `404`.
+
+→ Im Gegensatz zu GR (dort war „nur Raster" **falsch**) ist HUs öffentlicher
+Weg nach aktivem Test **tatsächlich raster-only**. Echte Vektor-Zonen gibt es
+**nur** über `/api/zones` (GoodID/Google-Login) **oder** einen vom Betreiber
+bereitgestellten ED-269-/GeoJSON-Export. Der WMTS-Raster bleibt als
+Anzeige-Overlay sofort nutzbar.
+
+---
+
 ## 6. Schnelltest
 
 ```bash
