@@ -53,7 +53,7 @@ class KeepaliveService : Service() {
                     if (!appliedFull) {
                         val o = Engine.runProfile(link, full)
                         Engine.setMode(this, "FCC")
-                        Log.ok("FCC gesetzt (${o.sent}/${o.total} Befehle gesendet)")
+                        Log.ok("FCC gesetzt (${o.sent}/${o.total} Befehle). Kontrolle: DJI Fly → Übertragung.")
                         appliedFull = true
                     } else {
                         Engine.runProfile(link, keep)

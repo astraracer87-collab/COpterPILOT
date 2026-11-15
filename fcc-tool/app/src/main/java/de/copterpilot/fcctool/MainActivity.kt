@@ -318,7 +318,7 @@ class MainActivity : Activity() {
                     else {
                         val o = Engine.runProfile(link, Profile.load(this, "ce_restore"))
                         Engine.setMode(this, "CE")
-                        Log.ok("CE gesendet (${o.sent}/${o.total}).")
+                        Log.ok("CE gesendet (${o.sent}/${o.total}). Zum Sichern das Fluggerät neu starten, dann in DJI Fly prüfen.")
                     }
                     runOnUiThread { adv() }
                 }
