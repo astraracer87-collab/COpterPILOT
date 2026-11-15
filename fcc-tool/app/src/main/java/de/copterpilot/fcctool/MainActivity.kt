@@ -216,10 +216,10 @@ class MainActivity : Activity() {
         })
         col.addView(Ui.label(this, sub, Ui.TEXT2, 13f), Ui.lp(topDp = Ui.dpi(this, 8f)))
         col.addView(Ui.modeButton(this, "FCC aktivieren", "Reichweite erhöhen (FCC)", Ui.GREEN, imageRes) { onFcc() },
-            Ui.lp(topDp = Ui.dpi(this, 12f)))
+            LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f).apply { topMargin = Ui.dpi(this@MainActivity, 12f) })
         col.addView(Ui.modeButton(this, ceLabel, "Zurück in den Auslieferungszustand (CE)", Ui.AMBER) { onCe() },
-            Ui.lp(topDp = Ui.dpi(this, 12f)))
-        showLeftScroll(col)
+            LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f).apply { topMargin = Ui.dpi(this@MainActivity, 12f) })
+        showLeft(col)
         refreshStatus()
     }
 
@@ -259,13 +259,15 @@ class MainActivity : Activity() {
             host.addView(top)
             // Feste Fortschrittszeile (springt nicht, wächst nicht)
             host.addView(progressLine(steps, current), Ui.lp(topDp = Ui.dpi(this, 10f)))
-            // Aktueller Schritt an fester Stelle
+            // Aktueller Schritt füllt die Höhe → unten bündig mit dem Protokoll
             if (current < steps.size)
                 host.addView(activeCard(current + 1, steps[current]) { current++; draw(); refreshStatus() },
-                    Ui.lp(topDp = Ui.dpi(this, 10f)))
-            else
+                    LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f).apply { topMargin = Ui.dpi(this@MainActivity, 10f) })
+            else {
                 host.addView(Ui.bigButton(this, "Fertig", Ui.GREEN) { showHome() }, Ui.lp(topDp = Ui.dpi(this, 10f)))
-            showLeftScroll(host)
+                host.addView(View(this), LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
+            }
+            showLeft(host)
         }
         draw()
     }
@@ -445,8 +447,8 @@ class MainActivity : Activity() {
         card.addView(Ui.smallButton(this, "USB: Teilnehmer suchen (Goggle per Kabel)") {
             withDjiUsb { dev -> bg { usbScan(dev) } }
         }, Ui.lp(topDp = Ui.dpi(this, 8f)))
-        col.addView(card, Ui.lp(topDp = Ui.dpi(this, 8f)))
-        showLeftScroll(col)
+        col.addView(card, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f).apply { topMargin = Ui.dpi(this@MainActivity, 8f) })
+        showLeft(col)
     }
 
     // ------------------------------------------------------------- SD-Karte / Dialoge
