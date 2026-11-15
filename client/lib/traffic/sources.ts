@@ -10,6 +10,7 @@
 import type { AircraftCategory, DataSource, SourceStatus } from "../opensky";
 import { parseAdsbCategory } from "./classify";
 import type { RawState, SourceResult, Tile } from "./types";
+import { FT_M } from "../../../shared/heights";
 
 const USER_AGENT = "COpterPilot/1.0 (drone preflight app)";
 
@@ -26,7 +27,7 @@ export const OGN_MAX_AGE_SEC = 120;
 
 function feetToMeters(ft: number | null | undefined): number | null {
   if (ft == null) return null;
-  return Math.round(ft * 0.3048);
+  return Math.round(ft * FT_M);
 }
 const MAX_PLAUSIBLE_VELOCITY_MS = 400;
 function sanitizeVelocity(v: number | null | undefined): number | null {

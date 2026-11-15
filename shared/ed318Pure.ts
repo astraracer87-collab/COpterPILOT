@@ -19,6 +19,7 @@ import { normalizeEd269Restriction } from "./ed269Restriction";
 import { ed269ProjectionToPolygons, ed269CircleToPolygon, ED269_REASON_LABELS_DE, type Ed269PureFeature } from "./ed269Pure";
 import { isoDurationText } from "./swedishGeozones";
 import { FT_M, parseHeight, type VRef } from "./heights";
+import { cleanText as kitCleanText, round1 } from "./geozoneKit/text";
 
 // Obergrenzen ab hier (≈ FL490) gelten als „unbegrenzt“ (CZ: FL660).
 const UNLIMITED_M = 15000;
@@ -105,19 +106,9 @@ export function ed318Text(value: unknown, prefs: string[] = []): string {
   return "";
 }
 
+/** ED-318-Text: `<br>` → Umbruch, Tags weg, Leerraum normiert (gemeinsamer Baukasten). */
 function cleanText(s: unknown): string {
-  return String(s ?? "")
-    .replace(/\r/g, "")
-    .replace(/<br\s*\/?\s*>/gi, "\n")
-    .replace(/<[^>]+>/g, "")
-    .replace(/[ \t]+/g, " ")
-    .replace(/ *\n */g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}
-
-function round1(n: number): number {
-  return Math.round(n * 10) / 10;
+  return kitCleanText(s, { br: true, tags: "strip" });
 }
 
 // ---------------------------------------------------------------------------

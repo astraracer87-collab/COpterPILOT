@@ -51,7 +51,18 @@
 // Geometrie: unverändert (volle Präzision, keine Vereinfachung).
 // Bewusst frei von React-Native-Importen (unter tsx/Node testbar); keine
 // Lookbehinds und keine \p{…}-Klassen (Hermes-kompatibel).
-import { decodeXmlEntities } from "./kmlParse";
+import { decodeXmlEntities } from "./geozoneKit/kml";
+import { parseHeight } from "./geozoneKit/heights";
+import { round1 } from "./geozoneKit/text";
+import { arcgisPage, arcgisQueryUrl } from "./geozoneKit/arcgis";
+import {
+  NO_HEIGHT_LINE_DE,
+  heightLineDe,
+  localizedExtendedProperties,
+  messageWithOriginal,
+  pushHints,
+  sourceLineDe,
+} from "./geozoneKit/messages";
 
 export const CY_GEOZONE_SOURCE_LABEL = "DCA Cyprus (AMC)";
 export const CY_GEOZONE_ATTRIBUTION = "© Department of Civil Aviation, Cyprus";
@@ -410,15 +421,10 @@ export interface CyLimit {
   raw: string;
 }
 
-const FT = 0.3048;
 const UNIT = "(ft|feet|foot|ποδια|ποδιων|ποδ\\.|m|μετρα|μετρων|μ\\.?)";
 const REF =
   "(AGL|AMSL|MSL|SFC|GND|ΑΜΣΘ|ΜΣΘ|πανω\\s+απο\\s+το\\s+εδαφος|απο\\s+το\\s+εδαφος|απο\\s+την\\s+επιφανεια(?:\\s+του\\s+εδαφους)?|απο\\s+τη[νς]?\\s+μεση\\s+σταθμη(?:\\s+της)?\\s+θαλασσας)";
 const VALUE_SRC = `(\\d{1,3}(?:[.,]\\d{3})+|\\d{1,5}(?:[.,]\\d+)?)\\s*${UNIT}(?![A-Za-z\\u0370-\\u03FF])(?:\\s*${REF})?`;
-
-function round1(v: number): number {
-  return Math.round(v * 10) / 10;
-}
 
 function toLimit(numRaw: string, unitRaw: string, refRaw: string | undefined, raw: string): CyLimit | null {
   const grouped = /^\d{1,3}(?:[.,]\d{3})+$/.test(numRaw);
@@ -428,7 +434,9 @@ function toLimit(numRaw: string, unitRaw: string, refRaw: string | undefined, ra
   const isFt = /^(ft|feet|foot|ποδ)/.test(u);
   const r = (refRaw ?? "").toUpperCase();
   const reference: CyReference = /AMSL|MSL|ΜΣΘ|ΘΑΛΑΣΣ/.test(r) ? "MSL" : "AGL";
-  return { meters: round1(isFt ? n * FT : n), reference, feet: isFt ? n : undefined, raw: raw.trim() };
+  // Umrechnung über den gemeinsamen Parser. ⚠️ Ohne MSL-Angabe gilt (wie bisher) AGL.
+  const meters = parseHeight(n, isFt ? "ft" : "m")?.m ?? n;
+  return { meters: round1(meters), reference, feet: isFt ? n : undefined, raw: raw.trim() };
 }
 
 /**
@@ -706,22 +714,24 @@ export function buildCyMessageDe(
   if (popup.lower || popup.upper) {
     const lo = popup.lower ? formatCyLimitDe(popup.lower) : "Boden (GND)";
     const up = popup.upper ? formatCyLimitDe(popup.upper) : "ohne Obergrenze";
-    lines.push(`Höhe laut Behörde: ${lo} bis ${up}`);
+    lines.push(heightLineDe(lo, up));
   } else {
-    lines.push("Höhe laut Behörde: keine Angabe – Zone gilt ab Boden ohne Obergrenze.");
+    lines.push(NO_HEIGHT_LINE_DE);
   }
   const { hints, untranslated } = translateCyRemarks(popup.remarks);
   if (untranslated.length > 0) hints.push("Weitere Bestimmungen nur im griechischen Originaltext (siehe unten).");
-  if (hints.length === 1) lines.push(`Hinweis: ${hints[0]}`);
-  else if (hints.length > 1) lines.push("Hinweise:", ...hints.map((h) => `– ${h}`));
+  pushHints(lines, hints);
   if (popup.manager) lines.push(`Zonenverwalter: ${translateCyManager(popup.manager)}`);
   if (popup.phone) lines.push(`Telefon: ${phoneDe(popup.phone)} (Zypern, +357)`);
   if (popup.email) lines.push(`E-Mail: ${popup.email}`);
   if (popup.formUrl) lines.push(`Antragsformular: ${popup.formUrl}`);
-  lines.push(`Quelle: ${CY_GEOZONE_SOURCE_LABEL} – ${CY_GEOZONE_ATTRIBUTION}. Nur zur Information, nicht zur Navigation; NOTAMs zusätzlich prüfen.`);
-  const original = [originalName, popup.greekText].filter(Boolean).join("\n");
-  if (original) lines.push("", "Originaltext der Behörde:", original);
-  return lines.join("\n");
+  lines.push(sourceLineDe(CY_GEOZONE_SOURCE_LABEL, CY_GEOZONE_ATTRIBUTION));
+  return messageWithOriginal(lines, cyOriginalText(originalName, popup));
+}
+
+/** Griechischer Originaltext: Zonenname + Popup-Text. */
+function cyOriginalText(originalName: string, popup: CyParsedPopup): string {
+  return [originalName, popup.greekText].filter(Boolean).join("\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -788,12 +798,8 @@ export function normalizeCyprusFeature(raw: any): CyFeature | null {
     lowerReference: popup.lower?.reference ?? "AGL",
     upperReference: popup.upper?.reference ?? "AGL",
     message,
-    extendedProperties: {
-      localizedMessages: [
-        { language: "de", message },
-        ...(popup.greekText ? [{ language: "el", message: [originalName, popup.greekText].filter(Boolean).join("\n") }] : []),
-      ],
-    },
+    // „el“ nur mit griechischem Popup-Text (ein Name allein ist kein Behördentext).
+    extendedProperties: localizedExtendedProperties(message, popup.greekText ? cyOriginalText(originalName, popup) : "", "el"),
     country: "CYP",
     source: CY_GEOZONE_SOURCE_LABEL,
     nameOriginal: originalName || undefined,
@@ -872,17 +878,7 @@ export function normalizeCyprusZones(body: any): CyFeature[] {
 
 /** Query-URL (GeoJSON, WGS84, alle Felder, volle Präzision, eine Seite). */
 export function cyprusQueryUrl(offset = 0, count = 1000, layerUrl: string = CY_ZONES_LAYER_URL): string {
-  const params = new URLSearchParams({
-    where: "1=1",
-    outFields: "*",
-    outSR: "4326",
-    returnGeometry: "true",
-    orderByFields: "OBJECTID ASC",
-    resultOffset: String(offset),
-    resultRecordCount: String(count),
-    f: "geojson",
-  });
-  return `${layerUrl}/query?${params.toString()}`;
+  return arcgisQueryUrl(layerUrl, { offset, count, orderByFields: "OBJECTID ASC" });
 }
 
 /**
@@ -891,11 +887,5 @@ export function cyprusQueryUrl(offset = 0, count = 1000, layerUrl: string = CY_Z
  * (HTTP 200 + {error}) wird geworfen.
  */
 export function cyprusArcgisPage(body: any): { features: any[]; exceeded: boolean } {
-  if (body && typeof body === "object" && body.error) {
-    const e = body.error;
-    throw new Error(`ArcGIS-Fehler ${e.code ?? ""}: ${e.message ?? "unbekannt"}`.trim());
-  }
-  const features = Array.isArray(body?.features) ? body.features : [];
-  const exceeded = body?.exceededTransferLimit === true || body?.properties?.exceededTransferLimit === true;
-  return { features, exceeded };
+  return arcgisPage(body);
 }

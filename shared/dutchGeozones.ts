@@ -4,6 +4,7 @@
 //
 // Bewusst frei von React-Native-Importen, damit die Normalisierung unter
 // tsx/Node testbar bleibt.
+import { round1 } from "./geozoneKit/text";
 
 export const GODRONE_GEOZONE_SOURCE_LABEL = "LVNL / GoDrone (Altitude Angel)";
 export const GODRONE_ATTRIBUTION = "© LVNL / Altitude Angel";
@@ -27,7 +28,7 @@ export function godroneAltitudeMeters(alt: GodroneAltitude): number | undefined 
   const m = Number(alt.meters);
   if (!Number.isFinite(m)) return undefined;
   if (m >= 1e7) return undefined; // 1e8 = unbegrenzt
-  return Math.round(m * 10) / 10;
+  return round1(m);
 }
 
 /** Lesbarer Höhenbezug. */

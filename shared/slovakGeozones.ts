@@ -144,7 +144,16 @@
 // tsx/Node testbar); keine Lookbehinds, keine \p{…}-Klassen, kein normalize().
 
 import { unzipSync, strFromU8 } from "fflate";
-import { htmlToText, parseKmlPlacemarks, type KmlPlacemark } from "./kmlParse";
+import { htmlToText, parseKmlPlacemarks, type KmlPlacemark } from "./geozoneKit/kml";
+import { FT_M, parseHeight } from "./geozoneKit/heights";
+import { arcgisPage, arcgisQueryUrl } from "./geozoneKit/arcgis";
+import { collapseWhitespace as clean } from "./geozoneKit/text";
+import {
+  SEE_ORIGINAL_DE,
+  appendOriginalText,
+  localizedExtendedProperties,
+  sourceLineDe,
+} from "./geozoneKit/messages";
 
 export const SK_GEOZONE_SOURCE_LABEL = "Dopravný úrad SR / LPS SR";
 export const SK_GEOZONE_ATTRIBUTION = "© LPS SR";
@@ -158,9 +167,8 @@ export const SK_DU_UAS_ZONES_PAGE_URL = "https://letectvo.nsat.sk/bezpilotne-let
 export const SK_DU_CTR_RULES_URL =
   "https://letectvo.nsat.sk/bezpilotne-letectvo/podmienky-vykonania-letu/riadene-okrsky-ctr/";
 
-export const SK_FT_TO_M = 0.3048;
 /** Untergrenze über Grund, ab der eine Zone für Drohnen irrelevant ist (500 ft). */
-export const SK_MAX_LOWER_AGL_M = 500 * SK_FT_TO_M;
+export const SK_MAX_LOWER_AGL_M = 500 * FT_M;
 /** Gerlachovský štít (2655 m) + 120 m + Reserve. */
 export const SK_MAX_LOWER_MSL_M = 2800;
 /** Reserve bei Flugflächen für tiefen Luftdruck (≈ 2000 ft). */
@@ -194,11 +202,6 @@ export function foldSk(s: string): string {
 /** Vergleichsschlüssel: gefaltet, Leerraum vereinheitlicht, Satzzeichen am Ende entfernt. */
 export function skKey(s: string): string {
   return foldSk(s).replace(/\s+/g, " ").replace(/[\s.;:,!]+$/g, "").trim();
-}
-
-function clean(v: unknown): string {
-  if (v == null) return "";
-  return String(v).replace(/\s+/g, " ").trim();
 }
 
 function fmtNum(n: number): string {
@@ -275,9 +278,10 @@ export function skLimit(val: unknown, uom: unknown, code: unknown): SkLimit | un
   const n = Number(String(val ?? "").replace(",", "."));
   if (!Number.isFinite(n)) return undefined;
   if (c === "STD" || u === "FL") {
-    return { meters: n * 100 * SK_FT_TO_M, reference: "STD", label: `FL ${fmtNum(n)}` };
+    return { meters: parseHeight(n, "FL")?.m ?? 0, reference: "STD", label: `FL ${fmtNum(n)}` };
   }
-  const meters = u === "M" ? n : n * SK_FT_TO_M;
+  // Umrechnung über den gemeinsamen Parser (AIXM: „M“, sonst Fuß).
+  const meters = parseHeight(n, u === "M" ? "m" : "ft")?.m ?? n;
   const unit = u === "M" ? "m" : "ft";
   if (c === "SFC" || c === "GND" || c === "HEI" || c === "AGL") {
     if (n === 0) return { meters: 0, reference: "AGL", label: "GND" };
@@ -585,19 +589,19 @@ export function buildSkLpsMessageDe(
   }
   lines.push(`Vertikale Grenzen laut Behörde: ${limitDe(lower, false)} – ${limitDe(upper, true)}`);
   const act = clean(p.ACTIVITY_CODE).toUpperCase();
-  if (act) lines.push(`Aktivität: ${ACTIVITY_DE[act] ?? "siehe Originaltext"}`);
+  if (act) lines.push(`Aktivität: ${ACTIVITY_DE[act] ?? SEE_ORIGINAL_DE}`);
   const mil = clean(p.MIL_CODE).toUpperCase();
-  if (mil) lines.push(`Nutzung: ${MIL_DE[mil] ?? "siehe Originaltext"}`);
+  if (mil) lines.push(`Nutzung: ${MIL_DE[mil] ?? SEE_ORIGINAL_DE}`);
   const cls = clean(p.CLASS_CODE).toUpperCase();
   if (cls) lines.push(`Luftraumklasse: ${cls}`);
   const wh = clean(p.WORKHR_CODE).toUpperCase();
-  if (wh) lines.push(`Betriebszeiten: ${WORKHR_DE[wh] ?? "siehe Originaltext"}`);
+  if (wh) lines.push(`Betriebszeiten: ${WORKHR_DE[wh] ?? SEE_ORIGINAL_DE}`);
   for (const [key, label] of [
     ["WORKHRRMK_TXT", "Hinweis zu Betriebszeiten"],
     ["REMARKS_TXT", "Bemerkung"],
   ] as const) {
     const v = clean(p[key]);
-    if (v) lines.push(`${label}: ${translateSkRemark(v) ?? "siehe Originaltext"}`);
+    if (v) lines.push(`${label}: ${translateSkRemark(v) ?? SEE_ORIGINAL_DE}`);
   }
   const freq = clean(p.FREQTRANS_VAL1) || clean(p.CTAF_FREQ);
   if (freq) {
@@ -605,10 +609,13 @@ export function buildSkLpsMessageDe(
     lines.push(`Funkfrequenz: ${freq} MHz${svc ? ` (${svc})` : ""}`);
   }
   lines.push(
-    `Quelle: ${SK_GEOZONE_SOURCE_LABEL} – VFR-Manual (gis.lps.sk/vfrm), Luftraum ${clean(p.IDENT_TXT) || "?"} – ${SK_GEOZONE_ATTRIBUTION}. Nur zur Information, nicht zur Navigation; AUP/NOTAM zusätzlich prüfen.`,
+    sourceLineDe(
+      `${SK_GEOZONE_SOURCE_LABEL} – VFR-Manual (gis.lps.sk/vfrm), Luftraum ${clean(p.IDENT_TXT) || "?"}`,
+      SK_GEOZONE_ATTRIBUTION,
+      "AUP/NOTAM",
+    ),
   );
-  lines.push("", "Originaltext der Behörde:", lpsOriginalText(p));
-  return lines.join("\n");
+  return appendOriginalText(lines, lpsOriginalText(p), { always: true }).join("\n");
 }
 
 /** Einzelnes LPS-Feature normalisieren; null ohne Fläche. Ausschlüsse prüft der Aufrufer. */
@@ -632,12 +639,7 @@ export function normalizeSkLpsFeature(raw: any, decision?: SkLpsDecision): SkFea
     upperMeters: upper?.meters,
     upperReference: upper?.reference,
     message,
-    extendedProperties: {
-      localizedMessages: [
-        { language: "de", message },
-        { language: "sk", message: lpsOriginalText(p) },
-      ],
-    },
+    extendedProperties: localizedExtendedProperties(message, lpsOriginalText(p), "sk", { always: true }),
     country: "SVK",
     source: SK_GEOZONE_SOURCE_LABEL,
     attribution: SK_GEOZONE_ATTRIBUTION,
@@ -818,7 +820,7 @@ export function parseSkDuHeight(text: string): SkDuHeight | null {
   if (!m) return null;
   const toM = (v: string, unit: string) => {
     const n = Number(v.replace(",", "."));
-    return unit.toLowerCase() === "ft" ? n * SK_FT_TO_M : n;
+    return parseHeight(n, unit.toLowerCase() === "ft" ? "ft" : "m")?.m ?? n;
   };
   const ref = (r: string | undefined): "AGL" | "MSL" | undefined =>
     !r ? undefined : r.toUpperCase() === "AGL" ? "AGL" : "MSL";
@@ -968,9 +970,9 @@ export function buildSkDuMessageDe(
   const lines: string[] = [];
   lines.push(`Typ: Offizielle UAS-Geozone (Dopravný úrad) – ${CATEGORY_DE[cat]} – ${RESTRICTION_DE[d.restriction]}`);
   const head = translateSkDuHeader(z.headerSk, z.headerEn);
-  if (z.headerSk || z.headerEn) lines.push(`Kategorie laut Behörde: ${head ?? "siehe Originaltext"}`);
+  if (z.headerSk || z.headerEn) lines.push(`Kategorie laut Behörde: ${head ?? SEE_ORIGINAL_DE}`);
   if (z.restrictionSk || z.restrictionEn) {
-    lines.push(`Beschränkung laut Behörde: ${translateSkDuRestriction(z.restrictionSk, z.restrictionEn) ?? "siehe Originaltext"}`);
+    lines.push(`Beschränkung laut Behörde: ${translateSkDuRestriction(z.restrictionSk, z.restrictionEn) ?? SEE_ORIGINAL_DE}`);
   }
   if (d.fromDefault) lines.push("Hinweis zur Einstufung: keine eindeutige Behördenkategorie – vorsichtig als genehmigungspflichtig eingestuft.");
   if (cat === "ctr" || cat === "airport") {
@@ -983,11 +985,8 @@ export function buildSkDuMessageDe(
   if (h && h.lowerMeters > 0) {
     lines.push(`Die Beschränkung gilt ab ${fmtNum(h.lowerMeters)} m ${h.lowerReference}; darunter gelten die allgemeinen Regeln.`);
   }
-  lines.push(
-    `Quelle: Dopravný úrad SR – „Zemepisné oblasti UAS“ (KML) – ${SK_DU_ATTRIBUTION}. Nur zur Information, nicht zur Navigation; NOTAMs zusätzlich prüfen.`,
-  );
-  lines.push("", "Originaltext der Behörde:", duOriginalText(z));
-  return lines.join("\n");
+  lines.push(sourceLineDe("Dopravný úrad SR – „Zemepisné oblasti UAS“ (KML)", SK_DU_ATTRIBUTION));
+  return appendOriginalText(lines, duOriginalText(z), { always: true }).join("\n");
 }
 
 function duOriginalText(z: SkDuZone): string {
@@ -1027,12 +1026,7 @@ export function normalizeSkDuPlacemark(pm: KmlPlacemark): SkFeature | null {
     upperMeters: h?.upperMeters,
     upperReference: h?.upperReference,
     message,
-    extendedProperties: {
-      localizedMessages: [
-        { language: "de", message },
-        { language: "sk", message: duOriginalText(z) },
-      ],
-    },
+    extendedProperties: localizedExtendedProperties(message, duOriginalText(z), "sk", { always: true }),
     country: "SVK",
     source: SK_GEOZONE_SOURCE_LABEL,
     attribution: SK_DU_ATTRIBUTION,
@@ -1207,26 +1201,10 @@ export function normalizeSlovakia(input: SkNormalizeInput): SkFeature[] {
 
 /** Query-URL (GeoJSON, WGS84, alle Felder, volle Präzision, eine Seite). */
 export function skLpsQueryUrl(offset = 0, count = 1000): string {
-  const params = new URLSearchParams({
-    where: "1=1",
-    outFields: "*",
-    outSR: "4326",
-    returnGeometry: "true",
-    orderByFields: "OBJECTID",
-    resultOffset: String(offset),
-    resultRecordCount: String(count),
-    f: "geojson",
-  });
-  return `${SK_LPS_AIRSPACE_LAYER_URL}/query?${params.toString()}`;
+  return arcgisQueryUrl(SK_LPS_AIRSPACE_LAYER_URL, { offset, count, orderByFields: "OBJECTID" });
 }
 
 /** Seite einer ArcGIS-`f=geojson`-Antwort lesen; ArcGIS-Fehlerobjekt (HTTP 200 + {error}) wird geworfen. */
 export function skArcgisPage(body: any): { features: any[]; exceeded: boolean } {
-  if (body && typeof body === "object" && body.error) {
-    const e = body.error;
-    throw new Error(`ArcGIS-Fehler ${e.code ?? ""}: ${e.message ?? "unbekannt"}`.trim());
-  }
-  const features = Array.isArray(body?.features) ? body.features : [];
-  const exceeded = body?.exceededTransferLimit === true || body?.properties?.exceededTransferLimit === true;
-  return { features, exceeded };
+  return arcgisPage(body);
 }

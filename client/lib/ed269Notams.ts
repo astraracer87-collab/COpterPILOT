@@ -1,31 +1,45 @@
 import type { DipulTempRestriction, GeozoneFeatureInfo } from "@/lib/geozones";
+import { zoneActivityAt, zoneEndedLongAgo } from "../../shared/ed269Restriction";
 
 const NOTAM_VALIDITY_MAX_MS = 30 * 86400000;
 
+/**
+ * Kurzzeitige bzw. NOTAM-artige ED-269-Zonen → NOTAM-Listeneinträge.
+ * Aktiv/Zukünftig entscheidet (B7) die gemeinsame Aktivitätsprüfung
+ * zoneActivityAt (Gültigkeitsfenster UND applicability/Zeitplan, jetzt):
+ * inaktiv, aber noch nicht abgelaufen → "upcoming"; `unknown` zählt als
+ * aktiv. Abgelaufene Zonen (Fenster bzw. alle applicability-Fenster vorbei)
+ * entfallen. Die NOTAM-Datensätze von DE (DFS/dipul) und LU-TSA behalten
+ * ihre eigene Status-Logik (eigene Felder der Quelle, keine Zonen).
+ */
 export function ed269ZonesToNotamRestrictions(
   zones: GeozoneFeatureInfo[],
+  nowMs: number = Date.now(),
 ): DipulTempRestriction[] {
-  const now = Date.now();
+  const now = nowMs;
   const out: DipulTempRestriction[] = [];
   for (const z of zones) {
     const vs = z.validStartTs;
     const ve = z.validEndTs;
     if (!z.notamEligible && (vs == null || ve == null)) continue;
     if (!z.notamEligible && ve! - vs! >= NOTAM_VALIDITY_MAX_MS) continue;
-    if (ve != null && ve < now) continue;
+    if (zoneEndedLongAgo(z, now, 0)) continue;
+    const activity = zoneActivityAt(z, new Date(now));
 
     let centerLat: number | null = null;
     let centerLon: number | null = null;
+    // polygonGroups/polygonRings sind [lat, lon] (parseEd269ToGeozoneInfo),
+    // NICHT GeoJSON-[lon, lat] – B7: vorher vertauscht gelesen.
     const ring = z.polygonGroups?.[0]?.[0] ?? z.polygonRings?.[0];
     if (ring && ring.length > 0) {
-      let sx = 0;
-      let sy = 0;
-      for (const [lon, lat] of ring) {
-        sx += lon;
-        sy += lat;
+      let sumLat = 0;
+      let sumLon = 0;
+      for (const [lat, lon] of ring) {
+        sumLat += lat;
+        sumLon += lon;
       }
-      centerLon = sx / ring.length;
-      centerLat = sy / ring.length;
+      centerLat = sumLat / ring.length;
+      centerLon = sumLon / ring.length;
     }
 
     out.push({
@@ -44,7 +58,7 @@ export function ed269ZonesToNotamRestrictions(
       upperAlt: z.upperMeters ?? 0,
       upperAltRef: "",
       upperAltUnit: "m",
-      status: vs == null || vs <= now ? "active" : "upcoming",
+      status: activity === "inactive" ? "upcoming" : "active",
       startTs: vs == null ? null : new Date(vs).toISOString(),
       endTs: ve == null ? null : new Date(ve).toISOString(),
       endTsIndefinite: false,

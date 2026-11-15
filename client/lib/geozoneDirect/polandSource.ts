@@ -4,7 +4,7 @@
 //  1. POST /v1/front/login mit Header x-api-key → { token }
 //  2. GET  /v1/kml/filtered?extrude=false&types=DRAP,DRAR,DRAI&max=3000
 //     mit Authorization: Bearer <token> → KML
-//  3. KML parsen (shared/kmlParse.ts) → normalisieren (shared/polishGeozones.ts)
+//  3. KML parsen (shared/geozoneKit/kml.ts) → normalisieren (shared/polishGeozones.ts)
 //
 // ⚠️ api.dronemap.pansa.pl ist nur von EU-/PL-IPs erreichbar und wurde NICHT live
 // gegen diese Implementierung getestet (Schnittstelle laut offiziellem QGIS-Plugin).

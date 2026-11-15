@@ -33,6 +33,8 @@ import {
   type EsRawFeature,
 } from "../../../shared/spanishGeozones";
 import { ed318ExtractZones } from "../../../shared/ed318Pure";
+import { arcgisQueryUrl, fetchArcgisPaged } from "../../../shared/geozoneKit/arcgis";
+import { fetchWfsPaged, wfsHasMoreStrict } from "../../../shared/geozoneKit/wfs";
 
 export { ES_GEOZONE_SOURCE_LABEL, ES_GEOZONE_ATTRIBUTION };
 
@@ -62,17 +64,7 @@ const PAGE_TIMEOUT_MS = 90_000;
 
 /** ArcGIS-Query-URL (GeoJSON, WGS84, alle Felder, eine Seite). */
 export function spainQueryUrl(layerId: number, offset = 0, count = PAGE_SIZE): string {
-  const params = new URLSearchParams({
-    where: "1=1",
-    outFields: "*",
-    outSR: "4326",
-    returnGeometry: "true",
-    geometryPrecision: "6",
-    resultOffset: String(offset),
-    resultRecordCount: String(count),
-    f: "geojson",
-  });
-  return `${ES_ENAIRE_FS}/${layerId}/query?${params.toString()}`;
+  return arcgisQueryUrl(`${ES_ENAIRE_FS}/${layerId}`, { offset, count, geometryPrecision: 6 });
 }
 
 /** WFS-2.0-GetFeature-URL (GeoJSON erzwungen, eine Seite). */
@@ -103,27 +95,26 @@ export async function discoverSpainLayerIds(): Promise<Record<EsLayer, number>> 
 }
 
 async function fetchArcgisLayer(layerId: number): Promise<any[]> {
-  const all: any[] = [];
-  for (let page = 0; page < MAX_PAGES; page++) {
-    const { features, exceeded } = esArcgisPage(await directFetchJson(spainQueryUrl(layerId, all.length), PAGE_TIMEOUT_MS));
-    all.push(...features);
-    if (features.length === 0) break;
-    if (!exceeded && features.length < PAGE_SIZE) break;
-  }
-  return all;
+  return fetchArcgisPaged({
+    pageUrl: (offset, count) => spainQueryUrl(layerId, offset, count),
+    fetchJson: directFetchJson,
+    pageSize: PAGE_SIZE,
+    maxPages: MAX_PAGES,
+    timeoutMs: PAGE_TIMEOUT_MS,
+  });
 }
 
+// WFS-Rückfall: jede kurze Seite beendet das Paging (wie bisher), sonst bis
+// numberMatched/totalFeatures.
 async function fetchWfsLayer(typeName: string): Promise<any[]> {
-  const all: any[] = [];
-  for (let page = 0; page < MAX_PAGES; page++) {
-    const body = await directFetchJson(spainWfsUrl(typeName, all.length), PAGE_TIMEOUT_MS);
-    const feats = Array.isArray(body?.features) ? body.features : [];
-    all.push(...feats);
-    const total = Number(body?.numberMatched ?? body?.totalFeatures);
-    if (feats.length < PAGE_SIZE) break;
-    if (Number.isFinite(total) && all.length >= total) break;
-  }
-  return all;
+  return fetchWfsPaged({
+    pageUrl: (startIndex, count) => spainWfsUrl(typeName, startIndex, count),
+    fetchJson: directFetchJson,
+    pageSize: PAGE_SIZE,
+    maxPages: MAX_PAGES,
+    timeoutMs: PAGE_TIMEOUT_MS,
+    hasMore: wfsHasMoreStrict,
+  });
 }
 
 async function loadLayer(layer: EsLayer, layerId: number): Promise<EsRawFeature[]> {

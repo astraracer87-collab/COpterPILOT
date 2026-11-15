@@ -150,15 +150,6 @@ export async function getTotalOfflineBytes(): Promise<number> {
   return Object.values(index).reduce((sum, m) => sum + (m.sizeBytes || 0), 0);
 }
 
-// Liefert alle gespeicherten Geozonen-Features eines Landes (für den
-// Offline-Fallback in geozones.ts). Geometrie-/Radius-Filterung übernimmt der
-// Aufrufer (queryGeozonesInArea filtert ohnehin streng nach Polygon-Schnitt).
-export async function getOfflinePackFeatures(iso: string): Promise<unknown[] | null> {
-  const data = await readPackData(iso);
-  if (!data || !Array.isArray(data.features)) return null;
-  return data.features;
-}
-
 export async function getOfflinePackNotams(iso: string): Promise<unknown[] | null> {
   const data = await readPackData(iso);
   if (!data || !Array.isArray(data.notams)) return null;

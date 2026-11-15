@@ -25,6 +25,9 @@
 import { normalizeEd269Restriction } from "./ed269Restriction";
 import { isoDurationText } from "./swedishGeozones";
 import { ed318GroupVolumes, ed318ParseZone, ed318PolygonsGeometry } from "./ed318Pure";
+import { parseHeight } from "./geozoneKit/heights";
+import { cleanText as kitCleanText, round1 } from "./geozoneKit/text";
+import { arcgisPage, ensureLonLat } from "./geozoneKit";
 
 export const ES_GEOZONE_SOURCE_LABEL = "ENAIRE (ED-318)";
 export const ES_GEOZONE_ATTRIBUTION = "© ENAIRE";
@@ -54,8 +57,6 @@ export const ES_LAYER_DEFAULT_RESTRICTION: Record<EsLayer, string> = {
 /** Untergrenzen darüber sind für Drohnen nicht erreichbar → Zone verwerfen. */
 export const ES_MAX_RELEVANT_LOWER_AGL_M = 152.4; // 500 ft
 export const ES_MAX_RELEVANT_LOWER_MSL_M = 3800; // > Teide (3718 m)
-
-const FT = 0.3048;
 
 /** UNKNOWN nur aus dem ED-318-Pfad (Quelle ohne Bezug; shared/heights.ts). */
 export type EsAltitudeReference = "AGL" | "MSL" | "UNKNOWN";
@@ -107,17 +108,7 @@ function str(v: unknown): string {
 }
 
 function cleanText(s: unknown): string {
-  return String(s ?? "")
-    .replace(/\r/g, "")
-    .replace(/<br\s*\/?\s*>/gi, "\n")
-    .replace(/[ \t]+/g, " ")
-    .replace(/ *\n */g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}
-
-function round1(n: number): number {
-  return Math.round(n * 10) / 10;
+  return kitCleanText(s, { br: true });
 }
 
 /** Epoch-ms (ArcGIS) oder ISO-String (WFS) → ISO-String; sonst null. */
@@ -177,17 +168,19 @@ export function parseEsAltitude(value: unknown, uomRaw: unknown, refRaw: unknown
   if (s === "GND" || s === "SFC") return { meters: 0, reference: "AGL", text: "GND" };
   if (s === "UNL" || s === "UNLTD" || s === "UNLIMITED") return { meters: undefined, reference: "MSL", unlimited: true, text: "UNL" };
   const fl = s.match(/^FL ?(\d{1,3})$/);
-  if (fl) return { meters: round1(Number(fl[1]) * 100 * FT), reference: "MSL", text: `FL ${Number(fl[1])}` };
+  if (fl) return { meters: round1(parseHeight(s)?.m ?? 0), reference: "MSL", text: `FL ${Number(fl[1])}` };
   const n = Number(s.replace(",", "."));
   if (!Number.isFinite(n)) return null;
   const refU = str(refRaw).toUpperCase();
   let uom = str(uomRaw).toUpperCase();
   if (uom === "F" || uom === "FEET") uom = "FT";
   if (uom === "METERS" || uom === "METRES" || uom === "") uom = refU === "STD" ? "FL" : "M";
+  // ⚠️ Leerer Bezug wird hier (wie bisher) zu AGL – siehe docs/pruefung-umbau-plan.md (B6).
   const reference = esReference(refRaw, "AGL");
   if (n === 0 && reference === "AGL") return { meters: 0, reference, text: "GND" };
-  if (uom === "FL") return { meters: round1(n * 100 * FT), reference: "MSL", text: `FL ${n}` };
-  const meters = uom === "FT" ? n * FT : n;
+  // Umrechnung über den gemeinsamen Parser (unbekannte Einheit → Meter).
+  const meters = parseHeight(n, uom === "FT" || uom === "FL" ? uom : "M")?.m ?? n;
+  if (uom === "FL") return { meters: round1(meters), reference: "MSL", text: `FL ${n}` };
   const refText = refU === "WGS84" || refU === "MSL" ? "AMSL" : refU || "AGL";
   return { meters: round1(meters), reference, text: `${n} ${uom === "FT" ? "ft" : "m"} ${refText}` };
 }
@@ -449,28 +442,16 @@ function germanSummary(restriction: string, authorities: EsAuthority[]): string 
 // Geometrie
 // ---------------------------------------------------------------------------
 
-function firstPosition(c: any): [number, number] | null {
-  while (Array.isArray(c) && Array.isArray(c[0])) c = c[0];
-  return Array.isArray(c) && typeof c[0] === "number" && typeof c[1] === "number" ? [c[0], c[1]] : null;
-}
-
-function swapDeep(c: any): any {
-  if (!Array.isArray(c)) return c;
-  if (typeof c[0] === "number") return [c[1], c[0], ...c.slice(2)];
-  return c.map(swapDeep);
-}
+/** Spanien (Kanaren bis Pyrenäen): Lon −20…+6, Lat 26…45 – überschneidungsfrei. */
+const ES_LONLAT_BOUNDS = { minLon: -20, maxLon: 6, minLat: 26, maxLat: 45 };
 
 /**
  * Spanien liegt bei Lon −19…+5, Lat 27…44 (Kanaren bis Pyrenäen) – die Bereiche
  * überschneiden sich nicht. WFS 2.0 mit EPSG:4326 kann Lat/Lon liefern; das
- * wird hier erkannt und nach GeoJSON-Lon/Lat gedreht.
+ * wird hier erkannt und nach GeoJSON-Lon/Lat gedreht (shared/geozoneKit/wfs.ts).
  */
 export function esEnsureLonLat<T extends { type: string; coordinates: any }>(geometry: T): T {
-  const p = firstPosition(geometry?.coordinates);
-  if (!p) return geometry;
-  const [x, y] = p;
-  const looksLatLon = x >= 26 && x <= 45 && y >= -20 && y <= 6;
-  return looksLatLon ? { ...geometry, coordinates: swapDeep(geometry.coordinates) } : geometry;
+  return ensureLonLat(geometry, ES_LONLAT_BOUNDS);
 }
 
 function polygonsOf(g: { type: string; coordinates: any }): any[] {
@@ -654,13 +635,7 @@ export function esLayerIdsFromService(body: any): Partial<Record<EsLayer, number
  * ArcGIS-Fehlerobjekt (HTTP 200 + {error}) wird als Fehler geworfen.
  */
 export function esArcgisPage(body: any): { features: any[]; exceeded: boolean } {
-  if (body && typeof body === "object" && body.error) {
-    const e = body.error;
-    throw new Error(`ArcGIS-Fehler ${e.code ?? ""}: ${e.message ?? "unbekannt"}`.trim());
-  }
-  const features = Array.isArray(body?.features) ? body.features : [];
-  const exceeded = body?.exceededTransferLimit === true || body?.properties?.exceededTransferLimit === true;
-  return { features, exceeded };
+  return arcgisPage(body);
 }
 
 // ---------------------------------------------------------------------------

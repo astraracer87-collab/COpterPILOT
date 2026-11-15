@@ -5,11 +5,11 @@
 import { normalizeEd269Restriction } from "./ed269Restriction";
 import type { Restriction } from "./restrictionPolicy";
 import { simplifyGeometry } from "./dutchGeozones";
+import { parseHeight } from "./geozoneKit/heights";
+import { round1 } from "./geozoneKit/text";
 
 export const IE_GEOZONE_SOURCE_LABEL = "Irish Aviation Authority (ED-269)";
 export const LU_GEOZONE_SOURCE_LABEL = "DAC / Geoportail Luxembourg (CC0)";
-
-const FT = 0.3048;
 
 type Feature = { type: "Feature"; geometry: any; properties: Record<string, any>; id?: any };
 
@@ -28,7 +28,7 @@ export function irishGeojsonUrlFromHtml(html: string): string | null {
 function irishLimit(v: any, uom: string): number | undefined {
   const n = Number(v);
   if (!Number.isFinite(n)) return undefined;
-  return Math.round((String(uom).toLowerCase() === "ft" ? n * FT : n) * 10) / 10;
+  return round1(parseHeight(n, String(uom).toLowerCase() === "ft" ? "ft" : "m")?.m ?? n);
 }
 
 export function normalizeIrishFeature(f: Feature): Feature | null {
@@ -54,6 +54,7 @@ export function normalizeIrishFeature(f: Feature): Feature | null {
     restriction,
     name: String(p.name ?? p.identifier ?? "Geozone"),
     lowerMeters,
+    // ⚠️ Fehlender Bezug wird (wie bisher) AGL – siehe docs/pruefung-umbau-plan.md (B6).
     lowerReference: String(layer.lowerReference ?? "AGL").toUpperCase(),
     upperReference: String(layer.upperReference ?? "AGL").toUpperCase(),
     message: lines.join("\n"),

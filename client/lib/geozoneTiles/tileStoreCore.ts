@@ -202,6 +202,8 @@ export interface IndexQuery {
   filter?: (id: string) => boolean;
   /** höchstens so viele, die der BBox-Mitte nächsten zuerst */
   limit?: number;
+  /** wird gesetzt, wenn `limit` Treffer abgeschnitten hat (Hinweis „hineinzoomen“) */
+  stats?: { truncated?: boolean; total?: number };
 }
 
 /**
@@ -235,6 +237,10 @@ export function queryIndex(idx: LoadedTileIndex, q: LngLatBBox, opts: IndexQuery
       const dy = (f.entries[k + 3] + f.entries[k + 5]) / 2 - cy;
       return dx * dx + dy * dy;
     };
+    if (opts.stats) {
+      opts.stats.truncated = true;
+      opts.stats.total = Math.max(opts.stats.total ?? 0, res.length);
+    }
     res = [...res].sort((a, b) => d2(a) - d2(b)).slice(0, opts.limit);
   }
   return res.sort((a, b) => f.entries[a * 6] - f.entries[b * 6]);

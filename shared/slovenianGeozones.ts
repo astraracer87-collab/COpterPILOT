@@ -86,6 +86,15 @@
 // Geometrie: unverändert (volle Präzision, keine Vereinfachung).
 // Bewusst frei von React-Native-Importen (unter tsx/Node testbar); keine
 // Lookbehinds und keine \p{…}-Klassen (Hermes-kompatibel), kein normalize().
+import { arcgisPage, arcgisQueryUrl } from "./geozoneKit/arcgis";
+import {
+  NO_HEIGHT_LINE_DE,
+  SEE_ORIGINAL_DE,
+  appendOriginalText,
+  localizedExtendedProperties,
+  sourceLineDe,
+} from "./geozoneKit/messages";
+import { collapseWhitespace } from "./geozoneKit/text";
 
 export const SI_GEOZONE_SOURCE_LABEL = "CAA Slovenia";
 export const SI_GEOZONE_ATTRIBUTION = "© Javna agencija za civilno letalstvo RS (CAA Slovenia)";
@@ -294,10 +303,7 @@ export function siKey(s: unknown): string {
 }
 
 /** Wert bereinigen (Leerraum, \r\n), leere Strings → "". */
-function clean(v: unknown): string {
-  if (v == null) return "";
-  return String(v).replace(/\s+/g, " ").trim();
-}
+const clean = collapseWhitespace;
 
 /** Feldwert, Feldname ohne Beachtung der Groß-/Kleinschreibung. */
 function field(props: Record<string, any>, name: string): unknown {
@@ -689,7 +695,7 @@ export function buildSiMessageDe(zone: SiParsedZone, decision: SiRestrictionDeci
   lines.push(`Typ: ${KIND_DE[layer.kind]} – ${RESTRICTION_DE[decision.restriction]}`);
   if (zone.restrictionSl || zone.restrictionEn) {
     const de = translatePair(zone.restrictionSl, zone.restrictionEn);
-    lines.push(`Beschränkung laut Behörde: ${de ?? "siehe Originaltext"}`);
+    lines.push(`Beschränkung laut Behörde: ${de ?? SEE_ORIGINAL_DE}`);
   }
   if (decision.fromDefault) {
     if (layer.kind === "restricted") {
@@ -702,7 +708,7 @@ export function buildSiMessageDe(zone: SiParsedZone, decision: SiRestrictionDeci
   }
   for (const e of zone.exceptions) {
     const de = translatePair(e.sl, e.en);
-    lines.push(`${e.label}: ${de ?? "siehe Originaltext"}`);
+    lines.push(`${e.label}: ${de ?? SEE_ORIGINAL_DE}`);
   }
   if (decision.lowerMeters != null) {
     lines.push(
@@ -711,25 +717,22 @@ export function buildSiMessageDe(zone: SiParsedZone, decision: SiRestrictionDeci
   } else if (zone.upperMeters != null) {
     lines.push(`Höhe laut Behörde: Boden (GND) bis ${zone.upperMeters} m (Bezug nicht angegeben, als über Grund angenommen).`);
   } else {
-    lines.push("Höhe laut Behörde: keine Angabe – Zone gilt ab Boden ohne Obergrenze.");
+    lines.push(NO_HEIGHT_LINE_DE);
   }
   if (zone.reasonSl || zone.reasonEn) {
-    lines.push(`Grund: ${translatePair(zone.reasonSl, zone.reasonEn) ?? "siehe Originaltext"}`);
+    lines.push(`Grund: ${translatePair(zone.reasonSl, zone.reasonEn) ?? SEE_ORIGINAL_DE}`);
   }
   const reg = zone.regulationSl || zone.regulationEn;
   if (reg) {
     const de = translateSiRegulation(reg);
-    lines.push(`Rechtsgrundlage: ${hasUntranslatedRegulationWords(de) ? "siehe Originaltext" : de}`);
+    lines.push(`Rechtsgrundlage: ${hasUntranslatedRegulationWords(de) ? SEE_ORIGINAL_DE : de}`);
   }
   if (zone.contact) lines.push(`Kontakt: ${zone.contact}`);
   if (zone.infoUrl) lines.push(`Informationen: ${zone.infoUrl}`);
   if (zone.formUrl) lines.push(`Bedingungen/Antrag: ${zone.formUrl}`);
   if (zone.notamUrl) lines.push(`Luftraumsperren (Slovenia Control): ${zone.notamUrl}`);
-  lines.push(
-    `Quelle: ${SI_GEOZONE_SOURCE_LABEL} – Karte „UAS GEO ZONES“, Ebene „${layer.title}“ – ${SI_GEOZONE_ATTRIBUTION}. Nur zur Information, nicht zur Navigation; NOTAMs zusätzlich prüfen.`,
-  );
-  lines.push("", "Originaltext der Behörde:", zone.originalText);
-  return lines.join("\n");
+  lines.push(sourceLineDe(`${SI_GEOZONE_SOURCE_LABEL} – Karte „UAS GEO ZONES“, Ebene „${layer.title}“`, SI_GEOZONE_ATTRIBUTION));
+  return appendOriginalText(lines, zone.originalText, { always: true }).join("\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -796,12 +799,7 @@ export function normalizeSloveniaFeature(raw: any, layer: SiLayerDef): SiFeature
     lowerReference: "AGL",
     upperReference: "AGL",
     message,
-    extendedProperties: {
-      localizedMessages: [
-        { language: "de", message },
-        { language: "sl", message: zone.originalText },
-      ],
-    },
+    extendedProperties: localizedExtendedProperties(message, zone.originalText, "sl", { always: true }),
     country: "SVN",
     source: SI_GEOZONE_SOURCE_LABEL,
     nameOriginal: zone.nameOriginal || zone.nameEn || undefined,
@@ -874,25 +872,10 @@ export function normalizeSloveniaLayers(byLayer: { layer: SiLayerDef; features: 
 
 /** Query-URL (GeoJSON, WGS84, alle Felder, volle Präzision, eine Seite). */
 export function sloveniaQueryUrl(layer: SiLayerDef, offset = 0, count = 1000): string {
-  const params = new URLSearchParams({
-    where: "1=1",
-    outFields: "*",
-    outSR: "4326",
-    returnGeometry: "true",
-    resultOffset: String(offset),
-    resultRecordCount: String(count),
-    f: "geojson",
-  });
-  return `${siLayerUrl(layer)}/query?${params.toString()}`;
+  return arcgisQueryUrl(siLayerUrl(layer), { offset, count });
 }
 
 /** Seite einer ArcGIS-`f=geojson`-Antwort lesen; ArcGIS-Fehlerobjekt (HTTP 200 + {error}) wird geworfen. */
 export function sloveniaArcgisPage(body: any): { features: any[]; exceeded: boolean } {
-  if (body && typeof body === "object" && body.error) {
-    const e = body.error;
-    throw new Error(`ArcGIS-Fehler ${e.code ?? ""}: ${e.message ?? "unbekannt"}`.trim());
-  }
-  const features = Array.isArray(body?.features) ? body.features : [];
-  const exceeded = body?.exceededTransferLimit === true || body?.properties?.exceededTransferLimit === true;
-  return { features, exceeded };
+  return arcgisPage(body);
 }

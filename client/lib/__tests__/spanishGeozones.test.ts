@@ -286,7 +286,7 @@ describe("Spanien – Normalisierung (ArcGIS-GeoJSON, 3 Layer)", () => {
     assert.ok(z!.links?.some((l) => l.url === "mailto:ais@enaire.es"));
     assert.ok(z!.links?.some((l) => l.url === "https://drones.enaire.es/"));
     const sched = zones.find((x) => x.featureId === "ES-LED101");
-    assert.deepEqual(sched?.scheduleText, ["Mo, Di · 08:00–15:00 UTC", "Sa · Sonnenaufgang–Sonnenuntergang Uhr"]);
+    assert.deepEqual(sched?.scheduleText, ["Mo, Di · 08:00–15:00 UTC", "Sa · Sonnenaufgang–Sonnenuntergang"]);
     const temp = zones.find((x) => x.featureId === "ES-LER70");
     assert.equal(temp?.validStartTs, Date.parse("2026-12-01T09:00:00Z"));
     assert.equal(temp?.validEndTs, Date.parse("2026-12-20T18:00:00Z"));

@@ -42,7 +42,9 @@ import {
   kmlPlacemarkToGeoJsonGeometry,
   parseKmlPlacemarks,
   type KmlPlacemark,
-} from "./kmlParse";
+} from "./geozoneKit/kml";
+import { flToM, parseHeight } from "./geozoneKit/heights";
+import { round1 } from "./geozoneKit/text";
 
 export const PL_GEOZONE_SOURCE_LABEL = "PANSA DroneMap";
 export const PL_ATTRIBUTION = "© Polska Agencja Żeglugi Powietrznej (PAŻP)";
@@ -227,17 +229,11 @@ const END_KEYS = ["validto", "validuntil", "enddate", "dateto", "effectiveto", "
 // Höhen
 // ---------------------------------------------------------------------------
 
-const FT = 0.3048;
-
 export interface PlAltitude {
   /** Meter; undefined bei unbegrenzt. */
   meters?: number;
   unlimited?: boolean;
   reference?: "AGL" | "AMSL";
-}
-
-function round1(v: number): number {
-  return Math.round(v * 10) / 10;
 }
 
 function refFrom(s: string): "AGL" | "AMSL" | undefined {
@@ -255,7 +251,7 @@ export function parsePolishAltitude(raw: string | undefined, unitHint?: string, 
   if (/^(GND|SFC|0)$/.test(s)) return { meters: 0, reference: "AGL" };
   if (/^(UNL|UNLIMITED|BRAK|NONE|-)$/.test(s)) return { unlimited: true };
   const fl = s.match(/\bFL\s*(\d{1,3})\b/);
-  if (fl) return { meters: round1(Number(fl[1]) * 100 * FT), reference: "AMSL" };
+  if (fl) return { meters: round1(flToM(Number(fl[1]))), reference: "AMSL" };
   const m = s.match(/(-?\d+(?:[.,]\d+)?)\s*(FT|FEET|F|M|METERS|METRES|METROW|M\.)?/);
   if (!m) {
     if (/\b(GND|SFC)\b/.test(s)) return { meters: 0, reference: "AGL" };
@@ -267,7 +263,8 @@ export function parsePolishAltitude(raw: string | undefined, unitHint?: string, 
   const unit = (m[2] ?? canon(unitHint ?? "")).replace(/\./g, "").trim();
   const isFt = unit === "FT" || unit === "FEET" || unit === "F";
   const reference = refFrom(s) ?? (refHint ? refFrom(refHint) : undefined);
-  return { meters: round1(isFt ? n * FT : n), reference };
+  // Umrechnung über den gemeinsamen Parser; der Bezug bleibt optional (kein AGL-Rückfall).
+  return { meters: round1(parseHeight(n, isFt ? "ft" : "m")?.m ?? n), reference };
 }
 
 /** Bereich "GND - 120 m AGL" / "0-150m n.p.t." → [unten, oben]. */

@@ -69,7 +69,7 @@ describe("italianGeozones – Normalisierung", () => {
     assert.equal(p.lowerMeters, 0);
     assert.equal(p.upperMeters, 121.9);
     const [z] = parseEd269ToGeozoneInfo([byId(features, "CAMPO_VOLO_ULM")], "it");
-    assert.deepEqual(z.scheduleText, ["Sa, So · 08:00–18:00 Uhr"]);
+    assert.deepEqual(z.scheduleText, ["Sa, So · 08:00–18:00 UTC"]);
   });
 
   it("italianZoneExpired", () => {

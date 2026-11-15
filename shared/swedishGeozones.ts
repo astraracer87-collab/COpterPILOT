@@ -14,6 +14,8 @@
 // Bewusst frei von React-Native-Importen (unter tsx/Node testbar).
 import { circlePolygon, simplifyGeometry } from "./dutchGeozones";
 import { normalizeEd269Restriction } from "./ed269Restriction";
+import { FT_M, flToM, parseHeight } from "./geozoneKit/heights";
+import { cleanText, round1 } from "./geozoneKit/text";
 
 export const SE_GEOZONE_SOURCE_LABEL = "LFV / Transportstyrelsen (CC BY 4.0)";
 export const SE_GEOZONE_ATTRIBUTION = "Quelle: LFV Drönarkartan / Transportstyrelsen, CC BY 4.0";
@@ -46,9 +48,7 @@ export const SE_WFS_LAYERS: { layer: Exclude<SeLayer, "ED318">; typeName: string
 // Die Drönarkartan zeigt nur Gebiete mit Untergrenze ≤ 500 ft (bzw. GND).
 // Höher beginnende Gebiete sind für Drohnen (max. 120 m) irrelevant und werden
 // verworfen – spart Speicher und vermeidet Fehlalarme.
-export const SE_MAX_RELEVANT_LOWER_M = 500 * 0.3048;
-
-const FT = 0.3048;
+export const SE_MAX_RELEVANT_LOWER_M = 500 * FT_M;
 
 // ---------------------------------------------------------------------------
 // Hilfsfunktionen: Text, Sprache, Zeit
@@ -68,15 +68,6 @@ export function pickLangText(value: unknown, prefs: string[] = ["en", "sv"]): st
   }
   const first = value.find((v: any) => typeof v?.text === "string" && v.text.trim());
   return first ? String(first.text).trim() : "";
-}
-
-function cleanText(s: unknown): string {
-  return String(s ?? "")
-    .replace(/\r/g, "")
-    .replace(/[ \t]+/g, " ")
-    .replace(/ *\n */g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
 }
 
 /**
@@ -168,23 +159,20 @@ export function parseSwedishAltitude(raw: unknown, uomHint?: unknown): SeAltitud
   if (s === "UNL" || s === "UNLTD" || s === "UNLIMITED") {
     return { meters: undefined, reference: "MSL", unlimited: true, text };
   }
-  const fl = s.match(/^FL ?(\d{1,3})$/);
-  if (fl) return { meters: round1(Number(fl[1]) * 100 * FT), reference: "MSL", text };
-  const m = s.match(/^(\d+(?:[.,]\d+)?) ?(FT|F|M)? ?(AMSL|MSL|AGL|SFC|GND)?$/);
-  if (!m) return null;
-  const n = Number(m[1].replace(",", "."));
-  if (!Number.isFinite(n)) return null;
+  // LFV-Schreibweisen prüfen; Umrechnung/Bezug über den gemeinsamen Parser.
+  // Ohne Angabe gilt laut LFV ft AMSL (Hinweis-Einheit/-Bezug haben Vorrang).
+  if (/^FL ?\d{1,3}$/.test(s)) {
+    const h = parseHeight(s);
+    return h && h.m != null ? { meters: round1(h.m), reference: "MSL", text } : null;
+  }
+  if (!SE_ALTITUDE_RE.test(s)) return null;
   const h = hint.toUpperCase();
-  const unit = m[2] || (/\bM\b/.test(h) ? "M" : "FT");
-  const refRaw = m[3] || (/\b(AGL|SFC|GND)\b/.test(h) ? "AGL" : "AMSL");
-  const reference: SeAltitudeReference = refRaw === "AGL" || refRaw === "SFC" || refRaw === "GND" ? "AGL" : "MSL";
-  const meters = unit === "M" ? n : n * FT;
-  return { meters: round1(meters), reference, text };
+  const height = parseHeight(s, /\bM\b/.test(h) ? "M" : "FT", /\b(AGL|SFC|GND)\b/.test(h) ? "AGL" : "AMSL");
+  if (!height || height.m == null) return null;
+  return { meters: round1(height.m), reference: height.ref === "AGL" ? "AGL" : "MSL", text };
 }
 
-function round1(n: number): number {
-  return Math.round(n * 10) / 10;
-}
+const SE_ALTITUDE_RE = /^\d+(?:[.,]\d+)? ?(?:FT|F|M)? ?(?:AMSL|MSL|AGL|SFC|GND)?$/;
 
 /** ED-318 geometry.layer → Unter-/Obergrenze (uom m/ft/FL; Referenz AGL/AMSL/WGS84/STD). */
 export function ed318LayerAltitudes(layer: any): { lower: SeAltitude | null; upper: SeAltitude | null } {
@@ -201,7 +189,8 @@ export function ed318LayerAltitudes(layer: any): { lower: SeAltitude | null; upp
     const n = Number(value);
     if (!Number.isFinite(n)) return null;
     if (n === 0 && reference === "AGL") return { meters: 0, reference, text: "GND" };
-    const meters = uom === "FT" ? n * FT : uom === "FL" ? n * 100 * FT : n;
+    // Einheit der Schicht (unbekannt → Meter) über den gemeinsamen Parser.
+    const meters = parseHeight(n, uom === "FT" || uom === "FL" ? uom : "M")?.m ?? n;
     const unitText = uom === "FL" ? `FL ${n}` : `${n} ${uom === "FT" ? "ft" : "m"}`;
     return {
       meters: round1(meters),
@@ -566,7 +555,7 @@ function notamQLineAltitude(value: unknown, isUpper: boolean): SeAltitude | null
   if (value == null || value === "" || !Number.isFinite(n)) return null;
   if (!isUpper && n === 0) return { meters: 0, reference: "AGL", text: "GND" };
   if (isUpper && n >= 999) return { meters: undefined, reference: "MSL", unlimited: true, text: "UNL" };
-  return { meters: round1(n * 100 * FT), reference: "MSL", text: `FL ${n}` };
+  return { meters: round1(flToM(n)), reference: "MSL", text: `FL ${n}` };
 }
 
 function wfsAltitudes(layer: SeLayer, p: Record<string, any>): { lower: SeAltitude | null; upper: SeAltitude | null } {

@@ -81,6 +81,8 @@ export interface GeozoneSourceCoverage {
   fetchedAt?: number;
   /** Optionaler Hinweis (deutsch), z. B. "Offline-Paket fehlt". */
   note?: string;
+  /** Zonenliste auf die nächstgelegenen N gekürzt (B7/S7). */
+  truncated?: boolean;
 }
 
 export type GeozoneCoverage = "complete" | "partial" | "unavailable";
@@ -96,6 +98,8 @@ export interface Ed269StatusResult {
   status: GeozoneSourceStatus;
   fetchedAt?: number;
   note?: string;
+  /** `limit` hat Treffer abgeschnitten (nur die nächstgelegenen geliefert). */
+  truncated?: boolean;
 }
 
 /** Quelle liefert verwertbare Daten (auch veraltete gelten als vorhanden). */
@@ -126,6 +130,7 @@ export function worseSourceStatus(a: GeozoneSourceStatus, b: GeozoneSourceStatus
 // Warntexte (deutsch) liegen in der Prüfkette (shared/checks/builders.ts),
 // damit Liste, Dialog und CheckResult denselben Text verwenden.
 export { geozoneCoverageWarning, sourceCoverageWarning } from "../../shared/checks/builders";
+import { geozoneTruncationHint } from "../../shared/checks/builders";
 
 // Wie queryEd269CachedFeaturesFrom, liefert aber zusätzlich den Status der
 // Quelle: kein Datensatz -> "missing", Ausnahme -> "error", älter als das
@@ -155,15 +160,23 @@ export async function queryEd269CachedFeaturesWithStatusFrom(
       const dLon = radiusKm * kmToDegLon;
       bbox = [lon - dLon, lat - dLat, lon + dLon, lat + dLat];
     }
+    const effLimit = !fullCountry && limit != null && Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : undefined;
+    const stats: { truncated?: boolean; total?: number } = {};
     const feats = queryEd269Features(ds.features, iso, {
       bbox,
-      limit: !fullCountry && limit != null && Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : undefined,
+      limit: effLimit,
       maxValidityDays:
         maxValidityDays != null && Number.isFinite(maxValidityDays) && maxValidityDays > 0
           ? maxValidityDays
           : undefined,
+      stats,
     });
-    return { zones: parseEd269ToGeozoneInfo(feats, iso), status, fetchedAt };
+    const zones = parseEd269ToGeozoneInfo(feats, iso);
+    // Keine stille Kürzung mehr (B7/S7): Hinweis in der Abdeckungs-Notiz.
+    if (stats.truncated && effLimit) {
+      return { zones, status, fetchedAt, truncated: true, note: geozoneTruncationHint(effLimit) };
+    }
+    return { zones, status, fetchedAt };
   } catch (e: any) {
     console.warn("[Geozones] ED-269 query error:", e?.message || e);
     return { zones: [], status: "error", note: String(e?.message || e) };

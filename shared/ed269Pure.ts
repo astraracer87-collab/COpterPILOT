@@ -21,6 +21,7 @@ export type Ed269PureFeature = {
 };
 
 import { normalizeVRef, parseHeight } from "./heights";
+import { round1, stripHtml } from "./geozoneKit/text";
 
 // ~FL600 (60 000 ft) – Werte darüber gelten als „unbegrenzt“ (CH nutzt 99999).
 const UNLIMITED_M = 18288;
@@ -45,7 +46,7 @@ export function ed269VolumeLimitMeters(limit: unknown, uom: unknown): number | u
   const meters = h.m;
   if (meters >= UNLIMITED_M) return undefined;
   if (meters <= 0) return 0;
-  return Math.round(meters * 10) / 10;
+  return round1(meters);
 }
 
 /**
@@ -143,18 +144,7 @@ export function ed269ReasonLabel(reason: unknown): string | undefined {
 }
 
 export function stripEd269Html(s: string): string {
-  return String(s ?? "")
-    .replace(/<br\s*\/?\s*>/gi, "\n")
-    .replace(/<\/p>/gi, "\n")
-    .replace(/<[^>]+>/g, "")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&nbsp;/g, " ")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+  return stripHtml(s);
 }
 
 export type Ed269Contact = { name?: string; contactName?: string; phone?: string; email?: string; url?: string };

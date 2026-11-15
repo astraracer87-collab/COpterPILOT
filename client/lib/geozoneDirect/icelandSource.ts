@@ -15,22 +15,20 @@ import {
   normalizeIcelandicClosures,
   normalizeIcelandicZones,
 } from "../../../shared/icelandicGeozones";
+import { fetchWfsPaged } from "../../../shared/geozoneKit/wfs";
 
 const IS_MAX_PAGES = 50;
 
 /** Alle Features eines Layers per WFS-Paging (count/startIndex) von einem Host. */
 async function fetchLayerFrom(base: string, layer: string): Promise<any[]> {
-  const all: any[] = [];
-  for (let page = 0; page < IS_MAX_PAGES; page++) {
-    const body = await directFetchJson(
-      icelandWfsUrl(layer, { base, count: IS_WFS_PAGE_SIZE, startIndex: all.length }),
-      90_000,
-    );
-    const feats: any[] = Array.isArray(body?.features) ? body.features : [];
-    all.push(...feats);
-    if (!icelandWfsHasMore(body, all.length, IS_WFS_PAGE_SIZE)) break;
-  }
-  return all;
+  return fetchWfsPaged({
+    pageUrl: (startIndex, count) => icelandWfsUrl(layer, { base, count, startIndex }),
+    fetchJson: directFetchJson,
+    pageSize: IS_WFS_PAGE_SIZE,
+    maxPages: IS_MAX_PAGES,
+    timeoutMs: 90_000,
+    hasMore: icelandWfsHasMore,
+  });
 }
 
 /** Primär gis.is, bei Fehler gis.natt.is (gleicher WFS). */

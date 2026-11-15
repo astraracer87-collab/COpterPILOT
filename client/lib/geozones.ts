@@ -19,7 +19,6 @@ import {
 export type { GeozoneAreaResult, GeozoneSourceCoverage, GeozoneSourceStatus, GeozoneCoverage } from "@/lib/geozoneCoverage";
 import { isLoggedInSync } from "@/lib/auth";
 import { isOfflineNow } from "@/lib/network";
-import { getOfflinePackFeatures } from "@/lib/offlineStore";
 import {
   hasTiledGeozones,
   queryTiledGeozones,
@@ -27,6 +26,7 @@ import {
   getTilePartMeta,
 } from "@/lib/geozoneTiles/tileStore";
 import { bboxAround, DIPUL_WOHN_LAYER } from "@/lib/geozoneTiles/tileStoreCore";
+import { geozoneTruncationHint } from "../../shared/checks/builders";
 import {
   queryChRestIdentifyFrom,
   queryDipulWfsFeaturesFrom,
@@ -581,23 +581,20 @@ export async function queryEd269CachedFeaturesWithStatus(
   // (nie das ganze Land, keine NOTAM-artige Gesamtabfrage).
   if (hasTiledGeozones(iso)) {
     if (fullCountry || maxValidityDays) return { zones: [], status: "ok" };
-    const tiled = await queryTiledGeozones(iso, bboxAround(lat, lon, radiusKm), { limit, layers: opts?.layers });
-    return tiled ? { zones: tiled, ...storedDataReport(iso) } : { zones: [], status: "missing", note: "Offline-Paket nicht lesbar" };
+    const stats: { truncated?: boolean } = {};
+    const tiled = await queryTiledGeozones(iso, bboxAround(lat, lon, radiusKm), { limit, layers: opts?.layers, stats });
+    if (!tiled) return { zones: [], status: "missing", note: "Offline-Paket nicht lesbar" };
+    // Keine stille Kürzung (B7/S7): Hinweis „hineinzoomen“.
+    const trunc = stats.truncated && limit ? { truncated: true, note: geozoneTruncationHint(limit) } : {};
+    return { zones: tiled, ...storedDataReport(iso), ...trunc };
   }
-  // Offline: zuerst das gespeicherte Paket nutzen (die Geometrie-/Radius-
-  // Filterung erledigt ohnehin queryGeozonesInArea nachgelagert). Nur wenn kein
-  // Paket existiert, fällt der Netzwerkpfad durch (liefert offline i. d. R. []).
-  if (isOfflineNow()) {
-    const off = await getOfflinePackFeatures(iso);
-    if (off && off.length) return { zones: off as GeozoneFeatureInfo[], status: "ok" };
-  }
-  const r = await queryEd269CachedFeaturesWithStatusFrom("", lat, lon, radiusKm, iso, limit, fullCountry, maxValidityDays);
-  if (r.status === "missing" || r.status === "error") {
-    // Kein Gerätebestand / Abruf fehlgeschlagen: gespeichertes Offline-Paket als Rückfall.
-    const off = await getOfflinePackFeatures(iso).catch(() => null);
-    if (off && off.length) return { zones: off as GeozoneFeatureInfo[], status: "stale", note: "aus Offline-Paket" };
-  }
-  return r;
+  // Offline-Quelle der ED-269-Länder ist allein der Gerätebestand
+  // (geozoneDirect/ed269Store, auf dem Gerät gespeichert, Stand/„stale“ laut
+  // Registry). Der frühere Rückfall auf die Features des Offline-Pakets ist
+  // entfallen (B7/S6): das Paket wird aus genau diesem Bestand erzeugt, lieferte
+  // offline aber „ok“ ohne Datenalter und hätte einen gelöschten Import (RO)
+  // wiederbelebt. Kein Bestand = Abdeckungslücke ("missing").
+  return queryEd269CachedFeaturesWithStatusFrom("", lat, lon, radiusKm, iso, limit, fullCountry, maxValidityDays);
 }
 
 /**
@@ -1377,7 +1374,7 @@ async function queryGeozonesForCountry(
   // Abdeckungs-Information (Review-Fix 4): meldet missing/error/unsupported/
   // stale. Ohne Meldung gilt die Quelle als "ok" (bzw. "error", wenn die
   // Funktion wirft).
-  report?: (s: { status: GeozoneSourceStatus; fetchedAt?: number; note?: string }) => void,
+  report?: (s: { status: GeozoneSourceStatus; fetchedAt?: number; note?: string; truncated?: boolean }) => void,
 ): Promise<GeozoneFeatureInfo[]> {
   const config = getCountryGeozoneConfig(iso);
   const ed269 = (vIso: string) =>
@@ -1563,14 +1560,16 @@ export async function queryGeozonesInAreaWithCoverage(
   const primary = countries[0];
   const neighbors = countries.slice(1);
   const sources = new Map<string, GeozoneSourceCoverage>();
-  const reporterFor = (iso: string) => (s: { status: GeozoneSourceStatus; fetchedAt?: number; note?: string }) => {
+  const reporterFor = (iso: string) => (s: { status: GeozoneSourceStatus; fetchedAt?: number; note?: string; truncated?: boolean }) => {
     const prev = sources.get(iso) ?? { iso, status: "ok" as GeozoneSourceStatus };
     const status = worseSourceStatus(prev.status, s.status);
+    const truncated = prev.truncated || s.truncated;
     sources.set(iso, {
       iso,
       status,
       fetchedAt: s.fetchedAt ?? prev.fetchedAt,
       note: status === s.status ? (s.note ?? prev.note) : prev.note,
+      ...(truncated ? { truncated: true } : {}),
     });
   };
   for (const iso of countries) sources.set(iso, { iso, status: "ok" });

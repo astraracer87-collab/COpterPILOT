@@ -20,9 +20,9 @@ import {
   decodeSkDuArchive,
   findSkDuZipUrl,
   normalizeSlovakiaWithStats,
-  skArcgisPage,
   skLpsQueryUrl,
 } from "../../../shared/slovakGeozones";
+import { fetchArcgisPaged } from "../../../shared/geozoneKit/arcgis";
 
 export { SK_GEOZONE_SOURCE_LABEL, SK_GEOZONE_ATTRIBUTION };
 
@@ -56,14 +56,7 @@ async function fetchBytesWithTimeout(url: string, timeoutMs: number = DU_TIMEOUT
 
 /** Alle Rohfeatures des LPS-Airspace-Layers seitenweise laden. */
 export async function fetchSlovakiaLpsRaw(fetchJson: FetchJson = directFetchJson): Promise<any[]> {
-  const all: any[] = [];
-  for (let page = 0; page < MAX_PAGES; page++) {
-    const { features, exceeded } = skArcgisPage(await fetchJson(skLpsQueryUrl(all.length, PAGE_SIZE), PAGE_TIMEOUT_MS));
-    all.push(...features);
-    if (features.length === 0) break;
-    if (!exceeded && features.length < PAGE_SIZE) break;
-  }
-  return all;
+  return fetchArcgisPaged({ pageUrl: skLpsQueryUrl, fetchJson, pageSize: PAGE_SIZE, maxPages: MAX_PAGES, timeoutMs: PAGE_TIMEOUT_MS });
 }
 
 /** DÚ-Seite lesen, ZIP-Link finden, Archiv laden und KML-Text liefern. */

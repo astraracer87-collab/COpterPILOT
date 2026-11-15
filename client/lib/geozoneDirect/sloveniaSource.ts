@@ -24,9 +24,9 @@ import {
   SI_LAYERS,
   type SiLayerDef,
   normalizeSloveniaLayersWithStats,
-  sloveniaArcgisPage,
   sloveniaQueryUrl,
 } from "../../../shared/slovenianGeozones";
+import { fetchArcgisPaged } from "../../../shared/geozoneKit/arcgis";
 
 export { SI_GEOZONE_SOURCE_LABEL, SI_GEOZONE_ATTRIBUTION };
 
@@ -38,15 +38,13 @@ type FetchJson = (url: string, timeoutMs?: number) => Promise<any>;
 
 /** Alle Rohfeatures eines Layers seitenweise laden. */
 export async function fetchSloveniaLayerRaw(layer: SiLayerDef, fetchJson: FetchJson = directFetchJson): Promise<any[]> {
-  const all: any[] = [];
-  for (let page = 0; page < MAX_PAGES; page++) {
-    const body = await fetchJson(sloveniaQueryUrl(layer, all.length, PAGE_SIZE), PAGE_TIMEOUT_MS);
-    const { features, exceeded } = sloveniaArcgisPage(body);
-    all.push(...features);
-    if (features.length === 0) break;
-    if (!exceeded && features.length < PAGE_SIZE) break;
-  }
-  return all;
+  return fetchArcgisPaged({
+    pageUrl: (offset, count) => sloveniaQueryUrl(layer, offset, count),
+    fetchJson,
+    pageSize: PAGE_SIZE,
+    maxPages: MAX_PAGES,
+    timeoutMs: PAGE_TIMEOUT_MS,
+  });
 }
 
 async function fetchLayerWithRetry(layer: SiLayerDef, fetchJson: FetchJson): Promise<any[]> {

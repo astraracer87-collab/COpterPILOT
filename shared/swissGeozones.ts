@@ -18,6 +18,9 @@
 // - Lizenz: opendata.swiss „Opendata BY“ (Quellenangabe Pflicht).
 //
 // Bewusst frei von React-Native-Importen (unter tsx/Node testbar).
+import { parseHeight } from "./geozoneKit/heights";
+import { localizedExtendedProperties } from "./geozoneKit/messages";
+import { round1 } from "./geozoneKit/text";
 
 export const CH_GEOZONE_SOURCE_LABEL = "BAZL / swisstopo (geo.admin.ch)";
 export const CH_GEOZONE_ATTRIBUTION = "© BAZL / swisstopo (Opendata BY)";
@@ -187,10 +190,11 @@ export function swissLimitMeters(value: unknown, uom: unknown): number | undefin
   if (!Number.isFinite(n)) return undefined;
   if (n >= CH_UNLIMITED) return undefined;
   const u = String(uom ?? "M").toUpperCase();
-  const m = u === "FT" || u === "F" ? n * 0.3048 : n;
-  return Math.round(m * 10) / 10;
+  // Nur ft und m kommen vor; alles andere gilt als Meter (Umrechnung zentral).
+  return round1(parseHeight(n, u === "FT" || u === "F" ? "ft" : "m")?.m ?? n);
 }
 
+// ⚠️ Leerer/unbekannter Bezug wird (wie bisher) AGL – siehe docs/pruefung-umbau-plan.md (B6).
 function verticalRef(raw: unknown): string {
   const r = String(raw ?? "").toUpperCase().trim();
   if (r === "AMSL" || r === "MSL" || r === "WGS84") return "AMSL";
@@ -511,12 +515,7 @@ export function normalizeSwissEd269Feature(
       reason: swissReasonLabel(reasonCodes) || undefined,
       reasonCodes,
       message: messageDe,
-      extendedProperties: {
-        localizedMessages: [
-          { language: "de-CH", message: messageDe },
-          ...(messageEn ? [{ language: "en", message: messageEn }] : []),
-        ],
-      },
+      extendedProperties: localizedExtendedProperties(messageDe, messageEn, "en", { deLanguage: "de-CH" }),
       lowerMeters,
       lowerReference: verticalRef(vol.lowerVerticalReference),
       upperReference: verticalRef(vol.upperVerticalReference),
@@ -578,7 +577,7 @@ export function swissActivityMeters(raw: unknown): number | undefined {
   const m = s.match(/(\d+(?:[.,]\d+)?)\s*m\b/i);
   if (m) return Number(m[1].replace(",", "."));
   const ft = s.match(/(\d+(?:[.,]\d+)?)\s*ft\b/i);
-  if (ft) return Math.round(Number(ft[1].replace(",", ".")) * 0.3048);
+  if (ft) return Math.round(parseHeight(Number(ft[1].replace(",", ".")), "ft")?.m ?? 0);
   return undefined;
 }
 

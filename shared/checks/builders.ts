@@ -235,6 +235,25 @@ export interface CoverageSourceLike {
   status: CoverageSourceStatus;
   fetchedAt?: number;
   note?: string;
+  /** Trefferliste auf die nächstgelegenen N Zonen gekürzt (B7/S7). */
+  truncated?: boolean;
+}
+
+/** Hinweis bei gekürzter Zonenliste (Karte und Liste, B7/S7). */
+export function geozoneTruncationHint(limit: number): string {
+  return `Nur die nächstgelegenen ${limit} Zonen angezeigt – hineinzoomen`;
+}
+
+/** „Dänemark: Nur die nächstgelegenen 1200 Zonen angezeigt – hineinzoomen“ je gekürzter Quelle. */
+export function formatCoverageTruncation(
+  sources: readonly CoverageSourceLike[],
+  countryLabel: (iso: string) => string,
+  limit: number,
+): string {
+  return sources
+    .filter((s) => s.truncated)
+    .map((s) => `${countryLabel(s.iso) || s.iso}: ${geozoneTruncationHint(limit)}`)
+    .join(" · ");
 }
 
 /** Deutscher Warntext für eine Abdeckungslücke. */

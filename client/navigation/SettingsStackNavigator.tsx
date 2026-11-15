@@ -4,7 +4,6 @@ import SettingsScreen from "@/screens/SettingsScreen";
 import DronesScreen from "@/screens/DronesScreen";
 import DroneSetupScreen from "@/screens/DroneSetupScreen";
 import DroneInfoScreen from "@/screens/DroneInfoScreen";
-import DroneFoundLinkScreen from "@/screens/DroneFoundLinkScreen";
 import DipulWeatherScreen from "@/screens/DipulWeatherScreen";
 import DroneHistoryScreen from "@/screens/DroneHistoryScreen";
 import LogbookEntryDetailScreen from "@/screens/LogbookEntryDetailScreen";
@@ -25,7 +24,6 @@ import PilotProfileScreen from "@/screens/PilotProfileScreen";
 import PilotLicenseCardScreen from "@/screens/PilotLicenseCardScreen";
 import ExpiryOverviewScreen from "@/screens/ExpiryOverviewScreen";
 import TcasSettingsScreen from "@/screens/TcasSettingsScreen";
-import AccountScreen from "@/screens/AccountScreen";
 import PrivacyPolicyScreen from "@/screens/PrivacyPolicyScreen";
 import LegalDocumentScreen, { type LegalDocKey } from "@/screens/LegalDocumentScreen";
 import MyDataScreen from "@/screens/MyDataScreen";
@@ -33,7 +31,6 @@ import { useScreenOptions } from "@/hooks/useScreenOptions";
 
 export type SettingsStackParamList = {
   Settings: { openCountryPicker?: boolean } | undefined;
-  Account: undefined;
   MyData: undefined;
   PrivacyPolicy: undefined;
   LegalDocument: { doc: LegalDocKey };
@@ -44,7 +41,6 @@ export type SettingsStackParamList = {
   Drones: undefined;
   DroneSetup: { droneId?: string };
   DroneInfo: { droneId: string };
-  DroneFoundLink: { droneId: string };
   DipulWeather: undefined;
   DroneHistory: { droneId: string };
   LogbookEntryDetail: {
@@ -79,13 +75,6 @@ export default function SettingsStackNavigator() {
         component={SettingsScreen}
         options={{
           headerTitle: "Einstellungen",
-        }}
-      />
-      <Stack.Screen
-        name="Account"
-        component={AccountScreen}
-        options={{
-          headerTitle: "Konto",
         }}
       />
       <Stack.Screen
@@ -140,13 +129,6 @@ export default function SettingsStackNavigator() {
         component={DroneInfoScreen}
         options={{
           headerTitle: "Drohne",
-        }}
-      />
-      <Stack.Screen
-        name="DroneFoundLink"
-        component={DroneFoundLinkScreen}
-        options={{
-          headerTitle: "Lost & Found",
         }}
       />
       <Stack.Screen

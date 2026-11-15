@@ -50,6 +50,7 @@
 //
 // Bewusst frei von React-Native-Importen (unter tsx/Node testbar).
 import { normalizeEd269Restriction } from "./ed269Restriction";
+import { wfsGetFeatureUrl, wfsHasMore } from "./geozoneKit/wfs";
 
 export const IS_GEOZONE_SOURCE_LABEL = "Samgöngustofa (ISAVIA)";
 export const IS_GEOZONE_ATTRIBUTION = "© Samgöngustofa / ISAVIA / gis.is";
@@ -74,17 +75,8 @@ export function icelandWfsUrl(
   layer: string,
   opts: { base?: string; count?: number; startIndex?: number } = {},
 ): string {
-  const params = [
-    "service=WFS",
-    "version=2.0.0",
-    "request=GetFeature",
-    `typeNames=${layer}`,
-    "srsName=EPSG:4326",
-    "outputFormat=application/json",
-  ];
-  if (opts.count != null) params.push(`count=${opts.count}`);
-  if (opts.startIndex != null && opts.startIndex > 0) params.push(`startIndex=${opts.startIndex}`);
-  return `${opts.base ?? IS_WFS_URL}?${params.join("&")}`;
+  // outputFormat historisch unkodiert („application/json“) – bleibt so.
+  return wfsGetFeatureUrl({ ...opts, base: opts.base ?? IS_WFS_URL, layer, encodeOutputFormat: false });
 }
 
 // ---------------------------------------------------------------------------
@@ -320,9 +312,5 @@ export function mergeIcelandicFeatures(zones: IsFeature[], closures: IsFeature[]
  * numberMatched/numberReturned; ohne diese Angaben entscheidet die Seitengröße.
  */
 export function icelandWfsHasMore(body: any, collected: number, pageSize: number): boolean {
-  const got = Array.isArray(body?.features) ? body.features.length : 0;
-  if (got === 0) return false;
-  const matched = Number(body?.numberMatched ?? body?.totalFeatures);
-  if (Number.isFinite(matched) && matched >= 0) return collected < matched;
-  return got >= pageSize;
+  return wfsHasMore(body, collected, pageSize);
 }

@@ -136,8 +136,9 @@ export type FlightPlanningParamList = {
     checkResults?: import("../../shared/checks/types").CheckResult[];
     /** Gegenprüfung der offiziellen Staatskarte (Länder mit eigenen Daten). */
     officialMapCrossCheck?: { blocking: boolean; note?: string };
-    /** Pilot hat in FR mit MTOM >= 800 g bestätigt fortzufahren OBWOHL
-     *  keine AlphaTango-ID an der Drohne hinterlegt war. */
+    /** Pilot hat in FR bestätigt fortzufahren, OBWOHL die AlphaTango-Pflicht
+     *  (≥ 800 g oder Remote-ID) besteht und keine Bestätigung hinterlegt war
+     *  (isAlphaTangoMissing). */
     alphaTangoMissingAcknowledged?: boolean;
     sessionId?: string;
     radiusKm?: number;

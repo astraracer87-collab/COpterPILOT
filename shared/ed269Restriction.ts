@@ -528,11 +528,26 @@ function compactEd269Days(days: string[]): string {
     .join(", ");
 }
 
+const ED269_CLOCK_RE = /^(\d{1,2}):(\d{2})(?::\d{2}(?:\.\d+)?)?\s*(?:Z|UTC)?$/i;
+
 function ed269ScheduleTime(value: any): string {
   const raw = String(value ?? "").trim();
-  const match = raw.match(/^(\d{1,2}):(\d{2})(?::\d{2}(?:\.\d+)?)?\s*(?:Z|UTC)?$/i);
+  const match = raw.match(ED269_CLOCK_RE);
   if (!match) return raw;
   return `${match[1].padStart(2, "0")}:${match[2]}`;
+}
+
+/**
+ * „08:30–10:45 UTC“: Die Aktivitätsprüfung (ed269ScheduleEntryActive) wertet
+ * JEDE Uhrzeit als UTC – mit oder ohne „Z“. Die Anzeige sagt deshalb „UTC“
+ * statt „Uhr“ (B7/I9; „Uhr“ las sich als Ortszeit). Reine Sonnenereignisse
+ * („Sonnenaufgang–Sonnenuntergang“) bekommen keinen Zusatz.
+ */
+function ed269ScheduleRange(start: any, end: any): string {
+  const startText = start == null ? "Beginn offen" : ed269ScheduleTime(start);
+  const endText = end == null ? "Ende offen" : ed269ScheduleTime(end);
+  const hasClock = [start, end].some((v) => v != null && ED269_CLOCK_RE.test(String(v).trim()));
+  return `${startText}–${endText}${hasClock ? " UTC" : ""}`;
 }
 
 function formatEd269ScheduleEntry(entry: any): string {
@@ -576,13 +591,7 @@ function formatEd269ScheduleEntry(entry: any): string {
     entry.beginTime ??
     entry.from;
   const end = entry.endTime ?? entry.timeEnd ?? entry.untilTime ?? entry.to;
-  if (start != null || end != null) {
-    const startText = start == null ? "Beginn offen" : ed269ScheduleTime(start);
-    const endText = end == null ? "Ende offen" : ed269ScheduleTime(end);
-    // ED-269-Zeiten mit "Z"-Suffix sind UTC -> nicht als Ortszeit ("Uhr") ausgeben.
-    const isUtc = [start, end].some((v) => v != null && /(?:Z|UTC)\s*$/i.test(String(v).trim()));
-    parts.push(`${startText}–${endText} ${isUtc ? "UTC" : "Uhr"}`);
-  }
+  if (start != null || end != null) parts.push(ed269ScheduleRange(start, end));
 
   const interval = entry.timeInterval ?? entry.interval;
   if (interval != null && start == null && end == null) {
@@ -591,9 +600,7 @@ function formatEd269ScheduleEntry(entry: any): string {
         interval.startTime ?? interval.start ?? interval.from;
       const intervalEnd = interval.endTime ?? interval.end ?? interval.to;
       if (intervalStart != null || intervalEnd != null) {
-        parts.push(
-          `${intervalStart == null ? "Beginn offen" : ed269ScheduleTime(intervalStart)}–${intervalEnd == null ? "Ende offen" : ed269ScheduleTime(intervalEnd)} Uhr`,
-        );
+        parts.push(ed269ScheduleRange(intervalStart, intervalEnd));
       } else {
         parts.push(JSON.stringify(interval));
       }

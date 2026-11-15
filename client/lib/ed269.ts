@@ -2,6 +2,8 @@ import { ed269SourceLabels } from "./geozoneSources/registry";
 import { translateTextDe, translateZoneNameDe } from "../../shared/zoneTranslate";
 import type { GeozoneFeatureInfo } from "@/lib/geozones";
 import { belgianAltitudeMeters } from "../../shared/belgianGeozones";
+import { stripHtml } from "../../shared/geozoneKit/text";
+import { ORIGINAL_TEXT_HEADING } from "../../shared/geozoneKit/messages";
 import { normalizeAltitudeReference, type AltitudeReference } from "../../shared/geozoneAltitudeFilter";
 import {
   formatHeightRangeDe,
@@ -129,20 +131,8 @@ export function ed269Heights(
   };
 }
 
-export function stripHtml(s: string): string {
-  return s
-    .replace(/<br\s*\/?\s*>/gi, "\n")
-    .replace(/<\/p>/gi, "\n")
-    .replace(/<[^>]+>/g, "")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&nbsp;/g, " ")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}
+// HTML → Klartext: gemeinsamer Baukasten (shared/geozoneKit/text.ts).
+export { stripHtml };
 
 export function ed269AltitudeLabel(
   lowerMeters: number | undefined,
@@ -314,7 +304,7 @@ export function parseEd269ToGeozoneInfo(
     detailLines.push(...sourceInfo.details);
     // Rechtlich maßgeblich ist die Behördenfassung: Original immer mitgeben
     if (messageTranslated || name !== originalName) {
-      detailLines.push("Originaltext der Behörde:");
+      detailLines.push(ORIGINAL_TEXT_HEADING);
       if (name !== originalName) detailLines.push(originalName);
       if (messageTranslated) detailLines.push(originalMessage);
     }

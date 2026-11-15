@@ -325,3 +325,108 @@ alle Länderlisten werden daraus abgeleitet.
    `client/lib/__tests__/geozoneSourceRegistry.test.ts` prüft Label/
    Attribution/Lizenz und dass jede Abruf-Funktion in der Registry steht; die
    Schnappschüsse der alten Listen dort bewusst um das neue Land ergänzen.
+
+## Stand B6 (2026-11-15)
+
+- **shared/geozoneKit/** (neu, `index.ts` exportiert alles):
+  - `heights.ts`: Re-Export von shared/heights.ts (parseHeight,
+    parseHeightRange, normalizeVRef, FT_M …) plus `ftToM`, `mToFt`, `flToM`.
+  - `text.ts`: `round1`, `roundTo`, `collapseWhitespace` (früher `clean` in
+    BG/SI/SK), `cleanText(v, { br, tags: "strip"|"space", paragraphs })` (die
+    Varianten aus SE/ES/HR/ed318Pure als Optionen), `stripHtml` (früher doppelt
+    in client/lib/ed269.ts und ed269Pure `stripEd269Html` – beide re-exportieren).
+  - `messages.ts`: `ORIGINAL_TEXT_HEADING` („Originaltext der Behörde:“, jetzt
+    genau eine Stelle), `appendOriginalText`/`messageWithOriginal` (Leerzeile +
+    Überschrift + Text; `always` für SI/SK), `localizedMessages`/
+    `localizedExtendedProperties` („de“ zuerst, dann Quellsprache; CH mit
+    `deLanguage: "de-CH"`), Zeilenbausteine `pushHints`, `sourceLineDe`,
+    `heightLineDe`, `originalBlock`, `SEE_ORIGINAL_DE`, `NO_HEIGHT_LINE_DE`.
+    Genutzt von CY, SI, SK, BG, UK, HR, CH und client/lib/ed269.ts.
+  - `arcgis.ts`: `arcgisQueryUrl` (Parameterreihenfolge wie bisher),
+    `arcgisPage` (exceededTransferLimit oben/unter properties, ArcGIS-{error} →
+    Error), `fetchArcgisPaged` (resultOffset = bisher geladen). CY, SI, SK und
+    der ES-Rückfall nutzen sie; `cyprusArcgisPage`/`sloveniaArcgisPage`/
+    `skArcgisPage`/`esArcgisPage` und die Query-URL-Funktionen bleiben als dünne
+    Hüllen (Tests, Aufrufer).
+  - `wfs.ts`: `wfsGetFeatureUrl` (IS mit `encodeOutputFormat: false` – URL
+    bleibt byte-gleich), `wfsHasMore` (numberMatched/totalFeatures, sonst
+    Seitengröße), `wfsHasMoreStrict` (ES: kurze Seite beendet immer),
+    `fetchWfsPaged`, Achsfolge `ensureLonLat`/`looksLatLon`/`swapAxes`
+    (ES `esEnsureLonLat` = Spanien-Grenzen). IS, BG und ES-WFS nutzen sie.
+  - `kml.ts`/`wkt.ts`: die bisherigen shared/kmlParse.ts/wktParse.ts (dorthin
+    verschoben; die alten Pfade re-exportieren). Länder importieren jetzt aus
+    geozoneKit.
+- Höhen: SE, ES, PL, HR, BE, NL, CH, SK, BG, CY, IE/LU, UK (SI/IS haben keine
+  Einheiten-Umrechnung) rechnen Einheiten/Flugflächen nur noch über
+  `parseHeight`; alle privaten `0.3048`-Konstanten und `round1`-Kopien sind
+  weg (FT_M einmal in shared/heights.ts; auch client/lib/notams, assessment,
+  obstacles, traffic/sources, aviationWeatherDecode, NotamsScreen nutzen FT_M).
+  Die landesspezifische **Grammatik** (welche Schreibweisen die Quelle
+  zulässt, z. B. LFV „2500“ = ft AMSL, UK-Präfix „2000 FT ALT <Rest>“,
+  griechische Höhen-Phrasen CY, DÚ-Bereich SK, PL-Bereich mit Einheit am Ende)
+  bleibt bewusst je Land als Prüf-Regex, damit die Ergebnisse identisch bleiben.
+- Verhaltensgleichheit geprüft: Vergleichsskript (temporär, gelöscht) hat für
+  alle 25 Fixtures die Normalisierer-Ausgabe und `parseEd269ToGeozoneInfo` vor/
+  nach dem Umbau verglichen (23 Fixture-Sätze inkl. PL-KML aus dem Test, BE über
+  normalizeBelgianFeatures, SE eigene ED-318-Normalisierung) sowie Batterien
+  aller Höhenfunktionen (~100 000 Eingabekombinationen Wert × Einheit × Bezug)
+  und die ArcGIS-/WFS-URLs und Paging-Entscheidungen: **identisch**. Einzige
+  Abweichung nach B7: ES-Zeitplan „Sonnenaufgang–Sonnenuntergang Uhr“ →
+  „… Sonnenuntergang“ (I9, gewollt).
+- Gefunden, **unverändert gelassen** (stiller AGL-Rückfall bei fehlendem
+  Bezug, mit ⚠️-Kommentar markiert; fachlich zu entscheiden): ES
+  `esReference` (leer → AGL), SE `ed318LayerAltitudes` (leer → AGL), CH
+  `verticalRef` (alles außer AMSL/MSL/WGS84 → AGL), CY Texthöhen ohne „MSL“ →
+  AGL, IE `layer.lower/upperReference` fehlt → AGL, SK DÚ-Obergrenze ohne
+  Bezug → AGL. SI nennt die AGL-Annahme im Text; UK und BG-BULATSA werten
+  fehlenden Bezug vorsichtig als MSL; PL lässt ihn leer.
+- Bewusst nicht vereinheitlicht: NL `stripHtml` (andere Semantik, keine
+  Entities), SE-WFS-Paging (WFS 1.1.0/maxFeatures, nicht in der Liste),
+  BG-CSV-Paging (Seiten × Seitengröße), Polen-Bereichsparser.
+
+## Stand B7 (2026-11-15)
+
+- **ed269Notams**: Zonenmittelpunkt las [lat, lon] als [lon, lat] – behoben
+  (Test client/lib/__tests__/ed269Notams.test.ts).
+- **NOTAM-Status aus Zonen**: `ed269ZonesToNotamRestrictions` entscheidet
+  aktiv/zukünftig über `zoneActivityAt` (jetzt) statt nur `validStartTs ≤ jetzt`;
+  abgelaufen über `zoneEndedLongAgo(…, 0)` (auch alle applicability-Fenster
+  vorbei). Verhaltensänderung: gültige Zone, deren Zeitfenster erst später
+  beginnt, erscheint als „Zukünftig“ (bisher „Aktiv“). DE-dipul-NOTAMs
+  (`status` der DFS-Datensätze) und LU-TSA („Status:“ im Datensatz) behalten
+  ihre eigene Datensatz-Logik – das sind Meldungen der Quelle, keine Zonen.
+  PlanningNotamsScreen bleibt auf „jetzt“ (Liste der Meldungen, nicht Urteil).
+- **AlphaTango (I7)**: eine Regel `isAlphaTangoMissing` (= Pflicht laut
+  `needsAlphaTangoRegistration` – ≥ 800 g ODER Remote-ID – und keine
+  Bestätigung hinterlegt) für Compliance-Liste (fr_alphatango), Drohnenliste
+  (`getAlphaTangoFrStatus`) und Planungssperre; Begründungstext
+  `alphaTangoRequirementReason`. Compliance-Liste unverändert streng.
+  **Verhaltensänderung Planungssperre**: greift jetzt auch bei < 800 g mit
+  Remote-ID und wenn nur die FRA-Nummer, aber keine Bestätigung hinterlegt ist
+  (bisher: nur ≥ 800 g ohne FRA-Nummer). Test alphaTangoRule.test.ts.
+- **Zeitplan-Anzeige (I9)**: Uhrzeiten in `ed269ScheduleFromProps` heißen
+  „UTC“ statt „Uhr“ – die Aktivitätsprüfung wertet jede Uhrzeit als UTC.
+  Reine Sonnenereignisse ohne Zusatz. Angepasste Tests (gewollt): AT
+  „08:30–10:45 UTC“, IT „08:00–18:00 UTC“, ES „Sonnenaufgang–Sonnenuntergang“.
+- **Toter Offline-Rückfall (S6)**: `queryEd269CachedFeaturesWithStatus` liest
+  ED-269-Länder nur noch aus dem Gerätebestand (ed269Store). Der Rückfall auf
+  die Features des Offline-Pakets (vorab offline „ok“ ohne Datenalter, danach
+  „stale“) ist entfernt, ebenso `getOfflinePackFeatures`. Das Paket entsteht
+  aus genau diesem Bestand; offline gilt jetzt dessen Alter (ok/stale), ohne
+  Bestand „missing“ (Abdeckungslücke) – auch ein entfernter RO-Import wird
+  nicht mehr aus dem Paket wiederbelebt. Offen: offlinePacks.ts schreibt die
+  (jetzt ungenutzten) Features weiter ins Paket.
+- **Kürzung auf 1200 Zonen (S7)**: `queryEd269Features`/`queryIndex`
+  melden die Kürzung (`stats`), `Ed269StatusResult`/Abdeckungsquelle tragen
+  `truncated` und die Notiz „Nur die nächstgelegenen 1200 Zonen angezeigt –
+  hineinzoomen“ (`geozoneTruncationHint`; erscheint im Datenstand-Befund).
+  Radar/Live-Karte (TrafficMapView) und MapPicker zeigen den Hinweis als
+  Kartenbanner, Planung und Pre-Check als Zeile unter dem Datenstand
+  (`formatCoverageTruncation`). Test geozoneTruncation.test.ts.
+- **Toter Code**: AccountScreen, DroneFoundLinkScreen (registriert, aber nie
+  angesteuert – kein navigate, kein Deep-Link) samt Routen und
+  foundNotifications.ts entfernt. **Geblieben** (live importiert): api.ts
+  (storage.ts, geozones.ts), api-client.ts (api.ts, subscription.ts),
+  subscription.ts (auth, FeatureGate, Paywall, Map, PlanningLocation …).
+- Nicht Teil dieses Schritts (aus der B7-Zeile oben): Ausnahme-Schlüssel per
+  featureId (S1) und `NO_FLY_TEXT_RE` (I10).

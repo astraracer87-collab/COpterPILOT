@@ -14,6 +14,7 @@
 //  - Kontakt: `properties.contact` ({ name/firstName/lastName, phone/mobile,
 //    email, url }).
 //  - `uniqueIdentifier` dedupliziert Duplikate (Dateien mit Suffix " 2").
+import { parseHeight } from "./geozoneKit/heights";
 
 export interface BelgianGeoFeature {
   type?: string;
@@ -28,11 +29,9 @@ export interface BelgianGeoFeature {
 // Rendering dieselbe Beschriftung nutzen (keine Drift).
 export const BELGIAN_GEOZONE_SOURCE_LABEL = "skeyes / Droneguide (ED-269)";
 
-const FT_TO_M = 0.3048;
-
-// Wandelt ein skeyes-Höhenobjekt in Meter um.
-//  - unit "F"  -> Fuß           -> value * 0.3048
-//  - unit "FL" -> Flugfläche    -> value * 100 Fuß * 0.3048
+// Wandelt ein skeyes-Höhenobjekt in Meter um (Umrechnung: shared/heights.ts).
+//  - unit "F"  -> Fuß           -> value × FT_M
+//  - unit "FL" -> Flugfläche    -> value × 100 Fuß
 //  - reference "GND"/"MSL"/"STD": für die reine Meter-Anzeige unerheblich
 //    (wird separat als Höhenbezug ausgewiesen).
 //  - sehr hohe Flugflächen (FL >= 600 = 60 000 ft) gelten als praktisch
@@ -46,11 +45,11 @@ export function belgianAltitudeMeters(alt: any): number | undefined {
   const unit = String(alt.unit ?? "").toUpperCase();
   if (unit === "FL") {
     if (value >= 600) return undefined; // praktisch unbegrenzt
-    return value * 100 * FT_TO_M;
+    return parseHeight(value, "FL")?.m ?? undefined;
   }
   // "F" (Fuß) bzw. Default.
   if (value <= 0) return 0;
-  return value * FT_TO_M;
+  return parseHeight(value, "ft")?.m ?? undefined;
 }
 
 // reference -> deutscher Höhenbezug. Deckt sowohl das GeoJSON-Schema der
@@ -771,8 +770,8 @@ function skeyesVolumeAltitudeMeters(
   const value = Number(limit);
   if (!Number.isFinite(value)) return undefined;
   const u = String(uom ?? "").toUpperCase().trim();
-  if (u === "FT" || u === "F") return value * FT_TO_M;
-  if (u === "FL") return value >= 600 ? undefined : value * 100 * FT_TO_M;
+  if (u === "FT" || u === "F") return parseHeight(value, "ft")?.m ?? undefined;
+  if (u === "FL") return value >= 600 ? undefined : (parseHeight(value, "FL")?.m ?? undefined);
   // "M" bzw. Default: bereits Meter.
   if (value >= FL_LIMIT_M) return undefined;
   return value <= 0 ? 0 : value;

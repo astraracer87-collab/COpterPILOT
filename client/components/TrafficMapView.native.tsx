@@ -13,7 +13,7 @@ import type { GermanEnergyInfrastructureItem } from "../../shared/germanEnergyIn
 import type { EnergyFacility100mPoint } from "../../shared/germanEnergyInfrastructure";
 import { getCategoryLabel, type AircraftCategory, type DataSource } from "@/lib/opensky";
 import { zoneActivityAt } from "@/lib/ed269";
-import { buildGeozoneCacheTileUrl, buildGeozoneTileUrls, getGeozoneTileAttribution, buildVectorGeozoneTileUrl, isRasterTiledVectorCountry, queryGeozoneFeatureInfo, queryEd269CachedFeatures, getCountryGeozoneConfig, getViewportCountries, separateTempRestrictions, GEOZONE_TILE_MIN_ZOOM, getVectorMinZoom, loadsFullCountryVectorZones, GEOZONE_VECTOR_MAX_RADIUS_KM, GEOZONE_VECTOR_MAX_FEATURES, type GeozoneFeatureInfo } from "@/lib/geozones";
+import { buildGeozoneCacheTileUrl, buildGeozoneTileUrls, getGeozoneTileAttribution, buildVectorGeozoneTileUrl, isRasterTiledVectorCountry, queryGeozoneFeatureInfo, queryEd269CachedFeaturesWithStatus, getCountryGeozoneConfig, getViewportCountries, separateTempRestrictions, GEOZONE_TILE_MIN_ZOOM, getVectorMinZoom, loadsFullCountryVectorZones, GEOZONE_VECTOR_MAX_RADIUS_KM, GEOZONE_VECTOR_MAX_FEATURES, type GeozoneFeatureInfo } from "@/lib/geozones";
 import { isVectorZoneDrawSuppressed } from "@/lib/geozoneZoom";
 import { agencyTagColor } from "@/lib/agencyTag";
 import { simplifyRingGroup, smoothRingGroup } from "@/lib/ringSimplify";
@@ -31,6 +31,7 @@ import { zonePolicy } from "../../shared/restrictionPolicy";
 import { useTiledGeozoneIsos } from "@/lib/geozoneTiles/useTiledGeozones";
 import CtrInfoCard from "@/components/CtrInfoCard";
 import AirportWeatherSheet from "@/components/AirportWeatherSheet";
+import { geozoneTruncationHint } from "../../shared/checks/builders";
 
 function hexToRgba(hex: string, alpha: number): string {
   const h = hex.replace("#", "");
@@ -1158,6 +1159,10 @@ export default function TrafficMapView({
   // Länder, deren GESAMTER Landesbestand bereits geladen ist (z. B. BE). Ihre
   // Daten sind positionsunabhängig -> beim Pannen NICHT erneut 3,6 MB nachladen.
   const fullCountryLoadedRef = useRef<Set<string>>(new Set());
+  // Länder, deren Zonenliste auf GEOZONE_VECTOR_MAX_FEATURES gekürzt wurde
+  // (B7/S7: Hinweis „hineinzoomen“ statt stiller Kürzung).
+  const truncatedIsosRef = useRef<Set<string>>(new Set());
+  const [vectorZonesTruncated, setVectorZonesTruncated] = useState(false);
   const vzPublishSigRef = useRef<string>("");
   // Wird bei JEDER tatsächlichen Inhaltsänderung des Pro-Land-Caches erhöht.
   // Fließt in die Publish-Signatur ein, damit auch bbox-Länder (DK) mit gleicher
@@ -1341,6 +1346,7 @@ export default function TrafficMapView({
       if (!isos.includes(k)) {
         delete vectorZonesByIsoRef.current[k];
         fullCountryLoadedRef.current.delete(k);
+        truncatedIsosRef.current.delete(k);
         vzVersionRef.current++;
       }
     }
@@ -1350,6 +1356,7 @@ export default function TrafficMapView({
     // Zonen (kein Flackern beim Scrollen) und ersetzt sie NUR, wenn sich der
     // Inhalt wirklich geändert hat.
     const publish = () => {
+      setVectorZonesTruncated(isos.some((iso) => truncatedIsosRef.current.has(iso)));
       const merged = isos.flatMap((iso) => vectorZonesByIsoRef.current[iso] || []);
       // Signatur = sichtbare Länder + Inhalts-Version. Letztere ändert sich bei
       // JEDER Cache-Aktualisierung, also auch wenn ein bbox-Land (DK) gleich viele,
@@ -1390,7 +1397,7 @@ export default function TrafficMapView({
       toFetch.map(async (iso) => {
         // Kleine Länder (BE) den gesamten Landesbestand laden, damit beim
         // Herauszoomen ALLE Zonen statt nur der zentrumsnahen erscheinen.
-        const res = await queryEd269CachedFeatures(
+        const r = await queryEd269CachedFeaturesWithStatus(
           settledRegion.latitude,
           settledRegion.longitude,
           radiusKm,
@@ -1400,13 +1407,15 @@ export default function TrafficMapView({
           undefined,
           // DE-Kachelspeicher: nur die gewählten dipul-Ebenen zeichnen
           iso === "DE" && iso === countryIso?.toUpperCase() && geozoneLayersKey ? { layers: geozoneLayersKey.split(",") } : undefined,
-        ).catch(() => [] as GeozoneFeatureInfo[]);
-        return { iso, res };
+        ).catch(() => ({ zones: [] as GeozoneFeatureInfo[], truncated: false }));
+        return { iso, res: r.zones, truncated: !!r.truncated };
       }),
     ).then((items) => {
       if (cancelled) return;
-      for (const { iso, res } of items) {
+      for (const { iso, res, truncated } of items) {
         if (res.length > 0) {
+          if (truncated) truncatedIsosRef.current.add(iso);
+          else truncatedIsosRef.current.delete(iso);
           // Erfolg: Zonen übernehmen; volle Länder als geladen markieren.
           vectorZonesByIsoRef.current[iso] = res;
           vzVersionRef.current++;
@@ -2140,9 +2149,19 @@ export default function TrafficMapView({
           </Text>
         </View>
       ) : null}
+      {vectorZonesTruncated && !vectorZonesHiddenHint ? (
+        <View
+          style={[vectorHintStyles.container, { top: topInset + 16 }]}
+          pointerEvents="none"
+          testID="hint-geozones-truncated"
+        >
+          <Feather name="zoom-in" size={13} color="#FFFFFF" />
+          <Text style={vectorHintStyles.text}>{geozoneTruncationHint(GEOZONE_VECTOR_MAX_FEATURES)}</Text>
+        </View>
+      ) : null}
       {lockedNames.length > 0 ? (
         <View
-          style={[lockedHintStyles.container, { top: topInset + (vectorZonesHiddenHint ? 56 : 16) }]}
+          style={[lockedHintStyles.container, { top: topInset + (vectorZonesHiddenHint || vectorZonesTruncated ? 56 : 16) }]}
           pointerEvents="none"
           testID="hint-locked-countries"
         >

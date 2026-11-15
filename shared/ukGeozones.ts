@@ -39,7 +39,10 @@ import {
   parseKmlPlacemarks,
   type KmlCoord,
   type KmlPlacemark,
-} from "./kmlParse";
+} from "./geozoneKit/kml";
+import { FT_M, normalizeVRef, parseHeight } from "./geozoneKit/heights";
+import { round1 } from "./geozoneKit/text";
+import { localizedExtendedProperties, messageWithOriginal, pushHints } from "./geozoneKit/messages";
 
 export const GB_GEOZONE_SOURCE_LABEL = "UK AIP (CAA)";
 export const GB_ATTRIBUTION = "UK AIP (CAA) – Danger, Prohibited und Restricted Areas";
@@ -49,9 +52,8 @@ export const UK_AIP_KML_URL = `https://www.google.com/maps/d/kml?mid=${UK_AIP_MA
 /** CAA-Kundenportal (ACOMS) für Genehmigungsanträge. */
 export const UK_CAA_PORTAL_URL = "https://portal.caa.co.uk";
 
-const FT = 0.3048;
 /** Untergrenze AGL oberhalb davon → nicht drohnenrelevant (500 ft). */
-export const UK_MAX_LOWER_AGL_M = 500 * FT;
+export const UK_MAX_LOWER_AGL_M = 500 * FT_M;
 /** Untergrenze MSL/STD oberhalb davon → nicht drohnenrelevant (≈ FL125). */
 export const UK_MAX_LOWER_MSL_M = 3800;
 /** Seitliche Grenzbeschreibung (DMS-Liste) bis zu dieser Länge in den Originaltext übernehmen. */
@@ -75,10 +77,6 @@ export interface UkLimit {
   raw: string;
 }
 
-function round1(v: number): number {
-  return Math.round(v * 10) / 10;
-}
-
 // Grenzwert am Textanfang (danach folgt bei „Lower limit“ oft schon die Bemerkung).
 const LIMIT_RE =
   /^\s*(?:(SFC|GND)\b|(UNL(?:IMITED)?)\b|FL\s*(\d{1,3})\b|(\d[\d,]*(?:\.\d+)?)\s*(FT|FEET|M)\b\.?(?:\s*(ALT|AMSL|MSL|AGL|SFC|GND)\b)?)/i;
@@ -97,14 +95,14 @@ export function parseUkLimitPrefix(text: string | undefined): { limit: UkLimit |
   if (m[2]) return { limit: { unlimited: true, raw }, rest };
   if (m[3]) {
     const fl = Number(m[3]);
-    return { limit: { meters: round1(fl * 100 * FT), reference: "STD", flightLevel: fl, raw }, rest };
+    return { limit: { meters: round1(parseHeight(fl, "FL")?.m ?? 0), reference: "STD", flightLevel: fl, raw }, rest };
   }
   const n = Number(m[4].replace(/,/g, ""));
   if (!Number.isFinite(n)) return { limit: null, rest: s.trim() };
   const isFt = !/^M$/i.test(m[5]);
-  const refRaw = (m[6] ?? "").toUpperCase();
-  const reference: UkReference = refRaw === "AGL" || refRaw === "SFC" || refRaw === "GND" ? "AGL" : "MSL";
-  const meters = round1(isFt ? n * FT : n);
+  // Bezug: AGL/SFC/GND → AGL, sonst (ALT/AMSL/MSL bzw. ohne Angabe) MSL.
+  const reference: UkReference = normalizeVRef(m[6]).ref === "AGL" ? "AGL" : "MSL";
+  const meters = round1(parseHeight(n, isFt ? "ft" : "m")?.m ?? n);
   return { limit: { meters, reference, feet: isFt ? n : undefined, raw }, rest };
 }
 
@@ -536,8 +534,7 @@ export function buildUkMessageDe(folder: UkFolder, d: UkParsedDescription, isFrz
   }
   if (exemptions) hints.push("Ausnahmen bzw. Bedingungen für bestimmte Flüge (z. B. Behörden, Rettungsdienste, mit Erlaubnis) – Wortlaut im Originaltext.");
   if (untranslated) hints.push("Weitere Bestimmungen nur im englischen Originaltext (siehe unten).");
-  if (hints.length === 1) lines.push(`Hinweis: ${hints[0]}`);
-  else if (hints.length > 1) lines.push("Hinweise:", ...hints.map((h) => `– ${h}`));
+  pushHints(lines, hints);
   if (d.service) lines.push(`Funk/Dienst: ${germanizeServiceText(d.service)}`);
   if (d.contact) lines.push(`Kontakt: ${germanizeServiceText(d.contact)}`);
   if (d.authority) lines.push(`Zuständig: ${d.authority}`);
@@ -548,10 +545,7 @@ export function buildUkMessageDe(folder: UkFolder, d: UkParsedDescription, isFrz
   lines.push(`Quelle: ${GB_GEOZONE_SOURCE_LABEL} – nur zur Information, nicht zur Navigation. Kurzfristige Beschränkungen (NOTAMs) und aktuelle Aktivierungen sind in dieser Karte nicht enthalten – vor dem Flug zusätzlich prüfen.`);
   // Seitliche Grenzen (Koordinatenliste) nur, wenn kurz – lange Listen zeigt die Karte.
   const original = [d.lateral && d.lateral.length <= UK_MAX_LATERAL_TEXT ? d.lateral : "", d.englishText].filter(Boolean).join("\n");
-  if (original) {
-    lines.push("", "Originaltext der Behörde:", original);
-  }
-  return lines.join("\n");
+  return messageWithOriginal(lines, original);
 }
 
 export interface UkNormalizeOptions {
@@ -591,12 +585,7 @@ export function normalizeUkPlacemark(
     lowerReference: lowerRef,
     upperReference: d.upper?.reference ?? (d.upper?.unlimited ? "MSL" : "AGL"),
     message,
-    extendedProperties: {
-      localizedMessages: [
-        { language: "de", message },
-        ...(d.englishText ? [{ language: "en", message: d.englishText }] : []),
-      ],
-    },
+    extendedProperties: localizedExtendedProperties(message, d.englishText, "en"),
     country: "GBR",
     source: GB_GEOZONE_SOURCE_LABEL,
     ukZoneType: folder,

@@ -17,7 +17,7 @@ import {
   getGeozoneTileAttribution,
   hasGeozoneTileOverlay,
   buildVectorGeozoneTileUrl,
-  queryEd269CachedFeatures,
+  queryEd269CachedFeaturesWithStatus,
   GEOZONE_TILE_MIN_ZOOM,
   loadMapStyle,
   saveMapStyle,
@@ -26,6 +26,7 @@ import {
 } from "@/lib/geozones";
 import { getVectorMinZoom, loadsFullCountryVectorZones, isRasterTiledVectorCountry, GEOZONE_VECTOR_MAX_RADIUS_KM, GEOZONE_VECTOR_MAX_FEATURES } from "@/lib/geozoneZoom";
 import { simplifyRingGroup, smoothRingGroup } from "@/lib/ringSimplify";
+import { geozoneTruncationHint } from "../../../shared/checks/builders";
 import { isZoneActiveInContext } from "@/lib/ed269";
 import { findNearbyCtrAirports, CTR_AIRPORTS } from "@/lib/ctrData";
 import { getCtrBandRings, getCtrLegendEntries, getCtrProvisionalNote } from "@/lib/ctrAltitude";
@@ -608,6 +609,8 @@ const MapPicker = forwardRef<MapPickerRef, MapPickerProps>(
     // Pro-Land geladene Vektor-Zonen (ED-269). Lade-Effekt füllt die Ref und
     // erhöht den Versions-Zähler, damit das stateJson neu berechnet wird.
     const vzByIsoRef = useRef<Record<string, GeozoneFeatureInfo[]>>({});
+    // Länder mit gekürzter Zonenliste (B7/S7: Hinweis statt stiller Kürzung).
+    const vzTruncatedRef = useRef<Set<string>>(new Set());
     const [vzVersion, setVzVersion] = useState(0);
 
     useEffect(() => {
@@ -620,6 +623,7 @@ const MapPicker = forwardRef<MapPickerRef, MapPickerProps>(
       for (const iso of Object.keys(vzByIsoRef.current)) {
         if (!active.includes(iso)) {
           delete vzByIsoRef.current[iso];
+          vzTruncatedRef.current.delete(iso);
           changed = true;
         }
       }
@@ -632,7 +636,7 @@ const MapPicker = forwardRef<MapPickerRef, MapPickerProps>(
       (async () => {
         for (const iso of active) {
           try {
-            const feats = await queryEd269CachedFeatures(
+            const r = await queryEd269CachedFeaturesWithStatus(
               viewport.latitude,
               viewport.longitude,
               radiusKm,
@@ -643,7 +647,9 @@ const MapPicker = forwardRef<MapPickerRef, MapPickerProps>(
               iso === "DE" && !useViewportCountries && geozoneLayers?.length ? { layers: geozoneLayers } : undefined,
             );
             if (cancelled) return;
-            vzByIsoRef.current[iso] = feats;
+            vzByIsoRef.current[iso] = r.zones;
+            if (r.truncated) vzTruncatedRef.current.add(iso);
+            else vzTruncatedRef.current.delete(iso);
             setVzVersion((v) => v + 1);
           } catch {
             // Vorherige Zonen dieses Landes beibehalten (kein Flackern bei Fehlern).
@@ -653,6 +659,11 @@ const MapPicker = forwardRef<MapPickerRef, MapPickerProps>(
 
       return () => { cancelled = true; };
     }, [vectorCountries, viewport?.latitude, viewport?.longitude, viewport?.latitudeDelta, viewZoom]);
+
+    const vzTruncated = useMemo(() => {
+      void vzVersion;
+      return vectorCountries.some((iso) => vzTruncatedRef.current.has(iso));
+    }, [vzVersion, vectorCountries]);
 
     const vzPolys = useMemo(() => {
       void vzVersion;
@@ -873,6 +884,16 @@ const MapPicker = forwardRef<MapPickerRef, MapPickerProps>(
                 ? `${lockedNames[0]}: Land freischalten`
                 : `Land freischalten: ${lockedNames.join(", ")}`}
             </Text>
+          </View>
+        ) : null}
+        {vzTruncated ? (
+          <View
+            style={[lockedHintStyles.container, { top: lockedNames.length > 0 ? 56 : 16 }]}
+            pointerEvents="none"
+            testID="hint-geozones-truncated"
+          >
+            <Feather name="zoom-in" size={13} color="#FFFFFF" />
+            <Text style={lockedHintStyles.text}>{geozoneTruncationHint(GEOZONE_VECTOR_MAX_FEATURES)}</Text>
           </View>
         ) : null}
         {showMapStyleSwitcher ? (

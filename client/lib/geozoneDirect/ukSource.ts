@@ -2,7 +2,7 @@
 // Siehe docs/uk-geozones-integration.md und shared/ukGeozones.ts.
 //
 //  1. GET https://www.google.com/maps/d/kml?mid=…&forcekml=1 → KML (~2 MB, ohne Anmeldung)
-//  2. KML parsen (shared/kmlParse.ts) → normalisieren (shared/ukGeozones.ts)
+//  2. KML parsen (shared/geozoneKit/kml.ts) → normalisieren (shared/ukGeozones.ts)
 //
 // Live geprüft am 2026-11-15 (1069 Placemarks). Keine Versionsinfo in der
 // Quelle → bei jedem Aktualisieren vollständig neu laden.

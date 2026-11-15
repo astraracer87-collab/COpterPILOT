@@ -20,6 +20,9 @@ export type Ed269LocalQuery = {
   // Nur Zonen mit Gültigkeitsdauer < N Tagen (temporäre, NOTAM-artige Zonen).
   maxValidityDays?: number;
   now?: number;
+  // Wird gesetzt, wenn `limit` Treffer abgeschnitten hat (B7/S7: Hinweis
+  // „hineinzoomen“ statt stiller Kürzung). total = Treffer vor der Kürzung.
+  stats?: { truncated?: boolean; total?: number };
 };
 
 function bboxIntersects(
@@ -93,6 +96,10 @@ export function queryEd269Features(
         const dy = (fb[1] + fb[3]) / 2 - cy;
         return dx * dx + dy * dy;
       };
+      if (q.stats) {
+        q.stats.truncated = true;
+        q.stats.total = feats.length;
+      }
       feats = [...feats].sort((a, b) => dist2(a) - dist2(b)).slice(0, q.limit);
     }
   }

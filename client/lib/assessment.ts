@@ -8,6 +8,7 @@ import { getNightFlightRule } from "@/lib/countryInfo";
 import type { LimitExceedance } from "@/lib/droneRecommendation";
 import type { RestrictionVerdict } from "../../shared/restrictionPolicy";
 import { RESTRICTION_NOGO_TEXT, RESTRICTION_NOGO_TIP } from "../../shared/checks/builders";
+import { FT_M } from "../../shared/heights";
 
 export { RESTRICTION_NOGO_TEXT };
 
@@ -629,7 +630,7 @@ export function assessWeather(
     }
 
     if (a.ceilingFt != null) {
-      const ceilingM = Math.round(a.ceilingFt * 0.3048);
+      const ceilingM = Math.round(a.ceilingFt * FT_M);
       if (ceilingM < limits.minCloudCeiling) {
         warnings.push({
           message: `${where}: gemeldete Wolkenuntergrenze ${ceilingM} m (${a.ceilingFt} ft) unter Minimum (${limits.minCloudCeiling} m)`,

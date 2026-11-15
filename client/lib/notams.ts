@@ -3,6 +3,7 @@ import { getFirForPosition } from "@/lib/firDetection";
 import { isOfflineNow } from "@/lib/network";
 import { getOfflinePackNotams } from "@/lib/offlineStore";
 import { detectCountryFromCoordinates } from "../../shared/countryDetection";
+import { FT_M } from "../../shared/heights";
 
 async function offlineNotamsFor(lat: number, lon: number): Promise<NotamData[] | null> {
   const iso = detectCountryFromCoordinates(lat, lon);
@@ -496,7 +497,7 @@ export function isDroneRelevant(notam: NotamData): boolean {
       if (altMatch) {
         const val = parseInt(altMatch[1], 10);
         const unit = altMatch[2];
-        const meters = unit === "FT" ? val * 0.3048 : val;
+        const meters = unit === "FT" ? val * FT_M : val;
         if (meters <= 150) return true;
       }
     }
@@ -524,7 +525,7 @@ export function formatAltitude(
     const match = s.match(/(\d+)\s*FT/);
     if (match) {
       const ft = parseInt(match[1], 10);
-      const m = Math.round(ft * 0.3048);
+      const m = Math.round(ft * FT_M);
       let base = "";
       if (s.includes("AGL")) base = " AGL";
       else if (s.includes("MSL") || s.includes("AMSL")) base = " MSL";

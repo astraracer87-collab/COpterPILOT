@@ -30,7 +30,7 @@ import type { FlightCheckParamList } from "@/navigation/FlightCheckNavigator";
 import { uncoveredGeozoneSources, sourceCoverageWarning, type GeozoneSourceCoverage } from "@/lib/geozoneCoverage";
 import { zonePolicy, RESTRICTION_POLICY } from "../../shared/restrictionPolicy";
 import { evaluateZones } from "@/lib/flightChecks";
-import { coverageChecks, formatCoverageDataAges, notamChecks, replaceCheckCategories } from "../../shared/checks";
+import { coverageChecks, formatCoverageDataAges, formatCoverageTruncation, notamChecks, replaceCheckCategories } from "../../shared/checks";
 import { detectCountryFromCoordinates } from "../../shared/countryDetection";
 import {
   queryGeozonesInAreaWithCoverage,
@@ -46,6 +46,7 @@ import {
   getCountryGeozoneConfig,
   ringGroupsForZone,
 } from "@/lib/geozones";
+import { GEOZONE_VECTOR_MAX_FEATURES } from "@/lib/geozoneZoom";
 import { findMilLowFlightAreasContaining, findMilLowFlightAreasIntersectingRadius, findMilLowFlightAreasOnRoute, MIL_LOW_FLIGHT_LABEL, MIL_LOW_FLIGHT_ACTIVATION_TEXT, MIL_LOW_FLIGHT_DATA_STAND, MIL_LOW_FLIGHT_SOURCE_URL } from "@/lib/milLowFlight";
 import { smoothRingGroup } from "@/lib/ringSimplify";
 import { isZoneActiveInContext, ed269InactiveInfoText, type ZoneTimeContext } from "@/lib/ed269";
@@ -419,6 +420,8 @@ export default function PreCheckOverviewScreen() {
   const hasCoverageGap = !geozoneLoading && (geozoneError || coverageGaps.length > 0);
   // Datenstand je Land (Quellen-Registry, B5): „Stand: vor X h“
   const geozoneDataAges = formatCoverageDataAges(coverageSources, (iso) => countryName(iso) || iso);
+  // B7/S7: gekürzte Zonenliste sichtbar machen (statt stiller Kürzung).
+  const geozoneTruncation = formatCoverageTruncation(coverageSources, (iso) => countryName(iso) || iso, GEOZONE_VECTOR_MAX_FEATURES);
   const coverageGapWarnings = geozoneError
     ? []
     : coverageGaps.map((g) => sourceCoverageWarning(g, countryName(g.iso) || g.iso));
@@ -928,6 +931,11 @@ export default function PreCheckOverviewScreen() {
               style={[styles.geozoneDetails, { color: coverageSources.some((s) => s.status === "stale") ? "#FF9500" : theme.textTertiary }]}
             >
               {`Geozonen-Daten – ${geozoneDataAges}`}
+            </ThemedText>
+          ) : null}
+          {!geozoneLoading && !geozoneError && geozoneTruncation ? (
+            <ThemedText testID="precheck-geozone-truncated" style={[styles.geozoneDetails, { color: theme.textTertiary }]}>
+              {geozoneTruncation}
             </ThemedText>
           ) : null}
 

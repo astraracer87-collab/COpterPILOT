@@ -71,13 +71,14 @@ import {
   ed269ZonesToNotamRestrictions,
   formatBelgianNotamValidityRange,
 } from "@/lib/ed269Notams";
+import { FT_M } from "../../shared/heights";
 
 type RouteParams = RouteProp<NotamsStackParamList, "Notams">;
 
 function altWithMeters(value: number, unit: string): string {
   const u = (unit || "").toLowerCase();
   if (u === "ft") {
-    const m = Math.round(value * 0.3048);
+    const m = Math.round(value * FT_M);
     return `${Math.round(value)} ft (≈ ${m} m)`;
   }
   if (u === "m") {

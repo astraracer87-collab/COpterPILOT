@@ -14,6 +14,7 @@ import {
   type Visibility,
   type TAFTrend,
 } from "metar-taf-parser";
+import { FT_M } from "../../shared/heights";
 
 // Reine Dekodier-Logik (METAR/TAF -> deutscher Klartext). Bewusst ohne
 // Abhängigkeit zu query-client/expo-constants, damit das Web-Bundle (Vite) diese
@@ -157,7 +158,7 @@ function ceilingText(clouds: ICloud[]): string | null {
     .filter((c) => (c.quantity === CloudQuantity.BKN || c.quantity === CloudQuantity.OVC) && c.height != null)
     .sort((a, b) => (a.height || 0) - (b.height || 0))[0];
   if (!ceil) return null;
-  return `${ceil.height} ft (${Math.round((ceil.height || 0) * 0.3048)} m)`;
+  return `${ceil.height} ft (${Math.round((ceil.height || 0) * FT_M)} m)`;
 }
 
 export function decodeMetar(raw: string): KlartextRow[] {

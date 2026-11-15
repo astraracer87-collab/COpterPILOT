@@ -34,6 +34,7 @@ import {
   type BgFeature,
   type BgNormalizeResult,
 } from "../../../shared/bulgarianGeozones";
+import { fetchWfsPaged } from "../../../shared/geozoneKit/wfs";
 
 export { BG_GEOZONE_SOURCE_LABEL, BG_GEOZONE_ATTRIBUTION };
 
@@ -52,14 +53,14 @@ const DEFAULT_FETCHERS: BulgariaFetchers = { json: directFetchJson, text: direct
 
 /** Alle GeoJSON-Features eines Layers (WFS-Paging). */
 export async function fetchBulgariaLayer(layer: string, fetchJson: FetchJson = directFetchJson): Promise<any[]> {
-  const all: any[] = [];
-  for (let page = 0; page < MAX_PAGES; page++) {
-    const body = await fetchJson(bulgariaWfsUrl(layer, { count: BG_WFS_PAGE_SIZE, startIndex: all.length }), PAGE_TIMEOUT_MS);
-    const feats: any[] = Array.isArray(body?.features) ? body.features : [];
-    all.push(...feats);
-    if (!bulgariaWfsHasMore(body, all.length, BG_WFS_PAGE_SIZE)) break;
-  }
-  return all;
+  return fetchWfsPaged({
+    pageUrl: (startIndex, count) => bulgariaWfsUrl(layer, { count, startIndex }),
+    fetchJson,
+    pageSize: BG_WFS_PAGE_SIZE,
+    maxPages: MAX_PAGES,
+    timeoutMs: PAGE_TIMEOUT_MS,
+    hasMore: bulgariaWfsHasMore,
+  });
 }
 
 /** FID → WKT in voller Präzision (CSV-Ausgabe, paginiert); bei Fehler leer. */

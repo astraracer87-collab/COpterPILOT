@@ -604,7 +604,7 @@ describe("parseEd269ToGeozoneInfo – Geometrie & Filterung", () => {
     assert.equal(out.length, 1);
     assert.equal(out[0].validStartTs, Date.parse("2026-01-01T00:00:00Z"));
     assert.equal(out[0].validEndTs, Date.parse("2027-01-01T00:00:00Z"));
-    assert.deepEqual(out[0].scheduleText, ["Mo, Mi, Fr · 08:30–10:45 Uhr"]);
+    assert.deepEqual(out[0].scheduleText, ["Mo, Mi, Fr · 08:30–10:45 UTC"]);
     assert.equal(out[0].notamEligible, true);
   });
 

@@ -90,7 +90,18 @@
 //
 // Bewusst frei von React-Native-Importen (unter tsx/Node testbar); keine
 // Lookbehinds und keine \p{…}-Klassen (Hermes-kompatibel).
-import { wktToAreaGeometry } from "./wktParse";
+import { wktToAreaGeometry } from "./geozoneKit/wkt";
+import { FT_M, mToFt, parseHeight } from "./geozoneKit/heights";
+import { collapseWhitespace } from "./geozoneKit/text";
+import {
+  heightLineDe,
+  localizedExtendedProperties,
+  messageWithOriginal,
+  originalBlock,
+  pushHints,
+  sourceLineDe,
+} from "./geozoneKit/messages";
+import { wfsGetFeatureUrl, wfsHasMore } from "./geozoneKit/wfs";
 
 export const BG_GEOZONE_SOURCE_LABEL = "ГД ГВА / CAA Bulgaria";
 export const BG_GEOZONE_ATTRIBUTION = "© ГД ГВА (CAA Bulgaria)";
@@ -104,9 +115,9 @@ export const BG_FLIGHT_ZONES_LAYER = "caa-uas:VGeoFlightZonesPublic";
 export const BG_WFS_PAGE_SIZE = 1000;
 
 /** 500 ft in Metern – Untergrenzen darüber (AGL) sind für Drohnen irrelevant. */
-export const BG_MAX_LOWER_AGL_M = 500 * 0.3048;
+export const BG_MAX_LOWER_AGL_M = 500 * FT_M;
 /** FL125 in Metern (Druckhöhe ≈ AMSL) – Untergrenzen darüber werden verworfen. */
-export const BG_MAX_LOWER_MSL_M = 12_500 * 0.3048;
+export const BG_MAX_LOWER_MSL_M = 12_500 * FT_M;
 /** Ende weiter als 5 Jahre in der Zukunft → Platzhalter für „dauerhaft“. */
 const LONG_TERM_MS = 5 * 365 * 24 * 3600 * 1000;
 
@@ -137,18 +148,7 @@ export function bulgariaWfsUrl(
   layer: string,
   opts: { base?: string; count?: number; startIndex?: number; outputFormat?: string; propertyName?: string } = {},
 ): string {
-  const params = [
-    "service=WFS",
-    "version=2.0.0",
-    "request=GetFeature",
-    `typeNames=${layer}`,
-    "srsName=EPSG:4326",
-    `outputFormat=${encodeURIComponent(opts.outputFormat ?? "application/json")}`,
-  ];
-  if (opts.propertyName) params.push(`propertyName=${opts.propertyName}`);
-  if (opts.count != null) params.push(`count=${opts.count}`);
-  if (opts.startIndex != null && opts.startIndex > 0) params.push(`startIndex=${opts.startIndex}`);
-  return `${opts.base ?? BG_WFS_URL}?${params.join("&")}`;
+  return wfsGetFeatureUrl({ ...opts, base: opts.base ?? BG_WFS_URL, layer });
 }
 
 /** CSV-Variante (nur FID, zone_id, shape) – liefert die Geometrie in voller Präzision. */
@@ -158,11 +158,7 @@ export function bulgariaWfsCsvUrl(layer: string, opts: { count?: number; startIn
 
 /** Weitere GeoJSON-Seite nötig? (numberMatched/totalFeatures, sonst Seitengröße). */
 export function bulgariaWfsHasMore(body: any, collected: number, pageSize: number): boolean {
-  const got = Array.isArray(body?.features) ? body.features.length : 0;
-  if (got === 0) return false;
-  const matched = Number(body?.numberMatched ?? body?.totalFeatures);
-  if (Number.isFinite(matched) && matched >= 0) return collected < matched;
-  return got >= pageSize;
+  return wfsHasMore(body, collected, pageSize);
 }
 
 /** Minimaler RFC-4180-CSV-Parser (Anführungszeichen, "" und Zeilenumbrüche in Feldern). */
@@ -334,9 +330,7 @@ export function hasCyrillic(s: string): boolean {
   return /[Ѐ-ӿ]/.test(String(s ?? ""));
 }
 
-function clean(v: unknown): string {
-  return String(v ?? "").replace(/\s+/g, " ").trim();
-}
+const clean = collapseWhitespace;
 
 function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -707,27 +701,28 @@ export function parseBgLimit(raw: unknown): BgLimit | null {
   if (!s) return null;
   if (s === "GND" || s === "SFC" || s === "0") return { meters: 0, reference: "AGL", raw: s };
   if (s === "UNL" || s === "UNLIMITED") return null;
-  let m = s.match(/^FL\s*(\d{1,3})$/);
+  // BULATSA-Schreibweisen prüfen; Umrechnung/Bezug über den gemeinsamen Parser.
+  // Ohne Angabe gilt ft AMSL (AIP-Konvention).
+  const m = s.match(/^FL\s*(\d{1,3})$/);
   if (m) {
     const fl = Number(m[1]);
-    return { meters: fl * 100 * 0.3048, reference: "MSL", fl, raw: s };
+    return { meters: parseHeight(s)?.m ?? 0, reference: "MSL", fl, raw: s };
   }
-  m = s.match(/^(\d+(?:[.,]\d+)?)\s*(FT|F|M)?\s*(AMSL|MSL|AGL|AGND|GND|SFC|ALT|HGT)?$/);
-  if (m) {
-    const n = Number(m[1].replace(",", "."));
-    const meters = m[2] === "M" ? n : n * 0.3048;
-    const ref = m[3] === "AGL" || m[3] === "AGND" || m[3] === "GND" || m[3] === "SFC" || m[3] === "HGT" ? "AGL" : "MSL";
-    return { meters, reference: ref, raw: s };
+  if (BG_LIMIT_RE.test(s)) {
+    const h = parseHeight(s, "FT", "AMSL");
+    if (h && h.m != null) return { meters: h.m, reference: h.ref === "AGL" ? "AGL" : "MSL", raw: s };
   }
   return null;
 }
+
+const BG_LIMIT_RE = /^\d+(?:[.,]\d+)?\s*(?:FT|F|M)?\s*(?:AMSL|MSL|AGL|AGND|GND|SFC|ALT|HGT)?$/;
 
 export function formatBgLimitDe(l: BgLimit | null | undefined): string {
   if (!l) return "ohne Obergrenze";
   if (l.meters === 0 && l.reference === "AGL") return "Boden (GND)";
   if (l.fl != null) return `FL ${l.fl} (≈ ${Math.round(l.meters)} m AMSL)`;
   if (/FT|F\b/.test(l.raw) || !/M\b/.test(l.raw)) {
-    const ft = Math.round(l.meters / 0.3048);
+    const ft = Math.round(mToFt(l.meters));
     return `${ft} ft ${l.reference === "AGL" ? "über Grund" : "AMSL"} (≈ ${Math.round(l.meters)} m)`;
   }
   return `${Math.round(l.meters)} m ${l.reference === "AGL" ? "über Grund" : "AMSL"}`;
@@ -844,7 +839,7 @@ function phoneDe(phone: string): string {
 }
 
 function sourceLine(): string {
-  return `Quelle: ${BG_GEOZONE_SOURCE_LABEL} – ${BG_GEOZONE_ATTRIBUTION}. Nur zur Information, nicht zur Navigation; NOTAMs zusätzlich prüfen.`;
+  return sourceLineDe(BG_GEOZONE_SOURCE_LABEL, BG_GEOZONE_ATTRIBUTION);
 }
 
 function validityLines(v: BgValidity): string[] {
@@ -859,23 +854,6 @@ function validityLines(v: BgValidity): string[] {
   return lines;
 }
 
-function pushHints(lines: string[], hints: string[]): void {
-  if (hints.length === 1) lines.push(`Hinweis: ${hints[0]}`);
-  else if (hints.length > 1) lines.push("Hinweise:", ...hints.map((h) => `– ${h}`));
-}
-
-/** Text gehört in den Originalblock, wenn er kyrillisch oder übersetzt ist. */
-function originalBlock(parts: (string | null | undefined)[]): string {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const p of parts) {
-    const s = String(p ?? "").replace(/\r\n/g, "\n").trim();
-    if (!s || seen.has(s)) continue;
-    seen.add(s);
-    out.push(s);
-  }
-  return out.join("\n");
-}
 
 export interface BgMessage {
   message: string;
@@ -907,7 +885,7 @@ export function buildBgCaaMessage(
   } else if (!["PROHIBITED", "REQ_AUTHORISATION", "CONDITIONAL"].includes(decision.source)) {
     lines.push("Hinweis zur Einstufung: Kategorie der Behörde unbekannt – vorsichtshalber als genehmigungspflichtig eingestuft.");
   }
-  lines.push(`Höhe laut Behörde: ${formatBgLimitDe(heights.lower)} bis ${heights.upper ? formatBgLimitDe(heights.upper) : "ohne Obergrenze"}`);
+  lines.push(heightLineDe(formatBgLimitDe(heights.lower), heights.upper ? formatBgLimitDe(heights.upper) : "ohne Obergrenze"));
   lines.push(...validityLines(validity));
   if (p.is_uspace === true) lines.push("U-Space: ja (U-Space-Luftraum)");
 
@@ -951,8 +929,7 @@ export function buildBgCaaMessage(
         hasCyrillic(contact) ? contact : null,
       ])
     : "";
-  if (original) lines.push("", "Originaltext der Behörde:", original);
-  return { message: lines.join("\n"), original, untranslated };
+  return { message: messageWithOriginal(lines, original), original, untranslated };
 }
 
 /** Deutsche Beschreibung eines BULATSA-Luftraumgebiets + Originaltext. */
@@ -977,7 +954,7 @@ export function buildBgBulatsaMessage(
   );
   const lo = lower ? formatBgLimitDe(lower) : clean(p.bflip_vertical_lower) || "Boden (GND)";
   const up = upper ? formatBgLimitDe(upper) : clean(p.bflip_vertical_upper) || "ohne Obergrenze";
-  lines.push(`Höhe laut Quelle: ${lo} bis ${up}`);
+  lines.push(heightLineDe(lo, up, "Quelle"));
   if (!clean(p.bflip_vertical_upper).match(/AMSL|AGL|FL|GND|SFC/i) && upper && upper.fl == null) {
     lines.push("Hinweis: Obergrenze ohne Bezugsangabe – als AMSL (über Meeresspiegel) gewertet.");
   }
@@ -998,8 +975,7 @@ export function buildBgBulatsaMessage(
     zoneType,
     remark.de.length > 0 || hasCyrillic(String(p.remark ?? "")) ? p.remark : null,
   ]);
-  if (original) lines.push("", "Originaltext der Behörde:", original);
-  return { message: lines.join("\n"), original, untranslated: remark.untranslated };
+  return { message: messageWithOriginal(lines, original), original, untranslated: remark.untranslated };
 }
 
 // ---------------------------------------------------------------------------
@@ -1066,9 +1042,7 @@ export function normalizeBgCaaFeature(raw: any, opts: BgNormalizeOptions = {}): 
     upperMeters: heights.upper?.meters,
     upperReference: "AGL",
     message,
-    extendedProperties: {
-      localizedMessages: [{ language: "de", message }, ...(original ? [{ language: "bg", message: original }] : [])],
-    },
+    extendedProperties: localizedExtendedProperties(message, original, "bg"),
     validStartTs: validity.validStartTs,
     validEndTs: validity.validEndTs,
     applicability: applicability(validity),
@@ -1119,9 +1093,7 @@ export function normalizeBgBulatsaFeature(raw: any, opts: BgNormalizeOptions = {
     upperMeters: upper && upper.meters > lower.meters ? upper.meters : undefined,
     upperReference: upper?.reference ?? "MSL",
     message,
-    extendedProperties: {
-      localizedMessages: [{ language: "de", message }, ...(original ? [{ language: "bg", message: original }] : [])],
-    },
+    extendedProperties: localizedExtendedProperties(message, original, "bg"),
     validStartTs: validity.validStartTs,
     validEndTs: validity.validEndTs,
     applicability: applicability(validity),

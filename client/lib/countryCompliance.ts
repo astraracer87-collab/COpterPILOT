@@ -63,6 +63,23 @@ export function getAlphaTangoFrStatus(drone: DroneProfile): AlphaTangoFrStatus {
   return drone.alphaTangoDocument ? "required-done" : "required-open";
 }
 
+/**
+ * EINE Quelle (Review I7) für „AlphaTango fehlt“: Pflicht laut
+ * needsAlphaTangoRegistration (≥ 800 g ODER Remote-ID) und keine Bestätigung
+ * hinterlegt. Gilt für die Compliance-Liste (fr_alphatango), die Drohnenliste
+ * und die Planungssperre (PlanningRestrictionsScreen).
+ */
+export function isAlphaTangoMissing(drone: DroneProfile): boolean {
+  return getAlphaTangoFrStatus(drone) === "required-open";
+}
+
+/** Begründung der Pflicht für Texte („wiegt … g“ bzw. „Remote-ID“). */
+export function alphaTangoRequirementReason(drone: DroneProfile): string {
+  return drone.mtomGrams >= 800
+    ? `Deine Drohne wiegt ${drone.mtomGrams} g (>= 800 g).`
+    : "Deine Drohne ist mit einem elektronischen Signalgerät (Remote-ID) ausgestattet.";
+}
+
 const EU_BASE_RULES: ((drone: DroneProfile, pilot: PilotProfile) => ComplianceItem | null)[] = [
   (_drone, pilot) => {
     if (!pilot.operatorId && !pilot.operatorRegistered) {
@@ -191,11 +208,8 @@ const COUNTRY_RULES: CountryRuleSet[] = [
     mapLabel: "Geoportail Drones",
     rules: [
       (drone) => {
-        if (needsAlphaTangoRegistration(drone) && !drone.alphaTangoDocument) {
-          const reason =
-            drone.mtomGrams >= 800
-              ? `Deine Drohne wiegt ${drone.mtomGrams} g (>= 800 g).`
-              : "Deine Drohne ist mit einem elektronischen Signalgerät (Remote-ID) ausgestattet.";
+        if (isAlphaTangoMissing(drone)) {
+          const reason = alphaTangoRequirementReason(drone);
           return {
             id: "fr_alphatango",
             category: "drone",

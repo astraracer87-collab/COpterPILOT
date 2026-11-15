@@ -16,10 +16,10 @@ import { directFetchJson, finalizeDirectFeatures } from "./directFetchUtil";
 import {
   CY_GEOZONE_ATTRIBUTION,
   CY_GEOZONE_SOURCE_LABEL,
-  cyprusArcgisPage,
   cyprusQueryUrl,
   normalizeCyprusZonesWithStats,
 } from "../../../shared/cypriotGeozones";
+import { fetchArcgisPaged } from "../../../shared/geozoneKit/arcgis";
 
 export { CY_GEOZONE_SOURCE_LABEL, CY_GEOZONE_ATTRIBUTION };
 
@@ -31,14 +31,13 @@ type FetchJson = (url: string, timeoutMs?: number) => Promise<any>;
 
 /** Alle Rohfeatures des Zonen-Layers seitenweise laden. */
 export async function fetchCyprusRaw(fetchJson: FetchJson = directFetchJson): Promise<any[]> {
-  const all: any[] = [];
-  for (let page = 0; page < MAX_PAGES; page++) {
-    const { features, exceeded } = cyprusArcgisPage(await fetchJson(cyprusQueryUrl(all.length, PAGE_SIZE), PAGE_TIMEOUT_MS));
-    all.push(...features);
-    if (features.length === 0) break;
-    if (!exceeded && features.length < PAGE_SIZE) break;
-  }
-  return all;
+  return fetchArcgisPaged({
+    pageUrl: (offset, count) => cyprusQueryUrl(offset, count),
+    fetchJson,
+    pageSize: PAGE_SIZE,
+    maxPages: MAX_PAGES,
+    timeoutMs: PAGE_TIMEOUT_MS,
+  });
 }
 
 /** Laden + normalisieren (testbar mit eigenem fetchJson). */

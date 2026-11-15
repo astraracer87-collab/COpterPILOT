@@ -333,6 +333,8 @@ export interface TiledQueryOptions {
   layers?: string[];
   /** höchstens so viele Zonen (die der Mitte nächsten) */
   limit?: number;
+  /** wird gesetzt, wenn `limit` Treffer abgeschnitten hat */
+  stats?: { truncated?: boolean; total?: number };
   /** DE: temporäre Beschränkungen mitliefern (Standard: ja) */
   includeTemp?: boolean;
 }
@@ -354,10 +356,10 @@ export async function queryTiledGeozones(
   const layerSet = iso === "DE" && opts.layers && opts.layers.length > 0 ? new Set(opts.layers) : null;
   const filter = layerSet ? (id: string) => layerSet.has(dipulLayerOfId(id)) : undefined;
   const zones: GeozoneFeatureInfo[] = [];
-  zones.push(...(await readZones(iso, "base", base, queryIndex(base, bbox, { filter, limit: opts.limit }))));
+  zones.push(...(await readZones(iso, "base", base, queryIndex(base, bbox, { filter, limit: opts.limit, stats: opts.stats }))));
   if (iso === "DE" && (!layerSet || layerSet.has(DIPUL_WOHN_LAYER))) {
     const wohn = await getLoadedIndex(iso, "wohn");
-    if (wohn) zones.push(...(await readZones(iso, "wohn", wohn, queryIndex(wohn, bbox, { limit: opts.limit }))));
+    if (wohn) zones.push(...(await readZones(iso, "wohn", wohn, queryIndex(wohn, bbox, { limit: opts.limit, stats: opts.stats }))));
   }
   if (iso === "DE" && opts.includeTemp !== false && (!layerSet || layerSet.has(DIPUL_TEMP_LAYER))) {
     zones.push(...(await getDeTempZones(bbox)));

@@ -22,6 +22,7 @@ import { isZoneActiveInContext, ed269InactiveInfoText, type ZoneTimeContext } fr
 import { uncoveredGeozoneSources, geozoneCoverageWarning, sourceCoverageWarning, type GeozoneSourceCoverage } from "@/lib/geozoneCoverage";
 import { countryName } from "../../shared/countryEntitlements";
 import { queryGeozonesInAreaWithCoverage, GeozoneFeatureInfo, DipulGeozoneSourceStatus, separateTempRestrictions, getCountryGeozoneConfig, getCountriesInRadius, DipulTempRestriction, DipulTempRestrictionsResult, fetchNearbyTempRestrictionsRaw, loadRadarSettings, saveRadarSettings } from "@/lib/geozones";
+import { GEOZONE_VECTOR_MAX_FEATURES } from "@/lib/geozoneZoom";
 import { getTilePartMeta } from "@/lib/geozoneTiles/tileStore";
 import { TILE_STORE_ATTRIBUTION } from "@/lib/geozoneTiles/tileStoreCore";
 import { fetchTerrainEstimate } from "@/lib/elevation";
@@ -34,10 +35,16 @@ import { windFacilitiesAsGeozones, supplementalLinesAsGeozones, supplementalInfr
 import { getGermanWindFacility100mPoints, getRadarEnergyInfrastructureItems, getEnergyInfrastructureCountry } from "../../shared/germanEnergyInfrastructure";
 import { useGermanEnergyInfrastructure } from "@/lib/useGermanEnergyInfrastructure";
 import { WILDLIFE_RESCUE_MODE_TITLE, WILDLIFE_RESCUE_PLANNING_HINT } from "../../shared/wildlifeRescue";
-import { checkCountryCompliance, ComplianceResult, ComplianceItem } from "@/lib/countryCompliance";
+import {
+  checkCountryCompliance,
+  ComplianceResult,
+  ComplianceItem,
+  isAlphaTangoMissing,
+  alphaTangoRequirementReason,
+} from "@/lib/countryCompliance";
 import { getNightFlightRule } from "@/lib/countryInfo";
 import { nightFlightCountry } from "@/lib/assessment";
-import { geozoneChecks, coverageChecks, complianceChecks, formatCoverageDataAges, replaceCheckCategories, type CheckResult, type CheckOverride } from "../../shared/checks";
+import { geozoneChecks, coverageChecks, complianceChecks, formatCoverageDataAges, formatCoverageTruncation, replaceCheckCategories, type CheckResult, type CheckOverride } from "../../shared/checks";
 import { isFlightWindowDuringNight } from "@/lib/solar";
 import { detectBundeslandFromCoordinates } from "@/lib/countryMaps";
 import { hasOwnMap } from "../../shared/countryDetection";
@@ -406,6 +413,8 @@ export default function PlanningRestrictionsScreen() {
   const hasCoverageGap = !loading && (errorGap || unresolvedCoverageGaps.length > 0);
   // Datenstand je Land (Quellen-Registry, B5): „Stand: vor X h“
   const geozoneDataAges = formatCoverageDataAges(coverageSources, (iso) => countryName(iso) || iso);
+  // B7/S7: gekürzte Zonenliste sichtbar machen (statt stiller Kürzung).
+  const geozoneTruncation = formatCoverageTruncation(coverageSources, (iso) => countryName(iso) || iso, GEOZONE_VECTOR_MAX_FEATURES);
   const coverageGapWarnings = errorGap
     ? [geozoneCoverageWarning(countryName(countryIso) || countryIso || "den Standort")]
     : unresolvedCoverageGaps.map((g) => sourceCoverageWarning(g, countryName(g.iso) || g.iso));
@@ -629,7 +638,7 @@ export default function PlanningRestrictionsScreen() {
     const nightNote = buildNightNote();
     const userNotes = notes.trim();
     const alphaTangoNote =
-      "FR-Flug ohne AlphaTango-Registrierung an der Drohne gestartet (Pilot hat trotz Hinweis fortgesetzt — Verstoß gegen DGAC-Pflicht ab MTOM 800 g).";
+      "FR-Flug ohne AlphaTango-Registrierung an der Drohne gestartet (Pilot hat trotz Hinweis fortgesetzt — Verstoß gegen DGAC-Pflicht ab MTOM 800 g bzw. mit Remote-ID).";
     const restrictionNotes = composeRestrictionNotes([
       exemptionNote,
       prohibitedOverrideNote,
@@ -672,19 +681,15 @@ export default function PlanningRestrictionsScreen() {
   };
 
   const handleContinue = () => {
-    // FR + MTOM >= 800 g + keine AlphaTango-ID an der Drohne hinterlegt
-    // → harter Blocker mit "Flug abbrechen / Trotzdem fortfahren"
-    // analog zu Geozonen-Blocker. Bei "Trotzdem fortfahren" wird der
+    // FR + AlphaTango-Pflicht (≥ 800 g ODER Remote-ID) ohne hinterlegte
+    // Bestätigung → harter Blocker mit "Flug abbrechen / Trotzdem fortfahren"
+    // analog zu Geozonen-Blocker. Gleiche Regel wie die Compliance-Liste
+    // (isAlphaTangoMissing, B7/I7). Bei "Trotzdem fortfahren" wird der
     // Verstoß im Flugprotokoll dokumentiert.
-    if (
-      countryIso === "FR" &&
-      droneProfile &&
-      droneProfile.mtomGrams >= 800 &&
-      !(droneProfile.alphaTangoId && droneProfile.alphaTangoId.trim())
-    ) {
+    if (countryIso === "FR" && droneProfile && isAlphaTangoMissing(droneProfile)) {
       Alert.alert(
         "AlphaTango-Registrierung fehlt",
-        `Für ${droneProfile.name} (MTOM ${droneProfile.mtomGrams} g) ist in Frankreich eine AlphaTango-Registrierung der Drohne zwingend vorgeschrieben. Die FRA-Nummer ist nicht hinterlegt – ein Flug ist so nicht legal möglich.\n\nDu kannst die Planung abbrechen und die FRA-Nummer im Drohnen-Setup eintragen, oder trotzdem fortfahren. Bei "Trotzdem fortfahren" wird im Flugprotokoll vermerkt, dass die AlphaTango-Registrierung gefehlt hat.`,
+        `${alphaTangoRequirementReason(droneProfile)} Für ${droneProfile.name} ist in Frankreich eine AlphaTango-Registrierung der Drohne zwingend vorgeschrieben. Die AlphaTango-Bestätigung ist nicht hinterlegt – ein Flug ist so nicht legal möglich.\n\nDu kannst die Planung abbrechen und die Bestätigung (FRA-Nummer + Nachweis) im Drohnen-Setup hinterlegen, oder trotzdem fortfahren. Bei "Trotzdem fortfahren" wird im Flugprotokoll vermerkt, dass die AlphaTango-Registrierung gefehlt hat.`,
         [
           { text: "Planung abbrechen", style: "cancel", onPress: handleAbort },
           {
@@ -1150,6 +1155,11 @@ export default function PlanningRestrictionsScreen() {
             style={[styles.statusDesc, { color: coverageSources.some((s) => s.status === "stale") ? (theme.statusCaution || "#FF9500") : theme.textSecondary, marginBottom: Spacing.sm }]}
           >
             {`Geozonen-Daten – ${geozoneDataAges}`}
+          </ThemedText>
+        ) : null}
+        {!loading && !error && geozoneTruncation ? (
+          <ThemedText testID="planning-geozone-truncated" style={[styles.statusDesc, { color: theme.textSecondary, marginBottom: Spacing.sm }]}>
+            {geozoneTruncation}
           </ThemedText>
         ) : null}
 

@@ -12,6 +12,7 @@
  */
 import * as FileSystem from "expo-file-system/legacy";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { FT_M } from "../../shared/heights";
 
 export const OBSTACLE_TILE_ZOOM = 10;
 const CACHE_DIR = `${FileSystem.documentDirectory}obstacles/`;
@@ -108,7 +109,7 @@ function parseHeight(v: unknown): number | null {
   if (!m) return null;
   let h = parseFloat(m[0]);
   if (!isFinite(h) || h <= 0) return null;
-  if (/ft|'/.test(String(v))) h *= 0.3048;
+  if (/ft|'/.test(String(v))) h *= FT_M;
   return h > 1000 ? null : Math.round(h);
 }
 

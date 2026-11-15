@@ -34,20 +34,22 @@
 // übernommen.
 //
 // Bewusst frei von React-Native-Importen (unter tsx/Node testbar).
-import { wktToAreaGeometry } from "./wktParse";
+import { wktToAreaGeometry } from "./geozoneKit/wkt";
+import { FT_M, parseHeight } from "./geozoneKit/heights";
+import { cleanText as kitCleanText, round1 } from "./geozoneKit/text";
+import { appendOriginalText, localizedExtendedProperties } from "./geozoneKit/messages";
 
 export const HR_GEOZONE_SOURCE_LABEL = "Croatia Control (AMC)";
 export const HR_GEOZONE_ATTRIBUTION = "Quelle: © Hrvatska kontrola zračne plovidbe (Croatia Control) – AMC-Portal";
 export const HR_AMC_PORTAL_URL = "https://amc.crocontrol.hr/amc/maps/";
 
-const FT = 0.3048;
 
 // ---------------------------------------------------------------------------
 // Höhenfilter
 // ---------------------------------------------------------------------------
 
 /** Untergrenze AGL: über 500 ft AGL (152 m) für Drohnen (max. 120 m) irrelevant. */
-export const HR_MAX_RELEVANT_LOWER_AGL_M = 500 * FT;
+export const HR_MAX_RELEVANT_LOWER_AGL_M = 500 * FT_M;
 /**
  * Untergrenze AMSL/FL: höchster Punkt Kroatiens (Dinara, 1831 m) + 120 m
  * Flughöhe + Reserve ≈ 6500 ft AMSL (1981 m). Höher beginnende Gebiete (live:
@@ -55,7 +57,7 @@ export const HR_MAX_RELEVANT_LOWER_AGL_M = 500 * FT;
  * Untergrenze bis 6500 ft bleiben – die App blendet sie per Geländehöhe
  * (shared/geozoneAltitudeFilter.ts) ggf. selbst aus.
  */
-export const HR_MAX_RELEVANT_LOWER_MSL_M = 6500 * FT;
+export const HR_MAX_RELEVANT_LOWER_MSL_M = 6500 * FT_M;
 
 /**
  * AUP-gesteuerte Gebiete (D/TRA/TSA/R/MTA/…) ohne jede Aktivierung in
@@ -191,10 +193,6 @@ export function hrRestrictionForType(type: unknown): string {
 // Höhen
 // ---------------------------------------------------------------------------
 
-function round1(n: number): number {
-  return Math.round(n * 10) / 10;
-}
-
 /**
  * Höhenwert + Einheit → Meter/Bezug.
  * `hundredsFeet`: Einheit „FEET“/„FT“ zählt in Hundert Fuß (SRVC_Reservations).
@@ -204,17 +202,20 @@ export function parseHrAltitude(value: unknown, unit: unknown, opts: { hundredsF
   if (value == null || value === "" || !Number.isFinite(n)) return null;
   const u = String(unit ?? "").trim().toUpperCase().replace(/\s+/g, " ");
   if (n <= 0) return { meters: 0, reference: "AGL", text: "GND" };
-  if (u === "FL") return { meters: round1(n * 100 * FT), reference: "MSL", text: `FL ${n}` };
+  // Umrechnung über den gemeinsamen Parser; Einheit/Bezug liest der AMC-Feed
+  // als Wort („FL“, „ft AMSL“, „M AGL“, „FEET“ …). Ohne AGL-Wort gilt AMSL.
+  const meters = (unitWord: "m" | "ft" | "FL", v: number) => round1(parseHeight(v, unitWord)?.m ?? 0);
+  if (u === "FL") return { meters: meters("FL", n), reference: "MSL", text: `FL ${n}` };
   const agl = /\b(AGL|SFC|GND)\b/.test(u);
   const reference: HrAltitudeReference = agl ? "AGL" : "MSL";
   const refText = agl ? "AGL" : "AMSL";
   if (/^(FEET|FT)$/.test(u) && opts.hundredsFeet) {
     const ft = n * 100;
-    return { meters: round1(ft * FT), reference: "MSL", text: `${ft} ft AMSL` };
+    return { meters: meters("ft", ft), reference: "MSL", text: `${ft} ft AMSL` };
   }
-  if (/^M\b/.test(u)) return { meters: round1(n), reference, text: `${n} m ${refText}` };
+  if (/^M\b/.test(u)) return { meters: meters("m", n), reference, text: `${n} m ${refText}` };
   // „ft AMSL“, „ft AGL“, „FEET“ (ohne Hunderter-Flag), Einheit leer → Fuß.
-  return { meters: round1(n * FT), reference, text: `${Math.round(n)} ft ${refText}` };
+  return { meters: meters("ft", n), reference, text: `${Math.round(n)} ft ${refText}` };
 }
 
 export function hrLowerIsRelevant(lower: HrAltitude | null): boolean {
@@ -304,11 +305,7 @@ function windowLines(windows: Window[]): string[] {
 // ---------------------------------------------------------------------------
 
 function cleanText(s: unknown): string {
-  return String(s ?? "")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\r/g, "")
-    .replace(/[ \t]+/g, " ")
-    .trim();
+  return kitCleanText(s, { tags: "space", paragraphs: false });
 }
 
 /** Koordinatenzusatz „( 45° 19' 29" N, 14° 25' 45" E )“ am Namensende abtrennen. */
@@ -358,15 +355,11 @@ function buildMessageDe(m: MessageInput): string {
     `Quelle: ${HR_GEOZONE_SOURCE_LABEL} – nur zur Information, nicht zur Navigation. Vor dem Flug Genehmigungen und aktuelle Aktivierungen im AMC-Portal prüfen.`,
   );
   const original = [m.legendEn ? `${m.type}: ${m.legendEn}` : "", ...(m.originalLines ?? [])].filter(Boolean);
-  if (original.length > 0) lines.push("", "Originaltext der Behörde:", ...original);
-  return lines.join("\n");
+  return appendOriginalText(lines, original).join("\n");
 }
 
 function localized(message: string, en: string[]): Record<string, any> {
-  const enText = en.filter(Boolean).join("\n");
-  return {
-    localizedMessages: [{ language: "de", message }, ...(enText ? [{ language: "en", message: enText }] : [])],
-  };
+  return localizedExtendedProperties(message, en.filter(Boolean).join("\n"), "en");
 }
 
 function stripUndefined(o: Record<string, any>): Record<string, any> {
