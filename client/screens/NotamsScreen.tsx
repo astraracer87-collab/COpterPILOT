@@ -578,6 +578,7 @@ function NotamMapView({ restrictions, milStatusMap, centerLat, centerLon, focusL
         lonDelta={defaultDelta.longitudeDelta}
         focusLat={focusLat}
         focusLon={focusLon}
+        focusId={focusId}
         countryIso={countryIso}
         mapType={mapType}
         overlays={overlays}

@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { View, StyleSheet, ScrollView, Pressable, ActivityIndicator, Linking, Modal } from "react-native";
 import { HeaderButton } from "@react-navigation/elements";
 import Slider from "@react-native-community/slider";
-import { useRoute, useNavigation } from "@react-navigation/native";
+import { useRoute, useNavigation, useFocusEffect } from "@react-navigation/native";
 import type { RouteProp } from "@react-navigation/native";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -86,7 +86,8 @@ export default function NdFilterFinderScreen() {
 
   const params = route.params ?? {};
 
-  useEffect(() => {
+  // Bei jedem Öffnen neu laden: der Tab bleibt eingehängt, eine eben angelegte Drohne muss sofort erscheinen.
+  useFocusEffect(useCallback(() => {
     let cancelled = false;
     (async () => {
       try {
@@ -102,7 +103,7 @@ export default function NdFilterFinderScreen() {
       }
     })();
     return () => { cancelled = true; };
-  }, [params.droneId]);
+  }, [params.droneId]));
 
   const droneOptions: DroneOption[] = useMemo(() => {
     const opts: DroneOption[] = [];

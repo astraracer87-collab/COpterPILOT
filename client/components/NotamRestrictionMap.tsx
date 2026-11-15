@@ -24,6 +24,7 @@ export interface NotamRestrictionMapProps {
   lonDelta: number;
   focusLat?: number;
   focusLon?: number;
+  focusId?: string;
   countryIso?: string | null;
   mapType: "standard" | "satellite" | "osm" | "grayscale";
   overlays: NotamMapOverlay[];

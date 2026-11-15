@@ -3,6 +3,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View, useColorScheme } 
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import { MAIN_MAP_HTML } from "./TrafficMapView.native";
 import { simplifyRingGroup } from "@/lib/ringSimplify";
+import { overlayBounds } from "@/lib/notamFocusBounds";
 
 export interface NotamMapOverlay {
   id: string;
@@ -22,6 +23,8 @@ export interface NotamRestrictionMapProps {
   lonDelta: number;
   focusLat?: number;
   focusLon?: number;
+  /** ID des fokussierten Overlays: Ausschnitt so wählen, dass die ganze Fläche sichtbar ist. */
+  focusId?: string;
   countryIso?: string | null;
   mapType: "standard" | "satellite" | "osm" | "grayscale";
   overlays: NotamMapOverlay[];
@@ -65,6 +68,7 @@ export default function NotamRestrictionMap({
   lonDelta,
   focusLat,
   focusLon,
+  focusId,
   mapType,
   overlays,
   onMapPress,
@@ -77,10 +81,25 @@ export default function NotamRestrictionMap({
   const [loadError, setLoadError] = useState(false);
   const [attempt, setAttempt] = useState(0);
 
-  const focused = focusLat != null && focusLon != null && validPoint(focusLat, focusLon);
-  const center = focused ? [focusLat as number, focusLon as number] : [centerLat, centerLon];
-  const regionLatDelta = focused ? 0.15 : latDelta;
-  const regionLonDelta = focused ? 0.15 : lonDelta;
+  const focusBox = useMemo(() => {
+    if (!focusId) return null;
+    const o = overlays.find((x) => x.id === focusId);
+    return o ? overlayBounds(o) : null;
+  }, [focusId, overlays]);
+  const focused = focusBox != null || (focusLat != null && focusLon != null && validPoint(focusLat, focusLon));
+  const center = focusBox
+    ? [(focusBox.minLat + focusBox.maxLat) / 2, (focusBox.minLon + focusBox.maxLon) / 2]
+    : focused ? [focusLat as number, focusLon as number] : [centerLat, centerLon];
+  // Ganze Fläche mit Rand zeigen; Längenausdehnung auf Breitengrade umgerechnet (Querformat ist breiter).
+  const boxDelta = focusBox
+    ? Math.max(
+        (focusBox.maxLat - focusBox.minLat) * 1.6,
+        (focusBox.maxLon - focusBox.minLon) * Math.cos((center[0] * Math.PI) / 180) * 0.9,
+        0.02,
+      )
+    : null;
+  const regionLatDelta = boxDelta ?? (focused ? 0.15 : latDelta);
+  const regionLonDelta = boxDelta ?? (focused ? 0.15 : lonDelta);
   const validRegion =
     validPoint(center[0], center[1]) &&
     Number.isFinite(regionLatDelta) &&
