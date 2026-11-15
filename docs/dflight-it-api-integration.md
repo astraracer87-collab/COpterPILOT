@@ -103,17 +103,46 @@ grant_type=password
   credentials“, „Account disabled“.
 - Danach bei allen Daten-Requests `Authorization: Bearer <access_token>` senden.
 
-**Verifiziert (2026-11-15):** Der öffentlich in der Konfiguration liegende
-Client (`client_id: web-app` samt des sichtbaren `clientSecret`) genügt
-**allein nicht**. Ein **Client-Credentials-Grant** (ohne Nutzer) am
-Token-Endpunkt liefert **401** – der Client ist ein reiner Login-Client für
-den Password-Grant, ein Service-Account ist nicht aktiv. Zusätzlich sichert
-ein **API-Gateway** den gesamten `auth-iam`- und Daten-Pfad mit
-`WWW-Authenticate: Bearer` ab; selbst die OIDC-Discovery
-(`.well-known/openid-configuration`) antwortet ohne Token mit 401. Der
-ED-269-Download ist also **erst mit einem echten Nutzer-Token** möglich.
-Genau dafür sind die noch ausstehenden Zugangsdaten nötig; der öffentliche
-Client liefert beim Login nur die `client_id`.
+**Verifiziert (2026-11-15) mit dem Account `coperpilot`:**
+
+1. **Login funktioniert** per Password-Grant – aber über den **kurzen,
+   Gateway-gerouteten Pfad**, nicht über den langen Keycloak-Pfad:
+   ```
+   POST https://www.d-flight.it/auth-iam/token
+   Content-Type: application/x-www-form-urlencoded
+   X-CSRF-Token: <csrf_pub_key aus der Socket-Konfiguration>
+   X-CSRF-Nonce: <von der App erzeugte Nonce>
+
+   grant_type=password&client_id=web-app
+   &scope=openid email profile user-data personal-data pilot-license dflight-identification
+   &username=<user>&password=<klartext>
+   ```
+   Antwort: Keycloak-Token (`access_token`, `refresh_token`, `expires_in` ~300 s).
+   Userinfo analog: `POST https://www.d-flight.it/auth-iam/userinfo`.
+2. **Der Client-Credentials-Grant (ohne Nutzer) scheitert mit 401** – der
+   Client `web-app` ist ein reiner Login-Client, kein Service-Account. Der
+   öffentliche Client liefert also nur die `client_id`; es braucht einen
+   echten Nutzer-Login.
+3. **CSRF ist Pflicht, vom Gateway erzwungen.** Ohne die beiden Header
+   antwortet der Token-Endpunkt mit `403 "Missing Headers CSRF protection
+   policy exception"`. Der `X-CSRF-Token` ist der `general.csrf_pub_key` aus
+   dem Socket-Event `d-flight.hci.configuration`; die `X-CSRF-Nonce` erzeugt
+   die Web-App clientseitig in einem **eigenen Format** (kein Standard-UUIDv4;
+   eine Standard-UUID wird mit `403 "Malformed Headers"` abgelehnt).
+4. **Der ED-269-Download braucht Bearer + dieselben CSRF-Header.** Ein GET auf
+   `/geo-awareness/api/ed-269/geo-zones/download` mit gültigem Bearer, aber
+   ohne CSRF-Header, liefert `401 "Unable to authenticate using the
+   Authorization header"`. Mit korrekten CSRF-Headern (die die App erzeugt)
+   geht die Anfrage durch.
+
+**Konsequenz für die Integration:** Der Client muss den Login-Fluss der App
+nachbilden – socket.io-Konfiguration holen (liefert `csrf_pub_key`), die
+Nonce im App-Format erzeugen und beide Header an **jede** Anfrage hängen.
+Das genaue Nonce-Format bzw. eine offizielle Integrationsanleitung sollte bei
+d-flight angefragt werden (siehe §6), statt die Schutzfunktion
+nachzukonstruieren. Der Download selbst war mit diesem Account technisch
+erreichbar; Format und Umfang sind noch mit korrekt erzeugter Nonce zu
+verifizieren.
 
 **Architekturfrage (vor dem Bau klären, siehe §6):** Die App hat kein eigenes
 Backend mehr. Möglich sind zwei Wege:
@@ -270,6 +299,11 @@ Zahlungen (`/epay`, `/store`), Nutzerverwaltung.
 3. **Abo-Stufen:** ATM-09 und NOTAM gibt es nur mit Base/Pro. Was ein
    Gratis-Account im ED-269-Download sieht, ist zu prüfen.
 4. **Rate-Limits und Nutzungsbedingungen** für automatisierte Abrufe.
+5. **CSRF-Nonce-Format / offizielle Integrationsanleitung:** Die App hängt an
+   jede Anfrage `X-CSRF-Token` (= `csrf_pub_key`) und eine `X-CSRF-Nonce` im
+   eigenen Format. Für eine Fremd-App bei d-flight erfragen, wie die Nonce
+   korrekt zu bilden ist bzw. ob es dafür eine dokumentierte Schnittstelle
+   gibt. Diese Schutzfunktion nicht selbst nachkonstruieren.
 
 ---
 
