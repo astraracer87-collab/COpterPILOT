@@ -17,6 +17,7 @@ import { prefetchObstaclesAroundLastKnown } from "@/lib/obstacles";
 import { startWeatherPrefetch } from "@/lib/weatherPrefetch";
 import { useKeepAwake } from "expo-keep-awake";
 import { runStorageMaintenance } from "@/lib/storage";
+import { refreshDjiLogNewHint } from "@/lib/djiLogFolder";
 
 // Speicher-Wartung zuerst: große Caches aus AsyncStorage (SQLite, Größenlimit)
 // in Dateien verschieben, Karten-Snapshots aus Sessions/Logbuch auslagern –
@@ -33,6 +34,8 @@ startGeozoneTileStore();
 startCountryUsage();
 // Hindernisse um die zuletzt bekannte Position leise vorab laden (Karte zeichnet dann sofort)
 runAfterStartup(() => { prefetchObstaclesAroundLastKnown().catch(() => {}); }, 8000);
+// DJI-Flugprotokolle: optional still auf neue Logs im freigegebenen Ordner prüfen (nur Hinweis im Logbuch)
+runAfterStartup(() => { refreshDjiLogNewHint().catch(() => {}); }, 10000);
 // Wetter für die letzte/aktuelle Position vorab laden (nach dem ersten Bildschirm, dann alle 20 min / bei Ortswechsel)
 startWeatherPrefetch();
 import { GestureHandlerRootView } from "react-native-gesture-handler";

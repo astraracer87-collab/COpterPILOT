@@ -1,4 +1,4 @@
-import React, { useCallback, useState, useMemo } from "react";
+import React, { useCallback, useState, useMemo, useSyncExternalStore } from "react";
 import { View, StyleSheet, FlatList, RefreshControl, Pressable, Alert, ScrollView, Image, GestureResponderEvent } from "react-native";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -21,6 +21,7 @@ import { promptFeatureUpgrade } from "@/components/FeatureGate";
 import { ShareControls } from "@/components/ShareControls";
 import type { HistoryStackParamList } from "@/navigation/HistoryStackNavigator";
 import { formatPlannedTimeRange } from "@/lib/planningDateTime";
+import { getDjiLogNewHint, getDjiLogNewHintVersion, subscribeDjiLogNewHint } from "@/lib/djiLogFolder";
 
 type NavigationProp = NativeStackNavigationProp<HistoryStackParamList>;
 
@@ -803,6 +804,10 @@ export default function HistoryScreen() {
     }, [loadData])
   );
 
+  // Stille Prüfung beim App-Start (Einstellungen → DJI-Flugprotokolle – Speicherort)
+  useSyncExternalStore(subscribeDjiLogNewHint, getDjiLogNewHintVersion, getDjiLogNewHintVersion);
+  const djiNewLogs = getDjiLogNewHint() ?? 0;
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await loadData();
@@ -908,6 +913,17 @@ export default function HistoryScreen() {
         <ThemedText style={[styles.djiEntryText, { color: theme.primary }]} numberOfLines={1}>
           Mehrere Logs / Ordner
         </ThemedText>
+        {djiNewLogs > 0 ? (
+          <View
+            testID="badge-dji-new-logs"
+            accessibilityLabel={`${djiNewLogs} neue DJI-Flugprotokolle im Ordner`}
+            style={[styles.djiNewBadge, { backgroundColor: theme.statusGo }]}
+          >
+            <ThemedText style={styles.djiNewBadgeText} numberOfLines={1}>
+              {`${djiNewLogs} neu`}
+            </ThemedText>
+          </View>
+        ) : null}
       </Pressable>
       <Pressable
         testID="button-battery-stats-entry"
@@ -1424,6 +1440,16 @@ const styles = StyleSheet.create({
   djiEntryText: {
     ...Typography.body,
     fontWeight: "600",
+  },
+  djiNewBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: BorderRadius.sm,
+  },
+  djiNewBadgeText: {
+    ...Typography.caption,
+    fontWeight: "700",
+    color: "#FFFFFF",
   },
   djiEntryHeader: {
     marginBottom: Spacing.md,

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { View, StyleSheet, ScrollView, Pressable, Alert, ActivityIndicator } from "react-native";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -18,6 +18,8 @@ import {
   getSavedDjiLogFolder,
   forgetDjiLogFolder,
   folderLabelFromUri,
+  refreshDjiLogNewHint,
+  subscribeDjiLogFolder,
   isFolderImportSupported,
   type DjiBulkResult,
   groupDjiAnalyses,
@@ -192,6 +194,9 @@ type Selection = { target: "new" | "existing"; entryId?: string };
 export default function DjiBulkImportScreen() {
   const { theme } = useTheme();
   const navigation = useNavigation<NavigationProp>();
+  const route = useRoute<RouteProp<HistoryStackParamList, "DjiBulkImport">>();
+  const autoImportAt = route.params?.autoImportAt;
+  const handledAutoImport = React.useRef<number | undefined>(undefined);
   const headerHeight = useHeaderHeight();
   const insets = useSafeAreaInsets();
 
@@ -219,6 +224,8 @@ export default function DjiBulkImportScreen() {
       }
     })();
     getSavedDjiLogFolder().then(setFolderUri).catch(() => {});
+    // gleicher Ordner wie in den Einstellungen (dort geändert → hier mitziehen)
+    return subscribeDjiLogFolder(setFolderUri);
   }, []);
 
   const groups = useMemo(() => groupDjiAnalyses(results, { maxKm: 2, maxHours: 3 }), [results]);
@@ -319,6 +326,21 @@ export default function DjiBulkImportScreen() {
     [applyResult],
   );
 
+  // Einstellungen → „Jetzt neue Logs importieren“: gemerkten Ordner direkt einlesen
+  useEffect(() => {
+    if (autoImportAt == null || handledAutoImport.current === autoImportAt) return;
+    handledAutoImport.current = autoImportAt;
+    (async () => {
+      const uri = await getSavedDjiLogFolder();
+      if (!uri) {
+        Alert.alert("Kein Ordner", "Bitte zuerst einen Ordner mit den DJI-Flugprotokollen freigeben.");
+        return;
+      }
+      setFolderUri(uri);
+      await importFolder(uri);
+    })().catch(() => {});
+  }, [autoImportAt, importFolder]);
+
   const handleChooseFolder = useCallback(
     async (initial: "djiFly" | "download") => {
       try {
@@ -363,6 +385,7 @@ export default function DjiBulkImportScreen() {
         }
         setAssignedTo((prev) => ({ ...prev, [group.id]: entryId! }));
         setEntries(await getLogbook());
+        refreshDjiLogNewHint().catch(() => {}); // Logbuch-Hinweis „neue Logs“ nachziehen
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       } catch (e) {
         Alert.alert("Fehler", e instanceof Error ? e.message : "Zuordnung fehlgeschlagen.");

@@ -17,7 +17,8 @@ export type HistoryStackParamList = {
   DipulMap: { latitude: number; longitude: number; title?: string; mapUrl?: string };
   LocationMap: { latitude: number; longitude: number; title?: string; radiusM?: number; countryIso?: string };
   DjiAnalyze: undefined;
-  DjiBulkImport: undefined;
+  /** autoImportAt: aus den Einstellungen – gemerkten Ordner sofort einlesen */
+  DjiBulkImport: { autoImportAt?: number } | undefined;
   LogbookEntryDetail: {
     logbookEntryId?: string;
     sessionId?: string;

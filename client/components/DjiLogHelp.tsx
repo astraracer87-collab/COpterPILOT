@@ -21,12 +21,13 @@ const IOS_STEPS = [
 ];
 
 const ANDROID_STEPS = [
-  "Logbuch → „Mehrere Logs / Ordner“ → „Ordner wählen (DJI Fly)“. Der Systemdialog startet in „Android/data/dji.go.v5/files/FlightRecord“ – dort „Diesen Ordner verwenden“ und „Zulassen“ tippen.",
+  "Logbuch → „Mehrere Logs / Ordner“ → „Ordner wählen (DJI Fly)“ – oder Einstellungen → Karten, Hindernisse & Offline → „DJI-Flugprotokolle – Speicherort“. Der Systemdialog startet in „Android/data/dji.go.v5/files/FlightRecord“ – dort „Diesen Ordner verwenden“ und „Zulassen“ tippen.",
   "Die App merkt sich den Ordner. Später liest „Neue Logs aus …“ nur noch Protokolle ein, die noch nicht im Logbuch sind.",
   "Einzelne Dateien: „Fluglog auswerten“ → im Dateidialog zu „FlightRecord“ navigieren und die .txt-Datei wählen.",
 ];
 
-const ANDROID_BLOCKED_STEPS = [
+/** Android 11 sperrt Android/data: Ausweg per PC/USB (auch in den Einstellungen genutzt). */
+export const ANDROID_BLOCKED_STEPS = [
   "Android 11 sperrt „Android/data“ teilweise („Dieser Ordner kann nicht verwendet werden“).",
   "Dann die Fernsteuerung per USB-C mit einem PC verbinden (Modus „Dateiübertragung“), „Android/data/dji.go.v5/files/FlightRecord“ öffnen und die .txt-Dateien nach „Download/FlightRecords“ kopieren.",
   "In der App „Download/FlightRecords“ als Ordner wählen – oder die Datei einzeln auswählen.",

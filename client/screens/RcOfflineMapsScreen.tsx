@@ -49,6 +49,7 @@ import { getObstaclesEnabled, setObstaclesEnabled } from "@/lib/obstacles";
 import { openLink } from "@/lib/webBrowser";
 import { clearDflightCredentials, getDflightCredentials, setDflightCredentials } from "@/lib/geozoneDirect/dflightAuth";
 import { DjiApiKeyCard } from "@/components/DjiApiKeyCard";
+import { DjiLogFolderCard } from "@/components/DjiLogFolderCard";
 import { deleteEd269Dataset, loadStoredEd269Dataset, type Ed269ImportMeta } from "@/lib/geozoneDirect/ed269Store";
 import { getTilePartMeta, hasTiledGeozones } from "@/lib/geozoneTiles/tileStore";
 import { GEOZONE_IMPORT_FORMAT_LABELS, pickAndImportGeozoneFile } from "@/lib/geozoneDirect/geozoneFileImport";
@@ -492,6 +493,9 @@ export default function OfflineMapsScreen() {
 
         <ThemedText style={[styles.sectionTitle, { color: theme.textSecondary, marginTop: Spacing["2xl"] }]}>DJI-FLUGPROTOKOLLE – API-SCHLÜSSEL</ThemedText>
         <DjiApiKeyCard />
+
+        <ThemedText style={[styles.sectionTitle, { color: theme.textSecondary, marginTop: Spacing["2xl"] }]}>DJI-FLUGPROTOKOLLE – SPEICHERORT</ThemedText>
+        <DjiLogFolderCard />
 
         <ThemedText style={[styles.sectionTitle, { color: theme.textSecondary, marginTop: Spacing["2xl"] }]}>GEOZONEN AKTUALISIEREN</ThemedText>
         <Card style={styles.card}>

@@ -1,13 +1,9 @@
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
-import { Platform } from "react-native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { checkpoint } from "../../shared/yieldingWork";
 import {
   createLogbookEntry,
   getDrones,
-  getEntryDjiLogs,
-  getLogbook,
   getLogbookEntry,
   updateDrone,
   attachDjiLogToEntry,
@@ -37,12 +33,19 @@ import {
 import { DJI_CHUNK_BYTES } from "./djiLogWorkerProtocol";
 import { findDroneForLog, linkBatteryForLog } from "./djiBatteryLink";
 import { logbookEntryFromDjiLog } from "./djiLogMapping";
+import {
+  fileNameFromSafUri,
+  filterDjiLogNames,
+  folderLabelFromUri,
+  knownDjiLogNames,
+} from "./djiLogFolder";
 
 export { logbookEntryFromDjiLog };
 
 // RN-freie Kernlogik (Typen, Konstanten, reine Auswerte-/Gruppierungs-Funktionen)
 // lebt in ./djiLogCore und wird hier re-exportiert.
 export * from "./djiLogCore";
+export * from "./djiLogFolder";
 
 /**
  * DJI-Flugprotokolle werden vollständig auf dem Gerät ausgewertet:
@@ -50,15 +53,6 @@ export * from "./djiLogCore";
  * (DjiLogWorkerHost), Schlüssel für verschlüsselte Logs (ab v13) direkt von
  * DJI (API-Schlüssel des Piloten, nur im SecureStore) und pro Log gecacht.
  */
-
-const FOLDER_URI_KEY = "@copterpilot/djiFlightRecordFolderUri";
-
-/** DJI Fly legt die Protokolle hier ab (Android 11 sperrt Android/data teilweise). */
-export const DJI_FLY_FLIGHTRECORD_DOC_URI =
-  "content://com.android.externalstorage.documents/document/primary%3AAndroid%2Fdata%2Fdji.go.v5%2Ffiles%2FFlightRecord";
-/** Empfohlene Ablage, wenn Android/data gesperrt ist (Kopie per PC/USB). */
-export const DJI_DOWNLOAD_FLIGHTRECORDS_DOC_URI =
-  "content://com.android.externalstorage.documents/document/primary%3ADownload%2FFlightRecords";
 
 export type DjiAnalyzeProgress = (
   phase: DjiAnalyzePhase,
@@ -215,76 +209,10 @@ export async function pickAndAnalyzeMultipleDjiLogs(
 }
 
 // ---------------------------------------------------------------------------
-// Ordner (Storage Access Framework, Android)
+// Ordner (Storage Access Framework, Android) – gemerkter Ordner, Zugriffs-
+// prüfung und Pfad-Anzeige leben in ./djiLogFolder (gemeinsam mit den
+// Einstellungen).
 // ---------------------------------------------------------------------------
-
-export function isFolderImportSupported(): boolean {
-  return Platform.OS === "android";
-}
-
-export async function getSavedDjiLogFolder(): Promise<string | null> {
-  try {
-    return (await AsyncStorage.getItem(FOLDER_URI_KEY)) || null;
-  } catch {
-    return null;
-  }
-}
-
-export async function forgetDjiLogFolder(): Promise<void> {
-  await AsyncStorage.removeItem(FOLDER_URI_KEY).catch(() => {});
-}
-
-/** Lesbarer Ordnername aus einer SAF-URI ("primary:Download/FlightRecords" → "Download/FlightRecords"). */
-export function folderLabelFromUri(uri: string): string {
-  try {
-    const m = uri.match(/\/tree\/([^/]+)/);
-    const raw = decodeURIComponent(m ? m[1] : uri);
-    return raw.replace(/^primary:/, "") || "Interner Speicher";
-  } catch {
-    return uri;
-  }
-}
-
-export function fileNameFromSafUri(uri: string): string {
-  try {
-    const decoded = decodeURIComponent(uri);
-    const last = decoded.split("/").pop() ?? decoded;
-    return last.replace(/^.*:/, "") || "flugprotokoll.txt";
-  } catch {
-    return uri.split("%2F").pop() || "flugprotokoll.txt";
-  }
-}
-
-/** Nur DJI-Textprotokolle eines Ordners (DJIFlightRecord_*.txt bevorzugt). */
-export function filterDjiLogNames<T extends { name: string }>(items: T[]): T[] {
-  const txt = items.filter((f) => /\.txt$/i.test(f.name));
-  const djiNamed = txt.filter((f) => /flightrecord/i.test(f.name));
-  return (djiNamed.length > 0 ? djiNamed : txt).sort((a, b) =>
-    a.name.localeCompare(b.name),
-  );
-}
-
-/**
- * Ordner wählen und Freigabe dauerhaft merken. `initial`: wo der
- * Systemdialog startet (DJI-Fly-Ordner oder Download/FlightRecords).
- * Liefert null, wenn abgebrochen oder von Android verweigert.
- */
-export async function chooseDjiLogFolder(
-  initial: "djiFly" | "download" = "djiFly",
-): Promise<string | null> {
-  if (!isFolderImportSupported()) return null;
-  const start =
-    initial === "djiFly"
-      ? DJI_FLY_FLIGHTRECORD_DOC_URI
-      : DJI_DOWNLOAD_FLIGHTRECORDS_DOC_URI;
-  const res =
-    await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync(
-      start,
-    );
-  if (!res.granted) return null;
-  await AsyncStorage.setItem(FOLDER_URI_KEY, res.directoryUri).catch(() => {});
-  return res.directoryUri;
-}
 
 export async function listDjiLogsInFolder(
   folderUri: string,
@@ -321,11 +249,7 @@ export async function analyzeDjiLogFolder(
   const files = await listDjiLogsInFolder(folderUri);
   let todo = files;
   if (!opts.includeKnown) {
-    const known = new Set<string>();
-    for (const e of await getLogbook().catch(() => [] as LogbookEntry[])) {
-      for (const l of getEntryDjiLogs(e))
-        if (l.status === "parsed") known.add(l.fileName.toLowerCase());
-    }
+    const known = await knownDjiLogNames();
     todo = files.filter((f) => !known.has(f.name.toLowerCase()));
   }
   const res = await analyzeDjiLogFiles(todo, onProgress);

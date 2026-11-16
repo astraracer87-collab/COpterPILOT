@@ -386,7 +386,7 @@ export default function SettingsScreen() {
         testID="menu-offline-maps"
         icon={icon("download-cloud")}
         title="Karten, Hindernisse & Offline"
-        subtitle="Offline-Pakete, d-flight- und DJI-Schlüssel"
+        subtitle="Offline-Pakete, d-flight, DJI-Schlüssel & -Logs"
         onPress={() => navigation.navigate("RcOfflineMaps")}
       />
     </SettingsCard>
