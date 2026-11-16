@@ -1,6 +1,7 @@
 import Constants from "expo-constants";
-import React, { useCallback, useMemo, useState } from "react";
-import { View, StyleSheet, ScrollView, Pressable, TextInput, Modal, SectionList, Platform } from "react-native";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { View, StyleSheet, ScrollView, Pressable, TextInput, Modal, SectionList, Platform, Alert } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useNavigation, useFocusEffect, useRoute, type RouteProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
@@ -61,6 +62,45 @@ export default function SettingsScreen() {
   const [wildlifeInfoOpen, setWildlifeInfoOpen] = useState(false);
   const [mapStyle, setMapStyle] = useState<MapStyleOption>("grayscale");
   const [showEnergyInfrastructure, setShowEnergyInfrastructure] = useState(true);
+  // Versteckter Schalter: 8× auf die Kopf-Überschrift „Einstellungen" tippen blendet den FCC-Punkt ein/aus.
+  const [fccUnlocked, setFccUnlocked] = useState(false);
+  const fccTapsRef = useRef<number[]>([]);
+
+  useEffect(() => {
+    AsyncStorage.getItem("fccToolUnlocked")
+      .then((v) => setFccUnlocked(v === "1"))
+      .catch(() => {});
+  }, []);
+
+  const handleSecretTap = useCallback(() => {
+    const now = Date.now();
+    fccTapsRef.current = [...fccTapsRef.current, now].filter((t) => now - t < 3000);
+    if (fccTapsRef.current.length >= 8) {
+      fccTapsRef.current = [];
+      setFccUnlocked((prev) => {
+        const next = !prev;
+        AsyncStorage.setItem("fccToolUnlocked", next ? "1" : "0").catch(() => {});
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+        Alert.alert(
+          next ? "FCC-Tool sichtbar" : "FCC-Tool ausgeblendet",
+          next
+            ? "Der Punkt „FCC-Tool“ erscheint jetzt unten in den Einstellungen."
+            : "Der Punkt „FCC-Tool“ ist wieder ausgeblendet.",
+        );
+        return next;
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    navigation.setOptions({
+      headerTitle: () => (
+        <Pressable onPress={handleSecretTap} hitSlop={8} accessibilityRole="header">
+          <ThemedText style={{ fontSize: 17, fontWeight: "600", color: theme.text }}>Einstellungen</ThemedText>
+        </Pressable>
+      ),
+    });
+  }, [navigation, theme, handleSecretTap]);
 
   const loadSettings = useCallback(async () => {
     const [data, droneList, selected, activeSessions, pilotProfile, radar, savedMapStyle] = await Promise.all([
@@ -410,18 +450,20 @@ export default function SettingsScreen() {
           <Feather name="chevron-right" size={20} color={theme.textTertiary} />
         </Card>
 
-        <Card style={styles.menuItem} onPress={() => navigation.navigate("FccTool")}>
-          <View style={styles.switchRow}>
-            <Feather name="radio" size={20} color={theme.primary} />
-            <View style={styles.switchContent}>
-              <ThemedText style={styles.menuText}>FCC-Tool</ThemedText>
-              <ThemedText style={[styles.switchDescription, { color: theme.textSecondary }]}>
-                Funkregion CE/FCC für Fluggerät oder Goggle · nur wo zulässig
-              </ThemedText>
+        {fccUnlocked && (
+          <Card style={styles.menuItem} onPress={() => navigation.navigate("FccTool")}>
+            <View style={styles.switchRow}>
+              <Feather name="radio" size={20} color={theme.primary} />
+              <View style={styles.switchContent}>
+                <ThemedText style={styles.menuText}>FCC-Tool</ThemedText>
+                <ThemedText style={[styles.switchDescription, { color: theme.textSecondary }]}>
+                  Funkregion CE/FCC für Fluggerät oder Goggle · nur wo zulässig
+                </ThemedText>
+              </View>
             </View>
-          </View>
-          <Feather name="chevron-right" size={20} color={theme.textTertiary} />
-        </Card>
+            <Feather name="chevron-right" size={20} color={theme.textTertiary} />
+          </Card>
+        )}
 
         <ThemedText style={[styles.sectionTitle, { color: theme.textSecondary, marginTop: Spacing["2xl"] }]}>
           EINHEITEN
