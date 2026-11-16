@@ -21,9 +21,16 @@ const IOS_STEPS = [
 ];
 
 const ANDROID_STEPS = [
-  "Öffne einen Datei-Manager (z. B. „Files by Google“).",
-  "Interner Speicher → „DJI“ → „dji.go.v5“ (DJI Fly) bzw. „dji.go.v4“ (DJI GO 4). Alternativ: „Android/data/dji.go.v5/files“.",
-  "Öffne „FlightRecord“ und wähle die .txt-Datei aus.",
+  "Logbuch → „Mehrere Logs / Ordner“ → „Ordner wählen (DJI Fly)“. Der Systemdialog startet in „Android/data/dji.go.v5/files/FlightRecord“ – dort „Diesen Ordner verwenden“ und „Zulassen“ tippen.",
+  "Die App merkt sich den Ordner. Später liest „Neue Logs aus …“ nur noch Protokolle ein, die noch nicht im Logbuch sind.",
+  "Einzelne Dateien: „Fluglog auswerten“ → im Dateidialog zu „FlightRecord“ navigieren und die .txt-Datei wählen.",
+];
+
+const ANDROID_BLOCKED_STEPS = [
+  "Android 11 sperrt „Android/data“ teilweise („Dieser Ordner kann nicht verwendet werden“).",
+  "Dann die Fernsteuerung per USB-C mit einem PC verbinden (Modus „Dateiübertragung“), „Android/data/dji.go.v5/files/FlightRecord“ öffnen und die .txt-Dateien nach „Download/FlightRecords“ kopieren.",
+  "In der App „Download/FlightRecords“ als Ordner wählen – oder die Datei einzeln auswählen.",
+  "Alternativ, falls deine DJI-Fly-Version es anbietet: das Flugprotokoll in DJI Fly exportieren/teilen und die exportierte Datei hier auswählen.",
 ];
 
 /**
@@ -106,9 +113,9 @@ export function DjiLogHelp() {
         <View style={styles.body}>
           <ThemedText style={[styles.intro, { color: theme.textSecondary }]}>
             DJI speichert für jeden Flug ein „FlightRecord“ als .txt-Datei in der
-            DJI-App (DJI Fly, DJI GO 4 oder DJI Pilot). Wähle diese Datei über
-            „DJI-Protokoll hochladen“ aus — ein automatisches Durchsuchen ist
-            durch die App-Isolierung von iOS/Android nicht möglich.
+            DJI-App (DJI Fly, DJI GO 4 oder DJI Pilot). Die App wertet sie
+            vollständig auf diesem Gerät aus – ohne Upload. Du wählst einzelne
+            Dateien oder gibst einmalig den Ordner frei.
           </ThemedText>
 
           <View style={[styles.fileTypeBox, { backgroundColor: theme.backgroundSecondary }]}>
@@ -139,6 +146,21 @@ export function DjiLogHelp() {
             ? renderPlatformBlock("Android (Datei-Manager)", "smartphone", ANDROID_STEPS, true)
             : null}
 
+          {isAndroid
+            ? renderPlatformBlock("Wenn Android den Ordner sperrt", "tablet", ANDROID_BLOCKED_STEPS, false)
+            : null}
+
+          <View style={[styles.tipBox, { backgroundColor: theme.backgroundSecondary }]}>
+            <Feather name="lock" size={13} color={theme.textSecondary} />
+            <ThemedText style={[styles.tipText, { color: theme.textSecondary }]}>
+              Neuere Protokolle (Version 13 und höher) sind verschlüsselt. Zum Entschlüsseln
+              holt die App einmalig die Schlüssel des Protokolls bei DJI – dafür braucht es
+              Internet und deinen kostenlosen DJI-API-Schlüssel (Einstellungen → Karten, Hindernisse &
+              Offline → DJI-Flugprotokolle). Danach lässt sich das Protokoll auch offline
+              erneut auswerten.
+            </ThemedText>
+          </View>
+
           {/* Auf Web bzw. zur Vollständigkeit beide Plattformen zeigen. */}
           {!isIOS ? renderPlatformBlock("iOS (Dateien-App)", "smartphone", IOS_STEPS, false) : null}
           {!isAndroid
@@ -148,9 +170,9 @@ export function DjiLogHelp() {
           <View style={[styles.tipBox, { backgroundColor: theme.backgroundSecondary }]}>
             <Feather name="info" size={13} color={theme.textSecondary} />
             <ThemedText style={[styles.tipText, { color: theme.textSecondary }]}>
-              Fehlt der DJI-Ordner? Öffne in der DJI-App einmal die Flugliste, damit
-              das Protokoll synchronisiert wird. Ab Android 11 ist „Android/data“
-              teils gesperrt — kopiere die Datei dann vorab z. B. nach „Downloads“.
+              Fehlt ein Flug? Öffne in der DJI-App einmal die Flugliste, damit das
+              Protokoll geschrieben wird. Ab Android 11 ist „Android/data“ teils
+              gesperrt — kopiere die Dateien dann vorab nach „Download/FlightRecords“.
             </ThemedText>
           </View>
         </View>

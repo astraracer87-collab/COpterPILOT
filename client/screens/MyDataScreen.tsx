@@ -24,6 +24,7 @@ import {
 import { countLocalCollection } from "@/lib/localCollections";
 import { formatBytes, measureDocumentDirectory, measureKeyValueStore } from "@/lib/storageUsage";
 import { readAllUserBlobs, USER_BLOB_DIR_NAME } from "@/lib/userBlobs";
+import { DJI_KEYCHAIN_DIR } from "@/lib/djiKeychainCache";
 import { FILE_CACHE_DIR_NAME } from "@/lib/fileCache";
 import type { SettingsStackParamList } from "@/navigation/SettingsStackNavigator";
 
@@ -255,6 +256,8 @@ export default function MyDataScreen() {
         await FileSystem.deleteAsync(LOCAL_DOCS_DIR, { idempotent: true }).catch(() => {});
         await FileSystem.deleteAsync(LOCAL_OFFLINE_DIR, { idempotent: true }).catch(() => {});
         await FileSystem.deleteAsync(LOCAL_USER_BLOBS_DIR, { idempotent: true }).catch(() => {});
+        // zwischengespeicherte Schlüssel ausgewerteter DJI-Flugprotokolle
+        await FileSystem.deleteAsync(`${FileSystem.documentDirectory}${DJI_KEYCHAIN_DIR}`, { idempotent: true }).catch(() => {});
         await FileSystem.deleteAsync(LOCAL_FILE_CACHE_DIR, { idempotent: true }).catch(() => {});
       }
       queryClient.clear();

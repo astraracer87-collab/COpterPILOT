@@ -8,6 +8,7 @@ import { isDfsZonenEffective } from "./ctrAltitude";
 import { migrateCachesToFiles, purgeAsyncStorageCaches, setItemResilient } from "./storageMaintenance";
 import { fileCacheStorage, pruneFileCache, purgeFileCache } from "./fileCache";
 import { DATA_CACHE_MAX_AGE_MS, DATA_CACHE_PREFIX } from "./dataCache";
+import { entryUsesBattery, serialsMatch } from "./djiBatteryLink";
 import {
   collectBlobGarbage,
   externalizeBlobs,
@@ -366,6 +367,9 @@ export const LOGBOOK_BLOB_SPEC: BlobSpec = {
     ["routeMapSatelliteSnapshotBase64"],
     ["trafficLog", "mapSnapshotBase64"],
   ],
+  // Ausgewertete DJI-Flugprotokolle (Track, Detailzeilen, Meldungen) und
+  // GPS-Tracks: als JSON-Datei statt im AsyncStorage-Wert (CursorWindow ~2 MB).
+  jsonFields: [["djiLogs"], ["djiLog"], ["gpsTrack"]],
 };
 const BLOB_SPECS: Record<string, BlobSpec> = {
   [FLIGHT_SESSIONS_KEY]: SESSION_BLOB_SPEC,
@@ -498,6 +502,12 @@ export interface DroneBattery {
   name: string;
   serialNumber: string;
   createdAt: string;
+  /** Ladezyklen laut letztem DJI-Flugprotokoll (optional, ältere Daten ohne). */
+  cycleCount?: number;
+  /** Zuletzt in einem DJI-Flugprotokoll gesehen (ISO). */
+  lastSeenAt?: string;
+  /** "dji-log": automatisch aus einem Flugprotokoll angelegt. */
+  source?: "manual" | "dji-log";
 }
 
 export interface BatteryUsage {
@@ -879,62 +889,9 @@ export interface GpsTrackPoint {
   ts?: number;
 }
 
-export interface DjiLogRecord {
-  t: number;
-  mode?: string;
-  sats?: number;
-  heightM?: number;
-  vpsM?: number;
-  altM?: number;
-  hSpeedMs?: number;
-  vSpeedMs?: number;
-  distM?: number;
-  battPct?: number;
-  battV?: number;
-  cells?: number[];
-  aileron?: number;
-  elevator?: number;
-  throttle?: number;
-  rudder?: number;
-  pitch?: number;
-  roll?: number;
-  yaw?: number;
-  lat?: number;
-  lon?: number;
-}
-
-export interface DjiLogMessage {
-  t?: number;
-  text: string;
-  kind: "tip" | "warn" | "serious";
-}
-
-export interface DjiLogMeta {
-  status: "parsed" | "undecryptable" | "error";
-  fileName: string;
-  objectPath: string;
-  sizeBytes?: number;
-  uploadedAt?: string;
-  parsedAt?: string;
-  version?: number;
-  droneName?: string;
-  maxAltitudeM?: number;
-  durationSec?: number;
-  totalDistanceM?: number;
-  batteryStartPercent?: number;
-  batteryEndPercent?: number;
-  batteryMinPercent?: number;
-  trackPointCount?: number;
-  message?: string;
-  /** Selbst-enthaltend pro Log: eigener Track + Detailtabelle. */
-  track?: GpsTrackPoint[];
-  records?: DjiLogRecord[];
-  /** App-/Fernsteuerungs-Meldungen (Hinweise + Warnungen) chronologisch. */
-  messages?: DjiLogMessage[];
-  /** Welcher Akku in diesem Log steckte. */
-  batteryId?: string;
-  batteryLabel?: string;
-}
+// DJI-Flugprotokoll-Typen: eine Quelle (djiLogCore.ts, RN-frei), hier re-exportiert.
+export type { DjiLogRecord, DjiLogMessage, DjiLogMeta } from "./djiLogCore";
+import type { DjiLogMeta } from "./djiLogCore";
 
 export interface LogbookEntry {
   id: string;
@@ -1840,17 +1797,36 @@ export async function getLogbookEntry(id: string): Promise<LogbookEntry | null> 
 export async function getBatteryFlightHistory(
   droneId: string,
   batteryId: string,
+  batterySerial?: string,
 ): Promise<LogbookEntry[]> {
   const entries = await getLogbook();
   return entries.filter((e) => {
-    if (e.droneId !== droneId) return false;
-    const pre = e.preflight?.batteryUsage || [];
-    const post = e.debriefing?.batteryUsage || [];
-    return (
-      pre.some((b) => b.batteryId === batteryId) ||
-      post.some((b) => b.batteryId === batteryId)
+    // DJI-Logs verweisen über batteryId/batterySn auf den Akku (auch wenn der
+    // Eintrag keiner oder einer anderen Drohne zugeordnet ist).
+    const viaLog = getEntryDjiLogs(e).some(
+      (l) => l.batteryId === batteryId || (!!batterySerial && serialsMatch(l.batterySn, batterySerial)),
     );
+    if (viaLog) return true;
+    if (e.droneId !== droneId) return false;
+    return entryUsesBattery(e, { id: batteryId });
   });
+}
+
+/**
+ * DJI-Log an einen bestehenden Logbuch-Eintrag hängen (Akku-Tausch: mehrere
+ * Logs je Flug). Ein Log mit gleicher Kennung (objectPath) wird ersetzt; das
+ * Legacy-Einzelfeld djiLog wird dabei in djiLogs übernommen.
+ */
+export async function attachDjiLogToEntry(
+  entryId: string,
+  meta: DjiLogMeta,
+): Promise<LogbookEntry | null> {
+  // hydriert lesen (djiLogs kann als Datei ausgelagert sein)
+  const current = await getLogbookEntry(entryId);
+  if (!current) return null;
+  const others = getEntryDjiLogs(current).filter((l) => l.objectPath !== meta.objectPath);
+  await updateLogbookEntry(entryId, { djiLogs: sortDjiLogs([...others, meta]), djiLog: undefined });
+  return getLogbookEntry(entryId);
 }
 
 export async function createLogbookEntry(

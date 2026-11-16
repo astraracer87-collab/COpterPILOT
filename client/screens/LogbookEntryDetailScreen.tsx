@@ -36,7 +36,7 @@ import { exportFlightProtocolPdf } from "@/lib/pdfExport";
 import { resolveFlightTimeDocuments, type ResolvedPilotDocument } from "../../shared/archivedDocuments";
 import { pickAndUploadDjiLog } from "@/lib/djiLog";
 import { viewDocument } from "@/lib/documents";
-import { isLoggedInSync, useAuth } from "@/lib/auth";
+import { useAuth } from "@/lib/auth";
 import { promptFeatureUpgrade } from "@/components/FeatureGate";
 import type { SettingsStackParamList } from "@/navigation/SettingsStackNavigator";
 
@@ -367,13 +367,6 @@ export default function LogbookEntryDetailScreen() {
 
   const handleDjiUpload = useCallback(async () => {
     if (!entry) return;
-    if (!isLoggedInSync()) {
-      Alert.alert(
-        "Anmeldung erforderlich",
-        "Bitte melde dich an, um ein DJI-Flugprotokoll hochzuladen.",
-      );
-      return;
-    }
     setUploadingDji(true);
     try {
       const updated = await pickAndUploadDjiLog(entry.id);
@@ -634,8 +627,8 @@ export default function LogbookEntryDetailScreen() {
               </ThemedText>
               <ThemedText style={styles.alertText}>
                 {log.status === "undecryptable"
-                  ? "Ohne DJI-API-Schlüssel nicht vollständig auswertbar. Datei bleibt als Download verfügbar."
-                  : "Datei bleibt als Download verfügbar."}
+                  ? log.message || "Ohne DJI-API-Schlüssel nicht vollständig auswertbar."
+                  : log.message || "Das Protokoll enthält keine verwertbaren Daten."}
               </ThemedText>
             </View>
           </View>
@@ -655,6 +648,15 @@ export default function LogbookEntryDetailScreen() {
               ].join(" / "),
             )
           : null}
+        {log.batterySn ? renderDetailRow("Akku S/N", log.batterySn) : null}
+        {log.batteryCycleCount != null ? renderDetailRow("Ladezyklen", String(log.batteryCycleCount)) : null}
+        {log.minCellV != null
+          ? renderDetailRow(
+              "Min. Zellspannung",
+              `${log.minCellV.toFixed(2).replace(".", ",")} V${log.minCellEstimated ? " (geschätzt)" : ""}`,
+            )
+          : null}
+        {log.maxBatteryTempC != null ? renderDetailRow("Max. Akkutemperatur", `${Math.round(log.maxBatteryTempC)} °C`) : null}
 
         {batteries.length > 0 ? (
           <View style={styles.djiBatterySection}>
@@ -1197,7 +1199,25 @@ export default function LogbookEntryDetailScreen() {
             <ThemedText style={styles.headerText}>Fluglog</ThemedText>
           </View>
           {renderDjiSection()}
-          {/* RC-Version: DJI-Fluglogs wurden auf dem Server ausgewertet – Upload entfällt. */}
+          <Pressable
+            testID="button-dji-add"
+            disabled={uploadingDji}
+            onPress={handleDjiUpload}
+            style={({ pressed }) => [
+              styles.djiButton,
+              { backgroundColor: theme.primary + "15", marginTop: Spacing.md },
+              pressed && { opacity: 0.7 },
+            ]}
+          >
+            <Feather name="plus-circle" size={15} color={theme.primary} />
+            <ThemedText style={[styles.djiButtonText, { color: theme.primary }]}>
+              {uploadingDji
+                ? "Wird ausgewertet …"
+                : djiLogs.length > 0
+                ? "Weiteres Fluglog hinzufügen (Akku-Tausch)"
+                : "Fluglog hinzufügen"}
+            </ThemedText>
+          </Pressable>
           <View style={{ marginTop: Spacing.md }}>
             <DjiLogHelp />
           </View>

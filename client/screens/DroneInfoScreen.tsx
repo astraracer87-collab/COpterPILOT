@@ -30,6 +30,7 @@ import {
   CONSTRAINT_LABELS,
 } from "@/lib/dronePresets";
 import type { DocumentRef } from "@/lib/documents";
+import { computeBatteryStats } from "@/lib/djiBatteryLink";
 import type { SettingsStackParamList } from "@/navigation/SettingsStackNavigator";
 
 type RouteParams = RouteProp<SettingsStackParamList, "DroneInfo">;
@@ -120,22 +121,21 @@ export default function DroneInfoScreen() {
   const entriesForDrone = logbook.filter((e) => e.droneId === droneId);
   const lastFlight = entriesForDrone[0]; // logbook is sorted desc
 
-  const batteryStats: Record<string, { cycles: number; lastUsedAt?: string }> = {};
-  for (const b of drone.batteries ?? []) {
-    let cycles = 0;
-    let lastUsedAt: string | undefined;
-    for (const e of entriesForDrone) {
-      const used =
-        (e.preflight?.batteryUsage ?? []).some((u) => u.batteryId === b.id) ||
-        (e.debriefing?.batteryUsage ?? []).some((u) => u.batteryId === b.id);
-      if (used) {
-        cycles++;
-        if (!lastUsedAt || new Date(e.flightDate).getTime() > new Date(lastUsedAt).getTime()) {
-          lastUsedAt = e.flightDate;
-        }
-      }
-    }
-    batteryStats[b.id] = { cycles, lastUsedAt };
+  // Flüge je Akku: manuelle Auswahl (Pre-Check/Debriefing) + DJI-Flugprotokolle
+  // (Akku-Seriennummer), Ladezyklen und Zellspannung aus den Protokollen.
+  const batteryStats: Record<
+    string,
+    { flights: number; lastUsedAt?: string; cycleCount?: number; lowestCellV?: number; highestTempC?: number }
+  > = {};
+  for (const st of computeBatteryStats([drone], logbook)) {
+    if (!st.batteryId) continue;
+    batteryStats[st.batteryId] = {
+      flights: st.flightCount,
+      lastUsedAt: st.lastUsedAt,
+      cycleCount: st.cycleCount,
+      lowestCellV: st.lowestCellV,
+      highestTempC: st.highestTempC,
+    };
   }
   const lastMaintenance = entriesForDrone.find((e) => e.maintenanceRequired);
   const nextMaintenance = entriesForDrone.find(
@@ -278,17 +278,18 @@ export default function DroneInfoScreen() {
           <SectionTitle>Akkus</SectionTitle>
           {drone.batteries && drone.batteries.length > 0 ? (
             drone.batteries.map((b) => {
-              const stats = batteryStats[b.id] ?? { cycles: 0, lastUsedAt: undefined };
+              const stats = batteryStats[b.id] ?? { flights: 0, lastUsedAt: undefined };
+              const cycles = stats.cycleCount ?? stats.flights;
               const statusLabel =
-                stats.cycles === 0
+                stats.flights === 0 && !stats.cycleCount
                   ? "Unbenutzt"
-                  : stats.cycles >= 200
+                  : cycles >= 200
                   ? "Hohe Zyklenzahl"
                   : "Aktiv";
               const statusColor =
-                stats.cycles === 0
+                stats.flights === 0 && !stats.cycleCount
                   ? theme.textTertiary
-                  : stats.cycles >= 200
+                  : cycles >= 200
                   ? Colors.light.statusCaution
                   : theme.statusGo;
               return (
@@ -306,8 +307,19 @@ export default function DroneInfoScreen() {
                   <View style={{ flex: 1, marginLeft: Spacing.sm }}>
                     <ThemedText style={styles.docLabel}>{b.name || "Akku"}</ThemedText>
                     <ThemedText style={[styles.docMeta, { color: theme.textSecondary }]} numberOfLines={1}>
-                      {b.serialNumber ? `S/N ${b.serialNumber}` : "Keine S/N"} · {stats.cycles} {stats.cycles === 1 ? "Zyklus" : "Zyklen"} · Letzte Nutzung {stats.lastUsedAt ? fmtDate(stats.lastUsedAt) : DASH}
+                      {b.serialNumber ? `S/N ${b.serialNumber}` : "Keine S/N"} · {stats.flights} {stats.flights === 1 ? "Flug" : "Flüge"}
+                      {stats.cycleCount != null ? ` · ${stats.cycleCount} Zyklen (DJI)` : ""} · Letzte Nutzung {stats.lastUsedAt ? fmtDate(stats.lastUsedAt) : DASH}
                     </ThemedText>
+                    {stats.lowestCellV != null || stats.highestTempC != null ? (
+                      <ThemedText style={[styles.docMeta, { color: theme.textSecondary }]} numberOfLines={1}>
+                        {[
+                          stats.lowestCellV != null ? `Min. Zelle ${stats.lowestCellV.toFixed(2).replace(".", ",")} V` : null,
+                          stats.highestTempC != null ? `Max. ${Math.round(stats.highestTempC)} °C` : null,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </ThemedText>
+                    ) : null}
                     <ThemedText style={[styles.docMeta, { color: statusColor }]}>
                       {statusLabel}
                     </ThemedText>

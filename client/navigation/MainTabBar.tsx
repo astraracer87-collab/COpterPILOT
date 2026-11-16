@@ -26,6 +26,18 @@ export function withAlpha(color: string, alpha: number): string {
   return color;
 }
 
+/** Der runde DJI-Knopf steht direkt hinter diesem Tab (zwischen NOTAMs und Logbuch). */
+export const DJI_BUTTON_AFTER_ROUTE = "NotamsTab";
+
+/**
+ * Index des Tabs, hinter dem der DJI-Knopf steht: nach „NotamsTab“ (per Name,
+ * unabhängig von der Anzahl der Tabs); ohne diesen Tab in der Mitte.
+ */
+export function djiAfterIndex(routes: ReadonlyArray<{ name: string }>): number {
+  const byName = routes.findIndex((r) => r.name === DJI_BUTTON_AFTER_ROUTE);
+  return byName >= 0 ? byName : Math.ceil(routes.length / 2) - 1;
+}
+
 /**
  * Eigene Tab-Leiste: Der aktive Tab bekommt eine gefüllte, eingefärbte „Pille“
  * hinter Symbol und Beschriftung (nicht nur blaue Schrift). Im Querformat
@@ -104,9 +116,7 @@ export function MainTabBar({ state, descriptors, navigation, insets }: BottomTab
             {label}
           </TabItem>
         );
-        // Runder DJI-Knopf genau in der Mitte (nach der ersten Hälfte der Tabs)
-        const middle = Math.ceil(state.routes.length / 2) - 1;
-        return index === middle
+        return index === djiAfterIndex(state.routes)
           ? [item, <DjiLaunchButton key="dji-launch" size={landscape ? 40 : 48} />]
           : [item];
       })}

@@ -14,11 +14,14 @@ import { Spacing, Typography, BorderRadius } from "@/constants/theme";
 import {
   getDrone,
   getBatteryFlightHistory,
+  getEntryDjiLogs,
   DroneProfile,
   DroneBattery,
   LogbookEntry,
 } from "@/lib/storage";
 import type { SettingsStackParamList } from "@/navigation/SettingsStackNavigator";
+import { computeBatteryStats, formatTrend } from "@/lib/djiBatteryLink";
+import { batteryKey } from "@/lib/charger/batteryFingerprint";
 
 type Nav = NativeStackNavigationProp<SettingsStackParamList, "BatteryDetail">;
 
@@ -38,10 +41,9 @@ export default function BatteryDetailScreen() {
     let cancelled = false;
     (async () => {
       try {
-        const [d, h] = await Promise.all([
-          getDrone(droneId),
-          getBatteryFlightHistory(droneId, batteryId),
-        ]);
+        const d = await getDrone(droneId);
+        const serial = d?.batteries?.find((b) => b.id === batteryId)?.serialNumber;
+        const h = await getBatteryFlightHistory(droneId, batteryId, serial);
         if (cancelled) return;
         setDrone(d);
         setHistory(h);
@@ -60,6 +62,13 @@ export default function BatteryDetailScreen() {
   );
 
   const cycles = history.length;
+  // Werte aus den DJI-Flugprotokollen dieses Akkus (chronologisch)
+  const logStats = useMemo(() => {
+    if (!battery) return null;
+    return computeBatteryStats([{ ...(drone as DroneProfile), batteries: [battery] }], history).find(
+      (s) => s.batteryId === battery.id,
+    ) ?? null;
+  }, [drone, battery, history]);
   const totalDischarge = useMemo(() => {
     let sum = 0;
     let count = 0;
@@ -128,7 +137,23 @@ export default function BatteryDetailScreen() {
                 {totalDischarge.avg !== null ? `${totalDischarge.avg}%` : "—"}
               </ThemedText>
             </View>
+            {logStats?.cycleCount != null ? (
+              <View style={[styles.statBox, { borderLeftWidth: 1, borderLeftColor: theme.border }]}>
+                <ThemedText style={[styles.statLabel, { color: theme.textSecondary }]}>Zyklen (DJI)</ThemedText>
+                <ThemedText style={styles.statValue}>{logStats.cycleCount}</ThemedText>
+              </View>
+            ) : null}
           </View>
+          {logStats && logStats.trend.length > 0 ? (
+            <View style={{ gap: 2 }}>
+              <ThemedText style={[styles.note, { color: theme.textSecondary }]}>
+                Min. Zellspannung: {formatTrend(logStats.trend.map((p) => p.minCellV), 2, "V")}
+              </ThemedText>
+              <ThemedText style={[styles.note, { color: theme.textSecondary }]}>
+                Max. Temperatur: {formatTrend(logStats.trend.map((p) => p.maxTempC), 0, "°C")}
+              </ThemedText>
+            </View>
+          ) : null}
           {!battery ? (
             <ThemedText style={[styles.note, { color: theme.statusCaution }]}>
               Dieser Akku ist nicht mehr in den Drohnen-Einstellungen vorhanden.
@@ -136,6 +161,31 @@ export default function BatteryDetailScreen() {
             </ThemedText>
           ) : null}
         </Card>
+
+        <Pressable
+          testID="battery-open-charge-history"
+          onPress={() =>
+            (navigation as unknown as { navigate(r: string, p: unknown): void }).navigate("ChargerTab", {
+              screen: "ChargerBatteryHistory",
+              params: { batteryKey: batteryKey({ droneId, batteryId }), label: battery?.name ?? "Akku" },
+              initial: false,
+            })
+          }
+          style={({ pressed }) => [
+            styles.historyCard,
+            { borderColor: theme.border, backgroundColor: theme.backgroundSecondary },
+            pressed && { opacity: 0.75 },
+          ]}
+        >
+          <Feather name="battery-charging" size={20} color={theme.primary} />
+          <View style={{ flex: 1 }}>
+            <ThemedText style={styles.historyTitle}>Ladehistorie (ISDT MA331)</ThemedText>
+            <ThemedText style={[styles.historyMeta, { color: theme.textSecondary }]}>
+              Ladevorgänge, Zyklen, Zell-Spreizung, Temperatur
+            </ThemedText>
+          </View>
+          <Feather name="chevron-right" size={20} color={theme.textSecondary} />
+        </Pressable>
 
         <View style={styles.section}>
           <ThemedText style={styles.sectionTitle}>Flughistorie</ThemedText>
@@ -152,8 +202,15 @@ export default function BatteryDetailScreen() {
           </Card>
         ) : (
           history.map((entry) => {
-            const pre = entry.preflight?.batteryUsage?.find((u) => u.batteryId === batteryId);
-            const post = entry.debriefing?.batteryUsage?.find((u) => u.batteryId === batteryId);
+            const djiLog = getEntryDjiLogs(entry).find(
+              (l) => l.batteryId === batteryId || (!!battery?.serialNumber && l.batterySn === battery.serialNumber),
+            );
+            const pre =
+              entry.preflight?.batteryUsage?.find((u) => u.batteryId === batteryId) ??
+              (djiLog?.batteryStartPercent != null ? { percentBefore: djiLog.batteryStartPercent } : undefined);
+            const post =
+              entry.debriefing?.batteryUsage?.find((u) => u.batteryId === batteryId) ??
+              (djiLog?.batteryEndPercent != null ? { percentAfter: djiLog.batteryEndPercent } : undefined);
             return (
               <Pressable
                 key={entry.id}

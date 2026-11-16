@@ -28,7 +28,11 @@
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
         "INTERNET",
-        "ACCESS_NETWORK_STATE"
+        "ACCESS_NETWORK_STATE",
+        "BLUETOOTH",
+        "BLUETOOTH_ADMIN",
+        "BLUETOOTH_SCAN",
+        "BLUETOOTH_CONNECT"
       ],
       "versionCode": 3,
       "blockedPermissions": [
@@ -69,7 +73,15 @@
       "./plugins/withDjiAppQueries",
       "./plugins/withRcKeyEvents",
       "./plugins/withAlertOverlay",
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "react-native-ble-manager",
+        {
+          "isBleRequired": false,
+          "neverForLocation": false,
+          "companionDeviceEnabled": false
+        }
+      ]
     ],
     "experiments": {
       "reactCompiler": false

@@ -6,7 +6,12 @@ import React from "react";
 import renderer, { act, type ReactTestRenderer } from "react-test-renderer";
 import { Dimensions, StyleSheet, Text } from "react-native";
 
-import { MainTabBar, getMainTabBarHeight, withAlpha } from "@/navigation/MainTabBar";
+jest.mock("@/components/DjiLaunchButton", () => {
+  const { Text } = jest.requireActual("react-native");
+  return { DjiLaunchButton: () => <Text testID="tab-dji-launch">DJI</Text> };
+});
+
+import { MainTabBar, djiAfterIndex, getMainTabBarHeight, withAlpha } from "@/navigation/MainTabBar";
 
 function makeProps(index: number) {
   const routes = [
@@ -95,4 +100,37 @@ test("Steuerkreuz-Fokus auf einem inaktiven Tab sieht nicht aktiv aus; aktiver T
   expect(StyleSheet.flatten(active.props.style).backgroundColor).not.toBe("transparent");
   act(() => briefings.props.onBlur());
   expect(tree.root.findAll((n) => n.props.testID === "tab-focus-ring-BriefingsTab")).toHaveLength(0);
+});
+
+const SEVEN_TABS = ["BriefingsTab", "RadarTab", "NotamsTab", "HistoryTab", "NdFilterTab", "ChargerTab", "SettingsTab"];
+
+test("7 Tabs: Akkus direkt links von Einstellungen, DJI-Knopf zwischen NOTAMs und Logbuch", () => {
+  const routes = SEVEN_TABS.map((name) => ({ key: name, name, params: undefined }));
+  const descriptors: Record<string, any> = Object.fromEntries(
+    SEVEN_TABS.map((name) => [name, { options: { tabBarLabel: name === "ChargerTab" ? "Akkus" : name } }]),
+  );
+  expect(djiAfterIndex(routes)).toBe(2);
+  // ohne Namen (früheres Verhalten): Mitte
+  expect(djiAfterIndex([{ name: "a" }, { name: "b" }, { name: "c" }, { name: "d" }])).toBe(1);
+  const tree = render({
+    state: { index: 5, routes } as any,
+    descriptors: descriptors as any,
+    navigation: { emit: jest.fn(() => ({ defaultPrevented: false })), navigate: jest.fn() } as any,
+    insets: { top: 0, bottom: 0, left: 0, right: 0 },
+  });
+  const bar = tree.root.find((n) => n.props.testID === "main-tab-bar" && typeof n.type === "string");
+  const order = bar.children
+    .map((c: any) => c.findAll((n: any) => typeof n.props.testID === "string" && (n.props.testID.startsWith("tab-") && !n.props.testID.startsWith("tab-active") && !n.props.testID.startsWith("tab-focus")))[0]?.props.testID)
+    .filter(Boolean);
+  expect(order).toEqual([
+    "tab-BriefingsTab",
+    "tab-RadarTab",
+    "tab-NotamsTab",
+    "tab-dji-launch",
+    "tab-HistoryTab",
+    "tab-NdFilterTab",
+    "tab-ChargerTab",
+    "tab-SettingsTab",
+  ]);
+  expect(tree.root.findAll((n) => n.props.testID === "tab-active-pill-ChargerTab").length).toBeGreaterThan(0);
 });

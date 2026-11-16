@@ -655,6 +655,22 @@ export default function DroneSetupScreen() {
               Hinzufügen
             </ThemedText>
           </Pressable>
+          <Pressable
+            testID="battery-open-charger"
+            onPress={() => (navigation as any).navigate("ChargerTab", { screen: "ChargerLive" })}
+            style={({ pressed }) => [
+              styles.batteryAddButton,
+              { backgroundColor: theme.primary + "15", marginLeft: Spacing.xs },
+              pressed && { opacity: 0.7 },
+            ]}
+            hitSlop={8}
+            accessibilityLabel="Ladegerät (ISDT MA331)"
+          >
+            <Feather name="battery-charging" size={18} color={theme.primary} />
+            <ThemedText style={[styles.batteryAddText, { color: theme.primary }]}>
+              Ladegerät
+            </ThemedText>
+          </Pressable>
         </View>
 
         {batteries.length === 0 ? (

@@ -11,6 +11,7 @@ import { CountryUsagePrompt } from "@/components/CountryUsagePrompt";
 import { SetupGuideOverlay } from "@/components/SetupGuideOverlay";
 import { DownloadActivityBar } from "@/components/DownloadActivityBar";
 import { BlockingWorkOverlay } from "@/components/BlockingWorkOverlay";
+import { DjiLogWorkerHost } from "@/components/DjiLogWorkerHost";
 import { rootTouchHandlers, runAfterStartup } from "@/lib/backgroundWork";
 import { prefetchObstaclesAroundLastKnown } from "@/lib/obstacles";
 import { startWeatherPrefetch } from "@/lib/weatherPrefetch";
@@ -153,6 +154,8 @@ export default function App() {
                   <OfflineBanner />
                   {/* nur für nicht zerlegbare, lange Arbeit (runBlocking) – fängt alle Berührungen ab */}
                   <BlockingWorkOverlay />
+                  {/* unsichtbare WebView für die DJI-Log-Auswertung (nur während einer Auswertung) */}
+                  <DjiLogWorkerHost />
                   <StatusBar style="auto" />
                 </KeyboardProvider>
               </GestureHandlerRootView>

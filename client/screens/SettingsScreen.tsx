@@ -386,7 +386,7 @@ export default function SettingsScreen() {
         testID="menu-offline-maps"
         icon={icon("download-cloud")}
         title="Karten, Hindernisse & Offline"
-        subtitle="Offline-Pakete laden und verwalten"
+        subtitle="Offline-Pakete, d-flight- und DJI-Schlüssel"
         onPress={() => navigation.navigate("RcOfflineMaps")}
       />
     </SettingsCard>
@@ -402,6 +402,17 @@ export default function SettingsScreen() {
       value={drones.length > 0 ? String(drones.length) : undefined}
       subtitle="Dokumente, Historie, Archiv"
       onPress={() => navigation.navigate("Drones")}
+    />,
+    // Ladegerät lebt im Akkus-Tab; hier nur der Weg zu seinen Einstellungen
+    <SettingsRow
+      key="charger"
+      testID="settings-row-charger"
+      icon={icon("battery-charging")}
+      title="Ladegerät-Einstellungen"
+      subtitle="ISDT MA331 · Hintergrund-Loggen, Kopplung"
+      onPress={() =>
+        (navigation as unknown as { navigate(r: string, p: unknown): void }).navigate("ChargerTab", { screen: "ChargerSettings", initial: false })
+      }
     />,
   ];
   if (drones.length === 0) {

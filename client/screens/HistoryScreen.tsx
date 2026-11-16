@@ -871,8 +871,63 @@ export default function HistoryScreen() {
     );
   }, [loadData]);
 
-  // DJI-Fluglog-Auswertung (Einzel/Bulk) benötigte den Server (DJI-
-  // Entschlüsselungsschlüssel) und ist in der RC-Version entfernt.
+  // DJI-Fluglogs: Auswertung auf dem Gerät (dji-log-parser in einer
+  // versteckten WebView), Sammel-Import und Akku-Statistik.
+  const renderDjiEntry = () => (
+    <View style={styles.djiEntryRow}>
+      <Pressable
+        testID="button-dji-analyze-entry"
+        onPress={() => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          navigation.navigate("DjiAnalyze");
+        }}
+        style={({ pressed }) => [
+          styles.djiEntryButton,
+          { backgroundColor: theme.primary + "15", borderColor: theme.primary + "30" },
+          pressed && { opacity: 0.7 },
+        ]}
+      >
+        <Feather name="file-text" size={18} color={theme.primary} />
+        <ThemedText style={[styles.djiEntryText, { color: theme.primary }]} numberOfLines={1}>
+          Fluglog auswerten
+        </ThemedText>
+      </Pressable>
+      <Pressable
+        testID="button-dji-bulk-entry"
+        onPress={() => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          navigation.navigate("DjiBulkImport");
+        }}
+        style={({ pressed }) => [
+          styles.djiEntryButton,
+          { backgroundColor: theme.primary + "15", borderColor: theme.primary + "30" },
+          pressed && { opacity: 0.7 },
+        ]}
+      >
+        <Feather name="layers" size={18} color={theme.primary} />
+        <ThemedText style={[styles.djiEntryText, { color: theme.primary }]} numberOfLines={1}>
+          Mehrere Logs / Ordner
+        </ThemedText>
+      </Pressable>
+      <Pressable
+        testID="button-battery-stats-entry"
+        onPress={() => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          navigation.navigate("BatteryStats");
+        }}
+        style={({ pressed }) => [
+          styles.djiEntryButton,
+          { backgroundColor: theme.primary + "15", borderColor: theme.primary + "30" },
+          pressed && { opacity: 0.7 },
+        ]}
+      >
+        <Feather name="battery-charging" size={18} color={theme.primary} />
+        <ThemedText style={[styles.djiEntryText, { color: theme.primary }]} numberOfLines={1}>
+          Akku-Statistik
+        </ThemedText>
+      </Pressable>
+    </View>
+  );
 
   const renderEmpty = () => (
     <View style={styles.emptyContainer}>
@@ -883,6 +938,7 @@ export default function HistoryScreen() {
       <ThemedText style={[styles.emptySubtitle, { color: theme.textSecondary }]}>
         Abgeschlossene Flüge erscheinen hier nach dem Debriefing
       </ThemedText>
+      <View style={styles.emptyDjiWrapper}>{renderDjiEntry()}</View>
     </View>
   );
 
@@ -985,6 +1041,7 @@ export default function HistoryScreen() {
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
+        ListHeaderComponent={<View style={styles.djiEntryHeader}>{renderDjiEntry()}</View>}
         ListFooterComponent={
           filteredItems.some((i) => i.type === "logbook") ? (
             <Pressable

@@ -12,6 +12,11 @@ import NotamsStackNavigator from "@/navigation/NotamsStackNavigator";
 import NdFilterStackNavigator from "@/navigation/NdFilterStackNavigator";
 import RadarStackNavigator from "@/navigation/RadarStackNavigator";
 import SettingsStackNavigator from "@/navigation/SettingsStackNavigator";
+import ChargerStackNavigator, { type ChargerStackParamList } from "@/navigation/ChargerStackNavigator";
+import { ChargerTabIcon } from "@/components/ChargerTabIcon";
+import { ChargerLeaveDialog } from "@/components/charger/ChargerLeaveDialog";
+import { useChargerAppStateHandling } from "@/hooks/useCharger";
+import type { NavigatorScreenParams } from "@react-navigation/native";
 import { ThemedText } from "@/components/ThemedText";
 import { Card } from "@/components/Card";
 import { useTheme } from "@/hooks/useTheme";
@@ -29,6 +34,7 @@ const RadarTabScreen = withContentAboveTabBar(RadarStackNavigator);
 const NotamsTabScreen = withContentAboveTabBar(NotamsStackNavigator);
 const HistoryTabScreen = withContentAboveTabBar(HistoryStackNavigator);
 const NdFilterTabScreen = withContentAboveTabBar(NdFilterStackNavigator);
+const ChargerTabScreen = withContentAboveTabBar(ChargerStackNavigator);
 const SettingsTabScreen = withContentAboveTabBar(SettingsStackNavigator);
 
 export type MainTabParamList = {
@@ -37,6 +43,7 @@ export type MainTabParamList = {
   NotamsTab: undefined;
   HistoryTab: undefined;
   NdFilterTab: undefined;
+  ChargerTab: NavigatorScreenParams<ChargerStackParamList> | undefined;
   SettingsTab: undefined;
 };
 
@@ -321,6 +328,8 @@ export default function MainTabNavigator() {
   const { width, height } = useWindowDimensions();
   const landscape = width > height;
   const [activeTab, setActiveTab] = useState<keyof MainTabParamList>("BriefingsTab");
+  // Ladegerät: Home-Taste während eines Ladevorgangs → Einstellung befolgen
+  useChargerAppStateHandling();
 
   return (
     <View style={{ flex: 1 }}>
@@ -384,6 +393,14 @@ export default function MainTabNavigator() {
           }}
         />
         <Tab.Screen
+          name="ChargerTab"
+          component={ChargerTabScreen}
+          options={{
+            tabBarLabel: "Akkus",
+            tabBarIcon: ({ focused }) => <ChargerTabIcon focused={focused} />,
+          }}
+        />
+        <Tab.Screen
           name="SettingsTab"
           component={SettingsTabScreen}
           options={{
@@ -393,6 +410,7 @@ export default function MainTabNavigator() {
         />
       </Tab.Navigator>
       {activeTab === "BriefingsTab" ? <FloatingFab /> : null}
+      <ChargerLeaveDialog />
     </View>
   );
 }

@@ -8,6 +8,7 @@ import DjiAnalyzeScreen from "@/screens/DjiAnalyzeScreen";
 import DjiBulkImportScreen from "@/screens/DjiBulkImportScreen";
 import LogbookEntryDetailScreen from "@/screens/LogbookEntryDetailScreen";
 import BatteryDetailScreen from "@/screens/BatteryDetailScreen";
+import BatteryStatsScreen from "@/screens/BatteryStatsScreen";
 import { useScreenOptions } from "@/hooks/useScreenOptions";
 
 export type HistoryStackParamList = {
@@ -23,6 +24,7 @@ export type HistoryStackParamList = {
     focusSection?: "planning" | "preflight" | "hover" | "postLanding" | "debriefing" | "fluglog";
   };
   BatteryDetail: { droneId: string; batteryId: string };
+  BatteryStats: undefined;
 };
 
 const Stack = createNativeStackNavigator<HistoryStackParamList>();
@@ -86,6 +88,13 @@ export default function HistoryStackNavigator() {
         component={BatteryDetailScreen}
         options={{
           headerTitle: "Akku-Historie",
+        }}
+      />
+      <Stack.Screen
+        name="BatteryStats"
+        component={BatteryStatsScreen}
+        options={{
+          headerTitle: "Akku-Statistik",
         }}
       />
     </Stack.Navigator>

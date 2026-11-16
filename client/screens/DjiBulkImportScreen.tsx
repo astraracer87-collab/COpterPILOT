@@ -13,6 +13,13 @@ import { useTheme } from "@/hooks/useTheme";
 import { Spacing, Typography, BorderRadius } from "@/constants/theme";
 import {
   pickAndAnalyzeMultipleDjiLogs,
+  analyzeDjiLogFolder,
+  chooseDjiLogFolder,
+  getSavedDjiLogFolder,
+  forgetDjiLogFolder,
+  folderLabelFromUri,
+  isFolderImportSupported,
+  type DjiBulkResult,
   groupDjiAnalyses,
   assignDjiLog,
   isLikelyTestStart,
@@ -23,9 +30,9 @@ import {
   type DjiBulkProgress,
 } from "@/lib/djiLog";
 import { getLogbook, type LogbookEntry } from "@/lib/storage";
-import { isLoggedInSync } from "@/lib/auth";
 import { reverseGeocodePlace } from "@/lib/countryMaps";
 import DjiTracksMap, { type DjiMapTrack } from "@/components/DjiTracksMap";
+import { DjiLogHelp } from "@/components/DjiLogHelp";
 import type { HistoryStackParamList } from "@/navigation/HistoryStackNavigator";
 
 const PREVIEW_TRACK_COLORS = ["#0A84FF", "#FF9F0A", "#30D158", "#BF5AF2", "#FF375F"];
@@ -187,7 +194,6 @@ export default function DjiBulkImportScreen() {
   const navigation = useNavigation<NavigationProp>();
   const headerHeight = useHeaderHeight();
   const insets = useSafeAreaInsets();
-  const loggedIn = isLoggedInSync();
 
   const [analyzing, setAnalyzing] = useState(false);
   const [progress, setProgress] = useState<DjiBulkProgress | null>(null);
@@ -198,6 +204,9 @@ export default function DjiBulkImportScreen() {
   const [selection, setSelection] = useState<Record<string, Selection>>({});
   const [assignedTo, setAssignedTo] = useState<Record<string, string>>({});
   const [busyGroup, setBusyGroup] = useState<string | null>(null);
+  const [folderUri, setFolderUri] = useState<string | null>(null);
+  const [skippedKnown, setSkippedKnown] = useState(0);
+  const [showFolderHelp, setShowFolderHelp] = useState(false);
   const [placeNames, setPlaceNames] = useState<Record<string, string>>({});
   const requestedPlaces = React.useRef<Set<string>>(new Set());
 
@@ -209,6 +218,7 @@ export default function DjiBulkImportScreen() {
         // ignore — offline / no entries
       }
     })();
+    getSavedDjiLogFolder().then(setFolderUri).catch(() => {});
   }, []);
 
   const groups = useMemo(() => groupDjiAnalyses(results, { maxKm: 2, maxHours: 3 }), [results]);
@@ -255,34 +265,78 @@ export default function DjiBulkImportScreen() {
     });
   }, [groups, matchesByGroup]);
 
+  const applyResult = useCallback((res: DjiBulkResult, known = 0) => {
+    // Test-/Einstellstarts (sehr kurz + keine Strecke) gar nicht erst als
+    // importierbaren Flug anbieten — sie sollen nicht erfasst werden.
+    const kept = res.results.filter((r) => !isLikelyTestStart(r.meta));
+    setResults(kept);
+    setSkippedTestStarts(res.results.length - kept.length);
+    setSkippedKnown(known);
+    setErrors(res.errors);
+    setSelection({});
+    setAssignedTo({});
+    setPlaceNames({});
+    requestedPlaces.current.clear();
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  }, []);
+
   const handlePick = useCallback(async () => {
-    if (!loggedIn) {
-      Alert.alert("Login erforderlich", "Bitte melde dich an, um DJI-Logs zu importieren.");
-      return;
-    }
     setAnalyzing(true);
     setProgress(null);
     try {
       const res = await pickAndAnalyzeMultipleDjiLogs((p) => setProgress(p));
       if (!res) return; // abgebrochen
-      // Test-/Einstellstarts (sehr kurz + keine Strecke) gar nicht erst als
-      // importierbaren Flug anbieten — sie sollen nicht erfasst werden.
-      const kept = res.results.filter((r) => !isLikelyTestStart(r.meta));
-      setResults(kept);
-      setSkippedTestStarts(res.results.length - kept.length);
-      setErrors(res.errors);
-      setSelection({});
-      setAssignedTo({});
-      setPlaceNames({});
-      requestedPlaces.current.clear();
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      applyResult(res);
     } catch (e) {
       Alert.alert("Fehler", e instanceof Error ? e.message : "Import fehlgeschlagen.");
     } finally {
       setAnalyzing(false);
       setProgress(null);
     }
-  }, [loggedIn]);
+  }, [applyResult]);
+
+  const importFolder = useCallback(
+    async (uri: string) => {
+      setAnalyzing(true);
+      setProgress(null);
+      try {
+        const res = await analyzeDjiLogFolder(uri, (p) => setProgress(p));
+        applyResult(res, res.skippedKnown);
+        if (res.results.length === 0 && res.errors.length === 0 && res.skippedKnown === 0) {
+          Alert.alert(
+            "Keine Protokolle",
+            `Im Ordner „${res.folderLabel}“ wurden keine DJI-Flugprotokolle (.txt) gefunden.`,
+          );
+        }
+      } catch (e) {
+        Alert.alert("Ordner nicht lesbar", e instanceof Error ? e.message : "Import fehlgeschlagen.");
+        setShowFolderHelp(true);
+      } finally {
+        setAnalyzing(false);
+        setProgress(null);
+      }
+    },
+    [applyResult],
+  );
+
+  const handleChooseFolder = useCallback(
+    async (initial: "djiFly" | "download") => {
+      try {
+        const uri = await chooseDjiLogFolder(initial);
+        if (!uri) {
+          // abgebrochen oder von Android verweigert (Android/data ab Android 11 teils gesperrt)
+          if (initial === "djiFly") setShowFolderHelp(true);
+          return;
+        }
+        setFolderUri(uri);
+        await importFolder(uri);
+      } catch (e) {
+        setShowFolderHelp(true);
+        Alert.alert("Ordner", e instanceof Error ? e.message : "Ordner konnte nicht geöffnet werden.");
+      }
+    },
+    [importFolder],
+  );
 
   const assignGroup = useCallback(
     async (group: DjiAnalysisGroup) => {
@@ -513,9 +567,9 @@ export default function DjiBulkImportScreen() {
         scrollIndicatorInsets={{ bottom: insets.bottom }}
       >
         <ThemedText style={[styles.intro, { color: theme.textSecondary }]}>
-          Wähle mehrere DJI-Controller-Protokolle (.txt) auf einmal. Logs vom selben Startort
-          (unter 2 km) und derselben Startzeit (unter 3 h) werden als ein Flug gruppiert —
-          ideal bei Akku-Wechseln.
+          Wähle mehrere DJI-Flugprotokolle (.txt) oder einen ganzen Ordner. Ausgewertet wird auf
+          diesem Gerät. Logs vom selben Startort (unter 2 km) und derselben Startzeit (unter 3 h)
+          werden als ein Flug gruppiert — ideal bei Akku-Wechseln.
         </ThemedText>
 
         <Pressable
@@ -538,9 +592,110 @@ export default function DjiBulkImportScreen() {
           )}
         </Pressable>
 
+        {isFolderImportSupported() ? (
+          <View style={styles.folderBlock}>
+            <View style={styles.folderRow}>
+              <Pressable
+                testID="button-bulk-folder-djifly"
+                disabled={analyzing}
+                onPress={() => handleChooseFolder("djiFly")}
+                style={({ pressed }) => [
+                  styles.folderButton,
+                  { borderColor: theme.primary + "40", backgroundColor: theme.primary + "12" },
+                  (pressed || analyzing) && { opacity: 0.6 },
+                ]}
+              >
+                <Feather name="folder" size={16} color={theme.primary} />
+                <ThemedText style={[styles.folderButtonText, { color: theme.primary }]} numberOfLines={1}>
+                  Ordner wählen (DJI Fly)
+                </ThemedText>
+              </Pressable>
+              <Pressable
+                testID="button-bulk-folder-download"
+                disabled={analyzing}
+                onPress={() => handleChooseFolder("download")}
+                style={({ pressed }) => [
+                  styles.folderButton,
+                  { borderColor: theme.border, backgroundColor: theme.backgroundSecondary },
+                  (pressed || analyzing) && { opacity: 0.6 },
+                ]}
+              >
+                <Feather name="download" size={16} color={theme.text} />
+                <ThemedText style={[styles.folderButtonText, { color: theme.text }]} numberOfLines={1}>
+                  Download/FlightRecords
+                </ThemedText>
+              </Pressable>
+            </View>
+            {folderUri ? (
+              <View style={styles.folderRow}>
+                <Pressable
+                  testID="button-bulk-folder-rescan"
+                  disabled={analyzing}
+                  onPress={() => importFolder(folderUri)}
+                  style={({ pressed }) => [
+                    styles.folderButton,
+                    { borderColor: theme.statusGo + "60", backgroundColor: theme.statusGoBackground },
+                    (pressed || analyzing) && { opacity: 0.6 },
+                  ]}
+                >
+                  <Feather name="refresh-cw" size={16} color={theme.statusGo} />
+                  <ThemedText style={[styles.folderButtonText, { color: theme.statusGo }]} numberOfLines={1}>
+                    {`Neue Logs aus „${folderLabelFromUri(folderUri)}“`}
+                  </ThemedText>
+                </Pressable>
+                <Pressable
+                  testID="button-bulk-folder-forget"
+                  disabled={analyzing}
+                  onPress={() => {
+                    forgetDjiLogFolder().catch(() => {});
+                    setFolderUri(null);
+                  }}
+                  style={({ pressed }) => [styles.folderForget, pressed && { opacity: 0.6 }]}
+                  accessibilityLabel="Gemerkten Ordner vergessen"
+                >
+                  <Feather name="x" size={16} color={theme.textSecondary} />
+                </Pressable>
+              </View>
+            ) : null}
+          </View>
+        ) : null}
+
+        {showFolderHelp ? (
+          <Card style={[styles.section, { backgroundColor: theme.statusCautionBackground }]} testID="card-folder-help">
+            <ThemedText style={[styles.errorTitle, { color: theme.statusCaution }]}>
+              DJI-Fly-Ordner nicht freigegeben?
+            </ThemedText>
+            <ThemedText style={[styles.hint, { color: theme.text, marginTop: Spacing.xs }]}>
+              Android 11 sperrt „Android/data“ für andere Apps oft. Dann: Protokolle per PC/USB aus
+              „Android/data/dji.go.v5/files/FlightRecord“ nach „Download/FlightRecords“ kopieren und
+              diesen Ordner wählen – oder in DJI Fly das Protokoll exportieren/teilen und hier einzeln
+              auswählen. Details unten in der Hilfe.
+            </ThemedText>
+          </Card>
+        ) : null}
+
         {analyzing && progress ? (
-          <ThemedText style={[styles.progress, { color: theme.textSecondary }]}>
-            {`Verarbeite ${progress.done} / ${progress.total} — ${progress.fileName}`}
+          <View style={styles.progressBlock}>
+            <View style={[styles.progressTrack, { backgroundColor: theme.backgroundSecondary }]}>
+              <View
+                style={[
+                  styles.progressFill,
+                  {
+                    backgroundColor: theme.primary,
+                    width: `${progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0}%`,
+                  },
+                ]}
+              />
+            </View>
+            <ThemedText style={[styles.progress, { color: theme.textSecondary }]} numberOfLines={1}>
+              {`Verarbeite ${Math.min(progress.done + 1, progress.total)} / ${progress.total} — ${progress.fileName}`}
+            </ThemedText>
+          </View>
+        ) : null}
+
+        {skippedKnown > 0 ? (
+          <ThemedText style={[styles.hint, { color: theme.textTertiary, marginTop: Spacing.md }]}>
+            {`${skippedKnown} ${skippedKnown === 1 ? "Protokoll ist" : "Protokolle sind"} schon im Logbuch und ${skippedKnown === 1 ? "wurde" : "wurden"} übersprungen.`}
           </ThemedText>
         ) : null}
 
@@ -584,6 +739,10 @@ export default function DjiBulkImportScreen() {
               : "Noch keine Logs ausgewählt."}
           </ThemedText>
         ) : null}
+
+        <View style={{ marginTop: Spacing.lg }}>
+          <DjiLogHelp />
+        </View>
       </ScrollView>
     </ThemedView>
   );
@@ -614,7 +773,47 @@ const styles = StyleSheet.create({
   progress: {
     ...Typography.caption,
     textAlign: "center",
+    marginTop: Spacing.sm,
+  },
+  progressBlock: {
     marginTop: Spacing.md,
+  },
+  progressTrack: {
+    height: 6,
+    borderRadius: 3,
+    overflow: "hidden",
+  },
+  progressFill: {
+    height: 6,
+    borderRadius: 3,
+  },
+  folderBlock: {
+    marginTop: Spacing.md,
+    gap: Spacing.sm,
+  },
+  folderRow: {
+    flexDirection: "row",
+    gap: Spacing.sm,
+    alignItems: "center",
+  },
+  folderButton: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: Spacing.sm,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.sm,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+  },
+  folderButtonText: {
+    ...Typography.small,
+    fontWeight: "600",
+    flexShrink: 1,
+  },
+  folderForget: {
+    padding: Spacing.sm,
   },
   section: {
     marginTop: Spacing.lg,

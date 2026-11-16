@@ -29,7 +29,6 @@
  */
 import { Alert, AppState, Linking, Platform } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import type BackgroundServiceType from "react-native-background-actions";
 import * as Notifications from "expo-notifications";
 import * as Location from "@/lib/location";
 import { fetchNearbyAircraft } from "@/lib/opensky";
@@ -42,6 +41,7 @@ import {
   updateAlarmAltitude,
 } from "@/lib/proximityAlarm";
 import { ensureNotificationPermissions } from "@/lib/notifications";
+import { foregroundServiceHost } from "@/lib/foregroundServiceHostNative";
 import {
   addOverlayDismissListener,
   canDrawOverlays,
@@ -194,18 +194,6 @@ function installOverlayDismissListener(): void {
   });
 }
 
-// Erst bei Bedarf laden: das Modul erzeugt beim Import einen NativeEventEmitter
-// (in Tests/ohne natives Modul nicht vorhanden).
-let bgService: typeof BackgroundServiceType | null = null;
-function backgroundService(): typeof BackgroundServiceType {
-  if (!bgService) {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const mod = require("react-native-background-actions");
-    bgService = (mod.default ?? mod) as typeof BackgroundServiceType;
-  }
-  return bgService;
-}
-
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 export const radarMonitorDeps: RadarMonitorDeps = {
@@ -246,22 +234,26 @@ export const radarMonitorDeps: RadarMonitorDeps = {
       // Alarmtöne laden und Audio-Modus „im Hintergrund spielen“ setzen,
       // solange die App noch im Vordergrund ist
       preloadAlarmSounds();
-      await backgroundService().start(task, {
-        taskName: "CopterPilotRadarMonitor",
-        taskTitle: opts.title,
-        taskDesc: opts.description,
-        taskIcon: { name: "ic_launcher", type: "mipmap" },
-        color: "#0E2132",
-        linkingURI: opts.linkingURI,
-        foregroundServiceType: [opts.foregroundServiceType],
-      });
+      // Gemeinsamer Vordergrunddienst (auch für das Ladegerät-Loggen):
+      // react-native-background-actions kann nur EINEN Dienst/EINE Aufgabe
+      await foregroundServiceHost.acquire(
+        "radar",
+        task,
+        {
+          title: opts.title,
+          description: opts.description,
+          shortLabel: "Luftraumüberwachung aktiv",
+          linkingURI: opts.linkingURI,
+          foregroundServiceType: opts.foregroundServiceType,
+        },
+        10,
+      );
       // Daueranzeige auf den stillen Kanal umhängen (natives Modul wartet auf startForeground)
       restyleServiceNotification();
       void maybeShowOverlayPermissionHint().catch(() => false);
     },
     stop: async () => {
-      const svc = backgroundService();
-      if (svc.isRunning()) await svc.stop();
+      await foregroundServiceHost.release("radar");
     },
   },
   log: (m) => console.warn(m),

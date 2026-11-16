@@ -67,8 +67,33 @@ export interface DjiLogMeta {
   track?: DjiTrackPoint[];
   records?: DjiLogRecord[];
   messages?: DjiLogMessage[];
+  /** Welcher Akku in diesem Log steckte (Verweis auf DroneBattery.id). */
   batteryId?: string;
   batteryLabel?: string;
+  // --- ab der Auswertung auf dem Gerät (alle optional, ältere Daten haben sie nicht) ---
+  /** Seriennummer des Fluggeräts laut Log. */
+  aircraftSn?: string;
+  /** Vom Piloten vergebener Name des Fluggeräts (DJI-App). */
+  aircraftName?: string;
+  /** Seriennummer des Akkus laut Log. */
+  batterySn?: string;
+  /** Ladezyklen des Akkus laut Log (falls geloggt). */
+  batteryCycleCount?: number;
+  /** Akku-Gesundheit in % laut Log (falls geloggt). */
+  batteryHealthPercent?: number;
+  /** Niedrigste Zellspannung im Flug (V). */
+  minCellV?: number;
+  /** true, wenn nur aus der Gesamtspannung geschätzt. */
+  minCellEstimated?: boolean;
+  /** Höchste Akkutemperatur im Flug (°C). */
+  maxBatteryTempC?: number;
+  /** Größte Entfernung vom Startpunkt (m). */
+  maxDistanceFromHomeM?: number;
+  /** Start/Ende laut Log (ms seit Epoch). */
+  startTs?: number;
+  endTs?: number;
+  /** Herkunft der Entschlüsselungs-Schlüssel (nur v13+). */
+  keychainSource?: "cache" | "api";
 }
 
 export interface DjiAnalyzeResult {

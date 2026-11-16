@@ -34,6 +34,30 @@ export interface BlobSpec {
   ns: string;
   /** Feldpfade je Datensatz, z. B. ["mapSnapshotBase64"], ["trafficLog","mapSnapshotBase64"]. */
   fields: readonly BlobFieldPath[];
+  /**
+   * Felder mit JSON-Werten (Objekte/Arrays, z. B. ausgewertete DJI-Logs):
+   * werden als JSON-Text ausgelagert und beim Lesen wieder geparst.
+   */
+  jsonFields?: readonly BlobFieldPath[];
+}
+
+function allFields(spec: BlobSpec): readonly BlobFieldPath[] {
+  return spec.jsonFields && spec.jsonFields.length ? [...spec.fields, ...spec.jsonFields] : spec.fields;
+}
+
+function isJsonField(spec: BlobSpec, field: BlobFieldPath): boolean {
+  return !!spec.jsonFields?.some((f) => f.length === field.length && f.every((p, i) => p === field[i]));
+}
+
+/** Inline-JSON-Wert, der groß genug zum Auslagern ist (sonst null). */
+function jsonToExternalize(value: unknown): string | null {
+  if (value === null || typeof value !== "object") return null;
+  try {
+    const text = JSON.stringify(value);
+    return text.length >= BLOB_MIN_LENGTH ? text : null;
+  } catch {
+    return null;
+  }
 }
 
 export function isBlobRef(v: unknown): v is string {
@@ -108,9 +132,14 @@ export async function externalizeBlobs<T>(
       continue;
     }
     let next = item;
-    for (const field of spec.fields) {
+    for (const field of allFields(spec)) {
       let value = getAt(next, field);
-      if (typeof value !== "string") continue;
+      if (typeof value !== "string") {
+        if (!isJsonField(spec, field)) continue;
+        const text = jsonToExternalize(value);
+        if (text == null) continue;
+        value = text;
+      }
       const rel = relPathFor(spec, id, field);
       if (isBlobRef(value)) {
         if (value === BLOB_REF_PREFIX + rel) continue;
@@ -144,12 +173,20 @@ export async function hydrateBlobsOne<T>(
 ): Promise<T> {
   if (!item || typeof item !== "object") return item;
   let next = item;
-  for (const field of spec.fields) {
+  for (const field of allFields(spec)) {
     const value = getAt(next, field);
     if (!isBlobRef(value)) continue;
     const fs = activeFs(fsArg);
     const content = fs ? await readRef(fs, value) : null;
-    next = setAt(next, field, content ?? undefined);
+    let restored: unknown = content ?? undefined;
+    if (content != null && isJsonField(spec, field)) {
+      try {
+        restored = JSON.parse(content);
+      } catch {
+        restored = undefined;
+      }
+    }
+    next = setAt(next, field, restored);
   }
   return next;
 }
@@ -170,13 +207,10 @@ export function hasInlineBlobs<T>(
   items: readonly T[],
 ): boolean {
   return items.some((item) =>
-    spec.fields.some((f) => {
+    allFields(spec).some((f) => {
       const v = getAt(item, f);
-      return (
-        typeof v === "string" &&
-        v.length >= BLOB_MIN_LENGTH &&
-        !v.startsWith(BLOB_REF_PREFIX)
-      );
+      if (typeof v !== "string") return isJsonField(spec, f) && jsonToExternalize(v) != null;
+      return v.length >= BLOB_MIN_LENGTH && !v.startsWith(BLOB_REF_PREFIX);
     }),
   );
 }
@@ -197,7 +231,7 @@ export async function collectBlobGarbage<T>(
   const now = opts.now ?? Date.now();
   const referenced = new Set<string>();
   for (const item of rawItems) {
-    for (const f of spec.fields) {
+    for (const f of allFields(spec)) {
       const v = getAt(item, f);
       if (isBlobRef(v)) referenced.add(v.slice(BLOB_REF_PREFIX.length));
     }

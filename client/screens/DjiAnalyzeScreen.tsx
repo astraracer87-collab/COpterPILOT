@@ -23,12 +23,29 @@ import {
   isLikelyTestStart,
   type DjiAnalyzeResult,
 } from "@/lib/djiLog";
+import type { DjiAnalyzePhase } from "@/lib/djiLogAnalyzer";
 import { getLogbook, type LogbookEntry } from "@/lib/storage";
-import { isLoggedInSync } from "@/lib/auth";
 import { FeatureLockCard, useFeatureAccess } from "@/components/FeatureGate";
 import type { HistoryStackParamList } from "@/navigation/HistoryStackNavigator";
 
 type NavigationProp = NativeStackNavigationProp<HistoryStackParamList>;
+
+function phaseLabel(p: { phase: DjiAnalyzePhase; fraction?: number } | null): string {
+  const pct = (f?: number) => (f != null && Number.isFinite(f) ? ` ${Math.round(f * 100)} %` : "");
+  if (!p) return "Wird ausgewertet …";
+  switch (p.phase) {
+    case "read":
+      return `Datei wird gelesen …${pct(p.fraction)}`;
+    case "decode":
+      return "Protokoll wird dekodiert …";
+    case "keys":
+      return "DJI-Schlüssel werden geholt …";
+    case "rows":
+      return `Daten werden übernommen …${pct(p.fraction)}`;
+    default:
+      return "Wird ausgewertet …";
+  }
+}
 
 function haversineKm(aLat: number, aLon: number, bLat: number, bLon: number): number {
   const R = 6371;
@@ -76,6 +93,7 @@ export default function DjiAnalyzeScreen() {
   const hasDjiLog = useFeatureAccess("dji_log");
 
   const [analyzing, setAnalyzing] = useState(false);
+  const [phase, setPhase] = useState<{ phase: DjiAnalyzePhase; fraction?: number } | null>(null);
   const [assigning, setAssigning] = useState(false);
   const [result, setResult] = useState<DjiAnalyzeResult | null>(null);
   const [entries, setEntries] = useState<LogbookEntry[]>([]);
@@ -170,16 +188,10 @@ export default function DjiAnalyzeScreen() {
   }, [result, rankedEntries]);
 
   const handleAnalyze = useCallback(async () => {
-    if (!isLoggedInSync()) {
-      Alert.alert(
-        "Anmeldung erforderlich",
-        "Bitte melde dich an, um ein DJI-Flugprotokoll auszuwerten.",
-      );
-      return;
-    }
     setAnalyzing(true);
+    setPhase(null);
     try {
-      const res = await pickAndAnalyzeDjiLog();
+      const res = await pickAndAnalyzeDjiLog((p, fraction) => setPhase({ phase: p, fraction }));
       if (res) {
         setResult(res);
         setSelectedEntryId(null);
@@ -192,6 +204,7 @@ export default function DjiAnalyzeScreen() {
       );
     } finally {
       setAnalyzing(false);
+      setPhase(null);
     }
   }, []);
 
@@ -265,8 +278,10 @@ export default function DjiAnalyzeScreen() {
             <ThemedText style={styles.headerText}>Fluglog auswerten</ThemedText>
           </View>
           <ThemedText style={[styles.intro, { color: theme.textSecondary }]}>
-            Lade ein DJI-Controller-Flugprotokoll (.txt aus DJI Fly/GO/Pilot) hoch. Die Auswertung
-            erscheint sofort — du kannst sie anschließend optional einem Flug zuordnen.
+            Wähle ein DJI-Flugprotokoll („DJIFlightRecord_….txt“ aus DJI Fly/GO/Pilot). Es wird
+            vollständig auf diesem Gerät ausgewertet – du kannst es anschließend optional einem Flug
+            zuordnen. Verschlüsselte Protokolle (ab Version 13) brauchen einmalig Internet und einen
+            DJI-API-Schlüssel (Einstellungen → Karten, Hindernisse & Offline).
           </ThemedText>
           <Pressable
             testID="button-dji-analyze-upload"
@@ -281,10 +296,10 @@ export default function DjiAnalyzeScreen() {
             <Feather name="upload" size={15} color={theme.primary} />
             <ThemedText style={[styles.primaryButtonText, { color: theme.primary }]}>
               {analyzing
-                ? "Wird ausgewertet …"
+                ? phaseLabel(phase)
                 : result
                 ? "Anderes Fluglog auswerten"
-                : "Fluglog hochladen"}
+                : "Fluglog auswählen"}
             </ThemedText>
           </Pressable>
         </Card>
@@ -327,7 +342,7 @@ export default function DjiAnalyzeScreen() {
                   </ThemedText>
                   <ThemedText style={[styles.alertText, { color: theme.text }]}>
                     {meta.status === "undecryptable"
-                      ? "Ohne DJI-API-Schlüssel nicht vollständig auswertbar. Basis-Kennzahlen unten."
+                      ? `${meta.message || "Ohne DJI-API-Schlüssel nicht vollständig auswertbar."} Basis-Kennzahlen unten.`
                       : meta.message || "Einige Werte konnten nicht ermittelt werden."}
                   </ThemedText>
                 </View>
@@ -352,6 +367,26 @@ export default function DjiAnalyzeScreen() {
                     meta.batteryMinPercent != null ? `${meta.batteryMinPercent}%` : "—",
                   ].join(" / "),
                 )
+              : null}
+            {meta.aircraftSn ? renderRow("Fluggerät S/N", meta.aircraftSn) : null}
+            {meta.batterySn
+              ? renderRow(
+                  "Akku",
+                  [meta.batteryLabel, `S/N ${meta.batterySn}`].filter(Boolean).join(" · "),
+                )
+              : null}
+            {meta.batteryCycleCount != null ? renderRow("Ladezyklen", String(meta.batteryCycleCount)) : null}
+            {meta.minCellV != null
+              ? renderRow(
+                  "Min. Zellspannung",
+                  `${meta.minCellV.toFixed(2).replace(".", ",")} V${meta.minCellEstimated ? " (geschätzt)" : ""}`,
+                )
+              : null}
+            {meta.maxBatteryTempC != null
+              ? renderRow("Max. Akkutemperatur", `${Math.round(meta.maxBatteryTempC)} °C`)
+              : null}
+            {meta.maxDistanceFromHomeM != null
+              ? renderRow("Max. Entfernung", `${Math.round(meta.maxDistanceFromHomeM)} m`)
               : null}
           </Card>
         ) : null}

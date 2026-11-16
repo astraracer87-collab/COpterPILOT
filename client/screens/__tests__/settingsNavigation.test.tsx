@@ -51,6 +51,8 @@ const NAVIGATOR_SOURCE = fs.readFileSync(
   path.join(__dirname, "../../navigation/SettingsStackNavigator.tsx"),
   "utf8",
 );
+/** Ziele in anderen Tabs (nicht im SettingsStackNavigator) */
+const OTHER_TAB_ROUTES = new Set(["ChargerTab"]);
 const REGISTERED_ROUTES = new Set(
   Array.from(NAVIGATOR_SOURCE.matchAll(/<Stack\.Screen\s+name="([A-Za-z]+)"/g)).map((m) => m[1]),
 );
@@ -61,6 +63,8 @@ const EXPECTED: Array<[testID: string, route: string, params?: unknown]> = [
   ["settings-row-license", "PilotLicenseCard"],
   ["settings-row-expiry", "ExpiryOverview"],
   ["settings-row-drones", "Drones"],
+  // Ladegerät-Einstellungen liegen im Akkus-Tab (anderer Navigator)
+  ["settings-row-charger", "ChargerTab", { screen: "ChargerSettings", initial: false }],
   ["settings-row-tcas", "TcasSettings"],
   ["settings-row-links", "ResourceLinks"],
   ["settings-row-glossary", "Glossary"],
@@ -112,6 +116,7 @@ beforeEach(async () => {
 test("alle Navigationsziele sind im SettingsStackNavigator registriert", () => {
   expect(REGISTERED_ROUTES.size).toBeGreaterThan(10);
   for (const [, route] of EXPECTED) {
+    if (OTHER_TAB_ROUTES.has(route)) continue;
     expect(REGISTERED_ROUTES.has(route)).toBe(true);
   }
   expect(REGISTERED_ROUTES.has("DroneSetup")).toBe(true);
@@ -226,7 +231,7 @@ test("Querformat 960x540: Karten liegen in Reihen, Nachbarn sind gleich groß, k
     const knowledgePairs = hostNodes(tree.root, (id) => id === "settings-knowledge-pair");
     expect(knowledgePairs).toHaveLength(3);
     const dronePairs = hostNodes(tree.root, (id) => id === "settings-drones-pair");
-    expect(dronePairs).toHaveLength(1); // „Drohnen verwalten“ | „Erste Drohne hinzufügen“
+    expect(dronePairs).toHaveLength(2); // „Drohnen verwalten“ | „Ladegerät-Einstellungen“, „Erste Drohne hinzufügen“ | Platzhalter
     for (const pair of [...knowledgePairs, ...dronePairs]) {
       expect(flat(pair)).toEqual(expect.objectContaining({ flexDirection: "row", alignItems: "stretch" }));
       const cells = (pair.children as any[]).filter((c) => typeof c !== "string");
@@ -255,7 +260,7 @@ test("Querformat: mehrere Drohnen werden paarweise in der voll breiten Drohnen-K
   }
   await withLandscape(async () => {
     const tree = await renderScreen();
-    // 1 Verwalten-Zeile + 2 Drohnen = 3 Einträge -> 2 Reihen (zweite mit Platzhalter)
+    // Verwalten + Ladegerät + 2 Drohnen = 4 Einträge -> 2 Reihen
     const pairs = hostNodes(tree.root, (id) => id === "settings-drones-pair");
     expect(pairs).toHaveLength(2);
     expect(tree.root.findAll((n) => typeof n.props.testID === "string" && n.props.testID.startsWith("settings-drone-select-") && typeof n.props.onPress === "function").length).toBe(2);
