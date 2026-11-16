@@ -68,6 +68,7 @@
       "./plugins/withAsyncStorageSize",
       "./plugins/withDjiAppQueries",
       "./plugins/withRcKeyEvents",
+      "./plugins/withAlertOverlay",
       "expo-secure-store"
     ],
     "experiments": {

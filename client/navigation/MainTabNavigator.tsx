@@ -17,7 +17,7 @@ import { Card } from "@/components/Card";
 import { useTheme } from "@/hooks/useTheme";
 import { Colors, Spacing, Typography } from "@/constants/theme";
 import { getDrones } from "@/lib/storage";
-import { subscribeAlarmLevel } from "@/lib/proximityAlarm";
+import { RadarTabIcon, RadarTabLabel } from "@/components/RadarTabIcon";
 import { subscribeActiveNotamCount } from "@/lib/notamAlertStore";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { setFlightPlanningMode } from "@/lib/flightPlanningMode";
@@ -249,89 +249,6 @@ function NotamsTabIcon({ focused }: { focused: boolean }) {
         </View>
       ) : null}
     </View>
-  );
-}
-
-function RadarTabIcon({ focused }: { focused: boolean }) {
-  const { theme } = useTheme();
-  const [alarmLevel, setAlarmLevel] = useState<"none" | "warning" | "critical">("none");
-  const pulseAnim = useRef(new Animated.Value(1)).current;
-  const animRef = useRef<Animated.CompositeAnimation | null>(null);
-
-  useEffect(() => {
-    const unsub = subscribeAlarmLevel(setAlarmLevel);
-    return unsub;
-  }, []);
-
-  useEffect(() => {
-    if (animRef.current) {
-      animRef.current.stop();
-      animRef.current = null;
-    }
-    if (alarmLevel !== "none") {
-      const loop = Animated.loop(
-        Animated.sequence([
-          Animated.timing(pulseAnim, { toValue: 0.2, duration: alarmLevel === "critical" ? 300 : 500, useNativeDriver: true }),
-          Animated.timing(pulseAnim, { toValue: 1, duration: alarmLevel === "critical" ? 300 : 500, useNativeDriver: true }),
-        ])
-      );
-      animRef.current = loop;
-      loop.start();
-    } else {
-      pulseAnim.setValue(1);
-    }
-    return () => {
-      if (animRef.current) { animRef.current.stop(); animRef.current = null; }
-    };
-  }, [alarmLevel]);
-
-  const isAlarm = alarmLevel !== "none";
-  const alarmColor = alarmLevel === "critical" ? "#CC0000" : "#E6A817";
-  const iconColor = isAlarm ? alarmColor : (focused ? theme.primary : theme.textTertiary);
-
-  return (
-    <View style={{ alignItems: "center", justifyContent: "center" }}>
-      {isAlarm ? (
-        // Alarm als pulsierender RING (keine gefüllte Fläche), damit er nicht
-        // wie die Pille des aktiven Tabs aussieht.
-        <Animated.View
-          testID="radar-tab-alarm-ring"
-          style={{
-            position: "absolute",
-            width: 34,
-            height: 34,
-            borderRadius: 17,
-            borderWidth: 2,
-            borderColor: alarmColor,
-            backgroundColor: "transparent",
-            opacity: pulseAnim.interpolate({ inputRange: [0.2, 1], outputRange: [0.35, 1] }),
-          }}
-        />
-      ) : null}
-      <Animated.View style={isAlarm ? { opacity: pulseAnim } : undefined}>
-        <Feather name="radio" size={24} color={iconColor} />
-      </Animated.View>
-    </View>
-  );
-}
-
-function RadarTabLabel({ focused }: { focused: boolean }) {
-  const { theme } = useTheme();
-  const [alarmLevel, setAlarmLevel] = useState<"none" | "warning" | "critical">("none");
-
-  useEffect(() => {
-    const unsub = subscribeAlarmLevel(setAlarmLevel);
-    return unsub;
-  }, []);
-
-  const isAlarm = alarmLevel !== "none";
-  const alarmColor = alarmLevel === "critical" ? "#CC0000" : "#E6A817";
-  const color = isAlarm ? alarmColor : (focused ? theme.primary : theme.textTertiary);
-
-  return (
-    <ThemedText style={{ fontSize: 12, fontWeight: focused ? "700" : "500", color }} numberOfLines={1}>
-      Radar
-    </ThemedText>
   );
 }
 

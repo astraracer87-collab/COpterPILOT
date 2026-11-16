@@ -191,7 +191,6 @@ describe("Hintergrund-Überwachung gibt die Richtung an den Ton weiter", () => {
       hasLocationPermission: async () => false,
       loadAlarmSettings: async () => SETTINGS,
       fetchAircraft: async () => list.v,
-      fetchArea: async () => null,
       notify: async () => {},
       triggerSound: (...a) =>
         calls.push(["trigger", ...a.filter((_, i) => i !== 1)]),

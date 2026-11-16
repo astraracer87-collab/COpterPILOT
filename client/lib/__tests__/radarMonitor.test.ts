@@ -7,6 +7,8 @@ import assert from "node:assert/strict";
 import {
   createRadarMonitor,
   isBackgroundMonitorActive,
+  RADAR_TRAFFIC_NOTIFICATION_ID,
+  radarNotificationId,
   RADAR_MONITOR_MAX_RUNTIME_MS,
   RADAR_MONITOR_STOP_URL,
   RADAR_MONITOR_TITLE,
@@ -21,6 +23,7 @@ import {
   checkApproachingAircraft,
   checkProximityAlerts,
   computeRadarAreaFlags,
+  createAlertAckState,
   decideProximityAlarm,
   type ProximityDecisionState,
   type RadarAreaSnapshot,
@@ -39,7 +42,8 @@ interface Harness {
   tasks: Array<() => Promise<void>>;
   fetches: Array<[number, number]>;
   aircraft: { list: AircraftState[] };
-  area: { snap: RadarAreaSnapshot | null };
+  area: { snap: RadarAreaSnapshot | null; fetched: number };
+  cancelled: string[];
   gps: { cb: ((lat: number, lon: number) => void) | null; unwatched: number };
   bgEnabled: { v: boolean };
   locPerm: { v: boolean };
@@ -57,7 +61,8 @@ function harness(): Harness {
     tasks: [],
     fetches: [],
     aircraft: { list: [] },
-    area: { snap: null },
+    area: { snap: null, fetched: 0 },
+    cancelled: [],
     gps: { cb: null, unwatched: 0 },
     bgEnabled: { v: true },
     locPerm: { v: true },
@@ -79,10 +84,13 @@ function harness(): Harness {
       h.fetches.push([lat, lon]);
       return h.aircraft.list;
     },
-    fetchArea: async () => h.area.snap,
     notify: async (n) => {
       h.notifications.push(n);
     },
+    cancelNotification: async (id) => {
+      h.cancelled.push(id);
+    },
+    acks: createAlertAckState(),
     triggerSound: (level) => h.sounds.push(level),
     stopSound: () => h.sounds.push("stop"),
     watchPosition: async (cb) => {
@@ -303,22 +311,49 @@ describe("Alarme im Hintergrund = Alarme im Vordergrund", () => {
     assert.equal(h.notifications.filter((n) => n.kind === "traffic-warning").at(-1)!.title, "Luftfahrzeug im Anflug");
   });
 
-  it("Gebiet alle 120 s: neue Geozone und NOTAM melden, Bekanntes nicht", async () => {
+  it("Geozonen und NOTAM-Status „unbekannt“ erzeugen im Hintergrund KEINE Benachrichtigung", async () => {
+    const h = harness();
+    h.appActive.v = false;
+    // Auch wenn (alte Verdrahtung) eine Gebietsabfrage vorhanden wäre: sie wird nicht benutzt
+    (h.deps as unknown as { fetchArea: () => Promise<RadarAreaSnapshot | null> }).fetchArea = async () => {
+      h.area.fetched++;
+      return h.area.snap;
+    };
+    const m = createRadarMonitor(h.deps);
+    await m.start(PARAMS);
+    const flags = computeRadarAreaFlags({ forecast: null, kpValue: null, notamUnknown: true, highNotamCount: 0, tempRestrictionCount: 0, activeDipulCount: 0, geozoneCount: 6 });
+    h.area.snap = {
+      flags,
+      zones: ["KOELN/BONN", "Koeln 1", "Koeln 2", "Koeln 3", "Koeln 4", "Koeln 5"].map((label, i) => ({ key: `z${i}`, label })),
+      notams: [],
+      notamUnknown: true,
+    };
+    // Salve von Durchläufen über 10 Minuten (alle 2 s), ohne Verkehr
+    for (let i = 0; i < 300; i++) {
+      h.clock.t += RADAR_POLL_INTERVAL_MS;
+      await m.tick();
+    }
+    assert.equal(h.notifications.length, 0);
+    assert.equal(h.area.fetched, 0);
+    await m.stop();
+  });
+
+  it("Verkehr ohne Einblendung: höchstens EINE Benachrichtigung mit fester ID, bei Entwarnung entfernt", async () => {
     const h = harness();
     h.appActive.v = false;
     const m = createRadarMonitor(h.deps);
     await m.start(PARAMS);
-    const flags = computeRadarAreaFlags({ forecast: null, kpValue: null, notamUnknown: false, highNotamCount: 1, tempRestrictionCount: 0, activeDipulCount: 0, geozoneCount: 1 });
-    h.area.snap = { flags, zones: [{ key: "ctr", label: "CTR Frankfurt" }], notams: [{ key: "n", label: "NOTAM A1234/26" }], notamUnknown: false };
-    await m.tick();
-    assert.deepEqual(h.notifications.map((n) => [n.kind, n.body]), [
-      ["zone", "CTR Frankfurt"],
-      ["notam", "NOTAM A1234/26"],
-    ]);
-    h.clock.t += 60_000;
-    await m.tick(); // noch keine 120 s
-    h.clock.t += 60_000;
-    await m.tick(); // geprüft, nichts Neues
-    assert.equal(h.notifications.length, 2);
+    const seq: AircraftState[][] = [[ac("muk6978", 2)], [ac("muk6978", 2)], [ac("muk6978", 0.8)], [ac("muk6978", 0.8)], [ac("muk6978", 0.8)], []];
+    for (const list of seq) {
+      h.clock.t += RADAR_POLL_INTERVAL_MS;
+      h.aircraft.list = list;
+      await m.tick();
+    }
+    // TA, dann Eskalation RA: zwei Meldungen, beide mit derselben festen ID (ersetzt, nicht gestapelt)
+    assert.deepEqual(h.notifications.map((n) => n.kind), ["traffic-warning", "traffic-critical"]);
+    assert.deepEqual(new Set(h.notifications.map((n) => radarNotificationId(n.kind))), new Set([RADAR_TRAFFIC_NOTIFICATION_ID]));
+    // Entwarnung entfernt sie
+    assert.deepEqual(h.cancelled, [RADAR_TRAFFIC_NOTIFICATION_ID]);
+    await m.stop();
   });
 });

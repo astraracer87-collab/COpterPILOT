@@ -1,5 +1,5 @@
-import React, { useCallback, useState } from "react";
-import { View, StyleSheet, ScrollView, Pressable, Switch, Platform } from "react-native";
+import React, { useCallback, useEffect, useState } from "react";
+import { View, StyleSheet, ScrollView, Pressable, Switch, Platform, AppState } from "react-native";
 import Slider from "@react-native-community/slider";
 import { useFocusEffect } from "@react-navigation/native";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
@@ -13,6 +13,7 @@ import { Spacing, Typography, BorderRadius } from "@/constants/theme";
 import { getSettings, saveSettings, Settings, DEFAULT_PROXIMITY_ALARM } from "@/lib/storage";
 import { getRadarBackgroundEnabled, setRadarBackgroundEnabled } from "@/lib/radarMonitorNative";
 import { testAlarmSound } from "@/lib/proximityAlarm";
+import { canDrawOverlays, isAlertOverlaySupported, openOverlaySettings, showTestOverlay } from "@/lib/alertOverlay";
 
 function formatRadius(meters: number): string {
   if (meters >= 1000) {
@@ -34,12 +35,31 @@ export default function TcasSettingsScreen() {
 
   const [backgroundOn, setBackgroundOn] = useState(true);
   const [soundTestHint, setSoundTestHint] = useState<string | null>(null);
+  // Einblendung über anderen Apps: null = unbekannt / nicht unterstützt
+  const [overlayAllowed, setOverlayAllowed] = useState<boolean | null>(null);
+  const [overlayHint, setOverlayHint] = useState<string | null>(null);
+  const overlaySupported = Platform.OS === "android" && isAlertOverlaySupported();
+
+  const refreshOverlay = useCallback(async () => {
+    if (!overlaySupported) return;
+    setOverlayAllowed(await canDrawOverlays());
+  }, [overlaySupported]);
 
   const loadSettings = useCallback(async () => {
     const data = await getSettings();
     setSettings(data);
     setBackgroundOn(await getRadarBackgroundEnabled());
-  }, []);
+    await refreshOverlay();
+  }, [refreshOverlay]);
+
+  // Zurück aus den Android-Einstellungen → Status neu lesen
+  useEffect(() => {
+    if (!overlaySupported) return;
+    const sub = AppState.addEventListener("change", (st) => {
+      if (st === "active") void refreshOverlay();
+    });
+    return () => sub.remove();
+  }, [overlaySupported, refreshOverlay]);
 
   useFocusEffect(
     useCallback(() => {
@@ -117,6 +137,55 @@ export default function TcasSettingsScreen() {
                 thumbColor="#FFFFFF"
                 testID="toggle-radar-background"
               />
+            </View>
+          </Card>
+        ) : null}
+        {overlaySupported ? (
+          <Card style={[styles.menuItem, styles.menuItemSpacing, { flexDirection: "column", alignItems: "stretch" }]}>
+            <View style={styles.switchRow}>
+              <Feather name="layers" size={20} color={theme.primary} />
+              <View style={styles.switchContent}>
+                <ThemedText style={styles.menuText}>Warnung über anderen Apps einblenden</ThemedText>
+                <ThemedText
+                  style={[styles.switchDescription, { color: overlayAllowed == null ? theme.textSecondary : overlayAllowed ? theme.statusGo : theme.statusNoGo, fontWeight: "700" }]}
+                  testID="text-overlay-status"
+                >
+                  {overlayAllowed == null ? "Status unbekannt" : overlayAllowed ? "Erlaubt" : "Nicht erlaubt"}
+                </ThemedText>
+                <ThemedText style={[styles.switchDescription, { color: theme.textSecondary }]}>
+                  {overlayHint ??
+                    "TCAS-Warnungen erscheinen als Banner über DJI Fly, mit Knopf „Quittieren“ (Ton und Banner aus). Ohne Erlaubnis: Alarmton und eine Benachrichtigung."}
+                </ThemedText>
+              </View>
+            </View>
+            <View style={styles.overlayButtons}>
+              <Pressable
+                onPress={() => {
+                  setOverlayHint(null);
+                  void openOverlaySettings();
+                }}
+                style={[styles.testButton, { backgroundColor: theme.primary }]}
+                testID="button-overlay-settings"
+                accessibilityRole="button"
+              >
+                <ThemedText style={styles.testButtonText}>{overlayAllowed ? "Einstellungen" : "Erlauben"}</ThemedText>
+              </Pressable>
+              <Pressable
+                onPress={async () => {
+                  const ok = await showTestOverlay();
+                  setOverlayHint(
+                    ok
+                      ? "Test-Einblendung für 8 s – „Quittieren“ blendet sie aus."
+                      : "Einblendung nicht möglich – bitte zuerst „Über anderen Apps einblenden“ erlauben.",
+                  );
+                  void refreshOverlay();
+                }}
+                style={[styles.testButton, { backgroundColor: theme.primary }]}
+                testID="button-test-overlay"
+                accessibilityRole="button"
+              >
+                <ThemedText style={styles.testButtonText}>Einblendung testen</ThemedText>
+              </Pressable>
             </View>
           </Card>
         ) : null}
@@ -519,6 +588,11 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.sm,
     borderRadius: BorderRadius.sm,
     marginLeft: Spacing.md,
+  },
+  overlayButtons: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    marginTop: Spacing.sm,
   },
   testButtonText: {
     ...Typography.small,

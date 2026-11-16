@@ -16,9 +16,16 @@
  *  - Schleife im Dienst: im Vordergrund macht der Radar-Screen die Arbeit
  *    (Schleife wartet nur und setzt ihren Alarmzustand zurück); im
  *    Hintergrund alle 2 s (wie im Vordergrund) Verkehr abfragen und mit der
- *    gemeinsamen Logik (radarAlertLogic.ts) bewerten, alle 120 s Gebiet
- *    (Geozonen/NOTAM). Alarme → Benachrichtigung mit Ton + Vibration und –
- *    wie im Vordergrund – Alarmton (+ Ansage) laut TA/RA-Einstellung.
+ *    gemeinsamen Logik (radarAlertLogic.ts) bewerten. Alarme → Alarmton
+ *    (+ Ansage) laut TA/RA-Einstellung wie im Vordergrund und eine
+ *    Einblendung über anderen Apps (rot RA / gelb TA / grün „Clear of
+ *    conflict“, Knopf „Quittieren“). Ohne Einblendungs-Berechtigung als
+ *    Rückfall EINE Benachrichtigung mit fester ID (wird ersetzt, nie
+ *    gestapelt, bei Entwarnung entfernt). Geozonen/NOTAM sind Vorflug-
+ *    Informationen und werden im Hintergrund NICHT gemeldet.
+ *  - Quittieren (Einblendung oder Banner im Radar, gemeinsamer Zustand
+ *    `sharedAlertAcks`): Ton und Einblendung aus für DIESEN Konflikt (gleiches
+ *    Luftfahrzeug); ein neues Luftfahrzeug oder TA → RA warnt erneut.
  *  - GPS: folgt der Screen dem GPS (kein manuell gesetzter Standort), hält
  *    der Dienst eine Positionsüberwachung (LocationManager) offen.
  *  - Ende: `stop()` (Radar verlassen, Tippen auf die Daueranzeige →
@@ -28,18 +35,23 @@ import type { AircraftState } from "./opensky";
 import type { ProximityAlarmSettings } from "./storage";
 import {
   ALARM_SETTINGS_REFRESH_MS,
-  AREA_CHECK_INTERVAL_MS,
+  acknowledgeThreats,
   applyTrigger,
   checkApproachingAircraft,
   checkProximityAlerts,
-  createAreaAlertState,
-  decideAreaAlerts,
+  CLEAR_OF_CONFLICT_OVERLAY,
   decideProximityAlarm,
+  filterAcknowledged,
   proximityNotificationText,
-  type AreaAlertState,
+  sharedAlertAcks,
+  threatOverlayContent,
+  type AlertAckState,
+  type AlertOverlayContent,
+  type ApproachingAircraft,
+  type ProximityAlert,
   type ProximityDecisionState,
-  type RadarAreaSnapshot,
 } from "./radarAlertLogic";
+import { clearTrafficAlerts, publishTrafficAlerts, summarizeTrafficAlerts } from "./trafficAlertStore";
 
 /** Abfrage-Intervall (gleich wie StandaloneLiveTrafficScreen: 2 s) */
 export const RADAR_POLL_INTERVAL_MS = 2000;
@@ -63,12 +75,33 @@ export interface RadarMonitorParams {
   pilotElevationMSL: number | null;
 }
 
-export type RadarNotificationKind = "traffic-critical" | "traffic-warning" | "zone" | "notam" | "stopped";
+export type RadarNotificationKind = "traffic-critical" | "traffic-warning" | "stopped";
 
 export interface RadarNotification {
   kind: RadarNotificationKind;
   title: string;
   body: string;
+}
+
+/** Feste Benachrichtigungs-IDs: jede Art höchstens einmal, wird ersetzt statt gestapelt */
+export const RADAR_TRAFFIC_NOTIFICATION_ID = "radar-traffic";
+export const RADAR_STATUS_NOTIFICATION_ID = "radar-status";
+
+export function radarNotificationId(kind: RadarNotificationKind): string {
+  return kind === "stopped" ? RADAR_STATUS_NOTIFICATION_ID : RADAR_TRAFFIC_NOTIFICATION_ID;
+}
+
+/** Einblendung über anderen Apps (natives Modul „AlertOverlay“, lib/alertOverlay.ts) */
+export interface RadarOverlayDeps {
+  /** Berechtigung „Über anderen Apps einblenden“ erteilt und Modul vorhanden */
+  canShow(): Promise<boolean>;
+  /** Einblenden (bzw. bestehende aktualisieren); false = fehlgeschlagen → Rückfall */
+  show(c: AlertOverlayContent): Promise<boolean>;
+  /** Bestehende Einblendung aktualisieren (Text/Farbe), ohne neu hinzuzufügen */
+  update(c: AlertOverlayContent): Promise<boolean>;
+  hide(): void;
+  /** Rückfall zum Ereignis: wurde seit der letzten Abfrage „Quittieren“ getippt? */
+  takeDismissed(): Promise<boolean>;
 }
 
 export interface RadarServiceStartOptions {
@@ -89,8 +122,17 @@ export interface RadarMonitorDeps {
   hasLocationPermission(): Promise<boolean>;
   loadAlarmSettings(): Promise<ProximityAlarmSettings>;
   fetchAircraft(lat: number, lon: number, radiusKm: number): Promise<AircraftState[]>;
-  fetchArea(lat: number, lon: number, raRadiusKm: number, countryIso: string | undefined): Promise<RadarAreaSnapshot | null>;
+  /**
+   * Rückfall-Benachrichtigung mit fester ID je Art (radarNotificationId):
+   * ersetzt eine vorhandene, stapelt nie. Verkehr nur ohne Einblendung.
+   */
   notify(n: RadarNotification): Promise<void>;
+  /** Benachrichtigung mit dieser festen ID entfernen */
+  cancelNotification?(id: string): Promise<void>;
+  /** Einblendung über anderen Apps; fehlt sie, gilt der Rückfall */
+  overlay?: RadarOverlayDeps;
+  /** Quittierte Konflikte (Standard: gemeinsamer Zustand mit dem Radar-Screen) */
+  acks?: AlertAckState;
   /**
    * Alarmton (+ Sprachansage, falls TTS vorhanden) wie im Vordergrund
    * (proximityAlarm.ts). `approaching` false = TA „entfernt sich“ (leiser
@@ -130,6 +172,11 @@ export interface RadarMonitor {
   status(): RadarMonitorStatus;
   /** Ein Durchlauf im Hintergrund (für Tests und die Dienst-Schleife) */
   tick(): Promise<void>;
+  /**
+   * „Quittieren“ (Einblendung): Ton aus, Einblendung weg, aktuelle Konflikte
+   * gelten als quittiert, bis sie eskalieren oder enden.
+   */
+  acknowledge(): void;
   subscribe(l: (s: RadarMonitorStatus) => void): () => void;
 }
 
@@ -141,8 +188,11 @@ export function createRadarMonitor(deps: RadarMonitorDeps): RadarMonitor {
   let serviceType: "location" | "dataSync" | null = null;
   let generation = 0;
   let decision: ProximityDecisionState = { currentLevel: "none", lastAlarmTime: 0 };
-  let area: AreaAlertState = createAreaAlertState();
-  let lastAreaCheck = 0;
+  const acks = deps.acks ?? sharedAlertAcks;
+  /** Zuletzt gemeldete (gefilterte) Bedrohungen – werden beim Quittieren übernommen */
+  let lastThreats: { alerts: ProximityAlert[]; approaching: ApproachingAircraft[] } = { alerts: [], approaching: [] };
+  /** Wie wird der laufende Verkehrsalarm angezeigt? */
+  let shownVia: "none" | "overlay" | "notification" = "none";
   let settings: ProximityAlarmSettings | null = null;
   let settingsAt = 0;
   let wasActive = true;
@@ -161,13 +211,91 @@ export function createRadarMonitor(deps: RadarMonitorDeps): RadarMonitor {
     }
   };
 
+  /** Einblendung bzw. Rückfall-Benachrichtigung des Verkehrsalarms entfernen */
+  const endPresentation = () => {
+    if (shownVia === "overlay") safe(() => deps.overlay?.hide());
+    if (shownVia === "notification") void deps.cancelNotification?.(RADAR_TRAFFIC_NOTIFICATION_ID)?.catch(() => {});
+    shownVia = "none";
+  };
+
   const resetAlarmState = () => {
     if (decision.currentLevel !== "none") deps.stopSound();
     decision = { currentLevel: "none", lastAlarmTime: 0 };
-    // Gebiet: beim nächsten Wechsel in den Hintergrund frisch prüfen und
-    // bereits bekannte Zonen nicht erneut melden (im Vordergrund sichtbar)
-    lastAreaCheck = 0;
+    lastThreats = { alerts: [], approaching: [] };
+    // App im Vordergrund: dort zeigt der Radar-Screen sein eigenes Banner
+    // (und meldet selbst an den Radar-Tab)
+    endPresentation();
+    clearTrafficAlerts("background");
   };
+
+  function safe(fn: () => void): void {
+    try {
+      fn();
+    } catch (e) {
+      deps.log?.(`[radarMonitor] overlay: ${(e as Error)?.message ?? e}`);
+    }
+  }
+
+  async function overlayOk(): Promise<boolean> {
+    if (!deps.overlay) return false;
+    try {
+      return await deps.overlay.canShow();
+    } catch {
+      return false;
+    }
+  }
+
+  /** Neuer Alarm / Eskalation: Einblendung, sonst EINE Benachrichtigung (feste ID) */
+  async function presentTrigger(content: AlertOverlayContent | null, n: RadarNotification): Promise<void> {
+    if (content && (await overlayOk())) {
+      let ok = false;
+      try {
+        ok = await deps.overlay!.show(content);
+      } catch {
+        ok = false;
+      }
+      if (ok) {
+        if (shownVia === "notification") void deps.cancelNotification?.(RADAR_TRAFFIC_NOTIFICATION_ID)?.catch(() => {});
+        shownVia = "overlay";
+        return;
+      }
+    }
+    shownVia = "notification";
+    await deps.notify(n);
+  }
+
+  /** Laufender Alarm: Einblendung aktualisieren (Benachrichtigung bleibt unverändert, kein erneuter Hinweis) */
+  async function presentUpdate(content: AlertOverlayContent | null): Promise<void> {
+    if (shownVia !== "overlay" || !content) return;
+    try {
+      if (!(await deps.overlay!.update(content))) shownVia = "none";
+    } catch {
+      shownVia = "none";
+    }
+  }
+
+  /** Entwarnung: Einblendung grün „Clear of conflict“ (blendet sich selbst aus), Benachrichtigung weg */
+  async function presentClear(): Promise<void> {
+    if (shownVia === "overlay") {
+      try {
+        if (!(await deps.overlay!.update(CLEAR_OF_CONFLICT_OVERLAY))) safe(() => deps.overlay?.hide());
+      } catch {
+        safe(() => deps.overlay?.hide());
+      }
+    } else if (shownVia === "notification") {
+      await deps.cancelNotification?.(RADAR_TRAFFIC_NOTIFICATION_ID).catch(() => {});
+    }
+    shownVia = "none";
+  }
+
+  function acknowledge(): void {
+    acknowledgeThreats(acks, lastThreats.alerts, lastThreats.approaching);
+    lastThreats = { alerts: [], approaching: [] };
+    if (decision.currentLevel !== "none") deps.stopSound();
+    // lastAlarmTime 0: ein NEUES Luftfahrzeug warnt sofort
+    decision = { currentLevel: "none", lastAlarmTime: 0 };
+    endPresentation();
+  }
 
   async function getSettings(now: number): Promise<ProximityAlarmSettings> {
     if (!settings || now - settingsAt >= ALARM_SETTINGS_REFRESH_MS) {
@@ -180,6 +308,11 @@ export function createRadarMonitor(deps: RadarMonitorDeps): RadarMonitor {
   async function tick(): Promise<void> {
     const p = params;
     if (!running || !p) return;
+    // Rückfall zum Ereignis „alertOverlayDismissed“: Merker des nativen Moduls
+    if (deps.overlay) {
+      const dismissed = await deps.overlay.takeDismissed().catch(() => false);
+      if (dismissed) acknowledge();
+    }
     const now = deps.now();
     const s = await getSettings(now);
 
@@ -187,36 +320,40 @@ export function createRadarMonitor(deps: RadarMonitorDeps): RadarMonitor {
     if (s.enabled) {
       const aircraft = await deps.fetchAircraft(p.latitude, p.longitude, p.radiusKm);
       if (!running) return;
-      const alerts = checkProximityAlerts(aircraft, p.latitude, p.longitude, s, p.pilotElevationMSL);
-      const approaching = checkApproachingAircraft(aircraft, p.latitude, p.longitude, s, p.pilotElevationMSL);
+      const rawAlerts = checkProximityAlerts(aircraft, p.latitude, p.longitude, s, p.pilotElevationMSL);
+      const rawApproaching = checkApproachingAircraft(aircraft, p.latitude, p.longitude, s, p.pilotElevationMSL);
+      // Quittierte Konflikte bleiben still, bis sie eskalieren oder enden
+      const { alerts, approaching } = filterAcknowledged(acks, rawAlerts, rawApproaching);
+      lastThreats = { alerts, approaching };
+      // Radar-Tab: alle Luftfahrzeuge in TA/RA, auch quittierte
+      publishTrafficAlerts("background", summarizeTrafficAlerts(rawAlerts, acks));
       const d = decideProximityAlarm(decision, alerts, approaching, now);
       if (d.action === "trigger") {
         applyTrigger(decision, d, now);
         const text = proximityNotificationText(d);
         deps.triggerSound(d.level, s, d.altitudeM, d.approaching);
-        await deps.notify({ kind: d.level === "critical" ? "traffic-critical" : "traffic-warning", ...text });
+        await presentTrigger(threatOverlayContent(alerts, approaching, p.latitude, p.longitude), {
+          kind: d.level === "critical" ? "traffic-critical" : "traffic-warning",
+          ...text,
+        });
       } else if (d.action === "update" && d.downgrade) {
         // RA → TA: keine neue Meldung, nur Stufe senken (Vordergrund: nach 5 s)
         decision.currentLevel = "warning";
+        await presentUpdate(threatOverlayContent(alerts, approaching, p.latitude, p.longitude));
       } else if (d.action === "update") {
         deps.updateSound?.(d.altitudeM, d.approaching);
+        await presentUpdate(threatOverlayContent(alerts, approaching, p.latitude, p.longitude));
       } else if (d.action === "clear" && decision.currentLevel !== "none") {
         deps.stopSound();
         decision.currentLevel = "none";
+        await presentClear();
       }
     } else if (decision.currentLevel !== "none") {
       deps.stopSound();
       decision.currentLevel = "none";
+      endPresentation();
     }
-
-    // Gebiet (Geozonen / NOTAM), gleiches Intervall wie im Vordergrund
-    if (now - lastAreaCheck >= AREA_CHECK_INTERVAL_MS) {
-      lastAreaCheck = now;
-      const snap = await deps.fetchArea(p.latitude, p.longitude, p.raRadiusKm, p.countryIso).catch(() => null);
-      if (snap && running) {
-        for (const n of decideAreaAlerts(area, snap)) await deps.notify({ kind: n.kind, title: n.title, body: n.body });
-      }
-    }
+    if (!s.enabled) clearTrafficAlerts("background");
   }
 
   async function loop(gen: number): Promise<void> {
@@ -236,14 +373,19 @@ export function createRadarMonitor(deps: RadarMonitorDeps): RadarMonitor {
       while (running && gen === generation) {
         const now = deps.now();
         if (startedAt != null && now - startedAt >= RADAR_MONITOR_MAX_RUNTIME_MS) {
-          await deps
-            .notify({
-              kind: "stopped",
-              title: "Luftraumüberwachung beendet",
-              body: "Nach 4 Stunden automatisch beendet. Radar öffnen, um erneut zu überwachen.",
-            })
-            .catch(() => {});
           await stop("timeout");
+          // Wichtig (der Pilot verlässt sich auf die Überwachung): Einblendung,
+          // sonst EINE Benachrichtigung mit fester ID
+          const n: RadarNotification = {
+            kind: "stopped",
+            title: "Luftraumüberwachung beendet",
+            body: "Nach 4 Stunden automatisch beendet. Radar öffnen, um erneut zu überwachen.",
+          };
+          let shown = false;
+          if (!deps.isAppActive() && (await overlayOk())) {
+            shown = await deps.overlay!.show({ level: "info", title: n.title, text: n.body, autoHideMs: 30000 }).catch(() => false);
+          }
+          if (!shown) await deps.notify(n).catch(() => {});
           break;
         }
         const active = deps.isAppActive();
@@ -252,12 +394,6 @@ export function createRadarMonitor(deps: RadarMonitorDeps): RadarMonitor {
           if (!wasActive) resetAlarmState();
           wasActive = true;
         } else {
-          if (wasActive) {
-            // Gerade in den Hintergrund: Gebiet bekannt machen, ohne bereits
-            // sichtbare Zonen erneut zu melden, dann regulär weiter
-            area = createAreaAlertState();
-            lastAreaCheck = 0;
-          }
           wasActive = false;
           try {
             await tick();
@@ -294,8 +430,8 @@ export function createRadarMonitor(deps: RadarMonitorDeps): RadarMonitor {
     startedAt = deps.now();
     lastStopReason = null;
     decision = { currentLevel: "none", lastAlarmTime: 0 };
-    area = createAreaAlertState();
-    lastAreaCheck = 0;
+    lastThreats = { alerts: [], approaching: [] };
+    shownVia = "none";
     settings = null;
     wasActive = true;
     gpsFix = false;
@@ -359,6 +495,9 @@ export function createRadarMonitor(deps: RadarMonitorDeps): RadarMonitor {
     lastStopReason = reason;
     if (decision.currentLevel !== "none") deps.stopSound();
     decision = { currentLevel: "none", lastAlarmTime: 0 };
+    lastThreats = { alerts: [], approaching: [] };
+    endPresentation();
+    clearTrafficAlerts("background");
     startedAt = null;
     serviceType = null;
     try {
@@ -375,6 +514,7 @@ export function createRadarMonitor(deps: RadarMonitorDeps): RadarMonitor {
     stop,
     status,
     tick,
+    acknowledge,
     subscribe(l) {
       listeners.add(l);
       return () => listeners.delete(l);

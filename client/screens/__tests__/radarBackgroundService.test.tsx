@@ -28,6 +28,9 @@ jest.mock("react-native-background-actions", () => ({
 }));
 const mockSchedule = jest.fn(async () => "id");
 const mockChannel = jest.fn(async () => null);
+const mockDeleteChannel = jest.fn(async () => {});
+const mockDismiss = jest.fn(async () => {});
+let mockPresented: Array<{ request: { identifier: string; content: { data: Record<string, unknown> } } }> = [];
 jest.mock("expo-notifications", () => ({
   AndroidImportance: { MAX: 5, HIGH: 4 },
   AndroidNotificationVisibility: { PUBLIC: 1 },
@@ -35,6 +38,9 @@ jest.mock("expo-notifications", () => ({
   setNotificationChannelAsync: (...a: unknown[]) => (mockChannel as (...x: unknown[]) => Promise<null>)(...a),
   scheduleNotificationAsync: (...a: unknown[]) => (mockSchedule as (...x: unknown[]) => Promise<string>)(...a),
   setNotificationHandler: jest.fn(),
+  deleteNotificationChannelAsync: (...a: unknown[]) => (mockDeleteChannel as (...x: unknown[]) => Promise<void>)(...a),
+  dismissNotificationAsync: (...a: unknown[]) => (mockDismiss as (...x: unknown[]) => Promise<void>)(...a),
+  getPresentedNotificationsAsync: async () => mockPresented,
   getPermissionsAsync: jest.fn(async () => ({ granted: true, canAskAgain: true })),
   requestPermissionsAsync: jest.fn(async () => ({ granted: true })),
 }));
@@ -61,6 +67,7 @@ import {
   radarMonitorDeps,
   RADAR_ALERT_CHANNEL_ID,
   RADAR_BACKGROUND_KEY,
+  LEGACY_RADAR_ALERT_CHANNEL_ID,
 } from "@/lib/radarMonitorNative";
 import TcasSettingsScreen from "@/screens/TcasSettingsScreen";
 
@@ -103,15 +110,43 @@ test("Einstellung aus → kein Dienst; nicht-Android → kein Dienst", async () 
   expect(mockStart).not.toHaveBeenCalled();
 });
 
-test("Warnung als lokale Benachrichtigung im Kanal „radar-alerts“ mit Ton und Vibration", async () => {
+test("Rückfall-Benachrichtigung (ohne Einblendung): feste ID, ersetzt statt stapelt, stiller Kanal „radar-traffic“", async () => {
+  await radarMonitorDeps.notify({ kind: "traffic-warning", title: "TA – Verkehr in der Nähe", body: "DLH1 · 2,0 km" });
   await radarMonitorDeps.notify({ kind: "traffic-critical", title: "RA – Luftfahrzeug sehr nah!", body: "DLH1 · 0,5 km" });
-  expect(mockChannel).toHaveBeenCalledWith(RADAR_ALERT_CHANNEL_ID, expect.objectContaining({ importance: 5, sound: "default", enableVibrate: true }));
-  expect(mockSchedule).toHaveBeenCalledWith(
+  expect(RADAR_ALERT_CHANNEL_ID).toBe("radar-traffic");
+  expect(mockChannel).toHaveBeenCalledWith(RADAR_ALERT_CHANNEL_ID, expect.objectContaining({ importance: 4, sound: null, enableVibrate: false, showBadge: false }));
+  const ids = (mockSchedule.mock.calls as unknown as Array<[{ identifier: string }]>).map((c) => c[0].identifier);
+  expect(ids).toEqual(["radar-traffic", "radar-traffic"]);
+  expect(mockSchedule).toHaveBeenLastCalledWith(
     expect.objectContaining({
-      content: expect.objectContaining({ title: "RA – Luftfahrzeug sehr nah!", sound: "default" }),
+      identifier: "radar-traffic",
+      content: expect.objectContaining({ title: "RA – Luftfahrzeug sehr nah!", sound: false }),
       trigger: { channelId: RADAR_ALERT_CHANNEL_ID },
     }),
   );
+  await radarMonitorDeps.cancelNotification!("radar-traffic");
+  expect(mockDismiss).toHaveBeenCalledWith("radar-traffic");
+});
+
+test("Start räumt alte gestapelte Radar-Meldungen auf (Kanal „radar-alerts“), Erinnerungen bleiben", async () => {
+  mockPresented = [
+    { request: { identifier: "old-zone-1", content: { data: { type: "radar_alert", kind: "zone" } } } },
+    { request: { identifier: "old-notam-2", content: { data: { type: "radar_alert", kind: "notam" } } } },
+    { request: { identifier: "reminder", content: { data: { type: "preflight_reminder" } } } },
+  ];
+  mockDismiss.mockClear();
+  await radarMonitor.start(PARAMS);
+  expect(mockDeleteChannel).toHaveBeenCalledWith(LEGACY_RADAR_ALERT_CHANNEL_ID);
+  expect(mockDismiss.mock.calls.map((c) => (c as unknown[])[0])).toEqual(["old-zone-1", "old-notam-2"]);
+  mockPresented = [];
+});
+
+test("ohne natives Einblendungs-Modul: Überwachung startet wie bisher, Einblendung meldet „nicht möglich“", async () => {
+  expect(await radarMonitor.start(PARAMS)).toBe(true);
+  expect(await radarMonitorDeps.overlay!.canShow()).toBe(false);
+  expect(await radarMonitorDeps.overlay!.show({ level: "ra", title: "x", text: "y" })).toBe(false);
+  expect(await radarMonitorDeps.overlay!.takeDismissed()).toBe(false);
+  expect(() => radarMonitorDeps.overlay!.hide()).not.toThrow();
 });
 
 test("TCAS-Einstellungen: Schalter „Im Hintergrund weiter überwachen“ speichert und stoppt laufende Überwachung", async () => {

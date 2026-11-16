@@ -14,8 +14,9 @@ import {
   type ProximityAlert,
   type ApproachingAircraft,
 } from "@/lib/proximityAlarm";
-import { decideProximityAlarm, filterDismissedThreats, ALARM_SETTINGS_REFRESH_MS } from "@/lib/radarAlertLogic";
+import { decideProximityAlarm, filterAcknowledged, acknowledgeThreats, sharedAlertAcks, ALARM_SETTINGS_REFRESH_MS } from "@/lib/radarAlertLogic";
 import { isBackgroundMonitorActive } from "@/lib/radarMonitor";
+import { clearTrafficAlerts, publishTrafficAlerts, summarizeTrafficAlerts } from "@/lib/trafficAlertStore";
 import { recordBatchFromAlerts, isRecording, recordAircraftEvent, getRecording } from "@/lib/trafficRecorder";
 import type { AircraftState } from "@/lib/opensky";
 
@@ -42,9 +43,9 @@ export function useProximityAlarm(
   const [alarmLevel, setAlarmLevel] = useState<"none" | "warning" | "critical">("none");
   const [clearOfConflict, setClearOfConflict] = useState(false);
   const [dismissed, setDismissed] = useState(false);
-  // ICAOs, die der User aktiv weggedrückt hat. Bleiben unterdrückt,
-  // bis das jeweilige Flugzeug die Schutz-/Approach-Zone verlässt.
-  const dismissedIcaos = useRef<Set<string>>(new Set());
+  // Weggedrückte Konflikte: gemeinsamer Zustand mit der Hintergrund-
+  // Überwachung („Quittieren“ auf der Einblendung über anderen Apps). Bleiben
+  // still, bis das Flugzeug eskaliert (TA → RA) oder die Zone verlässt.
   const lastAlarmTime = useRef<number>(0);
   const currentLevel = useRef<"none" | "warning" | "critical">("none");
   const clearTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -136,6 +137,7 @@ export function useProximityAlarm(
     }
 
     if (!alarmSettings.enabled) {
+      clearTrafficAlerts("foreground");
       setActiveAlerts([]);
       setApproachingAircraft([]);
       setAlarmLevel("none");
@@ -148,7 +150,9 @@ export function useProximityAlarm(
 
     // Auto-Rehabilitation + Filter weggedrückter Bedrohungen (gemeinsame
     // Logik mit der Hintergrund-Überwachung, radarAlertLogic.ts).
-    const { alerts, approaching } = filterDismissedThreats(rawAlerts, rawApproaching, dismissedIcaos.current);
+    const { alerts, approaching } = filterAcknowledged(sharedAlertAcks, rawAlerts, rawApproaching);
+    // Radar-Tab: Anzahl Luftfahrzeuge in TA/RA (auch weggedrückte, solange in der Zone)
+    publishTrafficAlerts("foreground", summarizeTrafficAlerts(rawAlerts, sharedAlertAcks));
 
     setActiveAlerts(alerts);
     setApproachingAircraft(approaching);
@@ -255,6 +259,7 @@ export function useProximityAlarm(
 
   useEffect(() => {
     return () => {
+      clearTrafficAlerts("foreground");
       stopAlarmSound();
       currentLevel.current = "none";
       pendingClear.current = false;
@@ -274,11 +279,11 @@ export function useProximityAlarm(
     // Aktuell gemeldete Bedrohungen ins Dismiss-Set legen,
     // damit sie beim nächsten Poll nicht wieder auftauchen.
     setActiveAlerts((prev) => {
-      for (const a of prev) dismissedIcaos.current.add(a.aircraft.icao24);
+      acknowledgeThreats(sharedAlertAcks, prev, []);
       return [];
     });
     setApproachingAircraft((prev) => {
-      for (const a of prev) dismissedIcaos.current.add(a.aircraft.icao24);
+      acknowledgeThreats(sharedAlertAcks, [], prev);
       return [];
     });
     setAlarmLevel("none");

@@ -512,3 +512,152 @@ export function decideAreaAlerts(state: AreaAlertState, snap: RadarAreaSnapshot)
   state.notamUnknown = snap.notamUnknown;
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// Verkehr: Quittieren („Quittieren“ auf der Einblendung über anderen Apps bzw.
+// Wegdrücken des Banners im Radar) – gemeinsam für Vorder- und Hintergrund
+// ---------------------------------------------------------------------------
+
+/** Rang einer Bedrohung: reiner Anflug < TA < RA */
+export const THREAT_RANK = { approach: 1, warning: 2, critical: 3 } as const;
+
+/**
+ * Quittierte Konflikte je Luftfahrzeug (Schlüssel = ICAO24) mit dem höchsten
+ * quittierten Rang. Ein quittiertes Luftfahrzeug bleibt still, solange es
+ * nicht eskaliert (TA → RA, Anflug → TA). Verlässt es den Warnbereich, wird
+ * der Eintrag vergessen (nächstes Auftauchen warnt wieder).
+ */
+export interface AlertAckState {
+  acked: Map<string, number>;
+}
+
+export function createAlertAckState(): AlertAckState {
+  return { acked: new Map() };
+}
+
+/**
+ * Gemeinsamer Zustand für Radar-Screen (useProximityAlarm) und Hintergrund-
+ * Überwachung (radarMonitor): Quittieren im einen gilt auch im anderen.
+ */
+export const sharedAlertAcks: AlertAckState = createAlertAckState();
+
+/** Schlüssel eines Konflikts (gleiches Luftfahrzeug = gleicher Konflikt) */
+export function alertKey(ac: Pick<AircraftState, "icao24">): string {
+  return ac.icao24;
+}
+
+function rankOfAlert(a: ProximityAlert): number {
+  return THREAT_RANK[a.level];
+}
+
+/** Alle gemeldeten Bedrohungen quittieren (mit ihrem aktuellen Rang). */
+export function acknowledgeThreats(state: AlertAckState, alerts: ProximityAlert[], approaching: ApproachingAircraft[]): void {
+  const put = (key: string, rank: number) => {
+    const prev = state.acked.get(key) ?? 0;
+    if (rank > prev) state.acked.set(key, rank);
+  };
+  for (const a of alerts) put(alertKey(a.aircraft), rankOfAlert(a));
+  for (const a of approaching) put(alertKey(a.aircraft), THREAT_RANK.approach);
+}
+
+/**
+ * Filtert quittierte Bedrohungen heraus. Eskaliert ein quittiertes
+ * Luftfahrzeug (höherer Rang als quittiert), bleibt es drin und löst erneut
+ * aus. Luftfahrzeuge, die keine Bedrohung mehr sind, werden vergessen
+ * („Reset bei Entwarnung“).
+ */
+export function filterAcknowledged(
+  state: AlertAckState,
+  rawAlerts: ProximityAlert[],
+  rawApproaching: ApproachingAircraft[],
+): { alerts: ProximityAlert[]; approaching: ApproachingAircraft[] } {
+  if (state.acked.size === 0) return { alerts: rawAlerts, approaching: rawApproaching };
+  const stillThreat = new Set<string>();
+  for (const a of rawAlerts) stillThreat.add(alertKey(a.aircraft));
+  for (const a of rawApproaching) stillThreat.add(alertKey(a.aircraft));
+  for (const key of Array.from(state.acked.keys())) {
+    if (!stillThreat.has(key)) state.acked.delete(key);
+  }
+  if (state.acked.size === 0) return { alerts: rawAlerts, approaching: rawApproaching };
+  return {
+    alerts: rawAlerts.filter((a) => (state.acked.get(alertKey(a.aircraft)) ?? 0) < rankOfAlert(a)),
+    approaching: rawApproaching.filter((a) => (state.acked.get(alertKey(a.aircraft)) ?? 0) < THREAT_RANK.approach),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Verkehr: Einblendung über anderen Apps (Hintergrund, plugins/withAlertOverlay.js)
+// ---------------------------------------------------------------------------
+
+/** ra = rot, ta = gelb, clear = grün („Clear of conflict“), info = grau */
+export type AlertOverlayLevel = "ra" | "ta" | "clear" | "info";
+
+export interface AlertOverlayContent {
+  level: AlertOverlayLevel;
+  title: string;
+  text: string;
+  /** Richtung Pilot → Luftfahrzeug (Grad, 0 = Nord) für den Pfeil */
+  bearingDeg?: number | null;
+  /** Nach so vielen ms selbst ausblenden (Test, „Clear of conflict“) */
+  autoHideMs?: number;
+  /** Test-Einblendung (Quittieren meldet nichts an die Überwachung) */
+  test?: boolean;
+}
+
+const COMPASS_8 = ["N", "NO", "O", "SO", "S", "SW", "W", "NW"];
+
+/** 8-teilige Himmelsrichtung (deutsch) */
+export function compassPoint(deg: number): string {
+  const d = ((deg % 360) + 360) % 360;
+  return COMPASS_8[Math.round(d / 45) % 8]!;
+}
+
+/** Richtung Pilot → Luftfahrzeug (Grad, 0 = Nord) */
+export function bearingToAircraft(userLat: number, userLon: number, ac: Pick<AircraftState, "latitude" | "longitude">): number {
+  return bearingFromTo(userLat, userLon, ac.latitude, ac.longitude);
+}
+
+function aircraftName(ac: AircraftState): string {
+  return ac.callsign?.trim() || ac.registration || ac.icao24.toUpperCase();
+}
+
+/**
+ * Inhalt der Einblendung zur nächstgelegenen (gefilterten) Bedrohung:
+ * großer Titel, Detailzeile mit Kennung, Entfernung, Höhe relativ und
+ * Richtung. `null`, wenn es keine Bedrohung gibt.
+ */
+export function threatOverlayContent(
+  alerts: ProximityAlert[],
+  approaching: ApproachingAircraft[],
+  userLat: number,
+  userLon: number,
+): AlertOverlayContent | null {
+  const critical = alerts.find((a) => a.level === "critical");
+  const warning = alerts.find((a) => a.level === "warning");
+  const closest = critical ?? warning;
+  const appr = closest ? undefined : approaching[0];
+  const ac = closest?.aircraft ?? appr?.aircraft;
+  if (!ac) return null;
+  const dist = closest?.distanceKm ?? appr!.distanceKm;
+  const alt = closest?.altitudeM ?? appr!.altitudeM;
+  const bearing = bearingToAircraft(userLat, userLon, ac);
+  const parts = [aircraftName(ac), `${dist.toFixed(1).replace(".", ",")} km`];
+  if (alt != null && Number.isFinite(alt)) {
+    const r = Math.round(alt / 10) * 10;
+    parts.push(`${r > 0 ? "+" : ""}${r} m relativ`);
+  }
+  parts.push(`aus ${compassPoint(bearing)} (${String(Math.round(bearing) % 360).padStart(3, "0")}°)`);
+  let title: string;
+  if (critical) title = "RA – Flugobjekt sehr nah!";
+  else if (warning) title = alertsApproaching(alerts) ? "TRAFFIC – Flugobjekt nähert sich" : "TRAFFIC – Flugobjekt in der Nähe";
+  else title = "TRAFFIC – Flugobjekt im Anflug";
+  return { level: critical ? "ra" : "ta", title, text: parts.join(" · "), bearingDeg: bearing };
+}
+
+/** Entwarnung (grün), blendet sich nach 5 s selbst aus */
+export const CLEAR_OF_CONFLICT_OVERLAY: AlertOverlayContent = {
+  level: "clear",
+  title: "Clear of conflict",
+  text: "Kein Verkehr mehr im Warnbereich.",
+  autoHideMs: 5000,
+};
