@@ -170,6 +170,7 @@ function ringAbsArea(ring: [number, number][]): number {
 export function parseEd269ToGeozoneInfo(
   features: any[],
   countryIso: string,
+  nowMs: number = Date.now(),
 ): GeozoneFeatureInfo[] {
   const out: GeozoneFeatureInfo[] = [];
   for (const f of features) {
@@ -330,7 +331,7 @@ export function parseEd269ToGeozoneInfo(
     // Nur Zonen, die schon länger als ZONE_EXPIRED_DROP_GRACE_MS (1 Tag) vorbei
     // sind, werden verworfen, damit lange gecachte Pakete keinen Speicher
     // binden. Dauerhafte Zonen (ohne Ende) bleiben immer erhalten.
-    if (zoneEndedLongAgo({ validEndTs, ed269Applicability })) continue;
+    if (zoneEndedLongAgo({ validEndTs, ed269Applicability }, nowMs)) continue;
 
     // Anklickbare Zonen-Links (dänische Zonen tragen Antrags-/Info-Links und ggf.
     // eine Kontakt-E-Mail). Andere Quellen lassen diese Felder leer.

@@ -198,7 +198,7 @@ export function esZoneFromStored(f: any, now: Date = new Date()): GeozoneFeature
   if (!n) return null;
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { parseEd269ToGeozoneInfo } = require("../ed269") as typeof import("../ed269");
-  const [z] = parseEd269ToGeozoneInfo([n], "ES");
+  const [z] = parseEd269ToGeozoneInfo([n], "ES", now.getTime());
   if (!z) return null;
   // NOTAM: Farben wie drones.enaire.es (R rot, UAS gelb, Warnung orange)
   const cat = n.properties.notamCategory as EsNotamCategory | undefined;

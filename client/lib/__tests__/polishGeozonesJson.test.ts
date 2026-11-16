@@ -40,7 +40,7 @@ function byName(features: any[], name: string): any {
 }
 
 function info(feature: any): any {
-  const [i] = parseEd269ToGeozoneInfo([feature], "pl");
+  const [i] = parseEd269ToGeozoneInfo([feature], "pl", NOW);
   assert.ok(i, `parse ${feature.properties.name}`);
   return i;
 }
