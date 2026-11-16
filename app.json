@@ -27,7 +27,11 @@
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
         "INTERNET",
-        "ACCESS_NETWORK_STATE"
+        "ACCESS_NETWORK_STATE",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_DATA_SYNC",
+        "POST_NOTIFICATIONS",
+        "CHANGE_WIFI_STATE"
       ],
       "versionCode": 3,
       "blockedPermissions": [
@@ -63,7 +67,8 @@
       "expo-font",
       "@maplibre/maplibre-react-native",
       "./plugins/withReleaseSigning",
-      "expo-secure-store"
+      "expo-secure-store",
+      "./plugins/withFccBackground"
     ],
     "experiments": {
       "reactCompiler": false

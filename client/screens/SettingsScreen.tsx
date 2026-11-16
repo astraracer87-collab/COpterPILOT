@@ -410,6 +410,19 @@ export default function SettingsScreen() {
           <Feather name="chevron-right" size={20} color={theme.textTertiary} />
         </Card>
 
+        <Card style={styles.menuItem} onPress={() => navigation.navigate("FccTool")}>
+          <View style={styles.switchRow}>
+            <Feather name="radio" size={20} color={theme.primary} />
+            <View style={styles.switchContent}>
+              <ThemedText style={styles.menuText}>FCC-Tool</ThemedText>
+              <ThemedText style={[styles.switchDescription, { color: theme.textSecondary }]}>
+                Funkregion CE/FCC für Fluggerät oder Goggle · nur wo zulässig
+              </ThemedText>
+            </View>
+          </View>
+          <Feather name="chevron-right" size={20} color={theme.textTertiary} />
+        </Card>
+
         <ThemedText style={[styles.sectionTitle, { color: theme.textSecondary, marginTop: Spacing["2xl"] }]}>
           EINHEITEN
         </ThemedText>

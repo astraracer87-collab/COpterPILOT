@@ -24,6 +24,7 @@ import PilotProfileScreen from "@/screens/PilotProfileScreen";
 import PilotLicenseCardScreen from "@/screens/PilotLicenseCardScreen";
 import ExpiryOverviewScreen from "@/screens/ExpiryOverviewScreen";
 import TcasSettingsScreen from "@/screens/TcasSettingsScreen";
+import FccToolScreen from "@/screens/fcc/FccToolScreen";
 import AccountScreen from "@/screens/AccountScreen";
 import PrivacyPolicyScreen from "@/screens/PrivacyPolicyScreen";
 import LegalDocumentScreen, { type LegalDocKey } from "@/screens/LegalDocumentScreen";
@@ -40,6 +41,7 @@ export type SettingsStackParamList = {
   PilotLicenseCard: undefined;
   ExpiryOverview: undefined;
   TcasSettings: undefined;
+  FccTool: undefined;
   Drones: undefined;
   DroneSetup: { droneId?: string };
   DroneInfo: { droneId: string };
@@ -117,6 +119,13 @@ export default function SettingsStackNavigator() {
         component={TcasSettingsScreen}
         options={{
           headerTitle: "TCAS - Proximity-Alarm",
+        }}
+      />
+      <Stack.Screen
+        name="FccTool"
+        component={FccToolScreen}
+        options={{
+          headerTitle: "FCC-Tool",
         }}
       />
       <Stack.Screen
