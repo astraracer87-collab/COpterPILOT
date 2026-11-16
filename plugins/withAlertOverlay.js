@@ -468,9 +468,10 @@ class AlertOverlayModule(private val ctx: ReactApplicationContext) :
     if (Build.VERSION.SDK_INT < 26) return
     try {
       val nm = appContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-      if (nm.getNotificationChannel(SERVICE_CHANNEL_ID) == null) {
-        val ch = NotificationChannel(SERVICE_CHANNEL_ID, "Luftraumüberwachung läuft", NotificationManager.IMPORTANCE_MIN).apply {
-          description = "Pflichtanzeige des Hintergrund-Radars (still)"
+      // Immer anlegen: bei bestehendem Kanal aktualisiert Android so Name/Beschreibung (Wichtigkeit bleibt).
+      run {
+        val ch = NotificationChannel(SERVICE_CHANNEL_ID, "Hintergrunddienst (Radar & Ladegerät)", NotificationManager.IMPORTANCE_MIN).apply {
+          description = "Pflichtanzeige für Hintergrund-Radar und Ladegerät-Logging (still)"
           setShowBadge(false)
           setSound(null, null)
           enableVibration(false)
