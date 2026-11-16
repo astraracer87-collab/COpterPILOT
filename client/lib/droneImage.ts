@@ -42,7 +42,7 @@ export function getDroneImage(
 ): ImageSourcePropType | null {
   const mfr = (manufacturer ?? "").toLowerCase();
   const mdl = (model ?? "").toLowerCase();
-  if (!mfr.includes("dji") && !mdl) return null;
+  if (mfr && !mfr.includes("dji")) return null;
 
   const search = mdl || mfr;
   for (const [regex, key] of MODEL_TO_KEY) {
