@@ -6,7 +6,7 @@ import { useRoute, type RouteProp } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import * as Clipboard from "expo-clipboard";
+import QRCode from "react-native-qrcode-svg";
 import * as Location from "@/lib/location";
 import { loadLastKnownPosition, mapCenterHint, peekLastKnownPosition, resolveMapCenter, type StoredPosition } from "@/lib/mapFallbackCenter";
 import { countriesWithUsage, onCountryUsageChange, USAGE_COUNTRIES } from "@/lib/countryUsage";
@@ -82,6 +82,8 @@ import { getMarkerPinColor } from "@/lib/markerColors";
 import { fetchRadarAreaData } from "@/lib/radarAreaCheck";
 import { useRadarBackgroundMonitor } from "@/hooks/useRadarBackgroundMonitor";
 import { getAgencyTag, agencyTagColor } from "@/lib/agencyTag";
+import { InfoDialog } from "@/components/InfoDialog";
+import { SideTabRail, type SideTab } from "@/components/SideTabRail";
 
 type StandaloneRouteParams = {
   latitude?: number;
@@ -259,12 +261,11 @@ export default function StandaloneLiveTrafficScreen() {
   const [nearbyCtr, setNearbyCtr] = useState<CtrAirport[]>([]);
   const [showCtrEmergency, setShowCtrEmergency] = useState(false);
   // Tower-Nummern: Die RC Pro 2 hat keine Telefon-App – tel:-Links schlagen
-  // still fehl. Deshalb immer die Nummer groß zeigen (Kopieren), „Anrufen“ nur
+  // still fehl. Deshalb immer die Nummer groß zeigen plus QR-Code fürs Handy, „Anrufen“ nur
   // wenn das Gerät tel: öffnen kann.
   const [canCallPhone, setCanCallPhone] = useState(false);
-  const [copiedIcao, setCopiedIcao] = useState<string | null>(null);
   useEffect(() => {
-    if (!showCtrEmergency) { setCopiedIcao(null); return; }
+    if (!showCtrEmergency) return;
     let alive = true;
     const probe = nearbyCtr[0]?.towerPhone?.replace(/\s/g, "");
     if (!probe) { setCanCallPhone(false); return; }
@@ -1203,77 +1204,68 @@ export default function StandaloneLiveTrafficScreen() {
           {COMBINED_COUNTRY_TOGGLES.map((t) => renderGeozoneToggleRow(t.id, t.label, t.infoId))}
         </ScrollView>
       </View>
-      <Modal visible={layerInfoData != null} transparent animationType="fade" onRequestClose={() => setLayerInfoId(null)}>
-        <Pressable style={styles.layerInfoOverlay} onPress={() => setLayerInfoId(null)}>
-          <Pressable style={[styles.layerInfoModal, { backgroundColor: isDark ? "rgba(12, 18, 42, 0.98)" : "rgba(255,255,255,0.99)" }]} onPress={(e) => e.stopPropagation()}>
-            {layerInfoData ? (
-              <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: Dimensions.get("window").height * 0.75 }}>
-                <Text style={[styles.layerInfoTitle, { color: isDark ? "#FFFFFF" : "#1A1A2E" }]}>{layerInfoData.title}</Text>
-
-                <Text style={[styles.layerInfoSectionLabel, { color: theme.primary }]}>Referenz</Text>
-                <Text style={[styles.layerInfoText, { color: isDark ? "#C8D6E8" : "#333" }]}>{layerInfoData.referenz}</Text>
-
-                <Text style={[styles.layerInfoSectionLabel, { color: theme.primary }]}>Definition</Text>
-                <Text style={[styles.layerInfoText, { color: isDark ? "#C8D6E8" : "#333" }]}>{layerInfoData.definition}</Text>
-
-                <Text style={[styles.layerInfoSectionLabel, { color: theme.primary }]}>Abstandsregel</Text>
-                <Text style={[styles.layerInfoText, { color: isDark ? "#C8D6E8" : "#333" }]}>{layerInfoData.abstandsregel}</Text>
-
-                <Text style={[styles.layerInfoSectionLabel, { color: theme.primary }]}>Betriebsvoraussetzung</Text>
-                <Text style={[styles.layerInfoText, { color: isDark ? "#C8D6E8" : "#333" }]}>{layerInfoData.betriebsvoraussetzung}</Text>
-
-                {layerInfoData.hinweis ? (
-                  <>
-                    <View style={[styles.layerInfoHinweisBox, { backgroundColor: isDark ? "rgba(245,158,11,0.12)" : "rgba(245,158,11,0.08)", borderColor: "rgba(245,158,11,0.4)" }]}>
-                      <Text style={[styles.layerInfoText, { color: isDark ? "#F5D080" : "#92400E" }]}>{layerInfoData.hinweis}</Text>
-                    </View>
-                  </>
-                ) : null}
-
-                {layerInfoData.links && layerInfoData.links.length > 0 ? (
-                  <View style={{ marginTop: 14 }}>
-                    {layerInfoData.links.map((link, li) => (
-                      <Pressable
-                        key={li}
-                        onPress={() => { WebBrowser.openBrowserAsync(link.url).catch(() => {}); }}
-                        style={styles.layerInfoLink}
-                      >
-                        <Feather name="external-link" size={12} color={theme.primary} />
-                        <Text style={[styles.layerInfoLinkText, { color: theme.primary }]}>{link.label}</Text>
-                      </Pressable>
-                    ))}
-                  </View>
-                ) : null}
-
-                {(() => {
-                  const modalContacts = layerInfoId ? getContactsForZone(layerInfoId, undefined, detectedCountryIso) : (layerInfoData.contacts || []);
-                  return modalContacts.length > 0 ? (
-                  <View style={{ marginTop: 16 }}>
-                    <Text style={[styles.layerInfoSectionLabel, { color: theme.primary }]}>Kontakte</Text>
-                    {modalContacts.map((c, ci) => (
-                      <Pressable
-                        key={ci}
-                        onPress={() => openGeozoneContact(c)}
-                        style={styles.layerInfoContactRow}
-                      >
-                        <Feather name={c.type === "email" ? "mail" : c.type === "phone" ? "phone" : "globe"} size={13} color={c.type === "email" ? "#4A90D9" : c.type === "phone" ? "#34C759" : theme.primary} />
-                        <View style={{ flex: 1 }}>
-                          <Text style={[styles.layerInfoContactLabel, { color: isDark ? "#C8D6E8" : "#333" }]}>{c.label}</Text>
-                          <Text style={[styles.layerInfoContactValue, { color: c.type === "email" ? "#4A90D9" : c.type === "phone" ? "#34C759" : theme.primary }]}>{c.type === "phone" ? c.value.replace(/^\+49/, "+49 ") : c.value}</Text>
-                        </View>
-                      </Pressable>
-                    ))}
-                  </View>
-                ) : null;
-                })()}
-              </ScrollView>
+      <InfoDialog
+        visible={layerInfoData != null}
+        onClose={() => setLayerInfoId(null)}
+        title={layerInfoData?.title ?? ""}
+        textColor={isDark ? "#C8D6E8" : "#333"}
+        backgroundColor={isDark ? "rgba(12, 18, 42, 0.98)" : "rgba(255,255,255,0.99)"}
+        columns={2}
+        sections={layerInfoData ? [
+          { title: "Referenz", body: layerInfoData.referenz },
+          { title: "Definition", body: layerInfoData.definition },
+          { title: "Abstandsregel", body: layerInfoData.abstandsregel },
+          { title: "Betriebsvoraussetzung", body: layerInfoData.betriebsvoraussetzung },
+        ] : []}
+        testID="layer-info-dialog"
+      >
+        {layerInfoData ? (
+          <>
+            {layerInfoData.hinweis ? (
+              <View style={[styles.layerInfoHinweisBox, { backgroundColor: isDark ? "rgba(245,158,11,0.12)" : "rgba(245,158,11,0.08)", borderColor: "rgba(245,158,11,0.4)" }]}>
+                <Text style={[styles.layerInfoText, { color: isDark ? "#F5D080" : "#92400E" }]}>{layerInfoData.hinweis}</Text>
+              </View>
             ) : null}
-            <Pressable onPress={() => setLayerInfoId(null)} style={[styles.layerInfoOkBtn, { backgroundColor: theme.primary }]}>
-              <Text style={styles.layerInfoOkText}>OK</Text>
-            </Pressable>
-          </Pressable>
-        </Pressable>
-      </Modal>
+
+            {layerInfoData.links && layerInfoData.links.length > 0 ? (
+              <View style={{ marginTop: 14 }}>
+                {layerInfoData.links.map((link, li) => (
+                  <Pressable
+                    key={li}
+                    onPress={() => { WebBrowser.openBrowserAsync(link.url).catch(() => {}); }}
+                    style={styles.layerInfoLink}
+                  >
+                    <Feather name="external-link" size={12} color={theme.primary} />
+                    <Text style={[styles.layerInfoLinkText, { color: theme.primary }]}>{link.label}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            ) : null}
+
+            {(() => {
+              const modalContacts = layerInfoId ? getContactsForZone(layerInfoId, undefined, detectedCountryIso) : (layerInfoData.contacts || []);
+              return modalContacts.length > 0 ? (
+                <View style={{ marginTop: 16 }}>
+                  <Text style={[styles.layerInfoSectionLabel, { color: theme.primary }]}>Kontakte</Text>
+                  {modalContacts.map((c, ci) => (
+                    <Pressable
+                      key={ci}
+                      onPress={() => openGeozoneContact(c)}
+                      style={styles.layerInfoContactRow}
+                    >
+                      <Feather name={c.type === "email" ? "mail" : c.type === "phone" ? "phone" : "globe"} size={13} color={c.type === "email" ? "#4A90D9" : c.type === "phone" ? "#34C759" : theme.primary} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.layerInfoContactLabel, { color: isDark ? "#C8D6E8" : "#333" }]}>{c.label}</Text>
+                        <Text style={[styles.layerInfoContactValue, { color: c.type === "email" ? "#4A90D9" : c.type === "phone" ? "#34C759" : theme.primary }]}>{c.type === "phone" ? c.value.replace(/^\+49/, "+49 ") : c.value}</Text>
+                      </View>
+                    </Pressable>
+                  ))}
+                </View>
+              ) : null;
+            })()}
+          </>
+        ) : null}
+      </InfoDialog>
     </Modal>
   );
 
@@ -1415,7 +1407,7 @@ export default function StandaloneLiveTrafficScreen() {
             </View>
           ) : null}
           {nearbyCtr.length > 0 ? (
-            <View style={{ position: "absolute", bottom: tabBarHeight + 16, right: 12, zIndex: 105, alignItems: "flex-end" }}>
+            <View style={{ position: "absolute", bottom: tabBarHeight + 16, right: 64 /* links neben den Reitern rechts */, zIndex: 105, alignItems: "flex-end" }}>
               <View style={{
                 marginBottom: 6,
                 backgroundColor: isDark ? "rgba(30,10,10,0.92)" : "rgba(255,240,240,0.96)",
@@ -1466,9 +1458,9 @@ export default function StandaloneLiveTrafficScreen() {
                       <Feather name="navigation" size={18} color="#fff" />
                     </View>
                     <View style={{ flex: 1 }}>
-                      <Text style={{ fontSize: 17, fontWeight: "700", color: isDark ? "#fff" : "#000" }}>Kontrollzone \u2014 Tower-Notfallkontakt</Text>
+                      <Text style={{ fontSize: 17, fontWeight: "700", color: isDark ? "#fff" : "#000" }}>Kontrollzone – Tower-Notfallkontakt</Text>
                       <Text style={{ fontSize: 12, color: isDark ? "rgba(255,255,255,0.5)" : "rgba(0,0,0,0.5)", marginTop: 2 }}>
-                        Au\u00dfer Kontrolle geratenes UAS sofort melden!
+                        Außer Kontrolle geratenes UAS sofort melden!
                       </Text>
                     </View>
                   </View>
@@ -1483,7 +1475,7 @@ export default function StandaloneLiveTrafficScreen() {
                         <View style={{ flex: 1 }}>
                           <Text style={{ fontSize: 15, fontWeight: "600", color: isDark ? "#fff" : "#000" }}>{ctr.name}</Text>
                           <Text style={{ fontSize: 12, color: isDark ? "rgba(255,255,255,0.5)" : "rgba(0,0,0,0.5)", marginTop: 2 }}>
-                            {ctr.icao} \u2014 {getCtrCategoryLabel(ctr.category)}
+                            {ctr.icao} – {getCtrCategoryLabel(ctr.category)}
                           </Text>
                           {ctr.avInfo ? (
                             <Text style={{ fontSize: 11, color: isDark ? "rgba(255,255,255,0.35)" : "rgba(0,0,0,0.35)", marginTop: 2 }}>
@@ -1501,21 +1493,11 @@ export default function StandaloneLiveTrafficScreen() {
                           <Text selectable testID={`radar-ctr-phone-${ctr.icao}`} style={{ fontSize: 22, fontWeight: "800", letterSpacing: 0.5, color: isDark ? "#fff" : "#000", marginTop: 6 }}>
                             {ctr.towerPhone}
                           </Text>
-                          <Pressable
-                            testID={`radar-ctr-copy-${ctr.icao}`}
-                            accessibilityRole="button"
-                            onPress={() => {
-                              Clipboard.setStringAsync(ctr.towerPhone.replace(/\s/g, ""))
-                                .then(() => setCopiedIcao(ctr.icao))
-                                .catch(() => Alert.alert("Tower " + ctr.icao, ctr.towerPhone));
-                            }}
-                            style={{ alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 6, marginTop: 6, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: isDark ? "rgba(255,255,255,0.3)" : "rgba(0,0,0,0.2)" }}
-                          >
-                            <Feather name={copiedIcao === ctr.icao ? "check" : "copy"} size={14} color={isDark ? "#fff" : "#000"} />
-                            <Text style={{ fontSize: 13, fontWeight: "600", color: isDark ? "#fff" : "#000" }}>
-                              {copiedIcao === ctr.icao ? "Kopiert" : "Nummer kopieren"}
-                            </Text>
-                          </Pressable>
+                        </View>
+                        {/* QR-Code zum Anrufen mit dem eigenen Handy (die Fernsteuerung kann nicht telefonieren) */}
+                        <View testID={`radar-ctr-qr-${ctr.icao}`} style={{ alignItems: "center", marginLeft: 12, padding: 8, backgroundColor: "#fff", borderRadius: 10 }}>
+                          <QRCode value={`tel:${ctr.towerPhone.replace(/[^\d+]/g, "")}`} size={132} backgroundColor="#fff" color="#000" />
+                          <Text style={{ fontSize: 10, color: "#333", marginTop: 4 }}>Mit dem Handy scannen</Text>
                         </View>
                         {canCallPhone ? (
                         <Pressable
@@ -1549,7 +1531,7 @@ export default function StandaloneLiveTrafficScreen() {
                       borderRadius: 12, alignItems: "center",
                     }}
                   >
-                    <Text style={{ fontSize: 15, fontWeight: "600", color: isDark ? "#fff" : "#000" }}>Schlie\u00dfen</Text>
+                    <Text style={{ fontSize: 15, fontWeight: "600", color: isDark ? "#fff" : "#000" }}>Schließen</Text>
                   </Pressable>
                 </Pressable>
               </Pressable>
@@ -1762,15 +1744,6 @@ const styles = StyleSheet.create({
   geozoneCheck: { width: 24, height: 24, borderRadius: 6, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
   geozoneLayerLabel: { ...Typography.body, flex: 1 },
   geozoneLayerInfoBtn: { width: 26, height: 26, borderRadius: 13, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
-  layerInfoOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "center", alignItems: "center", padding: 24 },
-  layerInfoModal: {
-    width: "100%", maxWidth: 380, borderRadius: 16, padding: 22,
-    ...Platform.select({
-      ios: { shadowColor: "#000", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.5, shadowRadius: 20 },
-      android: { elevation: 24 },
-    }),
-  },
-  layerInfoTitle: { fontSize: 19, fontWeight: "800", marginBottom: 16 },
   layerInfoSectionLabel: { fontSize: 13, fontWeight: "700", marginTop: 12, marginBottom: 4 },
   layerInfoText: { fontSize: 13, lineHeight: 20 },
   layerInfoHinweisBox: { marginTop: 14, padding: 12, borderRadius: 10, borderWidth: 1 },
@@ -1779,8 +1752,6 @@ const styles = StyleSheet.create({
   layerInfoContactRow: { flexDirection: "row", alignItems: "flex-start", gap: 10, paddingVertical: 7, paddingHorizontal: 4, borderRadius: 8, marginBottom: 2 },
   layerInfoContactLabel: { fontSize: 12, fontWeight: "500", lineHeight: 16 },
   layerInfoContactValue: { fontSize: 13, fontWeight: "600", lineHeight: 18 },
-  layerInfoOkBtn: { alignSelf: "flex-end", borderRadius: 8, paddingHorizontal: 24, paddingVertical: 8, marginTop: 16 },
-  layerInfoOkText: { color: "#FFFFFF", fontSize: 14, fontWeight: "700" },
 });
 
 const panelStyles = StyleSheet.create({
@@ -2012,7 +1983,6 @@ function SideTabs({ activePanel, onPress, isDark, safeTop, alertFlags, weatherSt
     { id: "wetter", label: "Wetter" },
     { id: "radar", label: "Radar" },
   ];
-  const panelBg = isDark ? "rgba(12, 18, 38, 0.94)" : "rgba(255, 255, 255, 0.96)";
   const hasOpenPanel = activePanel != null;
 
   function getTabStatus(id: string): { bg: string; shouldPulse: boolean; pulseColor?: string; textWhite: boolean } {
@@ -2049,37 +2019,27 @@ function SideTabs({ activePanel, onPress, isDark, safeTop, alertFlags, weatherSt
     return { bg: defaultBg, shouldPulse: false, textWhite: false };
   }
 
+  // Darstellung über die gemeinsame Reiter-Leiste (auch Gebietsübersicht der Flugplanung).
+  const railTabs: SideTab<"geozone" | "notam" | "wetter" | "radar">[] = tabs.map((t) => {
+    const status = getTabStatus(t.id);
+    const pulsing = t.id === "radar" && status.shouldPulse;
+    return {
+      id: t.id,
+      label: t.label,
+      bg: pulsing ? "transparent" : status.bg,
+      textWhite: status.textWhite,
+      background: status.shouldPulse ? <PulsingTabBg color={status.pulseColor!} /> : undefined,
+      hidden: (t.id === "wetter" && hideWetter) || (t.id === "radar" && hideRadar),
+    };
+  });
   return (
-    <View style={[sideTabStyles.container, { top: safeTop + 8 }]}>
-      {tabs.map((t) => {
-        const isActive = activePanel === t.id;
-        if (hasOpenPanel) return null;
-        if (t.id === "wetter" && hideWetter) return null;
-        if (t.id === "radar" && hideRadar) return null;
-        const status = getTabStatus(t.id);
-        const solidBg = isActive ? panelBg : (t.id === "radar" && status.shouldPulse ? "transparent" : status.bg);
-        return (
-          <Pressable
-            key={t.id}
-            onPress={() => { onPress(t.id); try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {} }}
-            style={[
-              sideTabStyles.tab,
-              { backgroundColor: solidBg },
-            ]}
-          >
-            {status.shouldPulse && !isActive ? (
-              <PulsingTabBg color={status.pulseColor!} />
-            ) : null}
-            <View style={sideTabStyles.tabRotateWrap}>
-              <Text style={[sideTabStyles.tabLabel, {
-                color: isActive ? (isDark ? "rgba(180,200,230,0.85)" : "#444444") : status.textWhite ? "#FFFFFF" : isDark ? "rgba(180,200,230,0.85)" : "#444444",
-                fontWeight: "800",
-              }]}>{t.label}</Text>
-            </View>
-          </Pressable>
-        );
-      })}
-    </View>
+    <SideTabRail
+      tabs={railTabs}
+      activeId={hasOpenPanel ? activePanel : null}
+      isDark={isDark}
+      top={safeTop + 8}
+      onPress={(id) => { onPress(id); try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {} }}
+    />
   );
 }
 
@@ -2234,19 +2194,16 @@ function SidePanelView({ panel, loading, geozones, windFacilityWarnings = [], ge
           </Pressable>
         </View>
       </View>
-      <Modal visible={showInfo} transparent animationType="fade" onRequestClose={() => setShowInfo(false)}>
-        <Pressable style={sidePanelStyles.infoOverlay} onPress={() => setShowInfo(false)}>
-          <View style={[sidePanelStyles.infoModal, { backgroundColor: isDark ? "rgba(15, 22, 45, 0.97)" : "rgba(255,255,255,0.98)" }]}>
-            <Text style={[sidePanelStyles.infoModalTitle, { color: accentColor }]}>{info.title}</Text>
-            <ScrollView style={{ maxHeight: 400 }} showsVerticalScrollIndicator={false}>
-              <Text style={[sidePanelStyles.infoModalText, { color: textColor }]}>{info.text}{adminSourceSuffix(info.sourceText, isAdmin)}</Text>
-            </ScrollView>
-            <Pressable onPress={() => setShowInfo(false)} style={[sidePanelStyles.infoModalOk, { backgroundColor: accentColor }]}>
-              <Text style={sidePanelStyles.infoModalOkText}>OK</Text>
-            </Pressable>
-          </View>
-        </Pressable>
-      </Modal>
+      <InfoDialog
+        visible={showInfo}
+        onClose={() => setShowInfo(false)}
+        title={info.title}
+        text={info.text + adminSourceSuffix(info.sourceText, isAdmin)}
+        accentColor={accentColor}
+        textColor={textColor}
+        backgroundColor={isDark ? "rgba(15, 22, 45, 0.97)" : "rgba(255,255,255,0.98)"}
+        testID="panel-info-dialog"
+      />
       <View style={[sidePanelStyles.divider, { backgroundColor: divColor }]} />
       {loading ? (
         <View style={sidePanelStyles.loadingWrap}>
@@ -3087,53 +3044,6 @@ function SidePanelView({ panel, loading, geozones, windFacilityWarnings = [], ge
   );
 }
 
-const sideTabStyles = StyleSheet.create({
-  container: {
-    position: "absolute",
-    right: 0,
-    zIndex: 130,
-    gap: 4,
-  },
-  tab: {
-    width: 38,
-    height: 90,
-    borderTopLeftRadius: 10,
-    borderBottomLeftRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-    overflow: "hidden",
-    ...Platform.select({
-      ios: {
-        shadowColor: "#000",
-        shadowOffset: { width: -3, height: 2 },
-        shadowOpacity: 0.35,
-        shadowRadius: 6,
-      },
-      android: { elevation: 6 },
-    }),
-  },
-  tabRotateWrap: {
-    width: 86,
-    transform: [{ rotate: "90deg" }],
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  activeStripe: {
-    position: "absolute",
-    left: 0,
-    top: 6,
-    bottom: 6,
-    width: 3,
-    borderRadius: 2,
-  },
-  tabLabel: {
-    fontSize: 14,
-    fontWeight: "800",
-    letterSpacing: 0.5,
-    textAlign: "center",
-  },
-});
-
 const sidePanelStyles = StyleSheet.create({
   container: {
     position: "absolute",
@@ -3180,44 +3090,6 @@ const sidePanelStyles = StyleSheet.create({
     borderWidth: 1.5,
     alignItems: "center",
     justifyContent: "center",
-  },
-  infoOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.55)",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 30,
-  },
-  infoModal: {
-    width: "100%",
-    maxWidth: 340,
-    borderRadius: 14,
-    padding: 20,
-    ...Platform.select({
-      ios: { shadowColor: "#000", shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.4, shadowRadius: 16 },
-      android: { elevation: 20 },
-    }),
-  },
-  infoModalTitle: {
-    fontSize: 17,
-    fontWeight: "800",
-    marginBottom: 14,
-  },
-  infoModalText: {
-    fontSize: 13,
-    lineHeight: 20,
-  },
-  infoModalOk: {
-    alignSelf: "flex-end",
-    borderRadius: 8,
-    paddingHorizontal: 24,
-    paddingVertical: 8,
-    marginTop: 16,
-  },
-  infoModalOkText: {
-    color: "#FFFFFF",
-    fontSize: 14,
-    fontWeight: "700",
   },
   divider: {
     height: StyleSheet.hairlineWidth,

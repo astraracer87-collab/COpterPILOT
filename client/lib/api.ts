@@ -148,7 +148,6 @@ export async function apiGetSettings(): Promise<Settings | null> {
     favoriteCountries: Array.isArray(data.favoriteCountries) ? data.favoriteCountries : undefined,
     officialMapCrossCheck: data.officialMapCrossCheck ?? undefined,
     attachPilotDocsToExports: data.attachPilotDocsToExports ?? undefined,
-    wildlifeRescueMode: data.wildlifeRescueMode ?? false,
   } as Settings;
 }
 

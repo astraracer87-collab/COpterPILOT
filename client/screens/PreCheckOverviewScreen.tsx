@@ -13,7 +13,7 @@ import type { RouteProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
+import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import * as WebBrowser from "@/lib/webBrowser";
 import { ThemedText } from "@/components/ThemedText";
@@ -22,7 +22,8 @@ import { Card } from "@/components/Card";
 import { Button } from "@/components/Button";
 import { useTheme } from "@/hooks/useTheme";
 import { useMapBasemapStyle } from "@/hooks/useMapBasemapStyle";
-import { GRAYSCALE_BASEMAP_TILE_URL, nativeMapBasemapProps } from "@/lib/mapBasemap";
+import { nativeMapBasemapProps } from "@/lib/mapBasemap";
+import { previewRegion, PREVIEW_BASEMAP_TILE_URL } from "@/lib/areaOverview";
 import { useShowDataSources } from "@/lib/dataSource";
 import { attributionLabel } from "@/lib/sourceAttribution";
 import { Spacing, Typography, BorderRadius } from "@/constants/theme";
@@ -64,13 +65,10 @@ import {
   updateFlightSession,
   getFlightSession,
   getDrone,
-  getSettings,
   DEFAULT_LIMITS,
   WeatherLimits,
   DroneProfile,
 } from "@/lib/storage";
-import { WildlifeRescueInfoModal } from "@/components/WildlifeRescueInfo";
-import { WILDLIFE_RESCUE_MODE_TITLE, WILDLIFE_RESCUE_PLANNING_HINT } from "../../shared/wildlifeRescue";
 import { detectBundeslandFromCoordinates } from "@/lib/countryMaps";
 import { fetchHourlyForecasts, type HourlyForecastSlot } from "@/lib/weather";
 import HourlyForecastTable from "@/components/HourlyForecastTable";
@@ -183,14 +181,11 @@ export default function PreCheckOverviewScreen() {
   const [lockedCountryNames, setLockedCountryNames] = useState<string[]>([]);
   const { entitlement } = useAuth();
   const [mapReady, setMapReady] = useState(false);
-  const [wildlifeRescueMode, setWildlifeRescueMode] = useState(false);
-  const [wildlifeInfoOpen, setWildlifeInfoOpen] = useState(false);
   const mapRef = useRef<MapView>(null);
   const snapshotTakenRef = useRef(false);
 
   useEffect(() => {
     getPilotProfile().then(setPilotProfile);
-    getSettings().then((s) => setWildlifeRescueMode(s?.wildlifeRescueMode ?? false));
     if (droneId) {
       getDrone(droneId).then((d) => { if (d) { setLimits(d.limits); setDrone(d); } });
     }
@@ -384,8 +379,16 @@ export default function PreCheckOverviewScreen() {
     return () => clearInterval(id);
   }, []);
 
-  const milLowFlightContaining = findMilLowFlightAreasContaining(latitude, longitude);
-  const milLowFlightNearby = findMilLowFlightAreasIntersectingRadius(latitude, longitude, planningRadiusKm ?? 1);
+  // Polygon-Lookups (Punkt-in-Polygon über alle Gebiete) nur bei geändertem
+  // Standort/Radius – nicht bei jedem Render (z. B. Abhaken einer Bestätigung).
+  const milLowFlightContaining = React.useMemo(
+    () => findMilLowFlightAreasContaining(latitude, longitude),
+    [latitude, longitude],
+  );
+  const milLowFlightNearby = React.useMemo(
+    () => findMilLowFlightAreasIntersectingRadius(latitude, longitude, planningRadiusKm ?? 1),
+    [latitude, longitude, planningRadiusKm],
+  );
   const sampledRoutePoints = React.useMemo(() => {
     const r = planningRadiusKm ?? 1;
     const points: Array<{ lat: number; lon: number }> = [{ lat: latitude, lon: longitude }];
@@ -400,7 +403,10 @@ export default function PreCheckOverviewScreen() {
     }
     return points;
   }, [latitude, longitude, planningRadiusKm]);
-  const milLowFlightOnRoute = findMilLowFlightAreasOnRoute(sampledRoutePoints);
+  const milLowFlightOnRoute = React.useMemo(
+    () => findMilLowFlightAreasOnRoute(sampledRoutePoints),
+    [sampledRoutePoints],
+  );
   const mergedMilHitsMap = new Map<string, typeof milLowFlightContaining[number]>();
   for (const r of [...milLowFlightContaining, ...milLowFlightNearby, ...milLowFlightOnRoute]) {
     if (!mergedMilHitsMap.has(r.id)) mergedMilHitsMap.set(r.id, r);
@@ -408,7 +414,10 @@ export default function PreCheckOverviewScreen() {
   const milLowFlightHits = Array.from(mergedMilHitsMap.values());
   const milLowFlightInside = milLowFlightContaining.length > 0;
 
-  const detectedBundesland = detectBundeslandFromCoordinates(latitude, longitude);
+  const detectedBundesland = React.useMemo(
+    () => detectBundeslandFromCoordinates(latitude, longitude),
+    [latitude, longitude],
+  );
   const erlaubnisse = pilotProfile?.allgemeinverfuegung || [];
   const hasA2 = pilotProfile?.licenseA2 || false;
   const erlaubnisForBundesland = detectedBundesland
@@ -714,37 +723,12 @@ export default function PreCheckOverviewScreen() {
         ]}
       >
         <GeozoneDataChangedBanner change={verdictWatch.change} onDismiss={verdictWatch.dismiss} />
-        {wildlifeRescueMode ? (
-          <Card
-            style={[styles.wildlifeHint, { backgroundColor: theme.statusCautionBackground, borderColor: theme.statusCaution }]}
-            onPress={() => setWildlifeInfoOpen(true)}
-            testID="hint-wildlife-rescue"
-          >
-            <View style={styles.wildlifeHintHeader}>
-              <MaterialCommunityIcons name="paw" size={16} color={theme.statusCaution} />
-              <ThemedText style={[styles.wildlifeHintTitle, { color: theme.statusCaution }]}>
-                {WILDLIFE_RESCUE_MODE_TITLE}
-              </ThemedText>
-            </View>
-            <ThemedText style={[styles.wildlifeHintBody, { color: theme.text }]}>
-              {WILDLIFE_RESCUE_PLANNING_HINT}
-            </ThemedText>
-            <ThemedText style={[styles.wildlifeHintLink, { color: theme.primary }]}>
-              Mehr Infos zu den Allgemeinverfügungen
-            </ThemedText>
-          </Card>
-        ) : null}
         {Platform.OS !== "web" ? (
           <View style={[styles.mapPreviewWrapper, { borderColor: theme.border }]}>
             <MapView
               ref={mapRef}
               style={StyleSheet.absoluteFill}
-              initialRegion={{
-                latitude,
-                longitude,
-                latitudeDelta: Math.max(0.012, (searchRadiusKm * 2.4) / 111),
-                longitudeDelta: Math.max(0.012, (searchRadiusKm * 2.4) / 111),
-              }}
+              initialRegion={previewRegion(latitude, longitude, searchRadiusKm)}
               scrollEnabled={false}
               zoomEnabled={false}
               rotateEnabled={false}
@@ -756,18 +740,22 @@ export default function PreCheckOverviewScreen() {
               {...nativeMapBasemapProps(mapStyle, Platform.OS)}
               onMapReady={() => setMapReady(true)}
             >
-              <UrlTile
-                urlTemplate={mapStyle === "grayscale" ? GRAYSCALE_BASEMAP_TILE_URL : "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"}
-                maximumZ={19}
-                tileSize={256}
-                shouldReplaceMapContent={mapStyle === "grayscale"}
-              />
+              {/* Vorschau: kräftige Standard-OSM-Karte (kein blasses Graustufen-
+                  Overlay über der Länderkarte), damit Zonenfarben lesbar bleiben. */}
+              {mapStyle !== "satellite" ? (
+                <UrlTile
+                  urlTemplate={PREVIEW_BASEMAP_TILE_URL}
+                  maximumZ={19}
+                  tileSize={256}
+                  shouldReplaceMapContent
+                />
+              ) : null}
               {wmsTileUrls.map(({ iso, url }, i) => url ? (
                 <WMSTile
                   key={`wms-${iso}-${i}-${url}`}
                   urlTemplate={url}
                   maximumNativeZ={getCountryGeozoneConfig(iso).wmsMaxNativeZoom}
-                  opacity={0.6}
+                  opacity={0.85}
                   tileSize={256}
                 />
               ) : null)}
@@ -836,11 +824,15 @@ export default function PreCheckOverviewScreen() {
               <Circle
                 center={{ latitude, longitude }}
                 radius={searchRadiusKm * 1000}
-                strokeColor="rgba(0, 122, 255, 0.85)"
-                fillColor="rgba(0, 122, 255, 0.10)"
-                strokeWidth={2}
+                strokeColor="rgba(0, 122, 255, 0.95)"
+                fillColor="rgba(0, 122, 255, 0.12)"
+                strokeWidth={2.5}
               />
-              <Marker coordinate={{ latitude, longitude }} />
+              {/* Mittelpunkt statt Stecknadel: eine Nadel steht mit der Spitze
+                  am Standort und ragt über den (kleinen) Umkreis hinaus. */}
+              <Marker coordinate={{ latitude, longitude }} anchor={{ x: 0.5, y: 0.5 }}>
+                <View style={styles.mapCenterDot} testID="precheck-map-center-dot" />
+              </Marker>
             </MapView>
             <View style={styles.mapPreviewBadge} pointerEvents="none">
               <Feather name="map" size={11} color="#fff" />
@@ -1273,10 +1265,6 @@ export default function PreCheckOverviewScreen() {
           disabled={!canContinue || loading}
         />
       </View>
-      <WildlifeRescueInfoModal
-        visible={wildlifeInfoOpen}
-        onClose={() => setWildlifeInfoOpen(false)}
-      />
     </ThemedView>
   );
 }
@@ -1286,31 +1274,6 @@ const styles = StyleSheet.create({
   content: {
     paddingHorizontal: Spacing.lg,
   },
-  wildlifeHint: {
-    padding: Spacing.md,
-    marginBottom: Spacing.md,
-    borderWidth: 1,
-    borderRadius: BorderRadius.lg,
-  },
-  wildlifeHintHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.xs,
-    marginBottom: Spacing.xs,
-  },
-  wildlifeHintTitle: {
-    ...Typography.body,
-    fontWeight: "700",
-  },
-  wildlifeHintBody: {
-    ...Typography.small,
-    lineHeight: 18,
-  },
-  wildlifeHintLink: {
-    ...Typography.small,
-    fontWeight: "600",
-    marginTop: Spacing.sm,
-  },
   mapPreviewWrapper: {
     height: 220,
     borderRadius: BorderRadius.lg,
@@ -1319,6 +1282,14 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.md,
     position: "relative",
     backgroundColor: "#E5E7EB",
+  },
+  mapCenterDot: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: "#FF3B30",
+    borderWidth: 2.5,
+    borderColor: "#FFFFFF",
   },
   mapPreviewBadge: {
     position: "absolute",

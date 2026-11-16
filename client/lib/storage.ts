@@ -4,7 +4,6 @@ import * as Api from "./api";
 import { isLoggedInSync, waitForAuthReady } from "./auth";
 import { schedulePreflightReminder, cancelPreflightReminder } from "./notifications";
 import { DEFAULT_REACHABLE_ALTITUDE_M } from "../../shared/geozoneAltitudeFilter";
-import { activeWildlifeRescueOrdinanceIds } from "../../shared/wildlifeRescue";
 import { isDfsZonenEffective } from "./ctrAltitude";
 import { migrateCachesToFiles, purgeAsyncStorageCaches, setItemResilient } from "./storageMaintenance";
 import { fileCacheStorage, pruneFileCache, purgeFileCache } from "./fileCache";
@@ -640,10 +639,9 @@ export interface Settings {
    * Flugzeitpunkt gültigen Pilotendokumente (Allgemeinverfügung, A2-Zeugnis,
    * Versicherungsnachweis) standardmäßig mit angehängt. Pro Export überschreibbar. */
   attachPilotDocsToExports?: boolean;
-  /** Wildtierretter-Modus (rein informativ). Ist er aktiv, wird in Planung und
-   *  Pre-Check ein Hinweis auf die Allgemeinverfügungen zur Wildtierrettung
-   *  (LBA/BMDV bundesweit + RP Gießen/RP Darmstadt) angezeigt. Verändert keine
-   *  Geozonen-/§21h-Logik. Default: aus. */
+  /** @deprecated Früherer „Wildtierretter-Modus“ (entfernt). Bleibt nur als
+   *  optionales Feld, damit alte gespeicherte Einstellungen typkonform laden;
+   *  wird nirgends mehr gelesen oder geschrieben. */
   wildlifeRescueMode?: boolean;
 }
 
@@ -991,10 +989,10 @@ export interface LogbookEntry {
   shareEnabled?: boolean;
   /** Schwer erratbares Token für den öffentlichen Freigabe-Link. */
   shareToken?: string | null;
-  /** Wildtierretter-Modus ZUM FLUGZEITPUNKT (eingefroren beim Anlegen). `null`/
-   * `undefined` bei Altdaten → Export fällt auf die Live-Einstellung zurück. */
+  /** @deprecated Altdaten des entfernten „Wildtierretter-Modus“. Nur optional
+   *  behalten, damit ältere Logbucheinträge unverändert laden; wird ignoriert. */
   wildlifeRescueAtFlight?: boolean | null;
-  /** IDs der zum Flugzeitpunkt anwendbaren Wildtierrettungs-Verfügungen (Snapshot). */
+  /** @deprecated siehe wildlifeRescueAtFlight – wird ignoriert. */
   wildlifeRescueOrdinanceIds?: string[] | null;
 }
 
@@ -1064,7 +1062,6 @@ export const DEFAULT_SETTINGS: Settings = {
   proximityAlarm: DEFAULT_PROXIMITY_ALARM,
   officialMapCrossCheck: true,
   attachPilotDocsToExports: true,
-  wildlifeRescueMode: false,
 };
 
 export const DEFAULT_COMPLIANCE: DroneCompliance = {
@@ -1900,25 +1897,6 @@ export async function deleteLogbookEntry(id: string): Promise<void> {
   }));
 }
 
-/**
- * Friert den Wildtierretter-Status ZUM FLUGZEITPUNKT ein. Ist der Modus aktiv,
- * werden zusätzlich die aktuell anwendbaren Verfügungs-IDs als Snapshot
- * gespeichert (audit-fest, siehe LogbookEntry). Ist er inaktiv, wird eine leere
- * Liste hinterlegt — so unterscheiden spätere Exporte zwischen "erfasst: aus"
- * und Altdaten (null → Live-Fallback).
- */
-async function captureWildlifeRescueSnapshot(): Promise<{
-  active: boolean;
-  ordinanceIds: string[];
-}> {
-  const settings = await getSettings();
-  const active = settings.wildlifeRescueMode ?? false;
-  return {
-    active,
-    ordinanceIds: active ? activeWildlifeRescueOrdinanceIds() : [],
-  };
-}
-
 export async function completeSessionWithLogEntry(
   sessionId: string,
   debriefing: DebriefingData
@@ -1933,8 +1911,6 @@ export async function completeSessionWithLogEntry(
     currentPhase: "completed",
     debriefing,
   });
-
-  const wildlife = await captureWildlifeRescueSnapshot();
 
   const logEntry = await createLogbookEntry({
     sessionId,
@@ -1968,8 +1944,6 @@ export async function completeSessionWithLogEntry(
     status: session.status,
     trafficLog: session.trafficLog,
     mapSnapshotBase64: session.mapSnapshotBase64,
-    wildlifeRescueAtFlight: wildlife.active,
-    wildlifeRescueOrdinanceIds: wildlife.ordinanceIds,
   });
 
   return logEntry;
@@ -1987,8 +1961,6 @@ export async function archiveSessionToLogbook(
   await updateFlightSession(sessionId, {
     currentPhase: "completed",
   });
-
-  const wildlife = await captureWildlifeRescueSnapshot();
 
   const logEntry = await createLogbookEntry({
     sessionId,
@@ -2022,8 +1994,6 @@ export async function archiveSessionToLogbook(
     status: session.status,
     trafficLog: session.trafficLog,
     mapSnapshotBase64: session.mapSnapshotBase64,
-    wildlifeRescueAtFlight: wildlife.active,
-    wildlifeRescueOrdinanceIds: wildlife.ordinanceIds,
   });
 
   return logEntry;

@@ -14,6 +14,7 @@ import React, {
   useContext,
   useId,
   useImperativeHandle,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -469,7 +470,7 @@ interface ShapeStyle {
   [key: string]: any;
 }
 
-function ShapeOverlay({
+function ShapeOverlayImpl({
   geometry,
   strokeColor,
   strokeWidth = 1,
@@ -507,12 +508,77 @@ function ShapeOverlay({
   );
 }
 
+// Performance (RC Pro 2): Screens rendern ihre Overlays bei jeder State-Änderung
+// neu (z. B. beim Abhaken einer Bestätigung) und erzeugen dabei neue
+// Koordinaten-Arrays. Ohne Memo wurde dann für JEDES Polygon das GeoJSON per
+// JSON.stringify neu serialisiert. Mit stabiler Geometrie (useStableGeometry)
+// und stabilem onPress (useStableHandler) rendert ein Overlay nur noch, wenn
+// sich Form oder Stil tatsächlich ändern.
+function shapePropsEqual(prev: Record<string, any>, next: Record<string, any>): boolean {
+  const keys = new Set([...Object.keys(prev), ...Object.keys(next)]);
+  for (const k of keys) {
+    const a = prev[k];
+    const b = next[k];
+    if (Object.is(a, b)) continue;
+    if (k === "lineDashPattern" && Array.isArray(a) && Array.isArray(b)) {
+      if (a.length !== b.length || a.some((v, i) => v !== b[i])) return false;
+      continue;
+    }
+    return false;
+  }
+  return true;
+}
+
+const ShapeOverlay = React.memo(ShapeOverlayImpl, shapePropsEqual);
+
+function coordsEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i];
+    const y = b[i];
+    if (typeof x === "number" || typeof y === "number") {
+      if (x !== y) return false;
+    } else if (!coordsEqual(x, y)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/** Liefert die vorherige Geometrie-Instanz, solange der Inhalt gleich bleibt. */
+function useStableGeometry<G extends GeoJSON.Polygon | GeoJSON.LineString | null>(geometry: G): G {
+  const [stable, setStable] = useState<G>(geometry);
+  if (stable === geometry) return stable;
+  const same =
+    stable != null &&
+    geometry != null &&
+    stable.type === geometry.type &&
+    coordsEqual(stable.coordinates, geometry.coordinates);
+  if (same) return stable;
+  // Form geändert: neue Instanz übernehmen (State-Update im Render, von React
+  // für „aus Props abgeleiteten State“ vorgesehen) und sofort verwenden.
+  setStable(geometry);
+  return geometry;
+}
+
+/** Stabile Funktions-Identität, die immer den aktuellen Handler aufruft. */
+function useStableHandler(handler: ((e?: any) => void) | undefined): ((e?: any) => void) | undefined {
+  const ref = useRef(handler);
+  useLayoutEffect(() => {
+    ref.current = handler;
+  });
+  const stable = useCallback((e?: any) => ref.current?.(e), []);
+  return handler ? stable : undefined;
+}
+
 export interface CircleProps extends ShapeStyle {
   center: LatLng;
   radius: number;
 }
 
-export function Circle({ center, radius, ...rest }: CircleProps) {
+export function Circle({ center, radius, onPress, ...rest }: CircleProps) {
+  const stablePress = useStableHandler(onPress);
   const lat = center?.latitude;
   const lon = center?.longitude;
   const geometry = useMemo<GeoJSON.Polygon | null>(
@@ -522,7 +588,7 @@ export function Circle({ center, radius, ...rest }: CircleProps) {
     [lat, lon, radius],
   );
   if (!geometry) return null;
-  return <ShapeOverlay geometry={geometry} fill {...rest} />;
+  return <ShapeOverlay geometry={geometry} fill {...rest} onPress={stablePress} />;
 }
 
 export interface PolygonProps extends ShapeStyle {
@@ -530,8 +596,9 @@ export interface PolygonProps extends ShapeStyle {
   holes?: LatLng[][];
 }
 
-export function Polygon({ coordinates, holes, ...rest }: PolygonProps) {
-  const geometry = useMemo<GeoJSON.Polygon | null>(() => {
+export function Polygon({ coordinates, holes, onPress, ...rest }: PolygonProps) {
+  const stablePress = useStableHandler(onPress);
+  const computed = useMemo<GeoJSON.Polygon | null>(() => {
     const ring = (coordinates || []).filter(validCoord).map(toLngLat);
     if (ring.length < 3) return null;
     const close = (r: [number, number][]) =>
@@ -542,21 +609,24 @@ export function Polygon({ coordinates, holes, ...rest }: PolygonProps) {
       .map(close);
     return { type: "Polygon", coordinates: [close(ring), ...holeRings] };
   }, [coordinates, holes]);
+  const geometry = useStableGeometry(computed);
   if (!geometry) return null;
-  return <ShapeOverlay geometry={geometry} fill {...rest} />;
+  return <ShapeOverlay geometry={geometry} fill {...rest} onPress={stablePress} />;
 }
 
 export interface PolylineProps extends ShapeStyle {
   coordinates: LatLng[];
 }
 
-export function Polyline({ coordinates, ...rest }: PolylineProps) {
-  const geometry = useMemo<GeoJSON.LineString | null>(() => {
+export function Polyline({ coordinates, onPress, ...rest }: PolylineProps) {
+  const stablePress = useStableHandler(onPress);
+  const computed = useMemo<GeoJSON.LineString | null>(() => {
     const pts = (coordinates || []).filter(validCoord).map(toLngLat);
     return pts.length >= 2 ? { type: "LineString", coordinates: pts } : null;
   }, [coordinates]);
+  const geometry = useStableGeometry(computed);
   if (!geometry) return null;
-  return <ShapeOverlay geometry={geometry} fill={false} {...rest} />;
+  return <ShapeOverlay geometry={geometry} fill={false} {...rest} onPress={stablePress} />;
 }
 
 // ---------------------------------------------------------------------------

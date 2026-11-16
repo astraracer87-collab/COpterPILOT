@@ -26,6 +26,7 @@ import { computeVlosM, alosKindForDroneType, formatMeters } from "@/lib/vlos";
 import { findPresetForDrone } from "@/lib/dronePresets";
 import type { FlightCheckParamList } from "@/navigation/FlightCheckNavigator";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
+import { InfoDialog } from "@/components/InfoDialog";
 
 type RouteParams = RouteProp<FlightCheckParamList, "Results">;
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -707,53 +708,33 @@ export default function ResultsScreen() {
         </View>
       </Modal>
 
-      <Modal
+      <InfoDialog
         visible={selectedTip !== null}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setSelectedTip(null)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.tipModalContent, { backgroundColor: theme.backgroundSecondary }]}>
-            <View style={styles.tipModalHeader}>
-              <Feather name="book-open" size={24} color={theme.primary} />
-              <ThemedText style={[styles.tipModalTitle, { color: theme.primary }]}>
-                {selectedTip?.title || "Experten-Tipp"}
-              </ThemedText>
-              <Pressable onPress={() => setSelectedTip(null)} style={styles.closeButton}>
-                <Feather name="x" size={24} color={theme.textSecondary} />
-              </Pressable>
-            </View>
-            
-            <ScrollView style={styles.tipModalBody}>
-              <ThemedText style={styles.tipDescription}>
-                {selectedTip?.description}
-              </ThemedText>
-              
-              {selectedTip?.practiceCheck ? (
-                <View style={styles.practiceCheckBox}>
-                  <View style={styles.practiceCheckHeader}>
-                    <Feather name="eye" size={16} color={theme.statusCaution} />
-                    <ThemedText style={[styles.practiceCheckTitle, { color: theme.statusCaution }]}>
-                      Praxis-Check
-                    </ThemedText>
-                  </View>
-                  <ThemedText style={[styles.practiceCheckText, { color: theme.textSecondary }]}>
-                    {selectedTip.practiceCheck}
+        onClose={() => setSelectedTip(null)}
+        title={selectedTip?.title || "Experten-Tipp"}
+        icon="book-open"
+        okLabel="Verstanden"
+        testID="tip-info-dialog"
+        sections={selectedTip ? [
+          { body: selectedTip.description ?? "" },
+          ...(selectedTip.practiceCheck ? [{
+            weight: selectedTip.practiceCheck.length,
+            body: (
+              <View style={styles.practiceCheckBox}>
+                <View style={styles.practiceCheckHeader}>
+                  <Feather name="eye" size={16} color={theme.statusCaution} />
+                  <ThemedText style={[styles.practiceCheckTitle, { color: theme.statusCaution }]}>
+                    Praxis-Check
                   </ThemedText>
                 </View>
-              ) : null}
-            </ScrollView>
-            
-            <View style={styles.tipModalFooter}>
-              <Button
-                title="Verstanden"
-                onPress={() => setSelectedTip(null)}
-              />
-            </View>
-          </View>
-        </View>
-      </Modal>
+                <ThemedText style={[styles.practiceCheckText, { color: theme.textSecondary }]}>
+                  {selectedTip.practiceCheck}
+                </ThemedText>
+              </View>
+            ),
+          }] : []),
+        ] : []}
+      />
     </ThemedView>
   );
 }
@@ -1081,36 +1062,6 @@ const styles = StyleSheet.create({
     padding: Spacing.lg,
     gap: Spacing.md,
   },
-  tipModalContent: {
-    width: "100%",
-    maxHeight: "80%",
-    borderRadius: BorderRadius.lg,
-    overflow: "hidden",
-  },
-  tipModalHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: Spacing.lg,
-    gap: Spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(255,255,255,0.1)",
-  },
-  tipModalTitle: {
-    ...Typography.h3,
-    fontWeight: "700",
-    flex: 1,
-  },
-  closeButton: {
-    padding: Spacing.sm,
-  },
-  tipModalBody: {
-    padding: Spacing.xl,
-  },
-  tipDescription: {
-    ...Typography.body,
-    lineHeight: 24,
-    marginBottom: Spacing.xl,
-  },
   practiceCheckBox: {
     padding: Spacing.lg,
     borderRadius: BorderRadius.md,
@@ -1129,10 +1080,5 @@ const styles = StyleSheet.create({
   practiceCheckText: {
     ...Typography.body,
     lineHeight: 22,
-  },
-  tipModalFooter: {
-    padding: Spacing.lg,
-    borderTopWidth: 1,
-    borderTopColor: "rgba(255,255,255,0.1)",
   },
 });

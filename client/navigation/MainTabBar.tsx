@@ -8,6 +8,7 @@ import {
 import { ThemedText } from "@/components/ThemedText";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing } from "@/constants/theme";
+import { DjiLaunchButton } from "@/components/DjiLaunchButton";
 
 /** Höhe der Tab-Leiste ohne Safe-Area (Querformat = Fernsteuerung kompakt). */
 export function getMainTabBarHeight(landscape: boolean, bottomInset: number): number {
@@ -61,7 +62,7 @@ export function MainTabBar({ state, descriptors, navigation, insets }: BottomTab
         },
       ]}
     >
-      {state.routes.map((route, index) => {
+      {state.routes.flatMap((route, index) => {
         const { options } = descriptors[route.key];
         const focused = state.index === index;
         const color = focused ? theme.primary : theme.textTertiary;
@@ -88,7 +89,7 @@ export function MainTabBar({ state, descriptors, navigation, insets }: BottomTab
             </ThemedText>
           );
 
-        return (
+        const item = (
           <TabItem
             key={route.key}
             routeName={route.name}
@@ -103,6 +104,11 @@ export function MainTabBar({ state, descriptors, navigation, insets }: BottomTab
             {label}
           </TabItem>
         );
+        // Runder DJI-Knopf genau in der Mitte (nach der ersten Hälfte der Tabs)
+        const middle = Math.ceil(state.routes.length / 2) - 1;
+        return index === middle
+          ? [item, <DjiLaunchButton key="dji-launch" size={landscape ? 40 : 48} />]
+          : [item];
       })}
     </View>
   );

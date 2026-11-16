@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { View, StyleSheet, ScrollView, Alert, Modal, Pressable } from "react-native";
+import { View, StyleSheet, ScrollView, Alert, Pressable } from "react-native";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RouteProp } from "@react-navigation/native";
@@ -27,6 +27,7 @@ import { estimateEv, shutterDenomFromEv, snapShutterDenom, recommendNd, NdRecomm
 import SunArcChart from "@/components/SunArcChart";
 import { DataStandLines } from "@/components/DataStandLines";
 import type { FlightPlanningParamList } from "@/navigation/FlightPlanningNavigator";
+import { InfoDialog } from "@/components/InfoDialog";
 
 type NavigationProp = NativeStackNavigationProp<FlightPlanningParamList, "PlanningResult">;
 type RouteParams = RouteProp<FlightPlanningParamList, "PlanningResult">;
@@ -630,82 +631,67 @@ export default function PlanningResultScreen() {
         )}
       </View>
 
-      <Modal
+      <InfoDialog
         visible={selectedInfo !== null}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setSelectedInfo(null)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.tipModalContent, { backgroundColor: theme.backgroundSecondary }]}>
-            <View style={styles.tipModalHeader}>
-              <Feather name="book-open" size={24} color={theme.primary} />
-              <ThemedText style={[styles.tipModalTitle, { color: theme.primary }]}>
-                {selectedInfo?.tip.title || "Erläuterung"}
-              </ThemedText>
-              <Pressable onPress={() => setSelectedInfo(null)} style={styles.closeButton}>
-                <Feather name="x" size={24} color={theme.textSecondary} />
-              </Pressable>
-            </View>
-
-            <ScrollView style={styles.tipModalBody}>
-              <ThemedText style={styles.tipDescription}>
-                {selectedInfo?.tip.description}
-              </ThemedText>
-
-              {selectedInfo?.tip.practiceCheck ? (
-                <View style={styles.practiceCheckBox}>
-                  <View style={styles.practiceCheckHeader}>
-                    <Feather name="eye" size={16} color={theme.statusCaution} />
-                    <ThemedText style={[styles.practiceCheckTitle, { color: theme.statusCaution }]}>
-                      Praxis-Check
-                    </ThemedText>
-                  </View>
-                  <ThemedText style={[styles.practiceCheckText, { color: theme.textSecondary }]}>
-                    {selectedInfo.tip.practiceCheck}
+        onClose={() => setSelectedInfo(null)}
+        title={selectedInfo?.tip.title || "Erläuterung"}
+        icon="book-open"
+        okLabel="Verstanden"
+        testID="tip-info-dialog"
+        sections={selectedInfo ? [
+          { body: selectedInfo.tip.description ?? "" },
+          ...(selectedInfo.tip.practiceCheck ? [{
+            weight: selectedInfo.tip.practiceCheck.length,
+            body: (
+              <View style={styles.practiceCheckBox}>
+                <View style={styles.practiceCheckHeader}>
+                  <Feather name="eye" size={16} color={theme.statusCaution} />
+                  <ThemedText style={[styles.practiceCheckTitle, { color: theme.statusCaution }]}>
+                    Praxis-Check
                   </ThemedText>
                 </View>
-              ) : null}
-
-              {selectedInfo?.recommendation ? (
-                <View
-                  style={[
-                    styles.recommendBox,
-                    {
-                      backgroundColor: selectedInfo.recommendation.hasMatch
-                        ? theme.statusGoBackground
-                        : theme.backgroundDefault,
-                    },
-                  ]}
-                >
-                  <View style={styles.practiceCheckHeader}>
-                    <Feather
-                      name={selectedInfo.recommendation.hasMatch ? "check-circle" : "shopping-bag"}
-                      size={16}
-                      color={selectedInfo.recommendation.hasMatch ? theme.statusGo : theme.textSecondary}
-                    />
-                    <ThemedText
-                      style={[
-                        styles.practiceCheckTitle,
-                        { color: selectedInfo.recommendation.hasMatch ? theme.statusGo : theme.textSecondary },
-                      ]}
-                    >
-                      {selectedInfo.recommendation.hasMatch ? "Passende Drohne" : "Empfehlung"}
-                    </ThemedText>
-                  </View>
-                  <ThemedText style={[styles.practiceCheckText, { color: theme.textSecondary }]}>
-                    {selectedInfo.recommendation.message}
+                <ThemedText style={[styles.practiceCheckText, { color: theme.textSecondary }]}>
+                  {selectedInfo.tip.practiceCheck}
+                </ThemedText>
+              </View>
+            ),
+          }] : []),
+          ...(selectedInfo.recommendation ? [{
+            weight: selectedInfo.recommendation.message.length,
+            body: (
+              <View
+                style={[
+                  styles.recommendBox,
+                  {
+                    backgroundColor: selectedInfo.recommendation.hasMatch
+                      ? theme.statusGoBackground
+                      : theme.backgroundDefault,
+                  },
+                ]}
+              >
+                <View style={styles.practiceCheckHeader}>
+                  <Feather
+                    name={selectedInfo.recommendation.hasMatch ? "check-circle" : "shopping-bag"}
+                    size={16}
+                    color={selectedInfo.recommendation.hasMatch ? theme.statusGo : theme.textSecondary}
+                  />
+                  <ThemedText
+                    style={[
+                      styles.practiceCheckTitle,
+                      { color: selectedInfo.recommendation.hasMatch ? theme.statusGo : theme.textSecondary },
+                    ]}
+                  >
+                    {selectedInfo.recommendation.hasMatch ? "Passende Drohne" : "Empfehlung"}
                   </ThemedText>
                 </View>
-              ) : null}
-            </ScrollView>
-
-            <View style={styles.tipModalFooter}>
-              <Button title="Verstanden" onPress={() => setSelectedInfo(null)} />
-            </View>
-          </View>
-        </View>
-      </Modal>
+                <ThemedText style={[styles.practiceCheckText, { color: theme.textSecondary }]}>
+                  {selectedInfo.recommendation.message}
+                </ThemedText>
+              </View>
+            ),
+          }] : []),
+        ] : []}
+      />
     </ThemedView>
   );
 }
@@ -894,43 +880,6 @@ const styles = StyleSheet.create({
     flex: 1,
     fontWeight: "600",
   },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.7)",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: Spacing.lg,
-  },
-  tipModalContent: {
-    width: "100%",
-    maxHeight: "80%",
-    borderRadius: BorderRadius.lg,
-    overflow: "hidden",
-  },
-  tipModalHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: Spacing.lg,
-    gap: Spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(255,255,255,0.1)",
-  },
-  tipModalTitle: {
-    ...Typography.h3,
-    fontWeight: "700",
-    flex: 1,
-  },
-  closeButton: {
-    padding: Spacing.sm,
-  },
-  tipModalBody: {
-    padding: Spacing.xl,
-  },
-  tipDescription: {
-    ...Typography.body,
-    lineHeight: 24,
-    marginBottom: Spacing.xl,
-  },
   practiceCheckBox: {
     padding: Spacing.lg,
     borderRadius: BorderRadius.md,
@@ -954,11 +903,6 @@ const styles = StyleSheet.create({
     padding: Spacing.lg,
     borderRadius: BorderRadius.md,
     marginTop: Spacing.lg,
-  },
-  tipModalFooter: {
-    padding: Spacing.lg,
-    borderTopWidth: 1,
-    borderTopColor: "rgba(255,255,255,0.1)",
   },
   solarRow: {
     flexDirection: "row",

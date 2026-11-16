@@ -626,24 +626,37 @@ export const MAIN_MAP_HTML = `<!DOCTYPE html>
   function setUser(u){
     if (!u || u.length < 2) { if (userMarker) { map.removeLayer(userMarker); userMarker = null; } return; }
     if (userMarker) { userMarker.setLatLng([u[0], u[1]]); }
-    else { userMarker = L.circleMarker([u[0], u[1]], { radius: 7, color: "#FFFFFF", weight: 2, fillColor: "#007AFF", fillOpacity: 1, interactive: false }).addTo(map); }
+    else {
+      if (!map.getPane("userpos")) { map.createPane("userpos"); map.getPane("userpos").style.zIndex = 645; map.getPane("userpos").style.pointerEvents = "none"; }
+      userMarker = L.circleMarker([u[0], u[1]], { pane: "userpos", renderer: L.svg({ pane: "userpos" }), radius: 7, color: "#FFFFFF", weight: 2, fillColor: "#007AFF", fillOpacity: 1, interactive: false }).addTo(map);
+    }
   }
 
   // ---- Kreise (Scan/TA/RA) + Sichtfeld-Kegel ----
+  // Eigene Ebene ÜBER allen Zonen, mit weißem Halo, damit der eigene Umkreis im Zonen-Gewirr auffällt.
+  map.createPane("rings");
+  map.getPane("rings").style.zIndex = 640;
+  map.getPane("rings").style.pointerEvents = "none";
+  var ringRenderer = L.svg({ pane: "rings" });
   var ringLayer = L.layerGroup().addTo(map);
   var ringSig = "";
+  function ring(center, radius, color, weight, dash, fillOpacity){
+    // Halo (weiß, breiter) unter der farbigen Linie
+    L.circle(center, { pane: "rings", renderer: ringRenderer, radius: radius, color: "#FFFFFF", opacity: 0.95, weight: weight + 4, fill: false, interactive: false }).addTo(ringLayer);
+    L.circle(center, { pane: "rings", renderer: ringRenderer, radius: radius, color: color, opacity: 1, weight: weight, dashArray: dash || null, fillColor: color, fillOpacity: fillOpacity, interactive: false }).addTo(ringLayer);
+  }
   function setRings(center, c, fov){
     var sig = JSON.stringify([center, c, fov]);
     if (sig === ringSig) return;
     ringSig = sig;
     ringLayer.clearLayers();
     if (center && center.length >= 2) {
-      if (c && c.scan) L.circle(center, { radius: c.scan, color: "#AF52DE", opacity: 0.85, weight: 2.5, fillColor: "#AF52DE", fillOpacity: 0.06, interactive: false }).addTo(ringLayer);
-      if (c && c.ta) L.circle(center, { radius: c.ta, color: "#FF9500", opacity: 0.7, weight: 1.5, fillColor: "#FF9500", fillOpacity: 0.06, interactive: false }).addTo(ringLayer);
-      if (c && c.ra) L.circle(center, { radius: c.ra, color: "#FF3B30", opacity: 0.85, weight: 2.5, fillColor: "#FF3B30", fillOpacity: 0.10, interactive: false }).addTo(ringLayer);
+      if (c && c.scan) ring(center, c.scan, "#7B2FBE", 3.5, null, 0.04);
+      if (c && c.ta) ring(center, c.ta, "#FF8A00", 3, "10 6", 0.04);
+      if (c && c.ra) ring(center, c.ra, "#E0201A", 3.5, null, 0.08);
     }
     if (fov && fov.length > 2) {
-      L.polygon(fov, { color: "#007AFF", opacity: 0.85, weight: 2, fillColor: "#007AFF", fillOpacity: 0.45, interactive: false }).addTo(ringLayer);
+      L.polygon(fov, { pane: "rings", renderer: ringRenderer, color: "#007AFF", opacity: 0.9, weight: 2, fillColor: "#007AFF", fillOpacity: 0.45, interactive: false }).addTo(ringLayer);
     }
   }
 

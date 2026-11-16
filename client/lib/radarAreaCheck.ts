@@ -33,25 +33,56 @@ export interface RadarAreaData {
   flags: RadarAreaFlags;
 }
 
+export interface AreaNotamData {
+  notamResult: RadarAreaData["notamResult"];
+  combinedNotams: NotamData[];
+  /** aktive + anstehende dipul-Beschränkungen inkl. militärischer Tiefflug */
+  allDipul: DipulTempRestriction[];
+  /** dipul-Abfrage fehlgeschlagen (auch kein gespeicherter Stand) */
+  dipulFailed: boolean;
+  dipulOffline?: { fetchedAt: number; cached: boolean };
+}
+
+/**
+ * NOTAM-Teil der Gebietsprüfung (autorouter-NOTAMs, dipul temporäre
+ * Beschränkungen, militärischer Tiefflug, LU-TSA). Gemeinsam für Radar und
+ * die Gebietsübersicht der Flugplanung.
+ */
+export async function fetchAreaNotamData(lat: number, lon: number, radiusKm: number, countryIso: string | undefined): Promise<AreaNotamData> {
+  let dipulFailed = false;
+  const [notamResult, dipulResult, luTsaNotams] = await Promise.all([
+    fetchNotams(lat, lon).catch(() => ({ notams: [] as NotamData[], total: 0, queriedCodes: [] as string[], failed: true })),
+    fetchNearbyTempRestrictionsRaw(lat, lon, radiusKm).catch(() => {
+      dipulFailed = true;
+      return { active: [] as DipulTempRestriction[], upcoming: [] as DipulTempRestriction[] } as Awaited<ReturnType<typeof fetchNearbyTempRestrictionsRaw>>;
+    }),
+    countryIso === "LU" ? fetchLuTsaAsNotams(lat, lon, radiusKm).catch(() => []) : Promise.resolve([]),
+  ]);
+  const milNearby = getActiveOrUpcomingNearbyMilLowFlight(dipulResult, lat, lon, radiusKm);
+  const active = [...dipulResult.active, ...milNearby.active];
+  const upcoming = [...dipulResult.upcoming, ...milNearby.upcoming];
+  return {
+    notamResult: notamResult as RadarAreaData["notamResult"],
+    combinedNotams: [...notamResult.notams, ...(luTsaNotams as unknown as NotamData[])],
+    allDipul: [...active, ...upcoming],
+    dipulFailed,
+    dipulOffline: dipulResult.offline,
+  };
+}
+
 export async function fetchRadarAreaData(lat: number, lon: number, raRadiusKm: number, countryIso: string | undefined): Promise<RadarAreaData> {
-  const [weatherData, kp, kpTl, notamResult, zones, dipulResult, luTsaNotams] = await Promise.all([
+  const [weatherData, kp, kpTl, area, zones] = await Promise.all([
     fetchWeather(lat, lon, 1440).catch(() => null),
     fetchKpIndex().catch(() => null),
     fetchKpTimeline().catch(() => [] as KpTimeEntry[]),
-    fetchNotams(lat, lon).catch(() => ({ notams: [] as NotamData[], total: 0, queriedCodes: [] as string[], failed: true })),
+    fetchAreaNotamData(lat, lon, raRadiusKm, countryIso),
     queryGeozonesInArea(lat, lon, raRadiusKm, countryIso).catch((e) => {
       console.warn("[checkAlerts] geozone query failed:", e?.message || e);
       return [] as GeozoneFeatureInfo[];
     }),
-    fetchNearbyTempRestrictionsRaw(lat, lon, raRadiusKm).catch(() => ({ active: [] as DipulTempRestriction[], upcoming: [] as DipulTempRestriction[] })),
-    countryIso === "LU" ? fetchLuTsaAsNotams(lat, lon, raRadiusKm).catch(() => []) : Promise.resolve([]),
   ]);
-  const milNearby = getActiveOrUpcomingNearbyMilLowFlight(dipulResult, lat, lon, raRadiusKm);
-  dipulResult.active = [...dipulResult.active, ...milNearby.active];
-  dipulResult.upcoming = [...dipulResult.upcoming, ...milNearby.upcoming];
-  const combinedNotams = [...notamResult.notams, ...(luTsaNotams as unknown as NotamData[])];
+  const { notamResult, combinedNotams, allDipul } = area;
   const { geozones: permZones, tempRestrictions } = separateTempRestrictions(zones);
-  const allDipul = [...dipulResult.active, ...dipulResult.upcoming];
   const f = weatherData?.forecasts?.[0];
   const currentKpValue = kpTl.length > 0 ? getKpForHour(kpTl, new Date()) : kp?.value ?? null;
   // Fehlgeschlagene NOTAM-Abfrage ist KEIN „alles frei“
@@ -69,7 +100,7 @@ export async function fetchRadarAreaData(lat: number, lon: number, raRadiusKm: n
     weatherData,
     kp,
     kpTimeline: kpTl,
-    notamResult: notamResult as RadarAreaData["notamResult"],
+    notamResult,
     combinedNotams,
     tempRestrictions,
     allDipul,

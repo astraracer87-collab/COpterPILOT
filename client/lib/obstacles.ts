@@ -214,35 +214,40 @@ export async function toFeatureCollectionYielding(json: any): Promise<GeoJSON.Fe
 // Laden & Zwischenspeichern
 // ---------------------------------------------------------------------------
 
-let dirReady: Promise<void> | null = null;
 let endpointIdx = 0;
 
-function ensureDir(): Promise<void> {
-  if (!dirReady) {
-    dirReady = FileSystem.makeDirectoryAsync(CACHE_DIR, { intermediates: true }).catch(() => {});
-  }
-  return dirReady;
+/**
+ * Gerätespeicher für Overpass-Kacheln (ein Verzeichnis unter
+ * documentDirectory); Lesen/Schreiben in Zeitscheiben. Auch für die
+ * Luftfahrt-Punkte (aviationPois.ts) genutzt.
+ */
+export function createFileTileStorage(dir: string) {
+  let dirReady: Promise<void> | null = null;
+  const ensureDir = (): Promise<void> => {
+    if (!dirReady) dirReady = FileSystem.makeDirectoryAsync(dir, { intermediates: true }).catch(() => {});
+    return dirReady;
+  };
+  return {
+    async read(key: string): Promise<TileData | null> {
+      try {
+        const path = `${dir}${key}.json`;
+        const info = await FileSystem.getInfoAsync(path);
+        if (!info.exists) return null;
+        return (await parseJsonYielding(await FileSystem.readAsStringAsync(path))) as TileData;
+      } catch {
+        return null;
+      }
+    },
+    async write(key: string, data: TileData): Promise<void> {
+      await ensureDir();
+      try {
+        await FileSystem.writeAsStringAsync(`${dir}${key}.json`, await stringifyYieldingTile(data));
+      } catch {}
+    },
+  };
 }
 
-/** Gerätespeicher (documentDirectory/obstacles); Lesen/Schreiben in Zeitscheiben. */
-const fileStorage = {
-  async read(key: string): Promise<TileData | null> {
-    try {
-      const path = `${CACHE_DIR}${key}.json`;
-      const info = await FileSystem.getInfoAsync(path);
-      if (!info.exists) return null;
-      return (await parseJsonYielding(await FileSystem.readAsStringAsync(path))) as TileData;
-    } catch {
-      return null;
-    }
-  },
-  async write(key: string, data: TileData): Promise<void> {
-    await ensureDir();
-    try {
-      await FileSystem.writeAsStringAsync(`${CACHE_DIR}${key}.json`, await stringifyYieldingTile(data));
-    } catch {}
-  },
-};
+const fileStorage = createFileTileStorage(CACHE_DIR);
 
 /** wie JSON.stringify(data), Feature-Liste in Zeitscheiben */
 async function stringifyYieldingTile(data: TileData): Promise<string> {
@@ -285,6 +290,11 @@ async function slot<T>(fn: () => Promise<T>): Promise<T> {
 
 function overpass(query: string, timeoutMs = 100000): Promise<any> {
   return slot(() => overpassDirect(query, timeoutMs));
+}
+
+/** Gemeinsamer Overpass-Zugang (Endpunkt-Wechsel, max. 2 parallel) für andere OSM-Abfragen. */
+export function overpassRequest(query: string, timeoutMs = 60000): Promise<any> {
+  return overpass(query, timeoutMs);
 }
 
 async function overpassDirect(query: string, timeoutMs: number): Promise<any> {

@@ -7,7 +7,6 @@ import { LogbookEntry, TrafficLogData, SavedGeozoneFeature, SavedDipulRestrictio
 import { getCheckItemLabel } from "@/lib/checklists";
 import { groupDanishBufferRings } from "../../shared/danishGeozones";
 import { resolveFlightTimeDocuments, type ResolvedPilotDocument } from "../../shared/archivedDocuments";
-import { buildWildlifeRescueOrdinancesHtml } from "../../shared/wildlifeRescue";
 import { renderProtocolMap } from "@/lib/protocolMapClient";
 import { formatPlannedTimeRange } from "../../shared/flightWindow";
 
@@ -944,7 +943,7 @@ function generateDocumentsHtml(docs: ResolvedPilotDocument[]): string {
     ${blocks}`;
 }
 
-function generateProtocolHtml(entry: LogbookEntry, maps?: ProtocolMaps, attachedDocs?: ResolvedPilotDocument[], wildlife?: WildlifeOrdinancesForExport): string {
+function generateProtocolHtml(entry: LogbookEntry, maps?: ProtocolMaps, attachedDocs?: ResolvedPilotDocument[]): string {
   const generatedDate = new Date().toLocaleDateString("de-DE", {
     day: "2-digit",
     month: "2-digit",
@@ -1312,7 +1311,6 @@ function generateProtocolHtml(entry: LogbookEntry, maps?: ProtocolMaps, attached
     ${mapWithTrailsHtml || mapFallbackHtml}
     ${trafficHtml}
     ${attachedDocs && attachedDocs.length > 0 ? generateDocumentsHtml(attachedDocs) : ""}
-    ${wildlife?.active ? buildWildlifeRescueOrdinancesHtml(escapeHtml, wildlife.ordinanceIds) : ""}
 
     <div class="footer">
       DrohnenPilot - Vollstaendiges Flugprotokoll
@@ -1540,44 +1538,6 @@ export async function resolveAttachedDocsForEntry(
   }
 }
 
-export interface WildlifeOrdinancesForExport {
-  /** Ob der Abschnitt überhaupt gerendert wird. */
-  active: boolean;
-  /** Zum Flugzeitpunkt eingefrorene Verfügungs-IDs (Snapshot). `null` → alle. */
-  ordinanceIds?: string[] | null;
-}
-
-/**
- * Entscheidet, ob die Wildtierrettungs-Allgemeinverfügungen dem Export
- * beigefügt werden. Sie folgen derselben Opt-in-Logik wie die
- * Pilotendokumente (`includeDocs`).
- *
- * Der Wildtierretter-STATUS wird primär aus dem Eintrag gelesen (Snapshot vom
- * Flugzeitpunkt) — so belegt das PDF genau die damals gültige Rechtslage. Nur
- * Altdaten OHNE erfassten Snapshot (`wildlifeRescueAtFlight == null`) fallen auf
- * die aktuelle Live-Einstellung zurück.
- */
-export async function resolveWildlifeOrdinancesForExport(
-  entry: LogbookEntry,
-  includeDocs?: boolean,
-): Promise<WildlifeOrdinancesForExport> {
-  let include = includeDocs;
-  const hasSnapshot = entry.wildlifeRescueAtFlight != null;
-  let wildlife = hasSnapshot ? !!entry.wildlifeRescueAtFlight : false;
-  try {
-    const settings = await getSettings();
-    if (include == null) include = settings.attachPilotDocsToExports ?? true;
-    if (!hasSnapshot) wildlife = settings.wildlifeRescueMode ?? false;
-  } catch {
-    if (include == null) include = true;
-  }
-  return {
-    active: !!include && wildlife,
-    // Snapshot-IDs nur für erfasste Einträge; Altdaten → alle aktuellen.
-    ordinanceIds: hasSnapshot ? entry.wildlifeRescueOrdinanceIds : null,
-  };
-}
-
 export interface ProtocolExportOptions {
   /** Pilotendokumente anhängen? Überschreibt die globale Einstellung. */
   includeDocs?: boolean;
@@ -1587,23 +1547,21 @@ export async function exportFlightProtocolPdf(
   entry: LogbookEntry,
   options?: ProtocolExportOptions,
 ): Promise<void> {
-  const [maps, docs, wildlife] = await Promise.all([
+  const [maps, docs] = await Promise.all([
     prefetchProtocolMaps(entry),
     resolveAttachedDocsForEntry(entry, options?.includeDocs),
-    resolveWildlifeOrdinancesForExport(entry, options?.includeDocs),
   ]);
-  const html = generateProtocolHtml(entry, maps, docs, wildlife);
+  const html = generateProtocolHtml(entry, maps, docs);
   await sharePdf(html, "Vollstaendiges Flugprotokoll exportieren");
 }
 
 /** Erzeugt das Flugprotokoll-PDF und gibt die lokale Datei-URI zurueck. */
 async function buildProtocolPdfUri(entry: LogbookEntry, options?: ProtocolExportOptions): Promise<string> {
-  const [maps, docs, wildlife] = await Promise.all([
+  const [maps, docs] = await Promise.all([
     prefetchProtocolMaps(entry),
     resolveAttachedDocsForEntry(entry, options?.includeDocs),
-    resolveWildlifeOrdinancesForExport(entry, options?.includeDocs),
   ]);
-  const html = generateProtocolHtml(entry, maps, docs, wildlife);
+  const html = generateProtocolHtml(entry, maps, docs);
   const { uri } = await Print.printToFileAsync({ html, base64: false });
   return uri;
 }
@@ -1621,12 +1579,11 @@ export async function sendFlightProtocolByEmail(
   options?: { recipients?: string[]; shareUrl?: string | null },
 ): Promise<EmailShareResult> {
   if (Platform.OS === "web") {
-    const [maps, docs, wildlife] = await Promise.all([
+    const [maps, docs] = await Promise.all([
       prefetchProtocolMaps(entry),
       resolveAttachedDocsForEntry(entry),
-      resolveWildlifeOrdinancesForExport(entry),
     ]);
-    const html = generateProtocolHtml(entry, maps, docs, wildlife);
+    const html = generateProtocolHtml(entry, maps, docs);
     const { uri } = await Print.printToFileAsync({ html });
     window.open(uri, "_blank");
     return { status: "web" };

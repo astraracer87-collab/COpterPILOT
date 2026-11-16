@@ -1,6 +1,6 @@
 import { openLink } from "@/lib/webBrowser";
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { View, StyleSheet, FlatList, Pressable, ActivityIndicator, ScrollView, Platform, Modal, Text, Dimensions, AppState, Linking, Alert } from "react-native";
+import { View, StyleSheet, FlatList, Pressable, ActivityIndicator, ScrollView, Platform, Modal, Text, AppState, Linking, Alert } from "react-native";
 import { useRoute } from "@react-navigation/native";
 import type { RouteProp } from "@react-navigation/native";
 import { useHeaderHeight } from "@react-navigation/elements";
@@ -39,6 +39,7 @@ import {
   getRelativeAltitude,
 } from "@/lib/opensky";
 import type { FlightPlanningParamList } from "@/navigation/FlightPlanningNavigator";
+import { InfoDialog } from "@/components/InfoDialog";
 
 type RouteParams = RouteProp<FlightPlanningParamList, "PlanningLiveTraffic">;
 
@@ -585,65 +586,68 @@ export default function PlanningLiveTrafficScreen() {
           {COMBINED_COUNTRY_TOGGLES.map((t) => renderGeozoneToggleRow(t.id, t.label, t.infoId))}
         </ScrollView>
       </View>
-      <Modal visible={layerInfoData != null} transparent animationType="fade" onRequestClose={() => setLayerInfoId(null)}>
-        <Pressable style={styles.layerInfoOverlay} onPress={() => setLayerInfoId(null)}>
-          <Pressable style={[styles.layerInfoModal, { backgroundColor: isDark ? "rgba(12, 18, 42, 0.98)" : "rgba(255,255,255,0.99)" }]} onPress={(e) => e.stopPropagation()}>
-            {layerInfoData ? (
-              <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: Dimensions.get("window").height * 0.75 }}>
-                <Text style={[styles.layerInfoTitle, { color: isDark ? "#FFFFFF" : "#1A1A2E" }]}>{layerInfoData.title}</Text>
-                <Text style={[styles.layerInfoSectionLabel, { color: theme.primary }]}>Referenz</Text>
-                <Text style={[styles.layerInfoText, { color: isDark ? "#C8D6E8" : "#333" }]}>{layerInfoData.referenz}</Text>
-                <Text style={[styles.layerInfoSectionLabel, { color: theme.primary }]}>Definition</Text>
-                <Text style={[styles.layerInfoText, { color: isDark ? "#C8D6E8" : "#333" }]}>{layerInfoData.definition}</Text>
-                <Text style={[styles.layerInfoSectionLabel, { color: theme.primary }]}>Abstandsregel</Text>
-                <Text style={[styles.layerInfoText, { color: isDark ? "#C8D6E8" : "#333" }]}>{layerInfoData.abstandsregel}</Text>
-                <Text style={[styles.layerInfoSectionLabel, { color: theme.primary }]}>Betriebsvoraussetzung</Text>
-                <Text style={[styles.layerInfoText, { color: isDark ? "#C8D6E8" : "#333" }]}>{layerInfoData.betriebsvoraussetzung}</Text>
-                {layerInfoData.hinweis ? (
-                  <View style={[styles.layerInfoHinweisBox, { backgroundColor: isDark ? "rgba(245,158,11,0.12)" : "rgba(245,158,11,0.08)", borderColor: "rgba(245,158,11,0.4)" }]}>
-                    <Text style={[styles.layerInfoText, { color: isDark ? "#F5D080" : "#92400E" }]}>{layerInfoData.hinweis}</Text>
-                  </View>
-                ) : null}
-                {layerInfoData.links && layerInfoData.links.length > 0 ? (
-                  <View style={{ marginTop: 14 }}>
-                    {layerInfoData.links.map((link, li) => (
-                      <Pressable key={li} onPress={() => { WebBrowser.openBrowserAsync(link.url).catch(() => {}); }} style={styles.layerInfoLink}>
-                        <Feather name="external-link" size={12} color={theme.primary} />
-                        <Text style={[styles.layerInfoLinkText, { color: theme.primary }]}>{link.label}</Text>
-                      </Pressable>
-                    ))}
-                  </View>
-                ) : null}
-
-                {(() => {
-                  const modalContacts = layerInfoId ? getContactsForZone(layerInfoId, undefined, countryIso) : (layerInfoData.contacts || []);
-                  return modalContacts.length > 0 ? (
-                  <View style={{ marginTop: 16 }}>
-                    <Text style={[styles.layerInfoSectionLabel, { color: theme.primary }]}>Kontakte</Text>
-                    {modalContacts.map((c, ci) => (
-                      <Pressable
-                        key={ci}
-                        onPress={() => openGeozoneContact(c)}
-                        style={styles.layerInfoContactRow}
-                      >
-                        <Feather name={c.type === "email" ? "mail" : c.type === "phone" ? "phone" : "globe"} size={13} color={c.type === "email" ? "#4A90D9" : c.type === "phone" ? "#34C759" : theme.primary} />
-                        <View style={{ flex: 1 }}>
-                          <Text style={[styles.layerInfoContactLabel, { color: isDark ? "#C8D6E8" : "#333" }]}>{c.label}</Text>
-                          <Text style={[styles.layerInfoContactValue, { color: c.type === "email" ? "#4A90D9" : c.type === "phone" ? "#34C759" : theme.primary }]}>{c.type === "phone" ? c.value.replace(/^\+49/, "+49 ") : c.value}</Text>
-                        </View>
-                      </Pressable>
-                    ))}
-                  </View>
-                ) : null;
-                })()}
-              </ScrollView>
+      <InfoDialog
+        visible={layerInfoData != null}
+        onClose={() => setLayerInfoId(null)}
+        title={layerInfoData?.title ?? ""}
+        textColor={isDark ? "#C8D6E8" : "#333"}
+        backgroundColor={isDark ? "rgba(12, 18, 42, 0.98)" : "rgba(255,255,255,0.99)"}
+        columns={2}
+        sections={layerInfoData ? [
+          { title: "Referenz", body: layerInfoData.referenz },
+          { title: "Definition", body: layerInfoData.definition },
+          { title: "Abstandsregel", body: layerInfoData.abstandsregel },
+          { title: "Betriebsvoraussetzung", body: layerInfoData.betriebsvoraussetzung },
+        ] : []}
+        testID="layer-info-dialog"
+      >
+        {layerInfoData ? (
+          <>
+            {layerInfoData.hinweis ? (
+              <View style={[styles.layerInfoHinweisBox, { backgroundColor: isDark ? "rgba(245,158,11,0.12)" : "rgba(245,158,11,0.08)", borderColor: "rgba(245,158,11,0.4)" }]}>
+                <Text style={[styles.layerInfoText, { color: isDark ? "#F5D080" : "#92400E" }]}>{layerInfoData.hinweis}</Text>
+              </View>
             ) : null}
-            <Pressable onPress={() => setLayerInfoId(null)} style={[styles.layerInfoOkBtn, { backgroundColor: theme.primary }]}>
-              <Text style={styles.layerInfoOkText}>OK</Text>
-            </Pressable>
-          </Pressable>
-        </Pressable>
-      </Modal>
+
+            {layerInfoData.links && layerInfoData.links.length > 0 ? (
+              <View style={{ marginTop: 14 }}>
+                {layerInfoData.links.map((link, li) => (
+                  <Pressable
+                    key={li}
+                    onPress={() => { WebBrowser.openBrowserAsync(link.url).catch(() => {}); }}
+                    style={styles.layerInfoLink}
+                  >
+                    <Feather name="external-link" size={12} color={theme.primary} />
+                    <Text style={[styles.layerInfoLinkText, { color: theme.primary }]}>{link.label}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            ) : null}
+
+            {(() => {
+              const modalContacts = layerInfoId ? getContactsForZone(layerInfoId, undefined, countryIso) : (layerInfoData.contacts || []);
+              return modalContacts.length > 0 ? (
+                <View style={{ marginTop: 16 }}>
+                  <Text style={[styles.layerInfoSectionLabel, { color: theme.primary }]}>Kontakte</Text>
+                  {modalContacts.map((c, ci) => (
+                    <Pressable
+                      key={ci}
+                      onPress={() => openGeozoneContact(c)}
+                      style={styles.layerInfoContactRow}
+                    >
+                      <Feather name={c.type === "email" ? "mail" : c.type === "phone" ? "phone" : "globe"} size={13} color={c.type === "email" ? "#4A90D9" : c.type === "phone" ? "#34C759" : theme.primary} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.layerInfoContactLabel, { color: isDark ? "#C8D6E8" : "#333" }]}>{c.label}</Text>
+                        <Text style={[styles.layerInfoContactValue, { color: c.type === "email" ? "#4A90D9" : c.type === "phone" ? "#34C759" : theme.primary }]}>{c.type === "phone" ? c.value.replace(/^\+49/, "+49 ") : c.value}</Text>
+                      </View>
+                    </Pressable>
+                  ))}
+                </View>
+              ) : null;
+            })()}
+          </>
+        ) : null}
+      </InfoDialog>
     </Modal>
   );
 
@@ -750,15 +754,6 @@ const styles = StyleSheet.create({
   geozoneCheck: { width: 24, height: 24, borderRadius: 6, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
   geozoneLayerLabel: { ...Typography.body, flex: 1 },
   geozoneLayerInfoBtn: { width: 26, height: 26, borderRadius: 13, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
-  layerInfoOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "center", alignItems: "center", padding: 24 },
-  layerInfoModal: {
-    width: "100%", maxWidth: 380, borderRadius: 16, padding: 22,
-    ...Platform.select({
-      ios: { shadowColor: "#000", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.5, shadowRadius: 20 },
-      android: { elevation: 24 },
-    }),
-  },
-  layerInfoTitle: { fontSize: 19, fontWeight: "800", marginBottom: 16 },
   layerInfoSectionLabel: { fontSize: 13, fontWeight: "700", marginTop: 12, marginBottom: 4 },
   layerInfoText: { fontSize: 13, lineHeight: 20 },
   layerInfoHinweisBox: { marginTop: 14, padding: 12, borderRadius: 10, borderWidth: 1 },
@@ -767,8 +762,6 @@ const styles = StyleSheet.create({
   layerInfoContactRow: { flexDirection: "row", alignItems: "flex-start", gap: 10, paddingVertical: 7, paddingHorizontal: 4, borderRadius: 8, marginBottom: 2 },
   layerInfoContactLabel: { fontSize: 12, fontWeight: "500", lineHeight: 16 },
   layerInfoContactValue: { fontSize: 13, fontWeight: "600", lineHeight: 18 },
-  layerInfoOkBtn: { alignSelf: "flex-end", borderRadius: 8, paddingHorizontal: 24, paddingVertical: 8, marginTop: 16 },
-  layerInfoOkText: { color: "#FFFFFF", fontSize: 14, fontWeight: "700" },
   geozoneToggleAllRow: { paddingHorizontal: Spacing.lg, marginBottom: Spacing.sm },
   geozoneToggleAllBtn: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 10, paddingHorizontal: 14, borderRadius: 10, alignSelf: "flex-start" },
   geozoneToggleAllText: { fontSize: 14, fontWeight: "600" },

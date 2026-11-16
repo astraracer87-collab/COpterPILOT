@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from "react";
-import { View, StyleSheet, ScrollView, Pressable, Alert, Modal, TextInput } from "react-native";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
+import { View, StyleSheet, ScrollView, Pressable, Alert, TextInput } from "react-native";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RouteProp } from "@react-navigation/native";
@@ -11,7 +11,6 @@ import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { Card } from "@/components/Card";
 import { Button } from "@/components/Button";
-import Checkbox from "@/components/Checkbox";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, Typography, Colors, BorderRadius } from "@/constants/theme";
 import { updateFlightSession, FlightSession, completeSessionWithLogEntry, getFlightSession, TrafficLogData, addDroneHistoryEntry, getDrone, DroneProfile, BatteryUsage } from "@/lib/storage";
@@ -19,6 +18,9 @@ import BatterySelectionBlock from "@/components/BatterySelectionBlock";
 import { stopRecording as stopTrafficRecording, isRecording as isTrafficRecording } from "@/lib/trafficRecorder";
 import type { FlightCheckParamList } from "@/navigation/FlightCheckNavigator";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
+import { InfoDialog } from "@/components/InfoDialog";
+import { ChecklistRow } from "@/components/ChecklistRow";
+import { useChecklistState, checklistHaptic } from "@/hooks/useChecklistState";
 
 interface CheckItem {
   id: string;
@@ -134,7 +136,9 @@ export default function DebriefingChecklistScreen() {
   const { theme } = useTheme();
   const headerHeight = useHeaderHeight();
   const insets = useSafeAreaInsets();
-  const [checked, setChecked] = useState<Set<string>>(new Set());
+  // Lokal + optimistisch: der Haken erscheint im selben Frame (kein Speicherzugriff).
+  const { checked, toggle: toggleItem, replace: replaceChecked } =
+    useChecklistState(undefined, { onCheck: checklistHaptic });
   const [textValues, setTextValues] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [drone, setDrone] = useState<DroneProfile | null>(null);
@@ -177,7 +181,7 @@ export default function DebriefingChecklistScreen() {
         
         // Restore checkbox state
         if (debriefing.checklistCompleted && Array.isArray(debriefing.checklistCompleted)) {
-          setChecked(new Set(debriefing.checklistCompleted));
+          replaceChecked(debriefing.checklistCompleted);
         }
         
         // Restore text input values + choice values
@@ -210,15 +214,19 @@ export default function DebriefingChecklistScreen() {
     };
     
     loadSavedDebriefing();
-  }, [sessionId]);
+  }, [sessionId, replaceChecked]);
 
   const hasDroneBatteries = !!(drone?.batteries && drone.batteries.length > 0);
-  const effectiveSections: CheckSection[] = hasDroneBatteries
-    ? DEBRIEFING_SECTIONS.map((s) => ({
-        ...s,
-        items: s.items.filter((i) => i.id !== "battery_final"),
-      }))
-    : DEBRIEFING_SECTIONS;
+  const effectiveSections: CheckSection[] = useMemo(
+    () =>
+      hasDroneBatteries
+        ? DEBRIEFING_SECTIONS.map((s) => ({
+            ...s,
+            items: s.items.filter((i) => i.id !== "battery_final"),
+          }))
+        : DEBRIEFING_SECTIONS,
+    [hasDroneBatteries],
+  );
 
   const allRequiredCheckboxes = effectiveSections.flatMap(s => 
     s.items.filter(i => i.required && (i.type === "checkbox" || !i.type))
@@ -240,23 +248,10 @@ export default function DebriefingChecklistScreen() {
   });
   const allRequiredCompleted = allRequiredCheckboxesChecked && allRequiredTextInputsFilled && allRequiredChoicesPicked;
 
-  const toggleItem = (id: string) => {
-    setChecked(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      }
-      return next;
-    });
-  };
-
-  const showTip = (title: string, tip: string) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  const showTip = useCallback((title: string, tip: string) => {
+    checklistHaptic();
     setTipModal({ visible: true, title, tip });
-  };
+  }, []);
 
   const dismissModal = () => {
     navigation.getParent()?.goBack();
@@ -420,7 +415,24 @@ export default function DebriefingChecklistScreen() {
                 const itemType = item.type || "checkbox";
                 const isTextInput = itemType === "text" || itemType === "number";
                 const isChoice = itemType === "choice";
-                
+
+                if (!isTextInput && !isChoice) {
+                  // Memoisierte Zeile: Abhaken rendert nur diese Zeile neu.
+                  return (
+                    <ChecklistRow
+                      key={item.id}
+                      id={item.id}
+                      label={item.label}
+                      required={item.required}
+                      tip={item.tip}
+                      checked={checked.has(item.id)}
+                      onToggle={toggleItem}
+                      onShowTip={showTip}
+                      showDivider={itemIndex < section.items.length - 1}
+                    />
+                  );
+                }
+
                 return (
                   <View
                     key={item.id}
@@ -559,37 +571,7 @@ export default function DebriefingChecklistScreen() {
                           ) : null}
                         </View>
                       </View>
-                    ) : (
-                      <>
-                        <Pressable
-                          onPress={() => toggleItem(item.id)}
-                          style={styles.checkRow}
-                        >
-                          <Checkbox checked={checked.has(item.id)} onPress={() => toggleItem(item.id)} />
-                          <ThemedText style={styles.checkLabel}>{item.label}</ThemedText>
-                        </Pressable>
-                        <View style={styles.itemActions}>
-                          {item.required ? (
-                            <View style={[styles.requiredBadge, { backgroundColor: theme.statusCautionBackground }]}>
-                              <ThemedText style={[styles.requiredText, { color: theme.statusCaution }]}>
-                                Pflicht
-                              </ThemedText>
-                            </View>
-                          ) : null}
-                          <Pressable
-                            onPress={() => showTip(item.label, item.tip)}
-                            style={({ pressed }) => [
-                              styles.tipButton,
-                              { backgroundColor: theme.backgroundSecondary },
-                              pressed && { opacity: 0.7 },
-                            ]}
-                            hitSlop={8}
-                          >
-                            <Feather name="help-circle" size={18} color={theme.primary} />
-                          </Pressable>
-                        </View>
-                      </>
-                    )}
+                    ) : null}
                   </View>
                 );
               })}
@@ -623,32 +605,15 @@ export default function DebriefingChecklistScreen() {
         />
       </View>
 
-      <Modal
+      <InfoDialog
         visible={tipModal.visible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setTipModal(prev => ({ ...prev, visible: false }))}
-      >
-        <Pressable
-          style={styles.modalOverlay}
-          onPress={() => setTipModal(prev => ({ ...prev, visible: false }))}
-        >
-          <Pressable style={[styles.modalContent, { backgroundColor: theme.backgroundSecondary }]}>
-            <View style={styles.modalHeader}>
-              <Feather name="info" size={24} color={theme.primary} />
-              <ThemedText style={styles.modalTitle}>{tipModal.title}</ThemedText>
-            </View>
-            <ThemedText style={[styles.modalText, { color: theme.textSecondary }]}>
-              {tipModal.tip}
-            </ThemedText>
-            <Button
-              title="Verstanden"
-              onPress={() => setTipModal(prev => ({ ...prev, visible: false }))}
-              style={styles.modalButton}
-            />
-          </Pressable>
-        </Pressable>
-      </Modal>
+        onClose={() => setTipModal(prev => ({ ...prev, visible: false }))}
+        title={tipModal.title}
+        icon="info"
+        text={tipModal.tip}
+        okLabel="Verstanden"
+        testID="tip-info-dialog"
+      />
     </ThemedView>
   );
 }
@@ -735,37 +700,6 @@ const styles = StyleSheet.create({
     paddingTop: Spacing.lg,
     borderTopWidth: 1,
     borderTopColor: Colors.light.border,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.6)",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: Spacing.xl,
-  },
-  modalContent: {
-    width: "100%",
-    maxWidth: 400,
-    borderRadius: 16,
-    padding: Spacing.xl,
-  },
-  modalHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.md,
-    marginBottom: Spacing.lg,
-  },
-  modalTitle: {
-    ...Typography.h4,
-    flex: 1,
-  },
-  modalText: {
-    ...Typography.body,
-    lineHeight: 24,
-    marginBottom: Spacing.xl,
-  },
-  modalButton: {
-    alignSelf: "stretch",
   },
   checkItemTextInput: {
     flexDirection: "column",

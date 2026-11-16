@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useMemo } from "react";
-import { View, StyleSheet, ScrollView, Pressable, Alert, Modal } from "react-native";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
+import { View, StyleSheet, ScrollView, Alert } from "react-native";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RouteProp } from "@react-navigation/native";
@@ -11,11 +11,13 @@ import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { Card } from "@/components/Card";
 import { Button } from "@/components/Button";
-import Checkbox from "@/components/Checkbox";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, Typography, Colors } from "@/constants/theme";
 import { deleteFlightSession, updateFlightSession, getFlightSession } from "@/lib/storage";
 import type { FlightPlanningParamList } from "@/navigation/FlightPlanningNavigator";
+import { InfoDialog } from "@/components/InfoDialog";
+import { ChecklistRow } from "@/components/ChecklistRow";
+import { useChecklistState, checklistHaptic } from "@/hooks/useChecklistState";
 
 type NavigationProp = NativeStackNavigationProp<FlightPlanningParamList, "PlanningChecklist">;
 type RouteParams = RouteProp<FlightPlanningParamList, "PlanningChecklist">;
@@ -122,7 +124,9 @@ export default function PlanningChecklistScreen() {
   const { theme } = useTheme();
   const headerHeight = useHeaderHeight();
   const insets = useSafeAreaInsets();
-  const [checked, setChecked] = useState<Set<string>>(new Set());
+  // Lokal + optimistisch: der Haken erscheint im selben Frame (kein Speicherzugriff).
+  const { checked, toggle: toggleItem, replace: replaceChecked, add: addChecked } =
+    useChecklistState(undefined, { onCheck: checklistHaptic });
   const [tipModal, setTipModal] = useState<{ visible: boolean; title: string; tip: string }>({
     visible: false,
     title: "",
@@ -134,16 +138,16 @@ export default function PlanningChecklistScreen() {
 
   useEffect(() => {
     if (editMode && Array.isArray(existingChecked)) {
-      setChecked(new Set(existingChecked));
+      replaceChecked(existingChecked);
       return;
     }
     // Wer hier landet, hat den Wetter-Screen + Standort/Restriktionen/NOTAM-Flow
     // bereits durchlaufen — also alle vier Vorab-Items vorhaken.
     const autoCheckItems = ["route", "airspace", "notams", "weather"];
-    setChecked(prev => new Set([...prev, ...autoCheckItems]));
-  }, [editMode, existingChecked]);
+    addChecked(autoCheckItems);
+  }, [editMode, existingChecked, replaceChecked, addChecked]);
 
-  const fpvSection: CheckSection = effectiveFpvMode === "verband30m"
+  const fpvSection: CheckSection = useMemo(() => effectiveFpvMode === "verband30m"
     ? {
         title: "FPV nach Verbandsregel (DMFV/DMO)",
         icon: "shield",
@@ -179,35 +183,24 @@ export default function PlanningChecklistScreen() {
             tip: "Besprich mit dem Spotter: Flugroute, Notfall-Signale, Übernahme bei Problemen, Hindernisse in der Umgebung.",
           },
         ],
-      };
+      }, [effectiveFpvMode]);
 
-  const activeChecklist = isFpvFlight 
-    ? [...PLANNING_CHECKLIST, fpvSection] 
-    : PLANNING_CHECKLIST;
+  const activeChecklist = useMemo(
+    () => (isFpvFlight ? [...PLANNING_CHECKLIST, fpvSection] : PLANNING_CHECKLIST),
+    [isFpvFlight, fpvSection],
+  );
 
-  const blockingRequiredItems = activeChecklist.flatMap(s =>
-    s.items.filter(i => i.required && !i.deferrable),
+  const blockingRequiredItems = useMemo(
+    () => activeChecklist.flatMap(s => s.items.filter(i => i.required && !i.deferrable)),
+    [activeChecklist],
   );
   const allRequiredChecked = blockingRequiredItems.every(item => checked.has(item.id));
   const hasDeferrableItems = activeChecklist.some(s => s.items.some(i => i.deferrable));
 
-  const toggleItem = (id: string) => {
-    setChecked(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      }
-      return next;
-    });
-  };
-
-  const showTip = (title: string, tip: string) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  const showTip = useCallback((title: string, tip: string) => {
+    checklistHaptic();
     setTipModal({ visible: true, title, tip });
-  };
+  }, []);
 
   const handleContinue = async () => {
     const presentedItemIds = activeChecklist.flatMap(s => s.items.map(i => i.id));
@@ -311,44 +304,17 @@ export default function PlanningChecklistScreen() {
             ) : null}
             <Card style={styles.sectionCard}>
               {section.items.map((item, itemIndex) => (
-                <View
+                <ChecklistRow
                   key={item.id}
-                  style={[
-                    styles.checkItem,
-                    itemIndex < section.items.length - 1 && {
-                      borderBottomWidth: 1,
-                      borderBottomColor: theme.border,
-                    },
-                  ]}
-                >
-                  <Pressable
-                    onPress={() => toggleItem(item.id)}
-                    style={styles.checkRow}
-                  >
-                    <Checkbox checked={checked.has(item.id)} onPress={() => toggleItem(item.id)} />
-                    <ThemedText style={styles.checkLabel}>{item.label}</ThemedText>
-                  </Pressable>
-                  <View style={styles.itemActions}>
-                    {item.required ? (
-                      <View style={[styles.requiredBadge, { backgroundColor: theme.statusCautionBackground }]}>
-                        <ThemedText style={[styles.requiredText, { color: theme.statusCaution }]}>
-                          Pflicht
-                        </ThemedText>
-                      </View>
-                    ) : null}
-                    <Pressable
-                      onPress={() => showTip(item.label, item.tip)}
-                      style={({ pressed }) => [
-                        styles.tipButton,
-                        { backgroundColor: theme.backgroundSecondary },
-                        pressed && { opacity: 0.7 },
-                      ]}
-                      hitSlop={8}
-                    >
-                      <Feather name="help-circle" size={18} color={theme.primary} />
-                    </Pressable>
-                  </View>
-                </View>
+                  id={item.id}
+                  label={item.label}
+                  required={item.required}
+                  tip={item.tip}
+                  checked={checked.has(item.id)}
+                  onToggle={toggleItem}
+                  onShowTip={showTip}
+                  showDivider={itemIndex < section.items.length - 1}
+                />
               ))}
             </Card>
           </View>
@@ -371,32 +337,15 @@ export default function PlanningChecklistScreen() {
         />
       </View>
 
-      <Modal
+      <InfoDialog
         visible={tipModal.visible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setTipModal(prev => ({ ...prev, visible: false }))}
-      >
-        <Pressable
-          style={styles.modalOverlay}
-          onPress={() => setTipModal(prev => ({ ...prev, visible: false }))}
-        >
-          <Pressable style={[styles.modalContent, { backgroundColor: theme.backgroundSecondary }]}>
-            <View style={styles.modalHeader}>
-              <Feather name="info" size={24} color={theme.primary} />
-              <ThemedText style={styles.modalTitle}>{tipModal.title}</ThemedText>
-            </View>
-            <ThemedText style={[styles.modalText, { color: theme.textSecondary }]}>
-              {tipModal.tip}
-            </ThemedText>
-            <Button
-              title="Verstanden"
-              onPress={() => setTipModal(prev => ({ ...prev, visible: false }))}
-              style={styles.modalButton}
-            />
-          </Pressable>
-        </Pressable>
-      </Modal>
+        onClose={() => setTipModal(prev => ({ ...prev, visible: false }))}
+        title={tipModal.title}
+        icon="info"
+        text={tipModal.tip}
+        okLabel="Verstanden"
+        testID="tip-info-dialog"
+      />
     </ThemedView>
   );
 }
@@ -489,36 +438,5 @@ const styles = StyleSheet.create({
     paddingTop: Spacing.lg,
     borderTopWidth: 1,
     borderTopColor: Colors.light.border,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.6)",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: Spacing.xl,
-  },
-  modalContent: {
-    width: "100%",
-    maxWidth: 400,
-    borderRadius: 16,
-    padding: Spacing.xl,
-  },
-  modalHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.md,
-    marginBottom: Spacing.lg,
-  },
-  modalTitle: {
-    ...Typography.h4,
-    flex: 1,
-  },
-  modalText: {
-    ...Typography.body,
-    lineHeight: 24,
-    marginBottom: Spacing.xl,
-  },
-  modalButton: {
-    alignSelf: "stretch",
   },
 });

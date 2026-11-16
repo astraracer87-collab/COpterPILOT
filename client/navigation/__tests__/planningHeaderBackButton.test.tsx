@@ -59,6 +59,7 @@ const SCREEN_MODULES = [
   "PlanningCountrySelectScreen",
   "PlanningLocationScreen",
   "PlanningCrossCheckScreen",
+  "PlanningAreaOverviewScreen",
   "PlanningMapScreen",
   "PlanningDateTimeScreen",
   "PlanningRestrictionsScreen",

@@ -7,7 +7,7 @@ import fs from "fs";
 import path from "path";
 import React from "react";
 import renderer, { act, type ReactTestRenderer } from "react-test-renderer";
-import { Dimensions } from "react-native";
+import { Dimensions, StyleSheet } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const mockNavigate = jest.fn();
@@ -33,7 +33,6 @@ jest.mock("@/lib/auth", () => ({
   useAuth: () => ({ user: null, isAuthenticated: false, status: "anonymous" }),
 }));
 jest.mock("@/lib/setupGuide", () => ({ setupGuideController: { launch: () => mockLaunchGuide() } }));
-jest.mock("@/components/WildlifeRescueInfo", () => ({ WildlifeRescueInfoModal: () => null }));
 jest.mock("@/lib/geozones", () => ({
   MAP_STYLES: [
     { id: "grayscale", label: "Grau" },
@@ -46,7 +45,7 @@ jest.mock("@/lib/geozones", () => ({
 }));
 
 import SettingsScreen from "@/screens/SettingsScreen";
-import { saveDrone, type DroneProfile } from "@/lib/storage";
+import { saveDrone, saveSettings, getSettings, type DroneProfile, type Settings } from "@/lib/storage";
 
 const NAVIGATOR_SOURCE = fs.readFileSync(
   path.join(__dirname, "../../navigation/SettingsStackNavigator.tsx"),
@@ -163,19 +162,126 @@ test("gespeicherte Drohne erscheint als Zeile und öffnet ihre Einrichtung", asy
   expect(mockNavigate).toHaveBeenLastCalledWith("DroneSetup", { droneId: saved.id });
 });
 
-test("im Querformat werden die Einstellungen zweispaltig dargestellt", async () => {
+function hostNodes(root: ReactTestRenderer["root"], match: (testID: string) => boolean) {
+  return root.findAll(
+    (n) => typeof n.type === "string" && typeof n.props.testID === "string" && match(n.props.testID),
+  );
+}
+
+function flat(node: { props: { style?: unknown } }) {
+  return StyleSheet.flatten(node.props.style as any) ?? {};
+}
+
+async function withLandscape<T>(fn: () => Promise<T>): Promise<T> {
   const spy = jest
     .spyOn(Dimensions, "get")
     .mockImplementation(() => ({ width: 960, height: 540, scale: 2, fontScale: 1 }));
   try {
-    const tree = await renderScreen();
-    expect(tree.root.findAllByProps({ testID: "settings-two-columns" }).length).toBeGreaterThan(0);
-    // beide Spalten enthalten tippbare Zeilen, Navigation funktioniert weiter
-    act(() => {
-      pressableByTestID(tree, "settings-row-pilot-profile").props.onPress();
-    });
-    expect(mockNavigate).toHaveBeenCalledWith("PilotProfile");
+    return await fn();
   } finally {
     spy.mockRestore();
   }
+}
+
+const EXPECTED_GRID: Array<[rowKey: string, cards: string[]]> = [
+  ["profile-maps", ["profile", "maps"]],
+  ["drones", ["drones"]],
+  ["radar-planning", ["radar", "planning"]],
+  ["knowledge", ["knowledge"]],
+  ["data-info", ["data", "info"]],
+];
+
+test("Querformat 960x540: Karten liegen in Reihen, Nachbarn sind gleich groß, keine zwei unabhängigen Spalten", async () => {
+  await withLandscape(async () => {
+    const tree = await renderScreen();
+    expect(tree.root.findAllByProps({ testID: "settings-two-columns" })).toHaveLength(0);
+    expect(hostNodes(tree.root, (id) => id === "settings-list")).toHaveLength(0);
+
+    const grid = hostNodes(tree.root, (id) => id === "settings-grid");
+    expect(grid).toHaveLength(1);
+    // Das Raster ist eine vertikale Folge von Reihen, nicht zwei Spalten nebeneinander.
+    expect(flat(grid[0]).flexDirection ?? "column").toBe("column");
+
+    const rows = hostNodes(tree.root, (id) => id.startsWith("settings-grid-row-"));
+    expect(rows.map((r) => r.props.testID)).toEqual(EXPECTED_GRID.map(([key]) => `settings-grid-row-${key}`));
+
+    for (const [i, [, cardIds]] of EXPECTED_GRID.entries()) {
+      const row = rows[i];
+      expect(flat(row)).toEqual(expect.objectContaining({ flexDirection: "row", alignItems: "stretch" }));
+      const cards = hostNodes(row as any, (id) => id.startsWith("settings-card-"));
+      expect(cards.map((c) => c.props.testID)).toEqual(cardIds.map((id) => `settings-card-${id}`));
+      for (const card of cards) {
+        // gleiche Breite (flex: 1) und gleiche Höhe (Reihe streckt, Karte nicht selbst ausgerichtet)
+        expect(flat(card).flex).toBe(1);
+        expect(flat(card).alignSelf).toBeUndefined();
+        expect(flat(card).height).toBeUndefined();
+      }
+    }
+
+    // Jede Karte kommt genau einmal vor, keine Karte außerhalb der Reihen.
+    const allCards = hostNodes(tree.root, (id) => id.startsWith("settings-card-"));
+    expect(allCards).toHaveLength(EXPECTED_GRID.flatMap(([, c]) => c).length);
+
+    // Voll breite Karten: Einträge in Zweierreihen mit gleich großen Zellen.
+    const knowledgePairs = hostNodes(tree.root, (id) => id === "settings-knowledge-pair");
+    expect(knowledgePairs).toHaveLength(3);
+    const dronePairs = hostNodes(tree.root, (id) => id === "settings-drones-pair");
+    expect(dronePairs).toHaveLength(1); // „Drohnen verwalten“ | „Erste Drohne hinzufügen“
+    for (const pair of [...knowledgePairs, ...dronePairs]) {
+      expect(flat(pair)).toEqual(expect.objectContaining({ flexDirection: "row", alignItems: "stretch" }));
+      const cells = (pair.children as any[]).filter((c) => typeof c !== "string");
+      expect(cells).toHaveLength(2);
+      for (const cell of cells) {
+        const host = typeof cell.type === "string" ? cell : cell.findAll((n: any) => typeof n.type === "string")[0];
+        expect(flat(host).flex).toBe(1);
+      }
+    }
+
+    // Navigation funktioniert auch im Querformat für jeden Eintrag.
+    for (const [testID, route, params] of EXPECTED) {
+      mockNavigate.mockClear();
+      act(() => {
+        pressableByTestID(tree, testID).props.onPress();
+      });
+      if (params === undefined) expect(mockNavigate).toHaveBeenCalledWith(route);
+      else expect(mockNavigate).toHaveBeenCalledWith(route, params);
+    }
+  });
+});
+
+test("Querformat: mehrere Drohnen werden paarweise in der voll breiten Drohnen-Karte gezeigt", async () => {
+  for (const name of ["A", "B"]) {
+    await saveDrone({ name, classMark: "C0", mtomGrams: 249 } as unknown as Omit<DroneProfile, "id" | "createdAt" | "updatedAt">);
+  }
+  await withLandscape(async () => {
+    const tree = await renderScreen();
+    // 1 Verwalten-Zeile + 2 Drohnen = 3 Einträge -> 2 Reihen (zweite mit Platzhalter)
+    const pairs = hostNodes(tree.root, (id) => id === "settings-drones-pair");
+    expect(pairs).toHaveLength(2);
+    expect(tree.root.findAll((n) => typeof n.props.testID === "string" && n.props.testID.startsWith("settings-drone-select-") && typeof n.props.onPress === "function").length).toBe(2);
+    act(() => {
+      pressableByTestID(tree, "button-add-drone").props.onPress();
+    });
+    expect(mockNavigate).toHaveBeenLastCalledWith("DroneSetup", {});
+  });
+});
+
+test("Hochformat: eine Spalte ohne Raster-Reihen", async () => {
+  const tree = await renderScreen();
+  expect(hostNodes(tree.root, (id) => id === "settings-list")).toHaveLength(1);
+  expect(hostNodes(tree.root, (id) => id.startsWith("settings-grid-row-"))).toHaveLength(0);
+  expect(hostNodes(tree.root, (id) => id.endsWith("-pair"))).toHaveLength(0);
+});
+
+test("der entfernte Wildtierretter-Modus taucht nicht mehr auf, alte Einstellungen laden weiter", async () => {
+  // Altbestand: gespeicherte Einstellungen enthalten noch das frühere Feld.
+  await saveSettings({ ...(await getSettings()), windUnit: "km/h", wildlifeRescueMode: true } as Settings);
+  const tree = await renderScreen();
+  expect(tree.root.findAll((n) => n.props.testID === "toggle-wildlife-rescue")).toHaveLength(0);
+  const texts = tree.root
+    .findAll((n) => typeof n.type === "string" && n.type === "Text")
+    .map((n) => (Array.isArray(n.props.children) ? n.props.children.join("") : String(n.props.children ?? "")));
+  expect(texts.some((t) => /wildtier/i.test(t))).toBe(false);
+  // Altdaten werden weiter gelesen (Windeinheit aus dem gespeicherten Objekt)
+  expect(texts).toContain("km/h");
 });

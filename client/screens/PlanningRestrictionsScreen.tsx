@@ -8,7 +8,7 @@ import type { RouteProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
+import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
@@ -30,12 +30,10 @@ import { fetchTerrainEstimate } from "@/lib/elevation";
 import type { TerrainEstimate } from "../../shared/geozoneAltitudeFilter";
 import { partitionByReachability, DEFAULT_REACHABLE_ALTITUDE_M, assessGeozoneAltitudeConflict } from "../../shared/geozoneAltitudeFilter";
 import { findMilLowFlightAreasContaining, findMilLowFlightAreasIntersectingRadius, MIL_LOW_FLIGHT_LABEL, MIL_LOW_FLIGHT_SOURCE_URL, MIL_LOW_FLIGHT_ACTIVATION_TEXT, MIL_LOW_FLIGHT_DATA_STAND, classifyMilLowFlightHits, getStatusLabel as getMilStatusLabel, getStatusColor as getMilStatusColor } from "@/lib/milLowFlight";
-import { getPilotProfile, savePilotProfile, PilotProfile, de21hRule, isDe21hZoneAvEligible, isErlaubnisExpired, getDrone, DroneProfile, BUNDESLAND_AV_INFO, Bundesland, GENERAL_UAS_RESOURCES, AdditionalDoc, getFlightSession, getSettings, updateFlightSession } from "@/lib/storage";
-import { WildlifeRescueInfoModal } from "@/components/WildlifeRescueInfo";
+import { getPilotProfile, savePilotProfile, PilotProfile, de21hRule, isDe21hZoneAvEligible, isErlaubnisExpired, getDrone, DroneProfile, BUNDESLAND_AV_INFO, Bundesland, GENERAL_UAS_RESOURCES, AdditionalDoc, getFlightSession, updateFlightSession } from "@/lib/storage";
 import { windFacilitiesAsGeozones, supplementalLinesAsGeozones, supplementalInfrastructureAsGeozones } from "@/lib/energyInfrastructureZones";
 import { getGermanWindFacility100mPoints, getRadarEnergyInfrastructureItems, getEnergyInfrastructureCountry } from "../../shared/germanEnergyInfrastructure";
 import { useGermanEnergyInfrastructure } from "@/lib/useGermanEnergyInfrastructure";
-import { WILDLIFE_RESCUE_MODE_TITLE, WILDLIFE_RESCUE_PLANNING_HINT } from "../../shared/wildlifeRescue";
 import {
   checkCountryCompliance,
   ComplianceResult,
@@ -183,19 +181,15 @@ export default function PlanningRestrictionsScreen() {
   const [edrAvChecked, setEdrAvChecked] = useState<Set<string>>(new Set());
   const [edr146Acknowledged, setEdr146Acknowledged] = useState(false);
   const [edrRotAcknowledged, setEdrRotAcknowledged] = useState(false);
-  const [wildlifeRescueMode, setWildlifeRescueMode] = useState(false);
-  const [wildlifeInfoOpen, setWildlifeInfoOpen] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
       const loadProfiles = async () => {
-        const [pilot, drone, settings] = await Promise.all([
+        const [pilot, drone] = await Promise.all([
           getPilotProfile(),
           droneId ? getDrone(droneId) : Promise.resolve(null),
-          getSettings(),
         ]);
         setPilotProfile(pilot);
-        setWildlifeRescueMode(settings?.wildlifeRescueMode ?? false);
         if (drone) setDroneProfile(drone);
         if (pilot && drone && countryIso) {
           setComplianceResult(checkCountryCompliance(drone, pilot, countryIso));
@@ -1025,26 +1019,6 @@ export default function PlanningRestrictionsScreen() {
           </View>
         ) : null}
 
-        {wildlifeRescueMode ? (
-          <Card
-            style={[styles.wildlifeHint, { backgroundColor: theme.statusCautionBackground, borderColor: theme.statusCaution }]}
-            onPress={() => setWildlifeInfoOpen(true)}
-            testID="hint-wildlife-rescue"
-          >
-            <View style={styles.wildlifeHintHeader}>
-              <MaterialCommunityIcons name="paw" size={16} color={theme.statusCaution} />
-              <ThemedText style={[styles.wildlifeHintTitle, { color: theme.statusCaution }]}>
-                {WILDLIFE_RESCUE_MODE_TITLE}
-              </ThemedText>
-            </View>
-            <ThemedText style={[styles.wildlifeHintBody, { color: theme.text }]}>
-              {WILDLIFE_RESCUE_PLANNING_HINT}
-            </ThemedText>
-            <ThemedText style={[styles.wildlifeHintLink, { color: theme.primary }]}>
-              Mehr Infos zu den Allgemeinverfügungen
-            </ThemedText>
-          </Card>
-        ) : null}
 
         {plannedDate ? (
           <Card style={styles.summaryCard}>
@@ -2562,10 +2536,6 @@ export default function PlanningRestrictionsScreen() {
           loading={loading}
         />
       </View>
-      <WildlifeRescueInfoModal
-        visible={wildlifeInfoOpen}
-        onClose={() => setWildlifeInfoOpen(false)}
-      />
     </ThemedView>
   );
 }
@@ -2586,31 +2556,6 @@ const styles = StyleSheet.create({
     ...Typography.body,
     textAlign: "center",
     marginBottom: Spacing.lg,
-  },
-  wildlifeHint: {
-    padding: Spacing.md,
-    marginBottom: Spacing.lg,
-    borderWidth: 1,
-    borderRadius: BorderRadius.lg,
-  },
-  wildlifeHintHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.xs,
-    marginBottom: Spacing.xs,
-  },
-  wildlifeHintTitle: {
-    ...Typography.body,
-    fontWeight: "700",
-  },
-  wildlifeHintBody: {
-    ...Typography.small,
-    lineHeight: 18,
-  },
-  wildlifeHintLink: {
-    ...Typography.small,
-    fontWeight: "600",
-    marginTop: Spacing.sm,
   },
   summaryCard: {
     padding: Spacing.md,

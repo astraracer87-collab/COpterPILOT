@@ -25,7 +25,7 @@ export interface HourlyForecastTableProps {
   cardStyle?: any;
 }
 
-export default function HourlyForecastTable({
+function HourlyForecastTableImpl({
   hourlySlots,
   hourlySource,
   latitude,
@@ -329,3 +329,9 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
 });
+
+// Memoisiert: Die Tabelle (viele Zellen, Sonnenstands-Berechnung) rendert nicht
+// mit, wenn im umgebenden Screen etwas anderes umgeschaltet wird (z. B. eine
+// Bestätigungs-Checkbox im Pre-Check). Alle Props sind State/Primitives.
+const HourlyForecastTable = React.memo(HourlyForecastTableImpl);
+export default HourlyForecastTable;

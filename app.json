@@ -66,6 +66,7 @@
       "./plugins/withReleaseSigning",
       "./plugins/withRadarForegroundService",
       "./plugins/withAsyncStorageSize",
+      "./plugins/withDjiAppQueries",
       "./plugins/withRcKeyEvents",
       "expo-secure-store"
     ],

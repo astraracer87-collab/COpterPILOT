@@ -276,11 +276,36 @@ export function smoothRing(
 // Glättet eine Polygon-Gruppe ([Außenring, …Löcher]). Jeder Ring (auch Löcher)
 // wird einzeln geglättet, damit Donut-Löcher ihre runde Form behalten. Gibt []
 // zurück, wenn der Außenring degeneriert.
+// Ergebnis-Cache je Eingabe-Gruppe (Identität): Screens rendern dieselben
+// Zonen bei jeder State-Änderung (z. B. Abhaken einer Bestätigung) neu – die
+// Glättung (Resampling + Catmull-Rom) ist pro Ring teuer und lief dann jedes
+// Mal erneut. Zonendaten sind unveränderlich; als Schutz gegen nachträglich
+// veränderte Arrays werden Ringanzahl und Länge des Außenrings mitgeprüft.
+// Das Ergebnis ist nur lesend zu verwenden.
+type SmoothCacheEntry = { groupLen: number; outerLen: number; result: [number, number][][] };
+const smoothCache: [WeakMap<object, SmoothCacheEntry>, WeakMap<object, SmoothCacheEntry>] = [
+  new WeakMap(),
+  new WeakMap(),
+];
+
 export function smoothRingGroup(
   group: [number, number][][],
   lonIndex: 0 | 1 = 1,
 ): [number, number][][] {
   if (!group || group.length === 0) return [];
+  const cache = smoothCache[lonIndex];
+  const hit = cache.get(group);
+  const outerLen = group[0]?.length ?? 0;
+  if (hit && hit.groupLen === group.length && hit.outerLen === outerLen) return hit.result;
+  const result = smoothRingGroupUncached(group, lonIndex);
+  cache.set(group, { groupLen: group.length, outerLen, result });
+  return result;
+}
+
+function smoothRingGroupUncached(
+  group: [number, number][][],
+  lonIndex: 0 | 1,
+): [number, number][][] {
   const outer = smoothRing(group[0], lonIndex);
   if (outer.length < 3) return [];
   const out: [number, number][][] = [outer];

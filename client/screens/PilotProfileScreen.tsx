@@ -1,7 +1,7 @@
 import { openLink } from "@/lib/webBrowser";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { View, StyleSheet, ScrollView, TextInput, Pressable, Alert, Switch, Platform, Modal, Linking, ActivityIndicator } from "react-native";
+import { View, StyleSheet, ScrollView, TextInput, Pressable, Alert, Switch, Platform, Linking, ActivityIndicator } from "react-native";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
@@ -44,6 +44,7 @@ import {
 } from "@/lib/licenseInfo";
 import { useAuth } from "@/lib/auth";
 import type { SettingsStackParamList } from "@/navigation/SettingsStackNavigator";
+import { InfoDialog } from "@/components/InfoDialog";
 
 type NavigationProp = NativeStackNavigationProp<SettingsStackParamList>;
 
@@ -1062,81 +1063,42 @@ function CountryInfoModal({
 }) {
   const { theme } = useTheme();
   return (
-    <Modal
+    <InfoDialog
       visible={!!info}
-      transparent
-      animationType="fade"
-      onRequestClose={onClose}
+      onClose={onClose}
+      title={info ? `${info.flag} ${info.title}` : ""}
+      okLabel="Schließen"
+      testID="country-info-dialog"
+      closeTestID="button-country-info-close"
+      okTestID="button-country-info-dismiss"
+      sections={info ? [
+        { title: "Was ist das?", body: info.whatIsIt },
+        { title: "Woher bekomme ich das?", body: info.howToGet },
+      ] : []}
     >
-      <View style={styles.modalOverlay}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-        {info ? (
-          <View style={[styles.modalCard, { backgroundColor: theme.backgroundSecondary }]}>
-            <View style={styles.modalHeader}>
-              <ThemedText style={styles.modalFlag}>{info.flag}</ThemedText>
-              <ThemedText style={styles.modalTitle}>{info.title}</ThemedText>
-              <Pressable onPress={onClose} hitSlop={10} testID="button-country-info-close">
-                <Feather name="x" size={22} color={theme.textTertiary} />
-              </Pressable>
-            </View>
-
-            <ScrollView
-              style={{ flexShrink: 1 }}
-              contentContainerStyle={{ paddingBottom: Spacing.md }}
-              showsVerticalScrollIndicator
-              nestedScrollEnabled
-            >
-              <ThemedText style={styles.modalH3}>Was ist das?</ThemedText>
-              <ThemedText style={[styles.modalBody, { color: theme.textSecondary }]}>
-                {info.whatIsIt}
-              </ThemedText>
-
-              <ThemedText style={styles.modalH3}>Woher bekomme ich das?</ThemedText>
-              <ThemedText style={[styles.modalBody, { color: theme.textSecondary }]}>
-                {info.howToGet}
-              </ThemedText>
-
-              {info.links.length > 0 ? (
-                <ThemedText style={styles.modalH3}>Links</ThemedText>
-              ) : null}
-              {info.links.map((link) => (
-                <Pressable
-                  key={link.url}
-                  onPress={() => openLink(link.url).catch(() => {})}
-                  testID={`button-country-info-link-${link.url}`}
-                  style={({ pressed }) => [
-                    styles.linkBtn,
-                    {
-                      backgroundColor: theme.primary + (pressed ? "30" : "15"),
-                      borderColor: theme.primary + "40",
-                    },
-                  ]}
-                >
-                  <Feather name="external-link" size={16} color={theme.primary} />
-                  <ThemedText style={[styles.linkBtnText, { color: theme.primary }]} numberOfLines={2}>
-                    {link.label}
-                  </ThemedText>
-                </Pressable>
-              ))}
-            </ScrollView>
-
-            <Pressable
-              onPress={onClose}
-              testID="button-country-info-dismiss"
-              style={({ pressed }) => [
-                styles.modalCloseBtn,
-                {
-                  backgroundColor: pressed ? theme.backgroundDefault : "transparent",
-                  borderColor: theme.border,
-                },
-              ]}
-            >
-              <ThemedText style={{ fontWeight: "600" }}>Schließen</ThemedText>
-            </Pressable>
-          </View>
-        ) : null}
-      </View>
-    </Modal>
+      {info && info.links.length > 0 ? (
+        <ThemedText style={styles.modalH3}>Links</ThemedText>
+      ) : null}
+      {info?.links.map((link) => (
+        <Pressable
+          key={link.url}
+          onPress={() => openLink(link.url).catch(() => {})}
+          testID={`button-country-info-link-${link.url}`}
+          style={({ pressed }) => [
+            styles.linkBtn,
+            {
+              backgroundColor: theme.primary + (pressed ? "30" : "15"),
+              borderColor: theme.primary + "40",
+            },
+          ]}
+        >
+          <Feather name="external-link" size={16} color={theme.primary} />
+          <ThemedText style={[styles.linkBtnText, { color: theme.primary }]} numberOfLines={2}>
+            {link.label}
+          </ThemedText>
+        </Pressable>
+      ))}
+    </InfoDialog>
   );
 }
 
@@ -1214,42 +1176,11 @@ const styles = StyleSheet.create({
   infoIconBtn: {
     padding: 2,
   },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.6)",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: Spacing.xl,
-  },
-  modalCard: {
-    width: "100%",
-    maxWidth: 480,
-    maxHeight: "85%",
-    borderRadius: 16,
-    padding: Spacing.xl,
-  },
-  modalHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.md,
-    marginBottom: Spacing.md,
-  },
-  modalFlag: {
-    fontSize: 28,
-  },
-  modalTitle: {
-    ...Typography.h4,
-    flex: 1,
-  },
   modalH3: {
     ...Typography.body,
     fontWeight: "800",
     marginTop: Spacing.lg,
     marginBottom: Spacing.sm,
-  },
-  modalBody: {
-    ...Typography.body,
-    lineHeight: 21,
   },
   linkBtn: {
     flexDirection: "row",
@@ -1264,13 +1195,6 @@ const styles = StyleSheet.create({
   linkBtnText: {
     flex: 1,
     fontWeight: "600",
-  },
-  modalCloseBtn: {
-    marginTop: Spacing.md,
-    paddingVertical: Spacing.md,
-    borderRadius: BorderRadius.md,
-    borderWidth: 1,
-    alignItems: "center",
   },
   toggleDesc: {
     ...Typography.caption,

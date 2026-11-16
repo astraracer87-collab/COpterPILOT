@@ -113,6 +113,36 @@ interface MapPickerProps {
   routeWaypoints?: MapLocation[];
   onWaypointPress?: (index: number) => void;
   onWaypointDragEnd?: (index: number, latitude: number, longitude: number) => void;
+  /** Hervorgehobene Zonen (z. B. in der Gebietsübersicht angetippt): kräftiger Rand über allem. */
+  highlightZones?: GeozoneFeatureInfo[];
+  /** Zusätzliche Flächen (temporäre Beschränkungen/NOTAM-Kreise) über den Geozonen. */
+  extraShapes?: MapPickerShape[];
+  /** Punkt-Symbole (z. B. Hubschrauberlandeplätze, Flugplätze). */
+  poiMarkers?: MapPickerPoi[];
+  onPoiPress?: (id: string) => void;
+  /** Abstand der CTR-Legende vom rechten Rand (Platz für seitliche Reiter). */
+  legendRightInset?: number;
+}
+
+export interface MapPickerShape {
+  id: string;
+  /** Polygone als [lat, lon]-Ringe (Außenring je Eintrag) */
+  rings?: [number, number][][];
+  circle?: { latitude: number; longitude: number; radiusM: number };
+  color: string;
+  dashed?: boolean;
+  label?: string;
+}
+
+export interface MapPickerPoi {
+  id: string;
+  latitude: number;
+  longitude: number;
+  /** kurzes Symbol im Kreis, z. B. „H“ oder „✈“ */
+  glyph: string;
+  color: string;
+  label?: string;
+  caution?: boolean;
 }
 
 export interface MapPickerRef {
@@ -397,6 +427,67 @@ const MAP_HTML = `<!DOCTYPE html>
     }
   }
 
+  // ---- Zusatzflächen (temporäre Beschränkungen / NOTAM-Kreise) ----
+  map.createPane("cpExtra"); map.getPane("cpExtra").style.zIndex = 430;
+  map.createPane("cpHl"); map.getPane("cpHl").style.zIndex = 440;
+  map.createPane("cpPoi"); map.getPane("cpPoi").style.zIndex = 650;
+  var extraLayer = L.layerGroup().addTo(map);
+  var extraSig = "";
+  function setExtra(arr){
+    var sig = JSON.stringify(arr || []);
+    if (sig === extraSig) return;
+    extraSig = sig;
+    extraLayer.clearLayers();
+    for (var i = 0; arr && i < arr.length; i++){
+      var x = arr[i];
+      var opt = { pane: "cpExtra", color: x.c, weight: 2.5, opacity: 0.95, dashArray: x.d ? "8 5" : null, fillColor: x.c, fillOpacity: 0.16, interactive: false };
+      if (x.ci) L.circle([x.ci[0], x.ci[1]], Object.assign({ radius: x.ci[2] }, opt)).addTo(extraLayer);
+      for (var r = 0; x.r && r < x.r.length; r++) if (x.r[r] && x.r[r].length >= 3) L.polygon(x.r[r], Object.assign({ smoothFactor: 0 }, opt)).addTo(extraLayer);
+    }
+  }
+
+  // ---- Hervorhebung (angetippte Zone) ----
+  var hlLayer = L.layerGroup().addTo(map);
+  var hlSig = "";
+  function setHl(arr){
+    var sig = JSON.stringify(arr || []);
+    if (sig === hlSig) return;
+    hlSig = sig;
+    hlLayer.clearLayers();
+    for (var i = 0; arr && i < arr.length; i++){
+      var z = arr[i];
+      for (var k = 0; z.r && k < z.r.length; k++){
+        var poly = z.r[k];
+        if (!poly || !poly[0] || poly[0].length < 3) continue;
+        L.polygon(poly, { pane: "cpHl", color: "#FFFFFF", weight: 7, opacity: 0.9, fill: false, interactive: false, smoothFactor: 0 }).addTo(hlLayer);
+        L.polygon(poly, { pane: "cpHl", color: z.s, weight: 4, opacity: 1, fillColor: z.s, fillOpacity: 0.22, interactive: false, smoothFactor: 0 }).addTo(hlLayer);
+      }
+      if (z.ci) {
+        L.circle([z.ci[0], z.ci[1]], { pane: "cpHl", radius: z.ci[2], color: "#FFFFFF", weight: 7, opacity: 0.9, fill: false, interactive: false }).addTo(hlLayer);
+        L.circle([z.ci[0], z.ci[1]], { pane: "cpHl", radius: z.ci[2], color: z.s, weight: 4, fillColor: z.s, fillOpacity: 0.22, interactive: false }).addTo(hlLayer);
+      }
+    }
+  }
+
+  // ---- Punkt-Symbole (Hubschrauberlandeplätze, Flugplätze) ----
+  var poiLayer = L.layerGroup().addTo(map);
+  var poiSig = "";
+  function setPoi(arr){
+    var sig = JSON.stringify(arr || []);
+    if (sig === poiSig) return;
+    poiSig = sig;
+    poiLayer.clearLayers();
+    for (var i = 0; arr && i < arr.length; i++){
+      var p = arr[i];
+      var size = p.w ? 26 : 22;
+      var html = "<div style='width:" + size + "px;height:" + size + "px;border-radius:" + (size/2) + "px;background:" + p.c + ";color:#fff;font:800 " + (p.w ? 13 : 12) + "px sans-serif;display:flex;align-items:center;justify-content:center;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.5)" + (p.w ? ";outline:3px solid rgba(255,149,0,0.55)" : "") + "'>" + esc(p.g) + "</div>";
+      var mk = L.marker([p.la, p.lo], { pane: "cpPoi", icon: L.divIcon({ className: "", html: html, iconSize: [size, size], iconAnchor: [size/2, size/2] }) });
+      if (p.t) mk.bindTooltip(esc(p.t), { direction: "top", offset: [0, -size/2] });
+      mk.on("click", (function(id){ return function(ev){ L.DomEvent.stopPropagation(ev); post({ type: "poiPress", id: id }); }; })(p.id));
+      mk.addTo(poiLayer);
+    }
+  }
+
   // ---- GPS-Standort des Geräts (blauer Punkt) ----
   var userMarker = null;
   function setUser(u){
@@ -420,6 +511,9 @@ const MAP_HTML = `<!DOCTYPE html>
       setCtr(s.ctr || []);
       setEnergy(s.windBuffers || [], s.energy || []);
       setUser(s.user);
+      setExtra(s.extra || []);
+      setHl(s.hl || []);
+      setPoi(s.poi || []);
       if (s.fit !== lastFit) { lastFit = s.fit; map.setView(s.center, s.zoom, { animate: false }); }
     } catch (e) {}
   };
@@ -481,7 +575,7 @@ const MAP_HTML = `<!DOCTYPE html>
 </html>`;
 
 const MapPicker = forwardRef<MapPickerRef, MapPickerProps>(
-  ({ initialRegion, selectedLocation, locationName, onMapPress, onMapLongPress, onRegionChangeComplete, style, radiusMeters, radiusStrokeColor, radiusFillColor, geozoneLayers, countryIso, allCountriesGeozones, showCenterPin, hideMarker, showMapStyleSwitcher = true, mapStyleSwitcherVariant = "segmented", showCtrBands, windFacilityPoints = [], energyInfrastructureItems = [], routeWaypoints, onWaypointPress, onWaypointDragEnd }, ref) => {
+  ({ initialRegion, selectedLocation, locationName, onMapPress, onMapLongPress, onRegionChangeComplete, style, radiusMeters, radiusStrokeColor, radiusFillColor, geozoneLayers, countryIso, allCountriesGeozones, showCenterPin, hideMarker, showMapStyleSwitcher = true, mapStyleSwitcherVariant = "segmented", showCtrBands, windFacilityPoints = [], energyInfrastructureItems = [], routeWaypoints, onWaypointPress, onWaypointDragEnd, highlightZones, extraShapes, poiMarkers, onPoiPress, legendRightInset }, ref) => {
     const webRef = useRef<WebView>(null);
     const colorScheme = useColorScheme();
     const isDark = colorScheme === "dark";
@@ -828,9 +922,24 @@ const MapPicker = forwardRef<MapPickerRef, MapPickerProps>(
         windBuffers: [],
         energy: [],
         user: deviceLocation,
+        extra: (extraShapes ?? []).map((x) => ({
+          c: x.color,
+          d: x.dashed ? 1 : 0,
+          r: x.rings,
+          ci: x.circle ? [x.circle.latitude, x.circle.longitude, x.circle.radiusM] : undefined,
+        })),
+        hl: (highlightZones ?? []).map((z) => {
+          const polys: [number, number][][][] = [];
+          for (const group of ringGroupsForZone(z)) {
+            const poly = smoothRingGroup(simplifyRingGroup(group));
+            if (poly.length > 0) polys.push(poly);
+          }
+          return { r: polys, s: zoneMapColors(z).stroke };
+        }),
+        poi: (poiMarkers ?? []).map((p) => ({ id: p.id, la: p.latitude, lo: p.longitude, g: p.glyph, c: p.color, t: p.label, w: p.caution ? 1 : 0 })),
       };
       return JSON.stringify(state);
-    }, [initialRegion, mapStyle, isDark, geoTiles, showSelectedMarker, selectedLocation, radiusMeters, radiusStrokeColor, radiusFillColor, routeWaypoints, onWaypointDragEnd, ctrBandAirports, windFacilityPoints, energyInfrastructureItems, deviceLocation]);
+    }, [initialRegion, mapStyle, isDark, geoTiles, showSelectedMarker, selectedLocation, radiusMeters, radiusStrokeColor, radiusFillColor, routeWaypoints, onWaypointDragEnd, ctrBandAirports, windFacilityPoints, energyInfrastructureItems, deviceLocation, extraShapes, highlightZones, poiMarkers]);
 
     useEffect(() => {
       if (!ready) return;
@@ -907,7 +1016,8 @@ const MapPicker = forwardRef<MapPickerRef, MapPickerProps>(
       if (msg.type === "ctrPress") { if (msg.icao) onCtrPress(msg.icao); return; }
       if (msg.type === "wpPress") { if (typeof msg.i === "number") onWaypointPress?.(msg.i); return; }
       if (msg.type === "wpDrag") { if (typeof msg.i === "number" && isFinite(msg.lat) && isFinite(msg.lon)) onWaypointDragEnd?.(msg.i, msg.lat, msg.lon); return; }
-    }, [onRegionChangeComplete, onMapPress, onMapLongPress, onCtrPress, onWaypointPress, onWaypointDragEnd]);
+      if (msg.type === "poiPress") { if (typeof msg.id === "string") onPoiPress?.(msg.id); return; }
+    }, [onRegionChangeComplete, onMapPress, onMapLongPress, onCtrPress, onWaypointPress, onWaypointDragEnd, onPoiPress]);
 
     return (
       <View style={[styles.map, style]} onLayout={(e) => setPickerSize({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height })}>
@@ -1033,7 +1143,7 @@ const MapPicker = forwardRef<MapPickerRef, MapPickerProps>(
           </View>
         ) : null}
         {showCtrBands && ctrLegendRelevant ? (
-          <View style={legendStyles.container} pointerEvents="box-none">
+          <View style={[legendStyles.container, legendRightInset != null ? { right: legendRightInset } : null]} pointerEvents="box-none">
             <Pressable
               style={legendStyles.header}
               onPress={() => setLegendOpen((v) => !v)}

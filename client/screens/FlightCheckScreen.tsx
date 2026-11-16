@@ -1,6 +1,6 @@
 import { openLink } from "@/lib/webBrowser";
-import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { View, StyleSheet, ScrollView, Pressable, Alert, Modal, Dimensions, Linking } from "react-native";
+import React, { useState, useEffect, useCallback, useRef, useMemo, useLayoutEffect } from "react";
+import { View, StyleSheet, ScrollView, Pressable, Alert, Dimensions, Linking } from "react-native";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RouteProp } from "@react-navigation/native";
@@ -13,7 +13,6 @@ import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { Card } from "@/components/Card";
 import { Button } from "@/components/Button";
-import Checkbox from "@/components/Checkbox";
 import TrafficMapView, { TrafficMarker, AircraftTrail, WindData } from "@/components/TrafficMapView";
 import ProximityAlarmBanner, { ProximityAlarmGlow, AlarmPulseProvider, bearingTo } from "@/components/ProximityAlarmBanner";
 import SourceHealthIndicator from "@/components/SourceHealthIndicator";
@@ -29,6 +28,9 @@ import { fetchElevation } from "@/lib/elevation";
 import { getMarkerPinColor } from "@/lib/markerColors";
 import { loadGeozoneSettings, getActiveLayerNames, loadMapStyle, saveMapStyle, type MapStyleOption, queryGeozonesInArea, fetchNearbyTempRestrictions, loadRadarSettings } from "@/lib/geozones";
 import type { FlightCheckParamList } from "@/navigation/FlightCheckNavigator";
+import { InfoDialog } from "@/components/InfoDialog";
+import { ChecklistRow } from "@/components/ChecklistRow";
+import { useChecklistState, checklistHaptic } from "@/hooks/useChecklistState";
 
 interface CheckItem {
   id: string;
@@ -112,13 +114,16 @@ interface FlightCheckParams {
 
 type NavigationProp = NativeStackNavigationProp<FlightCheckParamList>;
 
+const FLIGHT_CHECK_REQUIRED_ITEMS = FLIGHT_CHECK_SECTIONS.flatMap(s => s.items.filter(i => i.required));
+
 export default function FlightCheckScreen() {
   const navigation = useNavigation<NavigationProp>();
   const route = useRoute<RouteProp<{ params: FlightCheckParams }, "params">>();
   const { theme, isDark } = useTheme();
   const headerHeight = useHeaderHeight();
   const insets = useSafeAreaInsets();
-  const [checked, setChecked] = useState<Set<string>>(new Set());
+  // Lokal + optimistisch: der Haken erscheint im selben Frame (kein Speicherzugriff).
+  const { checked, toggle: toggleItem } = useChecklistState(undefined, { onCheck: checklistHaptic });
   const [saving, setSaving] = useState(false);
   const [tipModal, setTipModal] = useState<{ visible: boolean; title: string; tip: string }>({
     visible: false,
@@ -128,8 +133,7 @@ export default function FlightCheckScreen() {
 
   const { sessionId } = route.params || {};
 
-  const allRequiredItems = FLIGHT_CHECK_SECTIONS.flatMap(s => s.items.filter(i => i.required));
-  const allRequiredChecked = allRequiredItems.every(item => checked.has(item.id));
+  const allRequiredChecked = FLIGHT_CHECK_REQUIRED_ITEMS.every(item => checked.has(item.id));
 
   const [sessionLat, setSessionLat] = useState<number | null>(null);
   const [sessionLon, setSessionLon] = useState<number | null>(null);
@@ -344,23 +348,10 @@ export default function FlightCheckScreen() {
   const taRadiusM = (alarmSettings?.ta?.radiusKm ?? 3) * 1000;
   const raRadiusM = (alarmSettings?.ra?.radiusKm ?? 1) * 1000;
 
-  const toggleItem = (id: string) => {
-    setChecked(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      }
-      return next;
-    });
-  };
-
-  const showTip = (title: string, tip: string) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  const showTip = useCallback((title: string, tip: string) => {
+    checklistHaptic();
     setTipModal({ visible: true, title, tip });
-  };
+  }, []);
 
   const recenterToGps = useCallback(async () => {
     try {
@@ -419,10 +410,17 @@ export default function FlightCheckScreen() {
   const screenWidth = Dimensions.get("window").width;
   const mapHeight = Math.min(screenWidth * 0.85, 400);
 
+  const liveRadarMode = allRequiredChecked && radarLat != null && radarLon != null;
+  // Im Flug: Kopfzeile ausblenden, damit die Karte den Platz bekommt (Querformat).
+  useLayoutEffect(() => {
+    navigation.setOptions({ headerShown: !liveRadarMode } as any);
+  }, [navigation, liveRadarMode]);
+  const radarTop = liveRadarMode ? insets.top : headerHeight;
+
   if (allRequiredChecked && radarLat != null && radarLon != null) {
     return (
       <ThemedView style={styles.container}>
-        <View style={[styles.fullRadar, { paddingTop: headerHeight }]}>
+        <View style={[styles.fullRadar, { paddingTop: radarTop }]}>
           <TrafficMapView
             latitude={radarLat}
             longitude={radarLon}
@@ -459,17 +457,15 @@ export default function FlightCheckScreen() {
               onDismiss={dismissAlarm}
             />
           </AlarmPulseProvider>
-          <View pointerEvents="box-none" style={[styles.fullRadarTopBar, { top: headerHeight + Spacing.sm }]}>
+          <View pointerEvents="box-none" style={[styles.fullRadarTopBar, { top: radarTop + Spacing.xs }]}>
             <View style={[styles.fullRadarBadge, { backgroundColor: theme.backgroundDefault + "EE" }]}>
               <View style={[styles.radarIconBg, { backgroundColor: theme.primary + "20" }]}>
                 <Feather name="radio" size={16} color={theme.primary} />
               </View>
-              <View style={{ flex: 1 }}>
-                <ThemedText style={[styles.radarSectionTitle, { color: theme.primary }]}>Im Flug — Live Radar</ThemedText>
-                <ThemedText style={[styles.radarSectionSub, { color: theme.textSecondary }]}>
-                  {aircraft.length} Flugobjekte{planningMaxAlt != null ? ` | Max ${planningMaxAlt}m` : ""}{planningRadiusKm != null ? ` | Radius ${planningRadiusKm < 1 ? `${Math.round(planningRadiusKm * 1000)}m` : `${planningRadiusKm}km`}` : ""}
-                </ThemedText>
-              </View>
+              <ThemedText style={[styles.radarSectionSub, { color: theme.text, flexShrink: 1, marginTop: 0 }]} numberOfLines={1}>
+                <ThemedText style={[styles.radarSectionSub, { color: theme.primary, fontWeight: "700" }]}>Im Flug · Live-Radar</ThemedText>
+                {`  ${aircraft.length} Flugobjekte${planningMaxAlt != null ? ` · Max ${planningMaxAlt} m` : ""}${planningRadiusKm != null ? ` · Radius ${planningRadiusKm < 1 ? `${Math.round(planningRadiusKm * 1000)} m` : `${planningRadiusKm} km`}` : ""}`}
+              </ThemedText>
               <Pressable
                 onPress={recenterToGps}
                 style={[styles.recenterBtn, { backgroundColor: theme.backgroundSecondary }]}
@@ -501,23 +497,14 @@ export default function FlightCheckScreen() {
           />
         </View>
 
-        <Modal
+        <InfoDialog
           visible={tipModal.visible}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setTipModal({ ...tipModal, visible: false })}
-        >
-          <Pressable
-            style={styles.modalOverlay}
-            onPress={() => setTipModal({ ...tipModal, visible: false })}
-          >
-            <Pressable style={[styles.modalContent, { backgroundColor: theme.backgroundDefault }]} onPress={() => {}}>
-              <ThemedText style={styles.modalTitle}>{tipModal.title}</ThemedText>
-              <ThemedText style={[styles.modalTip, { color: theme.textSecondary }]}>{tipModal.tip}</ThemedText>
-              <Button title="Verstanden" onPress={() => setTipModal({ ...tipModal, visible: false })} />
-            </Pressable>
-          </Pressable>
-        </Modal>
+          onClose={() => setTipModal({ ...tipModal, visible: false })}
+          title={tipModal.title}
+          text={tipModal.tip}
+          okLabel="Verstanden"
+          testID="tip-info-dialog"
+        />
       </ThemedView>
     );
   }
@@ -564,11 +551,11 @@ export default function FlightCheckScreen() {
                     <View style={styles.ctrContactInfo}>
                       <ThemedText style={styles.ctrContactName}>{ctr.name}</ThemedText>
                       <ThemedText style={[styles.ctrContactMeta, { color: theme.textTertiary }]}>
-                        {ctr.icao} \u2014 {getCtrCategoryLabel(ctr.category)}
+                        {ctr.icao} – {getCtrCategoryLabel(ctr.category)}
                       </ThemedText>
                       {ctr.avInfo ? (
                         <ThemedText style={[styles.ctrContactMeta, { color: theme.textTertiary, fontSize: 10 }]}>
-                          {ctr.avInfo.provider} \u2014 {ctr.avInfo.nflReference}
+                          {ctr.avInfo.provider} – {ctr.avInfo.nflReference}
                         </ThemedText>
                       ) : null}
                       {ctr.towerFrequency ? (
@@ -613,41 +600,18 @@ export default function FlightCheckScreen() {
             </View>
             <Card style={styles.sectionCard}>
               {section.items.map((item, itemIndex) => (
-                <View
+                <ChecklistRow
                   key={item.id}
-                  style={[
-                    styles.checkItem,
-                    itemIndex < section.items.length - 1 && {
-                      borderBottomWidth: StyleSheet.hairlineWidth,
-                      borderBottomColor: theme.border,
-                    },
-                  ]}
-                >
-                  <Pressable
-                    style={styles.checkItemContent}
-                    onPress={() => toggleItem(item.id)}
-                  >
-                    <Checkbox
-                      checked={checked.has(item.id)}
-                      onPress={() => toggleItem(item.id)}
-                    />
-                    <View style={styles.checkItemText}>
-                      <ThemedText style={styles.checkItemLabel}>
-                        {item.label}
-                        {item.required ? (
-                          <ThemedText style={{ color: theme.statusNoGo }}> *</ThemedText>
-                        ) : null}
-                      </ThemedText>
-                    </View>
-                  </Pressable>
-                  <Pressable
-                    style={styles.tipButton}
-                    onPress={() => showTip(item.label, item.tip)}
-                    hitSlop={8}
-                  >
-                    <Feather name="info" size={18} color={theme.textTertiary} />
-                  </Pressable>
-                </View>
+                  id={item.id}
+                  label={item.label}
+                  required={item.required}
+                  tip={item.tip}
+                  checked={checked.has(item.id)}
+                  onToggle={toggleItem}
+                  onShowTip={showTip}
+                  showDivider={itemIndex < section.items.length - 1}
+                  variant="asterisk"
+                />
               ))}
             </Card>
           </View>
@@ -743,29 +707,14 @@ export default function FlightCheckScreen() {
         />
       </View>
 
-      <Modal
+      <InfoDialog
         visible={tipModal.visible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setTipModal({ ...tipModal, visible: false })}
-      >
-        <Pressable
-          style={styles.modalOverlay}
-          onPress={() => setTipModal({ ...tipModal, visible: false })}
-        >
-          <View style={[styles.modalContent, { backgroundColor: theme.backgroundSecondary }]}>
-            <ThemedText style={styles.modalTitle}>{tipModal.title}</ThemedText>
-            <ThemedText style={[styles.modalTip, { color: theme.textSecondary }]}>
-              {tipModal.tip}
-            </ThemedText>
-            <Button
-              title="Verstanden"
-              onPress={() => setTipModal({ ...tipModal, visible: false })}
-              style={{ marginTop: Spacing.lg }}
-            />
-          </View>
-        </Pressable>
-      </Modal>
+        onClose={() => setTipModal({ ...tipModal, visible: false })}
+        title={tipModal.title}
+        text={tipModal.tip}
+        okLabel="Verstanden"
+        testID="tip-info-dialog"
+      />
     </ThemedView>
   );
 }
@@ -836,27 +785,6 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: "rgba(0,0,0,0.1)",
   },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: Spacing.xl,
-  },
-  modalContent: {
-    borderRadius: 16,
-    padding: Spacing.xl,
-    width: "100%",
-    maxWidth: 400,
-  },
-  modalTitle: {
-    ...Typography.h4,
-    marginBottom: Spacing.md,
-  },
-  modalTip: {
-    ...Typography.body,
-    lineHeight: 22,
-  },
   radarButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -920,18 +848,22 @@ const styles = StyleSheet.create({
     flex: 1,
     position: "relative",
   },
+  // Schmale Leiste oben mittig (lässt links Kompass/Wind und rechts Legende/Reiter frei)
   fullRadarTopBar: {
     position: "absolute",
-    left: Spacing.md,
-    right: Spacing.md,
+    left: "25%",
+    right: "25%",
+    alignItems: "center",
   },
   fullRadarBadge: {
     flexDirection: "row",
     alignItems: "center",
-    gap: Spacing.md,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    borderRadius: BorderRadius.lg,
+    gap: Spacing.sm,
+    paddingLeft: Spacing.md,
+    paddingRight: 4,
+    paddingVertical: 4,
+    borderRadius: 999,
+    maxWidth: "100%",
   },
   ctrEmergencyCard: {
     borderWidth: 1,

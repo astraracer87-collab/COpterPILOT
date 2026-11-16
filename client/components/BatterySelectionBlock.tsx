@@ -24,7 +24,7 @@ interface Props {
   onChange: (usage: BatteryUsage[]) => void;
 }
 
-export default function BatterySelectionBlock({ batteries, mode, initial, onChange }: Props) {
+function BatterySelectionBlockImpl({ batteries, mode, initial, onChange }: Props) {
   const { theme } = useTheme();
 
   const [state, setState] = useState<Record<string, BatteryRowState>>(() => {
@@ -167,6 +167,12 @@ export default function BatterySelectionBlock({ batteries, mode, initial, onChan
     </View>
   );
 }
+
+// Memoisiert: Abhaken in der umgebenden Checkliste rendert die Akku-Zeilen
+// (inkl. nativer Slider) nicht mit neu – die Props (Akkus, Modus, initial,
+// onChange = setState) bleiben dabei unverändert.
+const BatterySelectionBlock = React.memo(BatterySelectionBlockImpl);
+export default BatterySelectionBlock;
 
 const styles = StyleSheet.create({
   wrapper: { marginBottom: Spacing.xl },

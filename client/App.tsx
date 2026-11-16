@@ -14,6 +14,7 @@ import { BlockingWorkOverlay } from "@/components/BlockingWorkOverlay";
 import { rootTouchHandlers, runAfterStartup } from "@/lib/backgroundWork";
 import { prefetchObstaclesAroundLastKnown } from "@/lib/obstacles";
 import { startWeatherPrefetch } from "@/lib/weatherPrefetch";
+import { useKeepAwake } from "expo-keep-awake";
 import { runStorageMaintenance } from "@/lib/storage";
 
 // Speicher-Wartung zuerst: große Caches aus AsyncStorage (SQLite, Größenlimit)
@@ -90,6 +91,9 @@ function DisclaimerScreen({ onAccept, onDecline }: { onAccept: () => void; onDec
 }
 
 export default function App() {
+  // Bildschirm bleibt an, solange die App im Vordergrund ist (Fernsteuerung schläft nicht ein).
+  // Gilt nur für das sichtbare Fenster – im Hintergrund regelt Android wie gewohnt.
+  useKeepAwake("copterpilot-foreground");
   const [appIsReady, setAppIsReady] = useState(false);
   const [disclaimerAccepted, setDisclaimerAccepted] = useState<boolean | null>(null);
 

@@ -9,6 +9,7 @@ import PlanningDroneSelectScreen from "@/screens/PlanningDroneSelectScreen";
 import PlanningCountrySelectScreen from "@/screens/PlanningCountrySelectScreen";
 import PlanningLocationScreen from "@/screens/PlanningLocationScreen";
 import PlanningCrossCheckScreen from "@/screens/PlanningCrossCheckScreen";
+import PlanningAreaOverviewScreen from "@/screens/PlanningAreaOverviewScreen";
 import PlanningMapScreen from "@/screens/PlanningMapScreen";
 import PlanningDateTimeScreen from "@/screens/PlanningDateTimeScreen";
 import PlanningRestrictionsScreen from "@/screens/PlanningRestrictionsScreen";
@@ -40,6 +41,26 @@ export type FlightPlanningParamList = {
     longitude: number;
     locationName?: string;
     countryIso?: string;
+  };
+  /** Gebietsübersicht direkt nach „Standort bestätigen“: Geozonen, NOTAMs,
+   *  Hindernisse und Hinweise in der Nähe im gewählten Umkreis. „Weiter“ führt
+   *  zu `next` (Gegenprüfung bzw. Datum & Zeit) mit denselben Parametern. */
+  PlanningAreaOverview: {
+    droneId: string;
+    latitude: number;
+    longitude: number;
+    locationName?: string;
+    countryIso?: string;
+    radiusKm: number;
+    recommendedVlosM?: number;
+    vlosExceeded?: boolean;
+    vlosCharDimensionM?: number;
+    vlosAltitudeCorrection?: boolean;
+    vlosHorizontalLimitM?: number;
+    maxAltitude?: number;
+    restrictionStatus?: "approved" | "limited";
+    restrictionNotes?: string;
+    next?: "crosscheck" | "datetime";
   };
   /** Eigener Gegenprüfungs-Schritt (offizielle Staatskarte) zwischen Standort
    *  und Datum/Zeit — nur für Länder MIT eigenen Geozonen-Daten, wenn die
@@ -335,6 +356,22 @@ export default function FlightPlanningNavigator() {
         component={PlanningLocationScreen}
         options={({ navigation }) => ({
           headerTitle: "Standort wählen",
+          headerLeft: () => (
+            <Pressable
+              onPress={() => navigation.goBack()}
+              style={navStyles.backButton}
+              hitSlop={8}
+            >
+              <Text style={navStyles.backText}>Zurück</Text>
+            </Pressable>
+          ),
+        })}
+      />
+      <Stack.Screen
+        name="PlanningAreaOverview"
+        component={PlanningAreaOverviewScreen}
+        options={({ navigation }) => ({
+          headerTitle: "Umgebung prüfen",
           headerLeft: () => (
             <Pressable
               onPress={() => navigation.goBack()}

@@ -26,7 +26,6 @@ import {
   getEntryDjiLogs,
   getDrone,
   getPilotProfile,
-  getSettings,
   updateLogbookEntry,
   LogbookEntry,
   DjiLogMeta,
@@ -123,7 +122,6 @@ export default function LogbookEntryDetailScreen() {
   const [batteryPickerFor, setBatteryPickerFor] = useState<string | null>(null);
   const [savingBattery, setSavingBattery] = useState(false);
   const [resolvedDocs, setResolvedDocs] = useState<ResolvedPilotDocument[]>([]);
-  const [wildlifeRescueMode, setWildlifeRescueMode] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -148,12 +146,6 @@ export default function LogbookEntryDetailScreen() {
       }
     } else {
       setResolvedDocs([]);
-    }
-    try {
-      const settings = await getSettings();
-      setWildlifeRescueMode(settings.wildlifeRescueMode ?? false);
-    } catch {
-      setWildlifeRescueMode(false);
     }
     if (result?.droneId) {
       try {
@@ -1223,11 +1215,9 @@ export default function LogbookEntryDetailScreen() {
                 Alert.alert("Fehler", "Protokoll konnte nicht erstellt werden.");
               }
             };
-            const entryWildlifeActive = entry.wildlifeRescueAtFlight ?? wildlifeRescueMode;
-            if (resolvedDocs.length > 0 || entryWildlifeActive) {
-              const message = entryWildlifeActive
-                ? "Die zum Flugzeitpunkt gültigen Pilotendokumente (Allgemeinverfügung, A2-Zeugnis, Versicherung) sowie die Allgemeinverfügungen zur Wildtierrettung können dem Protokoll beigefügt werden."
-                : "Die zum Flugzeitpunkt gültigen Dokumente (Allgemeinverfügung, A2-Zeugnis, Versicherung) können dem Protokoll beigefügt werden.";
+            if (resolvedDocs.length > 0) {
+              const message =
+                "Die zum Flugzeitpunkt gültigen Dokumente (Allgemeinverfügung, A2-Zeugnis, Versicherung) können dem Protokoll beigefügt werden.";
               Alert.alert(
                 "Dokumente anhängen?",
                 message,

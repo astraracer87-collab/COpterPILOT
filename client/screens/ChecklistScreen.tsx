@@ -1,12 +1,11 @@
-import React, { useState, useEffect, useMemo } from "react";
-import { View, StyleSheet, ScrollView, Pressable, Alert, Modal } from "react-native";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
+import { View, StyleSheet, ScrollView, Pressable, Alert } from "react-native";
 import { useNavigation, useRoute, CommonActions } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RouteProp } from "@react-navigation/native";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { Card } from "@/components/Card";
@@ -18,6 +17,9 @@ import { getDrone, DroneProfile, BatteryUsage } from "@/lib/storage";
 import BatterySelectionBlock from "@/components/BatterySelectionBlock";
 import type { FlightCheckParamList } from "@/navigation/FlightCheckNavigator";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
+import { InfoDialog } from "@/components/InfoDialog";
+import { ChecklistRow } from "@/components/ChecklistRow";
+import { useChecklistState, checklistHaptic } from "@/hooks/useChecklistState";
 
 type NavigationProp = NativeStackNavigationProp<FlightCheckParamList, "Checklist">;
 type RootNavProp = NativeStackNavigationProp<RootStackParamList>;
@@ -125,6 +127,8 @@ const CHECKLIST_SECTIONS: CheckSection[] = [
   },
 ];
 
+const hapticLight = checklistHaptic;
+
 export default function ChecklistScreen() {
   const navigation = useNavigation<NavigationProp>();
   const rootNav = useNavigation<RootNavProp>();
@@ -132,7 +136,8 @@ export default function ChecklistScreen() {
   const { theme } = useTheme();
   const headerHeight = useHeaderHeight();
   const insets = useSafeAreaInsets();
-  const [checked, setChecked] = useState<Set<string>>(new Set());
+  // Lokal + optimistisch: der Haken erscheint im selben Frame (kein Speicherzugriff).
+  const { checked, toggle: toggleItem } = useChecklistState(undefined, { onCheck: hapticLight });
   const [drone, setDrone] = useState<DroneProfile | null>(null);
   const [batteryUsage, setBatteryUsage] = useState<BatteryUsage[]>([]);
   const [tipModal, setTipModal] = useState<{ visible: boolean; title: string; tip: string }>({
@@ -150,7 +155,7 @@ export default function ChecklistScreen() {
     }
   }, [droneId]);
 
-  const fpvSection: CheckSection = effectiveFpvMode === "verband30m"
+  const fpvSection: CheckSection = useMemo(() => effectiveFpvMode === "verband30m"
     ? {
         title: "FPV nach Verbandsregel (DMFV/DMO)",
         icon: "shield",
@@ -198,7 +203,7 @@ export default function ChecklistScreen() {
             tip: "Akku geladen, Bild klar, keine Interferenzen. Video-Link stabil.",
           },
         ],
-      };
+      }, [effectiveFpvMode]);
 
   const filteredSections = useMemo(() => {
     const droneClass = drone?.classMark || "";
@@ -216,28 +221,19 @@ export default function ChecklistScreen() {
       return [...baseSections, fpvSection];
     }
     return baseSections;
-  }, [drone?.classMark, isFpvFlight, effectiveFpvMode]);
+  }, [drone?.classMark, isFpvFlight, fpvSection]);
 
-  const allRequiredItems = filteredSections.flatMap(s => s.items.filter(i => i.required));
+  const allRequiredItems = useMemo(
+    () => filteredSections.flatMap(s => s.items.filter(i => i.required)),
+    [filteredSections],
+  );
   const allRequiredChecked = allRequiredItems.every(item => checked.has(item.id));
 
-  const toggleItem = (id: string) => {
-    setChecked(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      }
-      return next;
-    });
-  };
-
-  const showTip = (title: string, tip: string) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  const showTip = useCallback((title: string, tip: string) => {
+    hapticLight();
     setTipModal({ visible: true, title, tip });
-  };
+  }, []);
+  const toggleConfirm = useCallback(() => toggleItem("confirm"), [toggleItem]);
 
   const handleContinue = () => {
     const presentedItemIds = filteredSections.flatMap(s => s.items.map(i => i.id));
@@ -305,44 +301,17 @@ export default function ChecklistScreen() {
             </View>
             <Card style={styles.sectionCard}>
               {section.items.map((item, itemIndex) => (
-                <View
+                <ChecklistRow
                   key={item.id}
-                  style={[
-                    styles.checkItem,
-                    itemIndex < section.items.length - 1 && {
-                      borderBottomWidth: 1,
-                      borderBottomColor: theme.border,
-                    },
-                  ]}
-                >
-                  <Pressable
-                    onPress={() => toggleItem(item.id)}
-                    style={styles.checkRow}
-                  >
-                    <Checkbox checked={checked.has(item.id)} onPress={() => toggleItem(item.id)} />
-                    <ThemedText style={styles.checkLabel}>{item.label}</ThemedText>
-                  </Pressable>
-                  <View style={styles.itemActions}>
-                    {item.required ? (
-                      <View style={[styles.requiredBadge, { backgroundColor: theme.statusCautionBackground }]}>
-                        <ThemedText style={[styles.requiredText, { color: theme.statusCaution }]}>
-                          Pflicht
-                        </ThemedText>
-                      </View>
-                    ) : null}
-                    <Pressable
-                      onPress={() => showTip(item.label, item.tip)}
-                      style={({ pressed }) => [
-                        styles.tipButton,
-                        { backgroundColor: theme.backgroundSecondary },
-                        pressed && { opacity: 0.7 },
-                      ]}
-                      hitSlop={8}
-                    >
-                      <Feather name="help-circle" size={18} color={theme.primary} />
-                    </Pressable>
-                  </View>
-                </View>
+                  id={item.id}
+                  label={item.label}
+                  required={item.required}
+                  tip={item.tip}
+                  checked={checked.has(item.id)}
+                  onToggle={toggleItem}
+                  onShowTip={showTip}
+                  showDivider={itemIndex < section.items.length - 1}
+                />
               ))}
             </Card>
           </View>
@@ -358,10 +327,15 @@ export default function ChecklistScreen() {
 
         <Card style={[styles.confirmCard, { borderColor: theme.primary }]}>
           <Pressable
-            onPress={() => toggleItem("confirm")}
+            onPress={toggleConfirm}
             style={styles.confirmRow}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: checked.has("confirm") }}
+            testID="checklist-row-confirm"
           >
-            <Checkbox checked={checked.has("confirm")} onPress={() => toggleItem("confirm")} />
+            <View pointerEvents="none">
+              <Checkbox checked={checked.has("confirm")} onPress={toggleConfirm} />
+            </View>
             <ThemedText style={styles.confirmText}>
               Ich habe die Regeln geprüft und fliege nur, wenn zulässig.
             </ThemedText>
@@ -384,32 +358,15 @@ export default function ChecklistScreen() {
         />
       </View>
 
-      <Modal
+      <InfoDialog
         visible={tipModal.visible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setTipModal(prev => ({ ...prev, visible: false }))}
-      >
-        <Pressable
-          style={styles.modalOverlay}
-          onPress={() => setTipModal(prev => ({ ...prev, visible: false }))}
-        >
-          <Pressable style={[styles.modalContent, { backgroundColor: theme.backgroundSecondary }]}>
-            <View style={styles.modalHeader}>
-              <Feather name="info" size={24} color={theme.primary} />
-              <ThemedText style={styles.modalTitle}>{tipModal.title}</ThemedText>
-            </View>
-            <ThemedText style={[styles.modalText, { color: theme.textSecondary }]}>
-              {tipModal.tip}
-            </ThemedText>
-            <Button
-              title="Verstanden"
-              onPress={() => setTipModal(prev => ({ ...prev, visible: false }))}
-              style={styles.modalButton}
-            />
-          </Pressable>
-        </Pressable>
-      </Modal>
+        onClose={() => setTipModal(prev => ({ ...prev, visible: false }))}
+        title={tipModal.title}
+        icon="info"
+        text={tipModal.tip}
+        okLabel="Verstanden"
+        testID="tip-info-dialog"
+      />
     </ThemedView>
   );
 }
@@ -501,36 +458,5 @@ const styles = StyleSheet.create({
     paddingTop: Spacing.lg,
     borderTopWidth: 1,
     borderTopColor: Colors.light.border,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.6)",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: Spacing.xl,
-  },
-  modalContent: {
-    width: "100%",
-    maxWidth: 400,
-    borderRadius: 16,
-    padding: Spacing.xl,
-  },
-  modalHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.md,
-    marginBottom: Spacing.lg,
-  },
-  modalTitle: {
-    ...Typography.h4,
-    flex: 1,
-  },
-  modalText: {
-    ...Typography.body,
-    lineHeight: 24,
-    marginBottom: Spacing.xl,
-  },
-  modalButton: {
-    alignSelf: "stretch",
   },
 });

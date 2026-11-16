@@ -1,6 +1,6 @@
 import { openLink } from "@/lib/webBrowser";
 import React, { useState, useEffect, useMemo, useCallback } from "react";
-import { View, StyleSheet, ScrollView, Pressable, ActivityIndicator, Linking, Modal } from "react-native";
+import { View, StyleSheet, ScrollView, Pressable, ActivityIndicator, Linking } from "react-native";
 import { HeaderButton } from "@react-navigation/elements";
 import Slider from "@react-native-community/slider";
 import { useRoute, useNavigation, useFocusEffect } from "@react-navigation/native";
@@ -40,6 +40,7 @@ import {
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { getCinematicSettingsForModel } from "@/lib/droneCinematicSettings";
 import type { NdFilterStackParamList } from "@/navigation/NdFilterStackNavigator";
+import { InfoDialog } from "@/components/InfoDialog";
 
 type RouteParams = RouteProp<NdFilterStackParamList, "NdFilterFinder">;
 type NavigationProp = NativeStackNavigationProp<NdFilterStackParamList>;
@@ -807,153 +808,151 @@ export default function NdFilterFinderScreen() {
         </>) : null}
       </ScrollView>
 
-      <Modal
+      <InfoDialog
         visible={infoVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setInfoVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <Pressable
-            style={StyleSheet.absoluteFill}
-            onPress={() => setInfoVisible(false)}
-          />
-          <View
-            style={[styles.modalCard, { backgroundColor: theme.backgroundSecondary }]}
-          >
-            <View style={styles.modalHeader}>
-              <Feather name="help-circle" size={24} color={theme.primary} />
-              <ThemedText style={styles.modalTitle}>ND-Filter verstehen</ThemedText>
-              <Pressable onPress={() => setInfoVisible(false)} hitSlop={10}>
-                <Feather name="x" size={22} color={theme.textTertiary} />
-              </Pressable>
-            </View>
+        onClose={() => setInfoVisible(false)}
+        title="ND-Filter verstehen"
+        icon="help-circle"
+        okLabel="Verstanden"
+        testID="nd-info-dialog"
+        sections={[
+          {
+            body: (
+              <>
+                  <ThemedText style={styles.modalH3}>Warum überhaupt ein ND-Filter?</ThemedText>
+                  <ThemedText style={[styles.modalBody, { color: theme.textSecondary }]}>
+                    Stell dir einen ND-Filter wie eine <ThemedText style={styles.modalBold}>Sonnenbrille
+                    für deine Drohnen-Kamera</ThemedText> vor. An einem hellen Tag trifft so viel Licht auf
+                    den Sensor, dass das Bild ohne Gegenmaßnahme überbelichtet wäre. Die meisten Drohnen
+                    (Mini- oder Air-Serie) haben eine feste Blende und können nicht „die Augen
+                    zusammenkneifen". Sie müssen deshalb die Belichtungszeit extrem verkürzen — genau das
+                    ist beim Video das Problem.
+                  </ThemedText>
+              </>
+            ),
+          },
+          {
+            body: (
+              <>
+                  <ThemedText style={styles.modalH3}>Die drei Kern-Faktoren</ThemedText>
 
-            <ScrollView
-              style={{ flexShrink: 1 }}
-              contentContainerStyle={{ paddingBottom: Spacing.md }}
-              showsVerticalScrollIndicator
-              nestedScrollEnabled
-            >
-              <ThemedText style={styles.modalH3}>Warum überhaupt ein ND-Filter?</ThemedText>
-              <ThemedText style={[styles.modalBody, { color: theme.textSecondary }]}>
-                Stell dir einen ND-Filter wie eine <ThemedText style={styles.modalBold}>Sonnenbrille
-                für deine Drohnen-Kamera</ThemedText> vor. An einem hellen Tag trifft so viel Licht auf
-                den Sensor, dass das Bild ohne Gegenmaßnahme überbelichtet wäre. Die meisten Drohnen
-                (Mini- oder Air-Serie) haben eine feste Blende und können nicht „die Augen
-                zusammenkneifen". Sie müssen deshalb die Belichtungszeit extrem verkürzen — genau das
-                ist beim Video das Problem.
-              </ThemedText>
+                  <ThemedText style={styles.modalH4}>1. Ziel-Framerate &amp; 180°-Regel</ThemedText>
+                  <ThemedText style={[styles.modalBody, { color: theme.textSecondary }]}>
+                    Das menschliche Auge ist an natürliche Bewegungsunschärfe gewöhnt. Damit Video
+                    flüssig „wie im Kino" wirkt, gilt die 180°-Regel: die Belichtungszeit sollte genau
+                    <ThemedText style={styles.modalBold}> doppelt so schnell </ThemedText>
+                    sein wie deine Framerate.{"\n"}
+                    • 24 fps → Zielshutter 1/48 s{"\n"}
+                    • 30 fps → Zielshutter 1/60 s{"\n"}
+                    • 60 fps → Zielshutter 1/120 s
+                  </ThemedText>
 
-              <ThemedText style={styles.modalH3}>Die drei Kern-Faktoren</ThemedText>
+                  <ThemedText style={styles.modalH4}>2. Der Shutter (Belichtungszeit)</ThemedText>
+                  <ThemedText style={[styles.modalBody, { color: theme.textSecondary }]}>
+                    Ohne Filter wählt die Drohne in der Sonne oft 1/1000 s oder schneller. Das Bild ist
+                    richtig belichtet, aber die Bewegungsunschärfe fehlt — das Video wirkt abgehackt,
+                    künstlich scharf und „digital" (Soap-Opera-Effekt).
+                  </ThemedText>
 
-              <ThemedText style={styles.modalH4}>1. Ziel-Framerate &amp; 180°-Regel</ThemedText>
-              <ThemedText style={[styles.modalBody, { color: theme.textSecondary }]}>
-                Das menschliche Auge ist an natürliche Bewegungsunschärfe gewöhnt. Damit Video
-                flüssig „wie im Kino" wirkt, gilt die 180°-Regel: die Belichtungszeit sollte genau
-                <ThemedText style={styles.modalBold}> doppelt so schnell </ThemedText>
-                sein wie deine Framerate.{"\n"}
-                • 24 fps → Zielshutter 1/48 s{"\n"}
-                • 30 fps → Zielshutter 1/60 s{"\n"}
-                • 60 fps → Zielshutter 1/120 s
-              </ThemedText>
+                  <ThemedText style={styles.modalH4}>3. Die „Stops" (Lichtreduktion)</ThemedText>
+                  <ThemedText style={[styles.modalBody, { color: theme.textSecondary }]}>
+                    Ein „Stop" halbiert das Licht. Sagt die App dir <ThemedText style={styles.modalBold}>
+                    4,4 Stops</ThemedText> Reduktion, heißt das: es ist ca. 16-mal zu hell für ein
+                    kinoreifes Video.
+                  </ThemedText>
+              </>
+            ),
+          },
+          {
+            body: (
+              <>
+                  <ThemedText style={styles.modalH3}>Framerate-Guide: Welche fps für welchen Look?</ThemedText>
 
-              <ThemedText style={styles.modalH4}>2. Der Shutter (Belichtungszeit)</ThemedText>
-              <ThemedText style={[styles.modalBody, { color: theme.textSecondary }]}>
-                Ohne Filter wählt die Drohne in der Sonne oft 1/1000 s oder schneller. Das Bild ist
-                richtig belichtet, aber die Bewegungsunschärfe fehlt — das Video wirkt abgehackt,
-                künstlich scharf und „digital" (Soap-Opera-Effekt).
-              </ThemedText>
+                  <ThemedText style={styles.modalH4}>24 / 25 fps — Kino-Look</ThemedText>
+                  <ThemedText style={[styles.modalBody, { color: theme.textSecondary }]}>
+                    Optimal für <ThemedText style={styles.modalBold}>Cinematic-Drohnen</ThemedText> (Air, Mavic,
+                    Mini, Inspire). Erzeugt den klassischen Filmlook mit natürlicher Bewegungsunschärfe — perfekt
+                    für Landschaften, Hochzeiten, Doku, Musikvideos. 25 fps = PAL/Europa (50-Hz-Netz, kein
+                    Flackern bei Kunstlicht). Schwenks bewusst langsam — sonst Judder.{"\n"}
+                    Nicht geeignet für FPV-Manöver.
+                  </ThemedText>
 
-              <ThemedText style={styles.modalH4}>3. Die „Stops" (Lichtreduktion)</ThemedText>
-              <ThemedText style={[styles.modalBody, { color: theme.textSecondary }]}>
-                Ein „Stop" halbiert das Licht. Sagt die App dir <ThemedText style={styles.modalBold}>
-                4,4 Stops</ThemedText> Reduktion, heißt das: es ist ca. 16-mal zu hell für ein
-                kinoreifes Video.
-              </ThemedText>
+                  <ThemedText style={styles.modalH4}>30 fps — Web &amp; Social</ThemedText>
+                  <ThemedText style={[styles.modalBody, { color: theme.textSecondary }]}>
+                    Allrounder für YouTube, Instagram-Reels, Vlogs, Tutorials, Livestreams. Etwas schärfer und
+                    flüssiger als 24 fps, wirkt nahbar und realitätsnah. Verdoppelt sich sauber auf
+                    60-Hz-Displays. Funktioniert auf jeder Drohne.
+                  </ThemedText>
 
-              <ThemedText style={styles.modalH3}>Framerate-Guide: Welche fps für welchen Look?</ThemedText>
+                  <ThemedText style={styles.modalH4}>50 / 60 fps — Action &amp; FPV</ThemedText>
+                  <ThemedText style={[styles.modalBody, { color: theme.textSecondary }]}>
+                    Optimal für <ThemedText style={styles.modalBold}>FPV-Drohnen</ThemedText> (Avata 2, DJI FPV,
+                    Neo) und schnelle Sport-/B-Roll-Aufnahmen mit Cinematic-Drohnen. Gestochen scharf, absolut
+                    flüssig. Beim Schnitt auf 24/25 fps verlangsamt = seidenweiche 2× Slow-Mo.{"\n"}
+                    Wichtig: Zielshutter steigt auf 1/100 bzw. 1/120 s → meist <ThemedText style={styles.modalBold}>
+                    schwächerer ND</ThemedText> als bei 24 fps unter derselben Sonne.
+                  </ThemedText>
 
-              <ThemedText style={styles.modalH4}>24 / 25 fps — Kino-Look</ThemedText>
-              <ThemedText style={[styles.modalBody, { color: theme.textSecondary }]}>
-                Optimal für <ThemedText style={styles.modalBold}>Cinematic-Drohnen</ThemedText> (Air, Mavic,
-                Mini, Inspire). Erzeugt den klassischen Filmlook mit natürlicher Bewegungsunschärfe — perfekt
-                für Landschaften, Hochzeiten, Doku, Musikvideos. 25 fps = PAL/Europa (50-Hz-Netz, kein
-                Flackern bei Kunstlicht). Schwenks bewusst langsam — sonst Judder.{"\n"}
-                Nicht geeignet für FPV-Manöver.
-              </ThemedText>
+                  <ThemedText style={styles.modalH4}>120 fps — Super Slow-Mo</ThemedText>
+                  <ThemedText style={[styles.modalBody, { color: theme.textSecondary }]}>
+                    Für 4–5× Zeitlupe: Wellen, Sprünge, Drifts. Zielshutter 1/240 s — die Kamera braucht von Natur
+                    aus viel Licht. Häufig <ThemedText style={styles.modalBold}>kein oder nur schwacher ND</ThemedText>
+                    {" "}nötig. Im Schnitt auf 24/25 fps exportieren.
+                  </ThemedText>
 
-              <ThemedText style={styles.modalH4}>30 fps — Web &amp; Social</ThemedText>
-              <ThemedText style={[styles.modalBody, { color: theme.textSecondary }]}>
-                Allrounder für YouTube, Instagram-Reels, Vlogs, Tutorials, Livestreams. Etwas schärfer und
-                flüssiger als 24 fps, wirkt nahbar und realitätsnah. Verdoppelt sich sauber auf
-                60-Hz-Displays. Funktioniert auf jeder Drohne.
-              </ThemedText>
-
-              <ThemedText style={styles.modalH4}>50 / 60 fps — Action &amp; FPV</ThemedText>
-              <ThemedText style={[styles.modalBody, { color: theme.textSecondary }]}>
-                Optimal für <ThemedText style={styles.modalBold}>FPV-Drohnen</ThemedText> (Avata 2, DJI FPV,
-                Neo) und schnelle Sport-/B-Roll-Aufnahmen mit Cinematic-Drohnen. Gestochen scharf, absolut
-                flüssig. Beim Schnitt auf 24/25 fps verlangsamt = seidenweiche 2× Slow-Mo.{"\n"}
-                Wichtig: Zielshutter steigt auf 1/100 bzw. 1/120 s → meist <ThemedText style={styles.modalBold}>
-                schwächerer ND</ThemedText> als bei 24 fps unter derselben Sonne.
-              </ThemedText>
-
-              <ThemedText style={styles.modalH4}>120 fps — Super Slow-Mo</ThemedText>
-              <ThemedText style={[styles.modalBody, { color: theme.textSecondary }]}>
-                Für 4–5× Zeitlupe: Wellen, Sprünge, Drifts. Zielshutter 1/240 s — die Kamera braucht von Natur
-                aus viel Licht. Häufig <ThemedText style={styles.modalBold}>kein oder nur schwacher ND</ThemedText>
-                {" "}nötig. Im Schnitt auf 24/25 fps exportieren.
-              </ThemedText>
-
-              <ThemedText style={styles.modalH4}>Cinematic vs. FPV — auf einen Blick</ThemedText>
-              <ThemedText style={[styles.modalBody, { color: theme.textSecondary }]}>
-                <ThemedText style={styles.modalBold}>Cinematic</ThemedText> (Air 3S, Mavic, Mini): 24/25/30
-                fps für ruhige Schwenks, Landschaften, epische Shots. ND-Filter Pflicht, sonst flimmert
-                schnelle Bewegung.{"\n\n"}
-                <ThemedText style={styles.modalBold}>FPV</ThemedText> (Avata 2, DJI FPV, Neo): 50/60/120
-                fps für Dives, Gaps, Speedflights. Schwächerer ND als bei Cinematic, da die kürzere
-                Zielbelichtung schon mehr Licht „verbraucht".
-              </ThemedText>
-
-              <ThemedText style={styles.modalH3}>Was bedeuten die Ergebnisse?</ThemedText>
-              <ThemedText style={[styles.modalBody, { color: theme.textSecondary }]}>
-                Die App berechnet die Lücke zwischen dem, was die Drohne <ThemedText style={styles.modalBold}>
-                aktuell tun muss</ThemedText>, und dem, was für den <ThemedText style={styles.modalBold}>
-                Kino-Look optimal</ThemedText> wäre.{"\n\n"}
-                • <ThemedText style={styles.modalBold}>ND4 / ND8</ThemedText> — bewölkte Tage,
-                goldene Stunde (leichte Sonnenbrille){"\n"}
-                • <ThemedText style={styles.modalBold}>ND16 / ND32</ThemedText> — normale, sonnige
-                Tage (Standard-Sonnenbrille){"\n"}
-                • <ThemedText style={styles.modalBold}>ND64 / ND128</ThemedText> — greller
-                Sonnenschein, Schnee, Sandstrand (Skibrille)
-              </ThemedText>
-
-              <ThemedText style={styles.modalH3}>Schritt-für-Schritt vor dem Start</ThemedText>
-              <ThemedText style={[styles.modalBody, { color: theme.textSecondary }]}>
-                <ThemedText style={styles.modalBold}>1.</ThemedText> In der DJI-Fly-App (o. ä.) den
-                Kamera-Modus von <ThemedText style={styles.modalBold}>Auto</ThemedText> auf
-                {" "}<ThemedText style={styles.modalBold}>Manuell (M)</ThemedText> umstellen.{"\n\n"}
-                <ThemedText style={styles.modalBold}>2.</ThemedText> ISO fest auf{" "}
-                <ThemedText style={styles.modalBold}>100</ThemedText> stellen — maximale Bildqualität
-                ohne digitales Rauschen.{"\n\n"}
-                <ThemedText style={styles.modalBold}>3.</ThemedText> Aktuellen Shutter-Wert vom
-                Live-Bild ablesen und hier im Slider eintragen — oder den{" "}
-                <ThemedText style={styles.modalBold}>Auto-Modus</ThemedText> mit Wetterdaten nutzen.{"\n\n"}
-                <ThemedText style={styles.modalBold}>4.</ThemedText> Die Empfehlung ablesen
-                (z. B. <ThemedText style={styles.modalBold}>ND16</ThemedText>), den passenden Filter
-                aufs Objektiv stecken — fertig für den Kino-Look.
-              </ThemedText>
-            </ScrollView>
-
-            <Button
-              title="Verstanden"
-              onPress={() => setInfoVisible(false)}
-              style={{ marginTop: Spacing.lg }}
-            />
-          </View>
-        </View>
-      </Modal>
+                  <ThemedText style={styles.modalH4}>Cinematic vs. FPV — auf einen Blick</ThemedText>
+                  <ThemedText style={[styles.modalBody, { color: theme.textSecondary }]}>
+                    <ThemedText style={styles.modalBold}>Cinematic</ThemedText> (Air 3S, Mavic, Mini): 24/25/30
+                    fps für ruhige Schwenks, Landschaften, epische Shots. ND-Filter Pflicht, sonst flimmert
+                    schnelle Bewegung.{"\n\n"}
+                    <ThemedText style={styles.modalBold}>FPV</ThemedText> (Avata 2, DJI FPV, Neo): 50/60/120
+                    fps für Dives, Gaps, Speedflights. Schwächerer ND als bei Cinematic, da die kürzere
+                    Zielbelichtung schon mehr Licht „verbraucht".
+                  </ThemedText>
+              </>
+            ),
+          },
+          {
+            body: (
+              <>
+                  <ThemedText style={styles.modalH3}>Was bedeuten die Ergebnisse?</ThemedText>
+                  <ThemedText style={[styles.modalBody, { color: theme.textSecondary }]}>
+                    Die App berechnet die Lücke zwischen dem, was die Drohne <ThemedText style={styles.modalBold}>
+                    aktuell tun muss</ThemedText>, und dem, was für den <ThemedText style={styles.modalBold}>
+                    Kino-Look optimal</ThemedText> wäre.{"\n\n"}
+                    • <ThemedText style={styles.modalBold}>ND4 / ND8</ThemedText> — bewölkte Tage,
+                    goldene Stunde (leichte Sonnenbrille){"\n"}
+                    • <ThemedText style={styles.modalBold}>ND16 / ND32</ThemedText> — normale, sonnige
+                    Tage (Standard-Sonnenbrille){"\n"}
+                    • <ThemedText style={styles.modalBold}>ND64 / ND128</ThemedText> — greller
+                    Sonnenschein, Schnee, Sandstrand (Skibrille)
+                  </ThemedText>
+              </>
+            ),
+          },
+          {
+            body: (
+              <>
+                  <ThemedText style={styles.modalH3}>Schritt-für-Schritt vor dem Start</ThemedText>
+                  <ThemedText style={[styles.modalBody, { color: theme.textSecondary }]}>
+                    <ThemedText style={styles.modalBold}>1.</ThemedText> In der DJI-Fly-App (o. ä.) den
+                    Kamera-Modus von <ThemedText style={styles.modalBold}>Auto</ThemedText> auf
+                    {" "}<ThemedText style={styles.modalBold}>Manuell (M)</ThemedText> umstellen.{"\n\n"}
+                    <ThemedText style={styles.modalBold}>2.</ThemedText> ISO fest auf{" "}
+                    <ThemedText style={styles.modalBold}>100</ThemedText> stellen — maximale Bildqualität
+                    ohne digitales Rauschen.{"\n\n"}
+                    <ThemedText style={styles.modalBold}>3.</ThemedText> Aktuellen Shutter-Wert vom
+                    Live-Bild ablesen und hier im Slider eintragen — oder den{" "}
+                    <ThemedText style={styles.modalBold}>Auto-Modus</ThemedText> mit Wetterdaten nutzen.{"\n\n"}
+                    <ThemedText style={styles.modalBold}>4.</ThemedText> Die Empfehlung ablesen
+                    (z. B. <ThemedText style={styles.modalBold}>ND16</ThemedText>), den passenden Filter
+                    aufs Objektiv stecken — fertig für den Kino-Look.
+                  </ThemedText>
+              </>
+            ),
+          },
+        ]}
+      />
     </ThemedView>
   );
 }
@@ -1073,30 +1072,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   disclaimer: { fontSize: 11, fontStyle: "italic", lineHeight: 15 },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.6)",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: Spacing.xl,
-  },
-  modalCard: {
-    width: "100%",
-    maxWidth: 480,
-    maxHeight: "85%",
-    borderRadius: 16,
-    padding: Spacing.xl,
-  },
-  modalHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.md,
-    marginBottom: Spacing.lg,
-  },
-  modalTitle: {
-    ...Typography.h4,
-    flex: 1,
-  },
   modalH3: {
     ...Typography.body,
     fontWeight: "800",

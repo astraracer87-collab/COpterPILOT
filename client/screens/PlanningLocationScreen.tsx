@@ -46,6 +46,7 @@ import { assessGeozoneAltitudeConflict, DEFAULT_REACHABLE_ALTITUDE_M } from "../
 import { maxRestrictionVerdict, zonePolicy } from "../../shared/restrictionPolicy";
 import { isZoneActiveInContext } from "../../shared/ed269Restriction";
 import { filterGeozoneDetailLines } from "@/lib/sourceAttribution";
+import { InfoDialog } from "@/components/InfoDialog";
 
 type NavigationProp = NativeStackNavigationProp<FlightPlanningParamList, "PlanningLocation">;
 type RouteParams = RouteProp<FlightPlanningParamList, "PlanningLocation">;
@@ -752,11 +753,9 @@ export default function PlanningLocationScreen() {
       crossCheckEnabled,
     });
 
-    if (target === "crosscheck") {
-      navigation.navigate("PlanningCrossCheck", baseParams);
-    } else {
-      navigation.navigate("PlanningDateTime", baseParams);
-    }
+    // Zuerst die Gebietsübersicht (Geozonen/NOTAMs/Hindernisse/Hinweise im
+    // Umkreis); deren „Weiter“ führt zum hier bestimmten Ziel.
+    navigation.navigate("PlanningAreaOverview", { ...baseParams, next: target });
   };
 
   const renderSearchDropdown = () => {
@@ -1594,119 +1593,100 @@ export default function PlanningLocationScreen() {
         </View>
       </Modal>
 
-      <Modal
+      <InfoDialog
         visible={detailZone !== null}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setDetailZone(null)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalCard, { backgroundColor: theme.backgroundDefault }]}>
-            {detailZone ? (
+        onClose={() => setDetailZone(null)}
+        title={detailZone?.name ?? ""}
+        okLabel="Schließen"
+        okTestID="button-zone-detail-close"
+        testID="zone-detail-dialog"
+        sections={detailZone && detailHasContent ? [
+          ...(detailParsed && detailParsed.otherLines.length > 0 ? [{
+            weight: detailParsed.otherLines.join("\n").length,
+            body: (
+              <ThemedText style={[styles.geozoneDetailBody, { color: theme.textSecondary }]} testID="text-zone-detail-info">
+                {detailParsed.otherLines.join("\n")}
+              </ThemedText>
+            ),
+          }] : []),
+          ...(detailZone.applicationText || (detailParsed && detailParsed.contacts.length > 0) || (detailZone.links && detailZone.links.length > 0) ? [{
+            weight: (detailZone.applicationText?.length ?? 0) + 120,
+            body: (
               <>
-                <View style={styles.touchedHeader}>
-                  <Feather name="map-pin" size={16} color={theme.primary} />
-                  <View style={[styles.zoneDetailBadge, { backgroundColor: theme.primary }]}>
-                    <ThemedText style={styles.zoneDetailBadgeText} numberOfLines={1}>
-                      {detailZone.layerLabel}
+                {detailZone.applicationText ? (
+                  <View style={[styles.zoneDetailNote, { backgroundColor: theme.backgroundSecondary, borderColor: theme.border }]}>
+                    <ThemedText style={[styles.zoneDetailNoteText, { color: theme.textSecondary }]}>
+                      {detailZone.applicationText}
                     </ThemedText>
                   </View>
-                </View>
-                <ThemedText style={styles.modalTitle} testID="text-zone-detail-name">
-                  {detailZone.name}
-                </ThemedText>
-
-                <ScrollView
-                  style={styles.zoneDetailScroll}
-                  contentContainerStyle={styles.zoneDetailScrollContent}
-                  showsVerticalScrollIndicator={false}
-                >
-                  {detailHasContent ? (
-                    <>
-                      {detailParsed && detailParsed.otherLines.length > 0 ? (
-                        <ThemedText style={[styles.geozoneDetailBody, { color: theme.textSecondary }]} testID="text-zone-detail-info">
-                          {detailParsed.otherLines.join("\n")}
+                ) : null}
+                {detailParsed && detailParsed.contacts.length > 0 ? (
+                  <View style={styles.zoneDetailContacts}>
+                    {detailParsed.contacts.map((c, ci) => (
+                      <TouchableOpacity
+                        key={`${c.type}-${c.value}-${ci}`}
+                        style={[styles.zoneDetailContactRow, { borderColor: theme.border }]}
+                        activeOpacity={0.7}
+                        onPress={() => {
+                          const url = c.type === "phone" ? `tel:${c.value.replace(/\s/g, "")}` : `mailto:${c.value}`;
+                          openLink(url).catch(() => {});
+                        }}
+                        testID={`button-zone-contact-${ci}`}
+                      >
+                        <Feather name={c.type === "phone" ? "phone" : "mail"} size={15} color={theme.primary} />
+                        <ThemedText style={[styles.zoneDetailContactText, { color: theme.primary }]} numberOfLines={1}>
+                          {c.value}
                         </ThemedText>
-                      ) : null}
-
-                      {detailZone.applicationText ? (
-                        <View style={[styles.zoneDetailNote, { backgroundColor: theme.backgroundSecondary, borderColor: theme.border }]}>
-                          <ThemedText style={[styles.zoneDetailNoteText, { color: theme.textSecondary }]}>
-                            {detailZone.applicationText}
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                ) : null}
+                {detailZone.links && detailZone.links.length > 0 ? (
+                  <View style={styles.zoneDetailContacts}>
+                    {detailZone.links.map((l, li) => {
+                      const isMail = l.url.startsWith("mailto:");
+                      const isTel = l.url.startsWith("tel:");
+                      return (
+                        <TouchableOpacity
+                          key={`${l.url}-${li}`}
+                          style={[styles.zoneDetailContactRow, { borderColor: theme.border }]}
+                          activeOpacity={0.7}
+                          onPress={() => { openLink(l.url).catch(() => {}); }}
+                          testID={`button-zone-link-${li}`}
+                        >
+                          <Feather name={isMail ? "mail" : isTel ? "phone" : "external-link"} size={15} color={theme.primary} />
+                          <ThemedText style={[styles.zoneDetailContactText, { color: theme.primary }]} numberOfLines={1}>
+                            {l.label}
                           </ThemedText>
-                        </View>
-                      ) : null}
-
-                      {detailParsed && detailParsed.contacts.length > 0 ? (
-                        <View style={styles.zoneDetailContacts}>
-                          {detailParsed.contacts.map((c, ci) => (
-                            <TouchableOpacity
-                              key={`${c.type}-${c.value}-${ci}`}
-                              style={[styles.zoneDetailContactRow, { borderColor: theme.border }]}
-                              activeOpacity={0.7}
-                              onPress={() => {
-                                const url = c.type === "phone" ? `tel:${c.value.replace(/\s/g, "")}` : `mailto:${c.value}`;
-                                openLink(url).catch(() => {});
-                              }}
-                              testID={`button-zone-contact-${ci}`}
-                            >
-                              <Feather name={c.type === "phone" ? "phone" : "mail"} size={15} color={theme.primary} />
-                              <ThemedText style={[styles.zoneDetailContactText, { color: theme.primary }]} numberOfLines={1}>
-                                {c.value}
-                              </ThemedText>
-                            </TouchableOpacity>
-                          ))}
-                        </View>
-                      ) : null}
-
-                      {detailZone.links && detailZone.links.length > 0 ? (
-                        <View style={styles.zoneDetailContacts}>
-                          {detailZone.links.map((l, li) => {
-                            const isMail = l.url.startsWith("mailto:");
-                            const isTel = l.url.startsWith("tel:");
-                            return (
-                              <TouchableOpacity
-                                key={`${l.url}-${li}`}
-                                style={[styles.zoneDetailContactRow, { borderColor: theme.border }]}
-                                activeOpacity={0.7}
-                                onPress={() => { openLink(l.url).catch(() => {}); }}
-                                testID={`button-zone-link-${li}`}
-                              >
-                                <Feather name={isMail ? "mail" : isTel ? "phone" : "external-link"} size={15} color={theme.primary} />
-                                <ThemedText style={[styles.zoneDetailContactText, { color: theme.primary }]} numberOfLines={1}>
-                                  {l.label}
-                                </ThemedText>
-                              </TouchableOpacity>
-                            );
-                          })}
-                        </View>
-                      ) : null}
-                    </>
-                  ) : (
-                    <View style={styles.zoneDetailEmpty} testID="text-zone-detail-empty">
-                      <Feather name="info" size={18} color={theme.textTertiary} />
-                      <ThemedText style={[styles.zoneDetailEmptyText, { color: theme.textSecondary }]}>
-                        Für diese Zone sind keine weiteren Details hinterlegt. Prüfe die offizielle Karte im nächsten Schritt.
-                      </ThemedText>
-                    </View>
-                  )}
-                </ScrollView>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                ) : null}
               </>
-            ) : null}
-
-            <TouchableOpacity
-              onPress={() => setDetailZone(null)}
-              activeOpacity={0.7}
-              style={styles.modalCancel}
-              testID="button-zone-detail-close"
-            >
-              <ThemedText style={[styles.modalCancelText, { color: theme.textSecondary }]}>
-                Schließen
+            ),
+          }] : []),
+        ] : []}
+        intro={detailZone ? (
+          <View style={[styles.touchedHeader, { marginBottom: Spacing.sm }]}>
+            <Feather name="map-pin" size={16} color={theme.primary} />
+            <View style={[styles.zoneDetailBadge, { backgroundColor: theme.primary }]}>
+              <ThemedText style={styles.zoneDetailBadgeText} numberOfLines={1}>
+                {detailZone.layerLabel}
               </ThemedText>
-            </TouchableOpacity>
+            </View>
           </View>
-        </View>
-      </Modal>
+        ) : null}
+      >
+        {detailZone && !detailHasContent ? (
+          <View style={styles.zoneDetailEmpty} testID="text-zone-detail-empty">
+            <Feather name="info" size={18} color={theme.textTertiary} />
+            <ThemedText style={[styles.zoneDetailEmptyText, { color: theme.textSecondary }]}>
+              Für diese Zone sind keine weiteren Details hinterlegt. Prüfe die offizielle Karte im nächsten Schritt.
+            </ThemedText>
+          </View>
+        ) : null}
+      </InfoDialog>
     </ThemedView>
   );
 }
@@ -2105,12 +2085,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "700",
     color: "#FFFFFF",
-  },
-  zoneDetailScroll: {
-    maxHeight: 320,
-  },
-  zoneDetailScrollContent: {
-    gap: Spacing.md,
   },
   geozoneDetailBody: {
     ...Typography.small,
