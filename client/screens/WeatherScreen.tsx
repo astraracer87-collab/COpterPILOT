@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
+import { beaufortLevel, droneWindVerdict, droneWindVerdictText, warnThresholdMs, WIND_WARN_FRACTION } from "@/lib/beaufort";
 import { View, StyleSheet, ScrollView, ActivityIndicator, Pressable } from "react-native";
 import { useRoute, useNavigation } from "@react-navigation/native";
 import type { RouteProp } from "@react-navigation/native";
@@ -381,6 +382,32 @@ export default function WeatherScreen() {
               </ThemedText>
             </View>
           </View>
+          {(() => {
+            const sorted = altHeights.slice().sort((a, b) => a - b);
+            const h = maxAltitude != null && maxAltitude > 0
+              ? sorted.find((x) => x >= maxAltitude) ?? sorted[sorted.length - 1]
+              : sorted[0];
+            const w = current.windAtAltitude.find((x) => x.height === h);
+            if (!w) return null;
+            const level = beaufortLevel(w.speed);
+            const verdict = droneWindVerdict(w.speed, limits.maxWind);
+            const color = verdict === "over" ? theme.statusNoGo : verdict === "caution" ? theme.statusCaution : theme.statusGo;
+            return (
+              <View style={[styles.beaufortStrip, { borderColor: color, backgroundColor: color + "14" }]} testID="weather-beaufort">
+                <View style={[styles.beaufortBadge, { backgroundColor: color }]}>
+                  <ThemedText style={styles.beaufortBadgeText}>Bft {level.bft}</ThemedText>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <ThemedText style={styles.beaufortTitle}>
+                    {level.name} in {h} m: {convertWind(w.speed)} {getWindUnit()} – {droneWindVerdictText(verdict)}
+                  </ThemedText>
+                  <ThemedText style={[styles.beaufortSign, { color: theme.textSecondary }]}>
+                    {level.sign}. Warnung ab {convertWind(warnThresholdMs(limits.maxWind))} {getWindUnit()} ({Math.round(WIND_WARN_FRACTION * 100)} % von {convertWind(limits.maxWind)}).
+                  </ThemedText>
+                </View>
+              </View>
+            );
+          })()}
           <ThemedText style={[styles.currentHint, { color: theme.textTertiary }]}>
             Wind, Temperatur, Böen und Wolken siehe Höhenprofil unten.
           </ThemedText>
@@ -804,6 +831,33 @@ const styles = StyleSheet.create({
   currentLabel: {
     ...Typography.caption,
     marginTop: Spacing.xs,
+  },
+  beaufortStrip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    marginTop: Spacing.md,
+    padding: Spacing.sm,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  beaufortBadge: {
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  beaufortBadgeText: {
+    color: "#FFF",
+    fontWeight: "800",
+    fontSize: 13,
+  },
+  beaufortTitle: {
+    ...Typography.small,
+    fontWeight: "600",
+  },
+  beaufortSign: {
+    fontSize: 11,
+    marginTop: 2,
   },
   currentHint: {
     ...Typography.caption,

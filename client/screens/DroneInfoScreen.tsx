@@ -2,6 +2,7 @@ import { openLink } from "@/lib/webBrowser";
 import React, { useCallback, useLayoutEffect, useState } from "react";
 import { View, StyleSheet, ScrollView, Pressable, Linking, Platform, Image } from "react-native";
 import { getDroneImage } from "@/lib/droneImage";
+import { beaufortLevel, warnThresholdMs, WIND_WARN_FRACTION } from "@/lib/beaufort";
 import { useRoute, useNavigation, useFocusEffect } from "@react-navigation/native";
 import type { RouteProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -254,7 +255,20 @@ export default function DroneInfoScreen() {
         {/* Wetter-Limits */}
         <Card style={styles.card}>
           <SectionTitle>Wetter-Limits</SectionTitle>
-          <Row label="Max. Wind" value={drone.limits?.maxWind != null ? `${drone.limits.maxWind} m/s` : DASH} />
+          <Row
+            label="Max. Wind"
+            value={
+              drone.limits?.maxWind != null
+                ? `${drone.limits.maxWind} m/s · ${(drone.limits.maxWind * 3.6).toFixed(1)} km/h (Bft ${beaufortLevel(drone.limits.maxWind).bft})`
+                : DASH
+            }
+          />
+          {drone.limits?.maxWind != null ? (
+            <Row
+              label={`Warnung ab (${Math.round(WIND_WARN_FRACTION * 100)} %)`}
+              value={`${warnThresholdMs(drone.limits.maxWind).toFixed(1)} m/s · ${(warnThresholdMs(drone.limits.maxWind) * 3.6).toFixed(0)} km/h (Bft ${beaufortLevel(warnThresholdMs(drone.limits.maxWind)).bft})`}
+            />
+          ) : null}
           <Row label="Max. Böen" value={drone.limits?.maxGusts != null ? `${drone.limits.maxGusts} m/s` : DASH} />
           <Row label="Min. Temperatur" value={drone.limits?.minTemp != null ? `${drone.limits.minTemp} °C` : DASH} />
           <Row label="Max. Temperatur" value={drone.limits?.maxTemp != null ? `${drone.limits.maxTemp} °C` : DASH} />

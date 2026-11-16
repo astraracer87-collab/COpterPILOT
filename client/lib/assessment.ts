@@ -1,4 +1,5 @@
 import { WeatherData } from "@/lib/weather";
+import { WIND_WARN_FRACTION } from "@/lib/beaufort";
 import { getKpAssessment } from "@/lib/kpindex";
 import { WeatherLimits, AssessmentReason } from "@/lib/storage";
 import type { AirportMetarObservation } from "@/lib/aviationWeather";
@@ -369,7 +370,7 @@ export function assessWeather(
       message: `Windgeschwindigkeit ${current.windSpeed.toFixed(1)} m/s überschreitet Limit`,
     });
     markSevere();
-  } else if (current.windSpeed > limits.maxWind * 0.8) {
+  } else if (current.windSpeed > limits.maxWind * WIND_WARN_FRACTION) {
     warnings.push({
       message: `Windgeschwindigkeit ${current.windSpeed.toFixed(1)} m/s nahe am Limit von ${limits.maxWind} m/s`,
       severity: "caution",
@@ -402,7 +403,7 @@ export function assessWeather(
       message: `Böen ${current.windGust.toFixed(1)} m/s überschreiten Limit`,
     });
     markSevere();
-  } else if (current.windGust && current.windGust > limits.maxGusts * 0.8) {
+  } else if (current.windGust && current.windGust > limits.maxGusts * WIND_WARN_FRACTION) {
     warnings.push({
       message: `Böen ${current.windGust.toFixed(1)} m/s nahe am Limit von ${limits.maxGusts} m/s`,
       severity: "caution",
@@ -586,7 +587,7 @@ export function assessWeather(
       });
       reasons.push({ type: "caution", message: `Böen am ${where} über Limit` });
       markSevere();
-    } else if (a.windGustMs != null && a.windGustMs > limits.maxGusts * 0.8) {
+    } else if (a.windGustMs != null && a.windGustMs > limits.maxGusts * WIND_WARN_FRACTION) {
       warnings.push({
         message: `${where}: gemeldete Böen ${a.windGustMs.toFixed(1)} m/s nahe am Limit (${limits.maxGusts} m/s)`,
         severity: "caution",
@@ -607,7 +608,7 @@ export function assessWeather(
       });
       reasons.push({ type: "caution", message: `Wind am ${where} über Limit` });
       markSevere();
-    } else if (a.windSpeedMs != null && a.windSpeedMs > limits.maxWind * 0.8) {
+    } else if (a.windSpeedMs != null && a.windSpeedMs > limits.maxWind * WIND_WARN_FRACTION) {
       warnings.push({
         message: `${where}: gemeldeter Wind ${a.windSpeedMs.toFixed(1)} m/s nahe am Limit (${limits.maxWind} m/s)`,
         severity: "caution",

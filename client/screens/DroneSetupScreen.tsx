@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
+import { beaufortLevel, warnThresholdMs, WIND_WARN_FRACTION } from "@/lib/beaufort";
 import { activeNdKitId, applyNdKitSelection, buildNdKits, type NdKit } from "@/lib/ndKits";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import {
@@ -898,6 +899,11 @@ export default function DroneSetupScreen() {
                   {presetDiffers("maxWind") ? (
                     <ThemedText style={{ fontSize: 11, color: theme.textTertiary, marginTop: 2 }}>
                       Hersteller: {formatPresetWind(presetLimits!.maxWind)} {getWindUnit()}
+                    </ThemedText>
+                  ) : null}
+                  {limits.maxWind > 0 ? (
+                    <ThemedText style={{ fontSize: 11, color: theme.textTertiary, marginTop: 2 }} testID="text-wind-beaufort">
+                      Bft {beaufortLevel(limits.maxWind).bft} · Warnung ab {convertWindForDisplay(Number(warnThresholdMs(limits.maxWind).toFixed(1)))} {getWindUnit()} ({Math.round(WIND_WARN_FRACTION * 100)} %)
                     </ThemedText>
                   ) : null}
                 </View>
