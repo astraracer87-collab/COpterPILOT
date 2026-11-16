@@ -19,13 +19,11 @@ export function DjiLaunchButton({ size = 48 }: { size?: number }) {
     return () => { alive = false; };
   }, []);
 
-  if (Platform.OS !== "android") return null;
+  // Ohne installierte DJI-App (oder solange noch gesucht wird) gibt es den Knopf gar nicht –
+  // die Leiste sieht dann aus wie vorher.
+  if (Platform.OS !== "android" || !checked || !app) return null;
 
   const onPress = () => {
-    if (!app) {
-      Alert.alert("DJI-App nicht gefunden", "DJI Fly bzw. DJI Pilot 2 ist auf diesem Gerät nicht installiert.");
-      return;
-    }
     if (!launchDjiApp(app.pkg)) {
       Alert.alert(app.label, `${app.label} konnte nicht geöffnet werden.`);
     }
@@ -36,21 +34,21 @@ export function DjiLaunchButton({ size = 48 }: { size?: number }) {
       <Pressable
         onPress={onPress}
         accessibilityRole="button"
-        accessibilityLabel={app ? `${app.label} öffnen` : "DJI-App öffnen"}
+        accessibilityLabel={`${app.label} öffnen`}
         testID="tab-dji-launch"
         android_ripple={null}
         style={({ pressed }) => [
           styles.button,
-          { width: size, height: size, borderRadius: size / 2, opacity: checked && !app ? 0.5 : pressed ? 0.8 : 1 },
+          { width: size, height: size, borderRadius: size / 2, opacity: pressed ? 0.8 : 1 },
         ]}
       >
-        {app?.iconUri ? (
+        {app.iconUri ? (
           <Image source={{ uri: app.iconUri }} style={{ width: size * 0.62, height: size * 0.62, borderRadius: size * 0.14 }} />
         ) : (
           <Feather name="navigation" size={size * 0.42} color="#1C1C1E" />
         )}
       </Pressable>
-      {app ? <Text style={styles.caption} numberOfLines={1}>{app.label}</Text> : null}
+      <Text style={styles.caption} numberOfLines={1}>{app.label}</Text>
     </View>
   );
 }
