@@ -110,7 +110,7 @@ function lonLatRings(geometry: any): [number, number][][][] {
   return [];
 }
 
-export function czZoneFromStored(f: any): GeozoneFeatureInfo | null {
+export function czZoneFromStored(f: any, nowMs: number = Date.now()): GeozoneFeatureInfo | null {
   const polygonGroups = lonLatRings(f?.geometry);
   if (polygonGroups.length === 0) return null;
   const p = f?.properties ?? {};
@@ -151,7 +151,7 @@ export function czZoneFromStored(f: any): GeozoneFeatureInfo | null {
   const activityProps = rawApplicability ? { applicability: rawApplicability } : {};
   const { validStartTs, validEndTs } = ed269ValidityFromProps(activityProps);
   const ed269Applicability = ed269ActivityFromProps(activityProps);
-  if (zoneEndedLongAgo({ validEndTs, ed269Applicability })) return null;
+  if (zoneEndedLongAgo({ validEndTs, ed269Applicability }, nowMs)) return null;
   const scheduleText = ed269ScheduleFromProps(activityProps);
   details.push(
     `Quelle: ${TILE_STORE_ATTRIBUTION.CZ.label}. Vereinfachte ED-318-Daten – verbindlich sind die Zonen auf dronemap.gov.cz.`,
@@ -215,12 +215,12 @@ export function esZoneFromStored(f: any, now: Date = new Date()): GeozoneFeature
   };
 }
 
-export function zoneFromStored(iso: TileStoreIso, f: any): GeozoneFeatureInfo | null {
+export function zoneFromStored(iso: TileStoreIso, f: any, nowMs: number = Date.now()): GeozoneFeatureInfo | null {
   try {
     if (iso === "DE") return deZoneFromStored(f);
     if (iso === "FR") return frZoneFromStored(f);
-    if (iso === "ES") return esZoneFromStored(f);
-    return czZoneFromStored(f);
+    if (iso === "ES") return esZoneFromStored(f, new Date(nowMs));
+    return czZoneFromStored(f, nowMs);
   } catch {
     return null;
   }

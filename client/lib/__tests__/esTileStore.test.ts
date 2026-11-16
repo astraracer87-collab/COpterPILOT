@@ -204,6 +204,7 @@ beforeEach(() => {
     isWifi: async () => true,
     fetch: fakeFetch,
     retryDelaysMs: [1, 1, 1],
+    now: () => NOW.getTime(),
   });
   __setEsLiveFetchForTests(async (url: string) => (await fakeFetch(url)).json());
 });
@@ -248,7 +249,7 @@ describe("ES – Kachelspeicher", () => {
     assert.ok(getEsTempStatus().fetchedAt != null);
 
     // offline: neuer Prozess-Zustand, NOTAM aus es/temp.json
-    __setTileStoreEnvForTests({ fs: createNodeTileFs(dir, fakeFetch), isOffline: () => true, isWifi: async () => false, fetch: fakeFetch, retryDelaysMs: [1] });
+    __setTileStoreEnvForTests({ fs: createNodeTileFs(dir, fakeFetch), isOffline: () => true, isWifi: async () => false, fetch: fakeFetch, retryDelaysMs: [1], now: () => NOW.getTime() });
     failAll = true;
     await loadTileStoreMeta();
     const off = (await queryTiledGeozones("ES", bboxAround(40.47, -3.58, 3)))!;

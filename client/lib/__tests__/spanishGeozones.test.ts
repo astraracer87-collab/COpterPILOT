@@ -232,7 +232,7 @@ describe("Spanien – Normalisierung (ArcGIS-GeoJSON, 3 Layer)", () => {
   });
 
   it("parseEd269ToGeozoneInfo versteht das Ergebnis", () => {
-    const zones = parseEd269ToGeozoneInfo(feats, "es");
+    const zones = parseEd269ToGeozoneInfo(feats, "es", NOW.getTime());
     const z = zones.find((x) => x.featureId === "ES-LEMD01");
     assert.ok(z);
     assert.equal(z!.restriction, "REQ_AUTHORISATION");

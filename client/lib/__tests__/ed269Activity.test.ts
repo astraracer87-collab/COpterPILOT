@@ -116,6 +116,7 @@ describe("Schedule-Text und geparste Zonen", () => {
     const [z] = parseEd269ToGeozoneInfo(
       [{ type: "Feature", geometry: { type: "Polygon", coordinates: [ring] }, properties: LOXZ4 }],
       "AT",
+      NOW.getTime(),
     );
     assert.ok(Array.isArray(z.ed269Applicability));
     assert.equal(zoneActivityAt(z, at("2026-11-19T10:00:00Z")), "active");
@@ -284,7 +285,7 @@ describe("Alle strukturierten Pfade tragen das Zeitfenster", () => {
         identifier: "LKR1", name: [{ lang: "cs", text: "Test" }], type: "REQ_AUTHORISATION",
         limitedApplicability: [{ startDateTime: "2026-11-01T00:00:00Z", endDateTime: "2026-12-31T00:00:00Z", schedule: [{ day: ["MON"], startTime: "08:00", endTime: "12:00" }] }],
       },
-    });
+    }, NOW.getTime());
     assert.ok(z);
     assert.ok(Array.isArray(z!.ed269Applicability));
     assert.equal(zoneActivityAt(z!, at("2026-11-16T09:00:00Z")), "active"); // Mo

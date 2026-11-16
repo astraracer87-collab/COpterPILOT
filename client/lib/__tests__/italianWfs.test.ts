@@ -98,7 +98,7 @@ describe("d-flight WFS – ATM09_INFO", () => {
   });
 
   it("Prüfkette: unter der Flughöhe frei, darüber Höhenfrage; 0 m = Verbot", () => {
-    const infos = parseEd269ToGeozoneInfo(zones as any[], "IT");
+    const infos = parseEd269ToGeozoneInfo(zones as any[], "IT", NOW.getTime());
     const z25 = infos.find((i) => i.featureId === "IT-ATM09-102")!;
     assert.equal(z25.maxFlightHeightAglM, 25);
     assert.equal(assessGeozoneAltitudeConflict(z25, 20).clearedByAltitude, true);
@@ -133,7 +133,7 @@ describe("d-flight WFS – NO_FLY_ZONE und NOTAM", () => {
     assert.equal(p.upperMeters, 150);
     assert.match(p.message, /Gültig: 2026-11-15 08:00 UTC bis 2026-11-16 20:00 UTC/);
     assert.match(p.message, /Originaltext der Behörde:\nDivieto temporaneo di sorvolo UAS/);
-    const [info] = parseEd269ToGeozoneInfo(nfz as any[], "IT");
+    const [info] = parseEd269ToGeozoneInfo(nfz as any[], "IT", NOW.getTime());
     assert.equal(info.restriction, "PROHIBITED");
     assert.equal(info.validEndTs, Date.UTC(2026, 10, 16, 20));
   });

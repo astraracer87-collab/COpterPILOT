@@ -17,6 +17,9 @@ import {
 } from "../../../shared/swissGeozones";
 import { parseEd269ToGeozoneInfo, ed269IsActiveAt } from "../ed269";
 
+// Fixtures stammen aus Nov. 2026; Ablauf-Filter gegen diese Zeit statt der echten Uhr.
+const FIXTURE_NOW_MS = Date.parse("2026-11-15T12:00:00Z");
+
 // Gekürzte ECHTE Auszüge (data.geo.admin.ch, Stand 2026-11-14): 9 ED-269-Zonen
 // (alle 3 aus Liechtenstein, eine CTR, temporäre Zonen, ein MultiPolygon-Fall)
 // und 2 UAS-Aktivitätszonen (Datei mit BOM wie im Original).
@@ -188,7 +191,7 @@ describe("BAZL (CH/FL) – Normalisierung des echten Auszugs", () => {
   });
 
   it("parseEd269ToGeozoneInfo liest die normalisierten Zonen", () => {
-    const infos = parseEd269ToGeozoneInfo(features, "CH");
+    const infos = parseEd269ToGeozoneInfo(features, "CH", FIXTURE_NOW_MS);
     assert.equal(infos.length, 9);
     const ctr = infos.find((i) => i.featureId === "CTR0001")!;
     assert.equal(ctr.restriction, "REQ_AUTHORISATION");
@@ -228,7 +231,7 @@ describe("BAZL – UAS-Aktivitätszonen", () => {
     // großzügiger Zeitraum: Starttag 00:00 MESZ bis Endtag 23:59:59 MEZ (inklusive)
     assert.equal(ed269IsActiveAt(swi.properties, new Date("2026-12-01T22:00:00Z")), true);
     assert.equal(ed269IsActiveAt(swi.properties, new Date("2026-12-02T12:00:00Z")), false);
-    const infos = parseEd269ToGeozoneInfo(zones, "CH");
+    const infos = parseEd269ToGeozoneInfo(zones, "CH", FIXTURE_NOW_MS);
     const info = infos.find((i) => i.featureId === "SWI033")!;
     assert.deepEqual(info.scheduleText, ["1745-0630, daily"]);
     assert.match(info.details, /UAS-Aktivitätszone/);

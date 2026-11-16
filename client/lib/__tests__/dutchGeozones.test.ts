@@ -12,6 +12,9 @@ import {
 } from "../../../shared/dutchGeozones";
 import { parseEd269ToGeozoneInfo } from "../ed269";
 
+// Fixtures stammen aus Nov. 2026; Ablauf-Filter gegen diese Zeit statt der echten Uhr.
+const FIXTURE_NOW_MS = Date.parse("2026-11-15T12:00:00Z");
+
 const fixture = JSON.parse(
   fs.readFileSync(path.join(__dirname, "fixtures", "godrone-amsterdam.json"), "utf8"),
 );
@@ -66,7 +69,7 @@ describe("GoDrone (NL) – Normalisierung", () => {
   it("alle Fixture-Zonen lassen sich in Geozonen-Infos umwandeln", () => {
     const zones = fixture.features.map((f: any) => normalizeGodroneFeature(f)).filter(Boolean);
     assert.ok(zones.length >= 8);
-    const infos = parseEd269ToGeozoneInfo(zones, "NL");
+    const infos = parseEd269ToGeozoneInfo(zones, "NL", FIXTURE_NOW_MS);
     assert.ok(infos.length >= 1);
     for (const info of infos) assert.ok(info.name, "Info mit Namen");
     assert.ok(infos.some((i) => i.name === "SCHIPHOL CTR"));

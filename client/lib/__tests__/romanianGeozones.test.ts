@@ -123,7 +123,7 @@ describe("Rumänien – echte Fixtures → Zonen", () => {
   });
 
   it("App-Modell: NOTAM aktiv nur im Tagesfenster", () => {
-    const infos = parseEd269ToGeozoneInfo(features as any[], "RO");
+    const infos = parseEd269ToGeozoneInfo(features as any[], "RO", NOW.getTime());
     assert.equal(infos.length, 4);
     const n = infos.find((z) => z.name === "NOTAM R5607/2026")!;
     assert.equal(zoneActivityAt(n, new Date("2026-11-15T12:00:00Z")), "inactive");

@@ -151,7 +151,7 @@ describe("Schweden – ED-318 (Transportstyrelsen)", () => {
   });
 
   it("parseEd269ToGeozoneInfo versteht das Ergebnis", () => {
-    const zones = parseEd269ToGeozoneInfo(feats, "se");
+    const zones = parseEd269ToGeozoneInfo(feats, "se", NOW.getTime());
     const z = zones.find((x) => x.featureId === "SE-ESU200");
     assert.ok(z);
     assert.equal(z!.restriction, "REQ_AUTHORISATION");
@@ -254,7 +254,7 @@ describe("Schweden – WFS-Luftraum (LFV)", () => {
   });
 
   it("parseEd269ToGeozoneInfo: NOTAM-fähig, Höhe, Zeitplan", () => {
-    const zones = parseEd269ToGeozoneInfo(all, "se");
+    const zones = parseEd269ToGeozoneInfo(all, "se", NOW.getTime());
     const notam = zones.find((z) => z.name.startsWith("NOTAM A1258"));
     assert.ok(notam);
     assert.equal(notam!.notamEligible, true);

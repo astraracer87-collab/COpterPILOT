@@ -103,7 +103,7 @@ describe("Finnland (Traficom) – Normalisierung", () => {
     assert.deepEqual(aa.applicability, [{ permanent: "YES", regulationPeriodEndDateTime: "2027-04-17T21:00:00.00Z" }]);
     assert.equal(aa.regulationPeriodEnd, "2027-04-17T21:00:00.00Z");
     // Auch nach der Periode bleibt die Zone sichtbar (Feed wird ohnehin täglich erneuert).
-    const [z] = parseEd269ToGeozoneInfo([byId(features, "EFAAUAS")], "fi");
+    const [z] = parseEd269ToGeozoneInfo([byId(features, "EFAAUAS")], "fi", NOW.getTime());
     assert.equal(z.validEndTs, null);
     assert.equal(z.scheduleText, undefined);
   });
@@ -111,7 +111,7 @@ describe("Finnland (Traficom) – Normalisierung", () => {
   it("echte befristete Zone (≤ 1 Jahr) behält ihr Gültigkeitsfenster", () => {
     const f = byId(features, "FIN748");
     assert.equal(f.properties.temporary, true);
-    const [z] = parseEd269ToGeozoneInfo([f], "fi");
+    const [z] = parseEd269ToGeozoneInfo([f], "fi", NOW.getTime());
     assert.equal(z.validEndTs, Date.parse("2026-12-30T22:00:00Z"));
   });
 
@@ -125,14 +125,14 @@ describe("Finnland (Traficom) – Normalisierung", () => {
     const weekend = byId(features, "EFUTUASC3");
     const weekdays = byId(features, "EFUTUASC3~2");
     assert.ok(weekend && weekdays, "doppelte Kennung wird eindeutig gemacht");
-    const parsed = parseEd269ToGeozoneInfo([weekend, weekdays], "fi");
+    const parsed = parseEd269ToGeozoneInfo([weekend, weekdays], "fi", NOW.getTime());
     assert.deepEqual(parsed.map((z) => z.scheduleText), [["Sa, So"], ["Mo–Fr"]]);
     assert.equal(ed269IsActiveAt(weekend.properties, new Date("2026-11-14T10:00:00Z")), true); // Samstag
     assert.equal(ed269IsActiveAt(weekend.properties, new Date("2026-11-16T10:00:00Z")), false); // Montag
   });
 
   it("Erklärtext aus exceptionPermit landet in der Meldung", () => {
-    const [z] = parseEd269ToGeozoneInfo([byId(features, "FIN435")], "fi");
+    const [z] = parseEd269ToGeozoneInfo([byId(features, "FIN435")], "fi", NOW.getTime());
     assert.match(z.details, /Hinweis Traficom \(fi\): Lennättäminen/);
     assert.match(z.details, /Zuständige Stelle: Traficom/);
     assert.match(z.details, /Grund: Sensibles Gebiet/);

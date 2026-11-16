@@ -121,6 +121,8 @@ interface TileEnv {
   fetch: typeof fetch;
   /** Wartezeiten zwischen Wiederholungen */
   retryDelaysMs: number[];
+  /** Uhr für Ablauf-Filter (Tests: feste Zeit) */
+  now: () => number;
 }
 
 let envOverride: Partial<TileEnv> | null = null;
@@ -159,6 +161,7 @@ function getEnv(): TileEnv {
     isWifi: envOverride?.isWifi ?? defaultWifi,
     fetch: envOverride?.fetch ?? ((...a: Parameters<typeof fetch>) => globalThis.fetch(...a)),
     retryDelaysMs: envOverride?.retryDelaysMs ?? [2000, 5000, 10000],
+    now: envOverride?.now ?? (() => Date.now()),
   };
 }
 
@@ -434,7 +437,7 @@ async function queryTiledGeozonesInner(
     // Aktivierungen an den festen Sperrgebieten anzeigen
     if (opts.includeTemp !== false) {
       zones.push(...(await getEsTempZones(bbox)));
-      return dedupeZones(annotateEsStaticActivations(zones, esTempCache?.features ?? []));
+      return dedupeZones(annotateEsStaticActivations(zones, esTempCache?.features ?? [], new Date(getEnv().now())));
     }
   }
   return dedupeZones(zones);
@@ -633,7 +636,7 @@ async function fetchEsNotamFeatures(): Promise<any[] | null> {
   return withEsLayer("es_notam", esFetchJson, async (layer) => {
     const byId = new Map<string, any>();
     let offset = 0;
-    const now = Date.now();
+    const now = getEnv().now();
     for (let page = 0; page < 5; page++) {
       const { features, exceeded } = arcgisPage(await fetchJson(esInsigniasPageUrl(layer, offset, layer.pageSize), 30_000, 1));
       offset += features.length;
@@ -735,12 +738,12 @@ export async function withEsNotamActivations(zones: GeozoneFeatureInfo[]): Promi
 
 async function getEsTempZones(bbox: LngLatBBox): Promise<GeozoneFeatureInfo[]> {
   const feats = await getEsTempFeatures();
-  const now = Date.now();
+  const now = getEnv().now();
   const out: GeozoneFeatureInfo[] = [];
   for (const f of feats) {
     const bb = geometryBBox(f?.geometry);
     if (!bb || !bboxIntersects(bb, bbox)) continue;
-    const z = zoneFromStored("ES", f);
+    const z = zoneFromStored("ES", f, now);
     if (!z || zoneEndedLongAgo(z, now)) continue;
     out.push(z);
   }

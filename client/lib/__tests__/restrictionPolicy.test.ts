@@ -383,7 +383,7 @@ describe("Jede Länder-Normalisierung liefert nur Union-Werte (alle Fixtures)", 
           assert.ok(isRestriction(raw), `${src.iso}: Normalisierer liefert ${JSON.stringify(raw)} (${f?.properties?.name})`);
         }
       }
-      const infos = parseEd269ToGeozoneInfo(features as any[], src.iso);
+      const infos = parseEd269ToGeozoneInfo(features as any[], src.iso, NOW.getTime());
       assert.ok(infos.length > 0, "parseEd269ToGeozoneInfo liefert Zonen");
       for (const z of infos) {
         assert.ok(isRestriction(z.restriction), `${src.iso}: ${z.name} → ${String(z.restriction)}`);

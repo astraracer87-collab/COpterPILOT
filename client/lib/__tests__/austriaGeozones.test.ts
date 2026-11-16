@@ -5,6 +5,9 @@ import { detectCountryFromCoordinates } from "../countryMaps";
 import { parseEd269ToGeozoneInfo } from "../ed269";
 import { zoneActivityAt } from "../../../shared/ed269Restriction";
 
+// Fixtures stammen aus Nov. 2026; Ablauf-Filter gegen diese Zeit statt der echten Uhr.
+const FIXTURE_NOW_MS = Date.parse("2026-11-15T12:00:00Z");
+
 describe("detectCountryFromCoordinates – Österreich (AT_POLYGON)", () => {
   const austrianCities: { name: string; lat: number; lon: number }[] = [
     { name: "Wien", lat: 48.2082, lon: 16.3738 },
@@ -240,7 +243,7 @@ describe("parseEd269ToGeozoneInfo – Restriction -> Farbe/Label", () => {
   });
 
   it("PROHIBITED -> rot + 'Flugverbot'", () => {
-    const [z] = parseEd269ToGeozoneInfo([makeFeature({ restriction: "PROHIBITED" })], "at");
+    const [z] = parseEd269ToGeozoneInfo([makeFeature({ restriction: "PROHIBITED" })], "at", FIXTURE_NOW_MS);
     assert.equal(z.restriction, "PROHIBITED");
     assert.equal(z.fillColor, "rgba(255,59,48,0.20)");
     assert.equal(z.strokeColor, "rgba(255,59,48,0.95)");
@@ -248,26 +251,26 @@ describe("parseEd269ToGeozoneInfo – Restriction -> Farbe/Label", () => {
   });
 
   it("REQ_AUTHORISATION -> orange + 'Genehmigung erforderlich'", () => {
-    const [z] = parseEd269ToGeozoneInfo([makeFeature({ restriction: "REQ_AUTHORISATION" })], "AT");
+    const [z] = parseEd269ToGeozoneInfo([makeFeature({ restriction: "REQ_AUTHORISATION" })], "AT", FIXTURE_NOW_MS);
     assert.equal(z.fillColor, "rgba(255,149,0,0.18)");
     assert.equal(z.strokeColor, "rgba(255,149,0,0.95)");
     assert.match(z.details, /Genehmigung erforderlich/);
   });
 
   it("CONDITIONAL -> gelb + 'Bedingt zulässig'", () => {
-    const [z] = parseEd269ToGeozoneInfo([makeFeature({ restriction: "CONDITIONAL" })], "AT");
+    const [z] = parseEd269ToGeozoneInfo([makeFeature({ restriction: "CONDITIONAL" })], "AT", FIXTURE_NOW_MS);
     assert.equal(z.fillColor, "rgba(255,204,0,0.18)");
     assert.match(z.details, /Bedingt zulässig/);
   });
 
   it("NO_RESTRICTION -> grün + 'Keine Beschränkung'", () => {
-    const [z] = parseEd269ToGeozoneInfo([makeFeature({ restriction: "NO_RESTRICTION" })], "AT");
+    const [z] = parseEd269ToGeozoneInfo([makeFeature({ restriction: "NO_RESTRICTION" })], "AT", FIXTURE_NOW_MS);
     assert.equal(z.fillColor, "rgba(52,199,89,0.15)");
     assert.match(z.details, /Keine Beschränkung/);
   });
 
   it("unbekannte Restriction -> UNKNOWN (grau) + Rohwert nur zur Anzeige", () => {
-    const [z] = parseEd269ToGeozoneInfo([makeFeature({ restriction: "WHATEVER" })], "AT");
+    const [z] = parseEd269ToGeozoneInfo([makeFeature({ restriction: "WHATEVER" })], "AT", FIXTURE_NOW_MS);
     assert.equal(z.restriction, "UNKNOWN");
     assert.equal(z.restrictionRaw, "WHATEVER");
     assert.equal(z.fillColor, "rgba(142,142,147,0.18)");
@@ -295,7 +298,7 @@ describe("parseEd269ToGeozoneInfo – Restriction -> Farbe/Label", () => {
         purpose: "AUTHORIZATION",
         siteURL: "https://www.dronespace.at",
       }],
-    })], "AT");
+    })], "AT", FIXTURE_NOW_MS);
 
     assert.match(z.details, /Luftverkehrsregeln 2014, § 18b Abs\. 4/);
     assert.match(z.details, /Zustimmungspflichtig/);
@@ -322,7 +325,7 @@ describe("parseEd269ToGeozoneInfo – Restriction -> Farbe/Label", () => {
           condition: "INCLUDED/LOS=VLOS/ALTITUDE_AGL_MAX=121/MTOM_G_MAX=25000",
         }],
       },
-    })], "AT");
+    })], "AT", FIXTURE_NOW_MS);
     assert.equal(z.restriction, "REQ_AUTHORISATION");
     assert.match(z.details, /Austro Control GmbH - Drone Competence Center - Auto: INCLUDED\/LOS=VLOS\/ALTITUDE_AGL_MAX=121\/MTOM_G_MAX=25000 \(Sichtverbindung \(VLOS\) · max\. 121 m über Grund · Startmasse max\. 25 kg\)/);
     assert.match(z.details, /keine Freigabe/);
@@ -331,7 +334,7 @@ describe("parseEd269ToGeozoneInfo – Restriction -> Farbe/Label", () => {
   it("wertet regulationExemption YES nicht als Freigabe oder Ausnahme", () => {
     const [z] = parseEd269ToGeozoneInfo([
       makeFeature({ restriction: "REQ_AUTHORISATION", regulationExemption: "YES" }),
-    ], "AT");
+    ], "AT", FIXTURE_NOW_MS);
     assert.equal(z.restriction, "REQ_AUTHORISATION");
     assert.match(z.details, /Genehmigung erforderlich/);
     assert.doesNotMatch(z.details, /Ausnahme|regulationExemption/);
@@ -340,7 +343,7 @@ describe("parseEd269ToGeozoneInfo – Restriction -> Farbe/Label", () => {
   it("übernimmt die Kennzeichnung einer belgischen Droneguide-NOTAM-Zone", () => {
     const [z] = parseEd269ToGeozoneInfo([
       makeFeature({ restriction: "PROHIBITED", _notamEligible: true }),
-    ], "BE");
+    ], "BE", FIXTURE_NOW_MS);
     assert.equal(z.notamEligible, true);
   });
 
@@ -355,7 +358,7 @@ describe("parseEd269ToGeozoneInfo – Restriction -> Farbe/Label", () => {
           schedule: [],
         }],
       }),
-    ], "AT");
+    ], "AT", FIXTURE_NOW_MS);
     assert.equal(z.validStartTs, null);
     assert.equal(z.validEndTs, null);
     assert.equal(z.notamEligible, false);
@@ -372,7 +375,7 @@ describe("parseEd269ToGeozoneInfo – Restriction -> Farbe/Label", () => {
           schedule: [],
         }],
       }),
-    ], "AT");
+    ], "AT", FIXTURE_NOW_MS);
     assert.equal(z.validEndTs, new Date("2027-01-01T00:00:00.000Z").getTime());
     assert.equal(z.notamEligible, true);
   });
@@ -394,7 +397,7 @@ describe("parseEd269ToGeozoneInfo – Höhenlabel", () => {
   it("SFC/UNL -> 'GND – unbegrenzt' (B3: Höhen mit Bezug)", () => {
     const [z] = parseEd269ToGeozoneInfo(
       [makeFeature({ restriction: "PROHIBITED", lower: "SFC", upper: "UNL" })],
-      "AT",
+      "AT", FIXTURE_NOW_MS,
     );
     assert.equal(z.altitudeLabel, "GND – unbegrenzt");
   });
@@ -402,7 +405,7 @@ describe("parseEd269ToGeozoneInfo – Höhenlabel", () => {
   it("Meterwerte ohne Bezug -> Bezug unbekannt sichtbar (B3)", () => {
     const [z] = parseEd269ToGeozoneInfo(
       [makeFeature({ restriction: "PROHIBITED", lowerMeters: 50, upperMeters: 120 })],
-      "AT",
+      "AT", FIXTURE_NOW_MS,
     );
     assert.equal(z.altitudeLabel, "50 m (Bezug unbekannt) – 120 m (Bezug unbekannt)");
     assert.equal(z.lowerReference, "UNKNOWN");
@@ -411,7 +414,7 @@ describe("parseEd269ToGeozoneInfo – Höhenlabel", () => {
   });
 
   it("fehlende Höhen -> 'GND – unbegrenzt'", () => {
-    const [z] = parseEd269ToGeozoneInfo([makeFeature({ restriction: "PROHIBITED" })], "AT");
+    const [z] = parseEd269ToGeozoneInfo([makeFeature({ restriction: "PROHIBITED" })], "AT", FIXTURE_NOW_MS);
     assert.equal(z.altitudeLabel, "GND – unbegrenzt");
     assert.equal(z.lowerMeters, undefined);
     assert.equal(z.upperMeters, undefined);
@@ -435,7 +438,7 @@ describe("parseEd269ToGeozoneInfo – Geometrie & Filterung", () => {
       },
       properties: { restriction: "PROHIBITED" },
     };
-    const [z] = parseEd269ToGeozoneInfo([feature], "AT");
+    const [z] = parseEd269ToGeozoneInfo([feature], "AT", FIXTURE_NOW_MS);
     assert.ok(z.polygonRings && z.polygonRings.length === 1);
     assert.deepEqual(z.polygonRings![0][0], [48.0, 16.0]);
     assert.deepEqual(z.polygonRings![0][1], [48.0, 16.5]);
@@ -461,7 +464,7 @@ describe("parseEd269ToGeozoneInfo – Geometrie & Filterung", () => {
       geometry: { type: "Polygon", coordinates: [outer, hole] },
       properties: { restriction: "PROHIBITED", name: "EBAW VLL1A" },
     };
-    const [z] = parseEd269ToGeozoneInfo([feature], "BE");
+    const [z] = parseEd269ToGeozoneInfo([feature], "BE", FIXTURE_NOW_MS);
     // polygonRings bleibt flach (Außen + Loch hintereinander).
     assert.equal(z.polygonRings!.length, 2);
     // polygonGroups gruppiert: ein Polygon mit [Außenring, Loch].
@@ -489,7 +492,7 @@ describe("parseEd269ToGeozoneInfo – Geometrie & Filterung", () => {
       geometry: { type: "MultiPolygon", coordinates: [polyA, polyB] },
       properties: { restriction: "PROHIBITED", name: "Multi" },
     };
-    const [z] = parseEd269ToGeozoneInfo([feature], "BE");
+    const [z] = parseEd269ToGeozoneInfo([feature], "BE", FIXTURE_NOW_MS);
     assert.ok(z.polygonGroups && z.polygonGroups.length === 2);
     assert.equal(z.polygonGroups![0].length, 1);
     assert.equal(z.polygonGroups![1].length, 1);
@@ -512,7 +515,7 @@ describe("parseEd269ToGeozoneInfo – Geometrie & Filterung", () => {
       geometry: { type: "Polygon", coordinates: [ring] },
       properties: { restriction: "PROHIBITED", name: "Versteckt", hidden: true },
     };
-    const out = parseEd269ToGeozoneInfo([visible, hidden], "AT");
+    const out = parseEd269ToGeozoneInfo([visible, hidden], "AT", FIXTURE_NOW_MS);
     assert.equal(out.length, 1);
     assert.equal(out[0].name, "Sichtbar");
   });
@@ -543,7 +546,7 @@ describe("parseEd269ToGeozoneInfo – Geometrie & Filterung", () => {
       geometry: { type: "Polygon", coordinates: [ring] },
       properties: { restriction: "PROHIBITED", name: "Gültig", validStartTs: hourAgo, validEndTs: future },
     };
-    const out = parseEd269ToGeozoneInfo([expired, justEnded, stillValid], "BE");
+    const out = parseEd269ToGeozoneInfo([expired, justEnded, stillValid], "BE", now);
     assert.deepEqual(out.map((z) => z.name), ["Gerade beendet", "Gültig"]);
     // Ob aktiv, entscheidet zoneActivityAt – nicht das Parsen.
     assert.equal(zoneActivityAt(out[0], new Date(now)), "inactive");
@@ -567,7 +570,7 @@ describe("parseEd269ToGeozoneInfo – Geometrie & Filterung", () => {
       geometry: { type: "Polygon", coordinates: [ring] },
       properties: { restriction: "PROHIBITED", name: "Permanent-Flag", permanent: true, applicability: [{ startDateTime: "2020-01-01T00:00:00Z", endDateTime: "2020-02-01T00:00:00Z" }] },
     };
-    const out = parseEd269ToGeozoneInfo([permanentNoEnd, permanentFlag], "AT");
+    const out = parseEd269ToGeozoneInfo([permanentNoEnd, permanentFlag], "AT", FIXTURE_NOW_MS);
     assert.equal(out.length, 2);
   });
 
@@ -587,7 +590,7 @@ describe("parseEd269ToGeozoneInfo – Geometrie & Filterung", () => {
         applicability: [{ startDateTime: "2020-01-01T00:00:00Z", endDateTime: "2020-02-01T00:00:00Z" }],
       },
     };
-    const out = parseEd269ToGeozoneInfo([expiredApp], "AT");
+    const out = parseEd269ToGeozoneInfo([expiredApp], "AT", FIXTURE_NOW_MS);
     assert.equal(out.length, 0);
   });
 
@@ -619,7 +622,7 @@ describe("parseEd269ToGeozoneInfo – Geometrie & Filterung", () => {
         },
         },
       ],
-      "AT",
+      "AT", FIXTURE_NOW_MS,
     );
 
     assert.equal(out.length, 1);
@@ -644,7 +647,7 @@ describe("parseEd269ToGeozoneInfo – Geometrie & Filterung", () => {
           properties: { restriction: "PROHIBITED" },
         },
       ],
-      "at",
+      "at", FIXTURE_NOW_MS,
     );
     assert.equal(z.country, "AT");
     assert.equal(z.layerLabel, "Austro Control (ED-269)");
