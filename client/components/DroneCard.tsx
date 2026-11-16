@@ -1,6 +1,7 @@
 import { openLink } from "@/lib/webBrowser";
 import React from "react";
-import { View, StyleSheet, Pressable, Alert, Linking, Platform } from "react-native";
+import { View, StyleSheet, Pressable, Alert, Linking, Platform, Image } from "react-native";
+import { getDroneImage } from "@/lib/droneImage";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import * as WebBrowser from "@/lib/webBrowser";
@@ -62,6 +63,7 @@ export function DroneCard({
   const complianceColor = COMPLIANCE_COLORS[complianceStatus];
   const alphaTangoFrStatus = getAlphaTangoFrStatus(drone);
   const preset = findPresetForDrone(drone.name, drone.manufacturer, drone.model);
+  const droneImage = getDroneImage(drone.manufacturer, drone.model ?? preset?.model);
   const hasDocsSection = !!(drone.alphaTangoDocument || drone.dflightDocument || preset?.manualUrl);
 
   const openManualUrl = async (url: string) => {
@@ -112,7 +114,11 @@ export function DroneCard({
     >
       <View style={styles.droneHeader}>
         <View style={[styles.droneIconContainer, { backgroundColor: theme.backgroundSecondary }]}>
-          <MaterialCommunityIcons name="quadcopter" size={24} color={theme.primary} />
+          {droneImage ? (
+            <Image source={droneImage} style={styles.droneImage} resizeMode="contain" />
+          ) : (
+            <MaterialCommunityIcons name="quadcopter" size={24} color={theme.primary} />
+          )}
         </View>
         <View style={styles.droneInfo}>
           <View style={styles.nameRow}>
@@ -279,12 +285,17 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   droneIconContainer: {
-    width: 44,
-    height: 44,
+    width: 56,
+    height: 56,
     borderRadius: 12,
     justifyContent: "center",
     alignItems: "center",
     marginRight: Spacing.md,
+    overflow: "hidden",
+  },
+  droneImage: {
+    width: 54,
+    height: 54,
   },
   droneInfo: {
     flex: 1,

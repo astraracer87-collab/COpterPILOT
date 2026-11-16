@@ -1,6 +1,7 @@
 import { openLink } from "@/lib/webBrowser";
 import React, { useCallback, useLayoutEffect, useState } from "react";
-import { View, StyleSheet, ScrollView, Pressable, Linking, Platform } from "react-native";
+import { View, StyleSheet, ScrollView, Pressable, Linking, Platform, Image } from "react-native";
+import { getDroneImage } from "@/lib/droneImage";
 import { useRoute, useNavigation, useFocusEffect } from "@react-navigation/native";
 import type { RouteProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -118,6 +119,7 @@ export default function DroneInfoScreen() {
   }
 
   const preset: DronePreset | null = findPresetForDrone(drone.name, drone.manufacturer, drone.model);
+  const droneImage = getDroneImage(drone.manufacturer, drone.model ?? preset?.model);
   const entriesForDrone = logbook.filter((e) => e.droneId === droneId);
   const lastFlight = entriesForDrone[0]; // logbook is sorted desc
 
@@ -199,6 +201,13 @@ export default function DroneInfoScreen() {
         ]}
         scrollIndicatorInsets={{ bottom: tabBarHeight }}
       >
+        {/* Drohnenbild */}
+        {droneImage ? (
+          <View style={[styles.imageContainer, { backgroundColor: theme.backgroundSecondary }]}>
+            <Image source={droneImage} style={styles.heroDroneImage} resizeMode="contain" />
+          </View>
+        ) : null}
+
         {/* Stammdaten */}
         <Card style={styles.card}>
           <SectionTitle>Stammdaten</SectionTitle>
@@ -396,6 +405,18 @@ const styles = StyleSheet.create({
   content: {
     paddingHorizontal: Spacing.lg,
     flexGrow: 1,
+  },
+  imageContainer: {
+    marginBottom: Spacing.md,
+    borderRadius: 16,
+    overflow: "hidden",
+    height: 180,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  heroDroneImage: {
+    width: "100%",
+    height: 170,
   },
   card: {
     padding: Spacing.lg,
