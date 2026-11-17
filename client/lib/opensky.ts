@@ -1,4 +1,5 @@
 import { getNearbyAircraft } from "./traffic/aggregator";
+import { aircraftMslM } from "./traffic/altitude";
 
 export type AircraftCategory =
   | "airplane"
@@ -22,6 +23,8 @@ export interface AircraftState {
   latitude: number;
   baroAltitude: number | null;
   geoAltitude: number | null;
+  /** Höhe bereits über MSL (OGN/FLARM). */
+  mslAltitude?: number | null;
   onGround: boolean;
   velocity: number | null;
   trueTrack: number | null;
@@ -105,16 +108,8 @@ export async function fetchNearbyAircraft(
   }
 }
 
-/**
- * MSL-Höhe in Metern. Priorität: baro_altitude vor geo_altitude.
- *
- * baro_altitude (Druckhöhe, ICAO-Standard 1013,25 hPa) ist die in der Luftfahrt
- * übliche Referenz und wird auch von FlightAware/Flightradar24 angezeigt.
- * geo_altitude ist die GNSS/WGS84-Ellipsoid-Höhe und liegt in Mitteleuropa
- * ~45 m über MSL (Geoid-Undulation) → führt sonst zu zu hohen Werten.
- */
 function preferredMslMeters(aircraft: AircraftState): number | null {
-  return aircraft.baroAltitude ?? aircraft.geoAltitude ?? null;
+  return aircraftMslM(aircraft);
 }
 
 export function getAltitudeDisplay(aircraft: AircraftState): string {

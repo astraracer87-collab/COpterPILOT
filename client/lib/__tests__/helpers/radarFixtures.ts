@@ -1,6 +1,7 @@
 // Testdaten für die Radar-Warnlogik (radarAlertLogic / radarMonitor)
 import type { AircraftState } from "../../opensky";
 import type { ProximityAlarmSettings } from "../../storage";
+import { geoidUndulationM } from "../../../../shared/geoid";
 
 export const SETTINGS: ProximityAlarmSettings = {
   enabled: true,
@@ -17,15 +18,17 @@ export const SETTINGS: ProximityAlarmSettings = {
 
 export const USER = { lat: 50, lon: 8 };
 /** km nördlich des Piloten */
+/** Standard: 300 m MSL (GNSS-Höhe wie bei ADS-B über dem Ellipsoid). */
 export function ac(id: string, kmNorth: number, opts: Partial<AircraftState> = {}): AircraftState {
+  const latitude = USER.lat + kmNorth / 111.2;
   return {
     icao24: id,
     callsign: id.toUpperCase(),
     originCountry: "DE",
-    latitude: USER.lat + kmNorth / 111.2,
+    latitude,
     longitude: USER.lon,
     baroAltitude: 300,
-    geoAltitude: 300,
+    geoAltitude: 300 + geoidUndulationM(latitude, USER.lon),
     onGround: false,
     velocity: 0,
     trueTrack: null,

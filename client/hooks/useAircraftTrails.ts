@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import type { AircraftState, ServerAircraftTrail } from "@/lib/opensky";
 import type { AircraftTrail } from "@/components/TrafficMapView";
+import { aircraftMslM } from "@/lib/traffic/altitude";
 
 const MAX_TOTAL_TRAILS = 25;
 
@@ -13,7 +14,7 @@ function altitudeColor(agl: number | null): string {
 
 function effectiveAgl(ac: AircraftState): number | null {
   if (ac.aglAltitude != null) return ac.aglAltitude;
-  return ac.geoAltitude ?? ac.baroAltitude ?? null;
+  return aircraftMslM(ac);
 }
 
 function quickDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {

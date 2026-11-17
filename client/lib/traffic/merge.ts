@@ -3,6 +3,7 @@
 // Server-Aggregator (server/aggregator.ts) übernommen.
 import type { RawState } from "./types";
 import { angleDiff, bearingDeg, quickDistanceM } from "./geo";
+import { aircraftMslM } from "./altitude";
 
 export function mergeReports(reports: RawState[]): RawState {
   const base: RawState = { ...reports[0] };
@@ -13,6 +14,7 @@ export function mergeReports(reports: RawState[]): RawState {
     if (base.category === "unknown" && r.category !== "unknown") base.category = r.category;
     if (base.baroAltitude == null && r.baroAltitude != null) base.baroAltitude = r.baroAltitude;
     if (base.geoAltitude == null && r.geoAltitude != null) base.geoAltitude = r.geoAltitude;
+    if (base.mslAltitude == null && r.mslAltitude != null) base.mslAltitude = r.mslAltitude;
     if (base.velocity == null && r.velocity != null) base.velocity = r.velocity;
     if (base.trueTrack == null && r.trueTrack != null) base.trueTrack = r.trueTrack;
     if (base.verticalRate == null && r.verticalRate != null) base.verticalRate = r.verticalRate;
@@ -72,7 +74,7 @@ function normCode(s?: string): string | null {
 }
 
 function fuzzyAltitude(a: RawState): number | null {
-  return a.geoAltitude ?? a.baroAltitude;
+  return aircraftMslM(a);
 }
 
 // Teilen sich zwei Einträge ein Muster-/Callsign-Kürzel? Das Kürzel muss auf

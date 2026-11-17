@@ -40,6 +40,7 @@ import {
 } from "@/lib/opensky";
 import type { FlightPlanningParamList } from "@/navigation/FlightPlanningNavigator";
 import { InfoDialog } from "@/components/InfoDialog";
+import { aircraftMslM, refreshQnh } from "@/lib/traffic/altitude";
 
 type RouteParams = RouteProp<FlightPlanningParamList, "PlanningLiveTraffic">;
 
@@ -102,6 +103,7 @@ export default function PlanningLiveTrafficScreen() {
   const [pilotElevation, setPilotElevation] = useState<number | null>(null);
 
   useEffect(() => {
+    void refreshQnh(latitude, longitude);
     fetchElevation(latitude, longitude).then((elev) => setPilotElevation(elev));
   }, [latitude, longitude]);
 
@@ -175,8 +177,8 @@ export default function PlanningLiveTrafficScreen() {
   };
 
   const sortedAircraft = useMemo(() => [...aircraft].sort((a, b) => {
-    const altA = a.aglAltitude ?? a.geoAltitude ?? a.baroAltitude ?? 99999;
-    const altB = b.aglAltitude ?? b.geoAltitude ?? b.baroAltitude ?? 99999;
+    const altA = a.aglAltitude ?? aircraftMslM(a) ?? 99999;
+    const altB = b.aglAltitude ?? aircraftMslM(b) ?? 99999;
     return altA - altB;
   }), [aircraft]);
 

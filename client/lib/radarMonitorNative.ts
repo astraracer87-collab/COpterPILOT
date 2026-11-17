@@ -61,6 +61,7 @@ import {
   type RadarMonitorDeps,
   type RadarNotification,
 } from "@/lib/radarMonitor";
+import { refreshQnh } from "./traffic/altitude";
 
 export const RADAR_BACKGROUND_KEY = "@copterpilot/radar_background_monitor_v1";
 /** Rückfall-Kanal (nur ohne Einblendung): Vorschau oben, aber still – Ton kommt vom Alarm */
@@ -203,7 +204,10 @@ export const radarMonitorDeps: RadarMonitorDeps = {
   loadBackgroundEnabled: async () => Platform.OS === "android" && (await getRadarBackgroundEnabled()),
   hasLocationPermission: async () => (await Location.getForegroundPermissionsAsync().catch(() => ({ granted: false }))).granted,
   loadAlarmSettings: async () => (await getSettings().catch(() => null))?.proximityAlarm ?? DEFAULT_PROXIMITY_ALARM,
-  fetchAircraft: async (lat, lon, radiusKm) => (await fetchNearbyAircraft(lat, lon, radiusKm, 60)).states,
+  fetchAircraft: async (lat, lon, radiusKm) => {
+    void refreshQnh(lat, lon);
+    return (await fetchNearbyAircraft(lat, lon, radiusKm, 60)).states;
+  },
   notify: (n) => postNotification(n).catch((e) => console.warn("[radarMonitor] notify:", e)),
   cancelNotification,
   overlay: {

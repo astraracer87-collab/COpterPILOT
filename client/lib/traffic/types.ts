@@ -10,6 +10,8 @@ export interface RawState {
   latitude: number;
   baroAltitude: number | null;
   geoAltitude: number | null;
+  /** Höhe bereits über MSL (OGN/FLARM). */
+  mslAltitude?: number | null;
   onGround: boolean;
   velocity: number | null;
   trueTrack: number | null;

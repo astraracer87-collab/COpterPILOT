@@ -14,6 +14,7 @@
  */
 import type { AircraftState } from "./opensky";
 import type { ProximityAlarmSettings } from "./storage";
+import { aircraftMslM } from "./traffic/altitude";
 
 // ---------------------------------------------------------------------------
 // Verkehr: Erkennung (unverändert aus proximityAlarm.ts übernommen)
@@ -108,7 +109,7 @@ export function checkApproachingAircraft(
   for (const ac of aircraft) {
     if (ac.trueTrack == null) continue;
 
-    const mslAlt = ac.geoAltitude ?? ac.baroAltitude;
+    const mslAlt = aircraftMslM(ac);
     if (mslAlt == null) continue;
     if (ac.onGround && mslAlt < 100) continue;
 
@@ -157,7 +158,7 @@ export function checkProximityAlerts(
   const raTriggerSec = raTimeOn ? (settings.raTimeSec ?? 30) : undefined;
 
   for (const ac of aircraft) {
-    const mslAlt = ac.geoAltitude ?? ac.baroAltitude;
+    const mslAlt = aircraftMslM(ac);
     if (mslAlt == null) continue;
     if (ac.onGround && mslAlt < 100) continue;
 

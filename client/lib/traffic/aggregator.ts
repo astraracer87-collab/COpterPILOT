@@ -23,6 +23,7 @@ import { angleDiff, bearingDeg, bearingFromTo, haversineKm, quickDistanceM } fro
 import { mergeByIcao } from "./merge";
 import { fetchSource } from "./sources";
 import type { RawState, SourceResult, Tile } from "./types";
+import { aircraftMslM } from "./altitude";
 
 export interface TrailPoint { lat: number; lon: number; t: number; }
 export interface AircraftTrail { id: string; points: TrailPoint[]; }
@@ -256,6 +257,7 @@ function applyToStore(merged: RawState[], now: number): void {
       existing.latitude = fresh.latitude;
       if (fresh.baroAltitude != null) existing.baroAltitude = fresh.baroAltitude;
       if (fresh.geoAltitude != null) existing.geoAltitude = fresh.geoAltitude;
+      if (fresh.mslAltitude != null) existing.mslAltitude = fresh.mslAltitude;
       existing.onGround = fresh.onGround;
       if (fresh.velocity != null) existing.velocity = fresh.velocity;
       if (fresh.trueTrack != null) existing.trueTrack = fresh.trueTrack;
@@ -409,7 +411,7 @@ function applyGroundElevation(ac: StoredAircraft): void {
     if (s && quickDistanceM(s.lat, s.lon, ac.latitude, ac.longitude) <= ELEVATION_REUSE_MAX_DIST_M) ground = s.elev;
   }
   ac.groundElevation = ground;
-  const msl = ac.geoAltitude ?? ac.baroAltitude;
+  const msl = aircraftMslM(ac);
   ac.aglAltitude = ground != null && msl != null ? Math.max(0, msl - ground) : null;
 }
 
@@ -423,7 +425,7 @@ function triggerElevationEnrichment(candidates: StoredAircraft[]): Promise<void>
   if (elevationInFlight || candidates.length === 0) return null;
   const batch = candidates.slice(0, ELEVATION_MAX_BATCH);
   elevationInFlight = enrichAircraftWithElevation(
-    batch.map((a) => ({ latitude: a.latitude, longitude: a.longitude, geoAltitude: a.geoAltitude, baroAltitude: a.baroAltitude })),
+    batch.map((a) => ({ latitude: a.latitude, longitude: a.longitude, geoAltitude: a.geoAltitude, baroAltitude: a.baroAltitude, mslAltitude: a.mslAltitude, onGround: a.onGround })),
   )
     .then(() => {
       for (const a of batch) {

@@ -78,6 +78,7 @@ import {
   getRelativeAltitude,
   DataSource,
 } from "@/lib/opensky";
+import { aircraftMslM, currentQnhHpa, refreshQnh } from "@/lib/traffic/altitude";
 import { getMarkerPinColor } from "@/lib/markerColors";
 import { fetchRadarAreaData } from "@/lib/radarAreaCheck";
 import { useRadarBackgroundMonitor } from "@/hooks/useRadarBackgroundMonitor";
@@ -442,6 +443,7 @@ export default function StandaloneLiveTrafficScreen() {
       return;
     }
     setPilotElevation(null);
+    void refreshQnh(latitude, longitude);
     fetchElevation(latitude, longitude).then((elev) => {
       setPilotElevation(elev);
     });
@@ -863,8 +865,8 @@ export default function StandaloneLiveTrafficScreen() {
 
   const sortedAircraft = useMemo(() => {
     const sorted = [...aircraft].sort((a, b) => {
-      const altA = a.aglAltitude ?? a.geoAltitude ?? a.baroAltitude ?? 99999;
-      const altB = b.aglAltitude ?? b.geoAltitude ?? b.baroAltitude ?? 99999;
+      const altA = a.aglAltitude ?? aircraftMslM(a) ?? 99999;
+      const altB = b.aglAltitude ?? aircraftMslM(b) ?? 99999;
       return altA - altB;
     });
     return sorted;
@@ -2966,6 +2968,14 @@ function SidePanelView({ panel, loading, geozones, windFacilityWarnings = [], ge
                   <Text style={[{ fontSize: 11, color: mutedColor }]}>{"Standorthöhe"}</Text>
                 </View>
               ) : null}
+              {(() => {
+                const q = currentQnhHpa();
+                return (
+                  <Text style={[{ fontSize: 11, color: mutedColor, marginTop: 2 }]} testID="text-radar-qnh">
+                    {q != null ? `QNH ${Math.round(q)} hPa · Flughöhen korrigiert` : "QNH unbekannt · Druckhöhen unkorrigiert"}
+                  </Text>
+                );
+              })()}
               <View style={[sidePanelStyles.divider, { backgroundColor: divColor }]} />
               <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
                 <Text style={[{ fontSize: 12, fontWeight: "600", color: mutedColor }]}>Radius</Text>

@@ -1,4 +1,5 @@
 import type { AircraftState } from "@/lib/opensky";
+import { aircraftMslM } from "./traffic/altitude";
 
 export interface TrafficEvent {
   icao24: string;
@@ -114,7 +115,7 @@ export function recordAircraftEvent(
   if (!recording) return;
 
   const now = Date.now();
-  const altM = aircraft.geoAltitude ?? aircraft.baroAltitude ?? 0;
+  const altM = aircraftMslM(aircraft) ?? 0;
   const speedKmh = aircraft.velocity ? aircraft.velocity * 3.6 : 0;
 
   const existing = aircraftMap.get(aircraft.icao24);

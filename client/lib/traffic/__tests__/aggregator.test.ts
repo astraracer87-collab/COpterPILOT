@@ -19,7 +19,9 @@ test("parseOgnLxml: Felder, Einheiten, Alter-Filter, anonyme Geräte", () => {
   const jet = states.find((s) => s.icao24 === "ogn_flr3c6743")!;
   assert.equal(jet.registration, "D-AIZC");
   assert.equal(jet.cn, "ZC");
-  assert.equal(jet.baroAltitude, 9425);
+  assert.equal(jet.mslAltitude, 9425);
+  assert.equal(jet.baroAltitude, null);
+  assert.equal(jet.geoAltitude, null);
   assert.equal(jet.category, "airplane");
   assert.ok(Math.abs((jet.velocity ?? 0) - 861 / 3.6) < 0.01);
   assert.equal(jet.reportAgeMs, 9000);

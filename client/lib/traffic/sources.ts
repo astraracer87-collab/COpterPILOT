@@ -282,8 +282,9 @@ export function parseOgnLxml(xml: string, maxAgeSec: number = OGN_MAX_AGE_SEC): 
       originCountry: "",
       longitude: lon,
       latitude: lat,
-      baroAltitude: altM != null ? Math.round(altM) : null,
-      geoAltitude: altM != null ? Math.round(altM) : null,
+      baroAltitude: null,
+      geoAltitude: null,
+      mslAltitude: altM != null ? Math.round(altM) : null,
       // Wie zuvor auf dem Server: nur praktisch auf Meereshöhe stehend gilt als
       // "am Boden" — gelandete Segler filtert getNearby über die Geschwindigkeit.
       onGround: altM != null && altM < 15 && (speedKmh ?? 0) < 9,

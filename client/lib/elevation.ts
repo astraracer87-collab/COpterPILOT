@@ -4,6 +4,7 @@ import {
   type TerrainEstimate,
 } from "../../shared/geozoneAltitudeFilter";
 import { fetchWithTimeout } from "./fetchWithTimeout";
+import { aircraftMslM, type AltitudeSource } from "./traffic/altitude";
 
 const OPEN_METEO_ELEVATION_URL = "https://api.open-meteo.com/v1/elevation";
 // Hängt Open-Meteo (z. B. schlechter Empfang am Flugplatz), sollen Aufrufer
@@ -131,7 +132,7 @@ export function clearElevationCache(): void {
 let lastFullEnrichTime = 0;
 export const FULL_ENRICH_INTERVAL_MS = 15000;
 
-export async function enrichAircraftWithElevation<T extends { latitude: number; longitude: number; geoAltitude: number | null; baroAltitude: number | null }>(
+export async function enrichAircraftWithElevation<T extends AltitudeSource>(
   aircraft: T[]
 ): Promise<(T & { aglAltitude: number | null; groundElevation: number | null })[]> {
   const now = Date.now();
@@ -150,7 +151,7 @@ export async function enrichAircraftWithElevation<T extends { latitude: number; 
 
   return aircraft.map((ac) => {
     const groundElev = getElevationFromCache(ac.latitude, ac.longitude);
-    const mslAlt = ac.geoAltitude ?? ac.baroAltitude;
+    const mslAlt = aircraftMslM(ac);
     const agl = groundElev != null && mslAlt != null ? Math.max(0, mslAlt - groundElev) : null;
     return { ...ac, groundElevation: groundElev, aglAltitude: agl };
   });
