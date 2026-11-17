@@ -38,6 +38,7 @@ import {
   COUNTRY_SPECIFIC_INFO,
   CountrySpecificKey,
 } from "@/lib/countrySpecificInfo";
+import { getStateAuthority } from "../../shared/stateAuthorities";
 import {
   LICENSE_INFO,
   LicenseInfoKey,
@@ -893,6 +894,49 @@ export default function PilotProfileScreen() {
                         ) : null}
                       </View>
                     ) : null}
+
+                    {(() => {
+                      const sa = getStateAuthority(e.bundesland);
+                      if (!sa) return null;
+                      const office = sa.authorities[0];
+                      const permit = sa.general?.available ? sa.general : sa.individual;
+                      return (
+                        <View style={[styles.erlaubnis21hNote, { backgroundColor: theme.background, borderColor: theme.border, flexDirection: "column", alignItems: "stretch", gap: 3 }]}>
+                          {office ? (
+                            <ThemedText style={[styles.erlaubnis21hNoteText, { color: theme.text, fontWeight: "600" }]}>
+                              {office.name}
+                            </ThemedText>
+                          ) : null}
+                          {permit?.feeText ? (
+                            <ThemedText style={[styles.erlaubnis21hNoteText, { color: theme.textSecondary }]}>Gebühr: {permit.feeText}</ThemedText>
+                          ) : null}
+                          {permit?.processingText ? (
+                            <ThemedText style={[styles.erlaubnis21hNoteText, { color: theme.textSecondary }]}>Bearbeitung: {permit.processingText}</ThemedText>
+                          ) : null}
+                          {sa.general?.validityText ? (
+                            <ThemedText style={[styles.erlaubnis21hNoteText, { color: theme.textSecondary }]}>Gültigkeit: {sa.general.validityText}</ThemedText>
+                          ) : null}
+                          {office?.email ? (
+                            <Pressable onPress={() => openLink(`mailto:${office.email}`).catch(() => {})} testID={`link-authority-mail-${e.bundesland}`} style={({ pressed }) => [styles.avLinkRow, { opacity: pressed ? 0.6 : 1 }]}>
+                              <Feather name="mail" size={14} color={theme.primary} />
+                              <ThemedText style={[styles.avLinkText, { color: theme.primary }]}>{office.email}</ThemedText>
+                            </Pressable>
+                          ) : null}
+                          {office?.phone ? (
+                            <Pressable onPress={() => openLink(`tel:${office.phone!.replace(/[^+\d]/g, "")}`).catch(() => {})} testID={`link-authority-phone-${e.bundesland}`} style={({ pressed }) => [styles.avLinkRow, { opacity: pressed ? 0.6 : 1 }]}>
+                              <Feather name="phone" size={14} color={theme.primary} />
+                              <ThemedText style={[styles.avLinkText, { color: theme.primary }]}>{office.phone}</ThemedText>
+                            </Pressable>
+                          ) : null}
+                          {permit?.formUrl ? (
+                            <Pressable onPress={() => openLink(permit.formUrl as string).catch(() => {})} testID={`link-authority-form-${e.bundesland}`} style={({ pressed }) => [styles.avLinkRow, { opacity: pressed ? 0.6 : 1 }]}>
+                              <Feather name="file-text" size={14} color={theme.primary} />
+                              <ThemedText style={[styles.avLinkText, { color: theme.primary }]}>Antragsformular (PDF)</ThemedText>
+                            </Pressable>
+                          ) : null}
+                        </View>
+                      );
+                    })()}
                   </View>
                 );
               })}
