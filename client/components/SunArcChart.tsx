@@ -1,7 +1,6 @@
 import React, { useMemo, useState, useRef, useCallback } from "react";
 import { View, StyleSheet, LayoutChangeEvent, PanResponder, GestureResponderEvent } from "react-native";
 import Svg, { Path, Line, Circle, Text as SvgText, Rect, Defs, LinearGradient, Stop, ClipPath, G } from "react-native-svg";
-import * as Haptics from "expo-haptics";
 import { ThemedText } from "@/components/ThemedText";
 import { useTheme } from "@/hooks/useTheme";
 import { hourlySunArc, SunArcSample, formatSolarTime, computeSunElevation } from "@/lib/solar";
@@ -232,7 +231,7 @@ export default function SunArcChart({
       if (ns !== valuesRef.current.rangeStartT) {
         if (ns !== lastSnapRef.current) {
           lastSnapRef.current = ns;
-          Haptics.selectionAsync().catch(() => {});
+          
         }
         cb(new Date(ns), new Date(valuesRef.current.rangeEndT));
       }
@@ -241,7 +240,7 @@ export default function SunArcChart({
       if (ne !== valuesRef.current.rangeEndT) {
         if (ne !== lastSnapRef.current) {
           lastSnapRef.current = ne;
-          Haptics.selectionAsync().catch(() => {});
+          
         }
         cb(new Date(valuesRef.current.rangeStartT), new Date(ne));
       }

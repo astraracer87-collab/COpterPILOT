@@ -6,7 +6,6 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
 import Animated, { FadeIn, ZoomIn } from "react-native-reanimated";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
@@ -153,9 +152,9 @@ export default function ResultsScreen() {
     setAssessment(result);
 
     if (result.status === "go") {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      
     } else {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      
     }
   }, [weatherData, limits, hasRestrictions, restrictionStatus, kpIndex, latitude, longitude]);
 
@@ -241,7 +240,7 @@ export default function ResultsScreen() {
         startTrafficRecording(latitude, longitude, approachRadiusM, approachRadiusM * 3);
       } catch {}
 
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      
       navigation.getParent()?.goBack();
     } catch (error) {
       Alert.alert("Fehler", "Briefing konnte nicht gespeichert werden.");
@@ -253,7 +252,7 @@ export default function ResultsScreen() {
   const handleConfirmProceed = () => {
     setConfirmed(true);
     setShowConfirmation(false);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    
   };
 
   const getStatusConfig = () => {

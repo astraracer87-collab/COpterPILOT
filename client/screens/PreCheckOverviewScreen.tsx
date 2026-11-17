@@ -14,7 +14,6 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
 import * as WebBrowser from "@/lib/webBrowser";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
@@ -413,7 +412,7 @@ export default function PreCheckOverviewScreen() {
   const allCoveredByAV = hasAnyGeozones && uncoveredGeozones.length === 0 && tempRestrictions.length === 0;
 
   const handleContinue = async () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    
 
     const restrictionStatus: "approved" | "limited" | undefined =
       !hasAnyRestrictions
@@ -932,7 +931,7 @@ export default function PreCheckOverviewScreen() {
 
           {!geozoneLoading && requiresGeozoneAck ? (
             <Pressable
-              onPress={() => { setGeozoneChecked(!geozoneChecked); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+              onPress={() => { setGeozoneChecked(!geozoneChecked);  }}
               style={[
                 styles.checkRow,
                 { borderColor: geozoneChecked ? "#34C759" : theme.border },
@@ -1030,7 +1029,7 @@ export default function PreCheckOverviewScreen() {
 
           {!notamLoading && requiresNotamAck ? (
             <Pressable
-              onPress={() => { setNotamChecked(!notamChecked); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+              onPress={() => { setNotamChecked(!notamChecked);  }}
               style={[
                 styles.checkRow,
                 { borderColor: notamChecked ? "#34C759" : theme.border },

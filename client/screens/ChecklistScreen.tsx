@@ -6,7 +6,6 @@ import type { RouteProp } from "@react-navigation/native";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { Card } from "@/components/Card";
@@ -228,14 +227,14 @@ export default function ChecklistScreen() {
         next.delete(id);
       } else {
         next.add(id);
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        
       }
       return next;
     });
   };
 
   const showTip = (title: string, tip: string) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
     setTipModal({ visible: true, title, tip });
   };
 

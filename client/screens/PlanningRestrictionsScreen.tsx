@@ -8,7 +8,6 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { Card } from "@/components/Card";
@@ -803,7 +802,7 @@ export default function PlanningRestrictionsScreen() {
                 <Pressable
                   onPress={() => {
                     setNightPermitConfirmed((prev) => !prev);
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    
                   }}
                   style={[
                     styles.exemptionRow,
@@ -1108,7 +1107,7 @@ export default function PlanningRestrictionsScreen() {
                       const next = new Set(edrAvChecked);
                       if (next.has(cond.id)) { next.delete(cond.id); } else { next.add(cond.id); }
                       setEdrAvChecked(next);
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      
                     }}
                     style={styles.edrAvCondRow}
                   >
@@ -1492,7 +1491,7 @@ export default function PlanningRestrictionsScreen() {
             })}
 
             <Pressable
-              onPress={() => { setAvAcknowledged(!avAcknowledged); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+              onPress={() => { setAvAcknowledged(!avAcknowledged);  }}
               style={[
                 styles.acknowledgeRow,
                 { borderColor: avAcknowledged ? (theme.statusGo || "#34C759") : theme.border },
@@ -1705,7 +1704,7 @@ export default function PlanningRestrictionsScreen() {
             </ThemedText>
             <Pressable
               testID="button-show-all-geozones"
-              onPress={() => { try { toggleShowAllGeozones(); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch (_e) {} }}
+              onPress={() => { try { toggleShowAllGeozones();  } catch (_e) {} }}
               style={{ marginTop: Spacing.sm }}
             >
               <ThemedText style={{ color: theme.primary, fontWeight: "600" }}>
@@ -1718,7 +1717,7 @@ export default function PlanningRestrictionsScreen() {
         {!loading && !error && showAllGeozones ? (
           <Pressable
             testID="button-hide-above-geozones"
-            onPress={() => { try { toggleShowAllGeozones(); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch (_e) {} }}
+            onPress={() => { try { toggleShowAllGeozones();  } catch (_e) {} }}
             style={{ marginBottom: Spacing.sm, alignSelf: "flex-start" }}
           >
             <ThemedText style={{ color: theme.primary, fontWeight: "600" }}>
@@ -1817,7 +1816,7 @@ export default function PlanningRestrictionsScreen() {
                         <Pressable
                           onPress={() => {
                             setClimbAnswers((prev) => { const n = new Map(prev); n.set(climbKey, "yes"); return n; });
-                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                            
                           }}
                           style={[
                             styles.climbAnswerBtn,
@@ -1833,7 +1832,7 @@ export default function PlanningRestrictionsScreen() {
                         <Pressable
                           onPress={() => {
                             setClimbAnswers((prev) => { const n = new Map(prev); n.set(climbKey, "no"); return n; });
-                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                            
                           }}
                           style={[
                             styles.climbAnswerBtn,
@@ -1857,7 +1856,7 @@ export default function PlanningRestrictionsScreen() {
                         else next.add(key);
                         return next;
                       });
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      
                     }}
                     style={[
                       styles.exemptionRow,
@@ -1940,7 +1939,7 @@ export default function PlanningRestrictionsScreen() {
             {!allUncoveredExempted ? (
             <>
             <Pressable
-              onPress={() => { setRestrictionChoice("approved"); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+              onPress={() => { setRestrictionChoice("approved");  }}
               style={[
                 styles.choiceOption,
                 { borderColor: restrictionChoice === "approved" ? (theme.statusGo || "#34C759") : theme.border },
@@ -1959,7 +1958,7 @@ export default function PlanningRestrictionsScreen() {
             </Pressable>
 
             <Pressable
-              onPress={() => { setRestrictionChoice("limited"); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+              onPress={() => { setRestrictionChoice("limited");  }}
               style={[
                 styles.choiceOption,
                 { borderColor: restrictionChoice === "limited" ? (theme.statusCaution || "#FF9500") : theme.border },
@@ -1978,7 +1977,7 @@ export default function PlanningRestrictionsScreen() {
             </Pressable>
 
             <Pressable
-              onPress={() => { setRestrictionChoice("nofly"); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+              onPress={() => { setRestrictionChoice("nofly");  }}
               style={[
                 styles.choiceOption,
                 { borderColor: restrictionChoice === "nofly" ? (theme.statusNoGo || "#FF3B30") : theme.border },
@@ -2125,7 +2124,7 @@ export default function PlanningRestrictionsScreen() {
                     {item.pilotField && pilotProfile ? (
                       <Pressable
                         onPress={async () => {
-                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                          
                           const updated = { ...pilotProfile };
                           if (item.pilotField === "insuranceActive") {
                             updated.insuranceActive = true;

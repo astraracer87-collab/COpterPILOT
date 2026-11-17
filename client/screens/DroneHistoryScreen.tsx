@@ -6,7 +6,6 @@ import { useHeaderHeight } from "@react-navigation/elements";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import Animated, { FadeInDown } from "react-native-reanimated";
-import * as Haptics from "expo-haptics";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { Card } from "@/components/Card";
@@ -107,7 +106,7 @@ export default function DroneHistoryScreen() {
         description: description.trim(),
         date: new Date().toISOString(),
       });
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      
       setModalVisible(false);
       setDescription("");
       setSelectedType("repair");
@@ -130,7 +129,7 @@ export default function DroneHistoryScreen() {
           style: "destructive",
           onPress: async () => {
             await deleteDroneHistoryEntry(droneId, entryId);
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            
             await loadData();
           },
         },
@@ -169,12 +168,12 @@ export default function DroneHistoryScreen() {
 
   const handleOpenProtocol = (item: DroneHistoryEntry) => {
     if (!item.sessionId) return;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
     navigation.navigate("LogbookEntryDetail", { sessionId: item.sessionId });
   };
 
   const handleOpenFlight = (entry: LogbookEntry) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
     navigation.navigate("LogbookEntryDetail", { logbookEntryId: entry.id });
   };
 
@@ -404,7 +403,7 @@ export default function DroneHistoryScreen() {
                 key={eventType.type}
                 onPress={() => {
                   setSelectedType(eventType.type);
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  
                 }}
                 style={[
                   styles.typeButton,

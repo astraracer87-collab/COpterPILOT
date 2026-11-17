@@ -1,5 +1,4 @@
 import { Platform } from "react-native";
-import * as Haptics from "expo-haptics";
 import * as Speech from "expo-speech";
 import type { AircraftState } from "@/lib/opensky";
 import type { ProximityAlarmSettings } from "@/lib/storage";
@@ -207,21 +206,18 @@ function notifyAlarmLevel(level: "warning" | "critical" | "none"): void {
   }
 }
 
-function safeHaptic(style: Haptics.ImpactFeedbackStyle): void {
-  if (Platform.OS === "web") return;
-  try { Haptics.impactAsync(style).catch(() => {}); } catch {}
-}
+function safeHaptic(): void {}
 
 function playWarningChime(onDone: () => void): void {
   if (Platform.OS === "web") { onDone(); return; }
   try {
-    safeHaptic(Haptics.ImpactFeedbackStyle.Heavy);
+    safeHaptic();
     setTimeout(() => {
-      safeHaptic(Haptics.ImpactFeedbackStyle.Heavy);
+      safeHaptic();
       setTimeout(() => {
-        safeHaptic(Haptics.ImpactFeedbackStyle.Heavy);
+        safeHaptic();
         setTimeout(() => {
-          safeHaptic(Haptics.ImpactFeedbackStyle.Heavy);
+          safeHaptic();
           setTimeout(() => { onDone(); }, 300);
         }, 100);
       }, 100);
@@ -235,9 +231,9 @@ function hapticForLevel(): void {
   if (Platform.OS === "web") return;
   try {
     if (currentAlarmLevel === "critical") {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
+      
     } else if (currentAlarmLevel === "warning") {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
+      
     }
   } catch {}
 }
@@ -362,7 +358,7 @@ function buildCriticalPhrase(altitudeM?: number | null): string {
 export function triggerWarningAlarm(settings?: ProximityAlarmSettings, altitudeM?: number | null): void {
   const ta = settings?.ta ?? { visual: true, audio: true, haptic: true, radiusKm: 3 };
   if (ta.haptic && Platform.OS !== "web") {
-    try { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {}); } catch {}
+    try {  } catch {}
   }
   if (ta.audio) {
     const phrase = buildWarningPhrase(altitudeM);
@@ -379,7 +375,7 @@ export function triggerWarningAlarm(settings?: ProximityAlarmSettings, altitudeM
 export function triggerCriticalAlarm(settings?: ProximityAlarmSettings, altitudeM?: number | null): void {
   const ra = settings?.ra ?? { visual: true, audio: true, haptic: true, radiusKm: 1 };
   if (ra.haptic && Platform.OS !== "web") {
-    try { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {}); } catch {}
+    try {  } catch {}
   }
   if (ra.audio) {
     const phrase = buildCriticalPhrase(altitudeM);
@@ -452,7 +448,7 @@ export function speakClearOfConflict(): void {
       });
     }, 350);
     if (Platform.OS !== "web") {
-      try { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {}); } catch {}
+      try {  } catch {}
     }
   } catch {}
 }

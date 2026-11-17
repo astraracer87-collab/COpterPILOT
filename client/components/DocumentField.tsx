@@ -1,7 +1,6 @@
 import React, { useState } from "react";
 import { View, StyleSheet, Pressable, Alert, ActivityIndicator } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
 import { ThemedText } from "./ThemedText";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing } from "@/constants/theme";
@@ -35,7 +34,7 @@ export function DocumentField({ label, hint, document, onChange, testID }: Props
     if (!promptFeatureUpgrade(entitlement, "document_management")) return;
     setBusy(true);
     try {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      
       const doc = await pickDocument();
       if (doc) onChange(doc);
     } catch (e: any) {
@@ -53,7 +52,7 @@ export function DocumentField({ label, hint, document, onChange, testID }: Props
   const handleShare = async () => {
     if (!document || busy) return;
     try {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      
       await viewDocument(document);
     } catch (e: any) {
       Alert.alert("Fehler", e?.message || "Teilen/Herunterladen fehlgeschlagen.");
@@ -71,7 +70,7 @@ export function DocumentField({ label, hint, document, onChange, testID }: Props
           text: "Entfernen",
           style: "destructive",
           onPress: () => {
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+            
             onChange(null);
           },
         },

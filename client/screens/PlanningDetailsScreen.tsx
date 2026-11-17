@@ -6,7 +6,6 @@ import type { RouteProp } from "@react-navigation/native";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { Card } from "@/components/Card";
@@ -387,7 +386,7 @@ export default function PlanningDetailsScreen() {
         setWeatherWarnings(assessment.warnings);
       }
       
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      
     } catch (error) {
       Alert.alert("Fehler", "Wetterdaten konnten nicht abgerufen werden.");
     } finally {

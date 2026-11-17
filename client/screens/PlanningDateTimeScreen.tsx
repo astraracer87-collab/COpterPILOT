@@ -7,7 +7,6 @@ import type { RouteProp } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { Feather } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { Card } from "@/components/Card";
@@ -215,7 +214,7 @@ export default function PlanningDateTimeScreen() {
     startDate.setHours(sh, sm, 0, 0);
     const endDate = new Date(startDate.getTime() + mins * 60 * 1000);
     setEndTime(`${String(endDate.getHours()).padStart(2, "0")}:${String(endDate.getMinutes()).padStart(2, "0")}`);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
   };
 
   // Wetter-Hourly nachladen — mit 1h-Puffer vor Start und nach Ende.
@@ -440,7 +439,7 @@ export default function PlanningDateTimeScreen() {
   const handleBestSlot = () => {
     if (!bestHour) return;
     if (Platform.OS !== "web") {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      
     }
     setPlannedTime(`${String(bestHour.hour).padStart(2, "0")}:00`);
   };
@@ -449,7 +448,7 @@ export default function PlanningDateTimeScreen() {
     if (Platform.OS === "android") setShowDatePicker(false);
     if (date) {
       setPlannedDate(formatLocalDateKey(date));
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      
     }
   };
 
@@ -467,7 +466,7 @@ export default function PlanningDateTimeScreen() {
       const endDate = new Date(clamped);
       endDate.setHours(Math.floor(endMins / 60), endMins % 60, 0, 0);
       setEndTime(`${String(endDate.getHours()).padStart(2, "0")}:${String(endDate.getMinutes()).padStart(2, "0")}`);
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      
     }
   };
 
@@ -475,7 +474,7 @@ export default function PlanningDateTimeScreen() {
     if (Platform.OS === "android") setShowEndPicker(false);
     if (date) {
       setEndTime(`${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`);
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      
     }
   };
 
@@ -547,7 +546,7 @@ export default function PlanningDateTimeScreen() {
 
           <Pressable
             testID="planning-date-button"
-            onPress={() => { setShowDatePicker(!showDatePicker); setShowStartPicker(false); setShowEndPicker(false); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+            onPress={() => { setShowDatePicker(!showDatePicker); setShowStartPicker(false); setShowEndPicker(false);  }}
             style={[styles.dateButton, { backgroundColor: theme.backgroundSecondary }]}
           >
             <Feather name="calendar" size={16} color={theme.primary} />
@@ -658,7 +657,7 @@ export default function PlanningDateTimeScreen() {
               ) : (
                 <Pressable
                   testID="planning-start-time-button"
-                  onPress={() => { setShowStartPicker(!showStartPicker); setShowEndPicker(false); setShowDatePicker(false); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+                  onPress={() => { setShowStartPicker(!showStartPicker); setShowEndPicker(false); setShowDatePicker(false);  }}
                   style={[styles.timeButton, { backgroundColor: theme.backgroundSecondary }]}
                 >
                   <Feather name="clock" size={14} color={theme.primary} />
@@ -672,7 +671,7 @@ export default function PlanningDateTimeScreen() {
               <ThemedText style={[styles.dtLabel, { color: theme.textSecondary }]}>Endzeit</ThemedText>
               <Pressable
                 testID="planning-end-time-button"
-                onPress={() => { setShowEndPicker(!showEndPicker); setShowStartPicker(false); setShowDatePicker(false); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+                onPress={() => { setShowEndPicker(!showEndPicker); setShowStartPicker(false); setShowDatePicker(false);  }}
                 style={[styles.timeButton, { backgroundColor: theme.backgroundSecondary }]}
               >
                 <Feather name="clock" size={14} color={theme.primary} />
@@ -824,7 +823,7 @@ export default function PlanningDateTimeScreen() {
                     onPress={() => {
                       if (isPreflightMode) return;
                       if (Platform.OS !== "web") {
-                        Haptics.selectionAsync().catch(() => {});
+                        
                       }
                       setPlannedTime(`${String(c.hour).padStart(2, "0")}:00`);
                     }}

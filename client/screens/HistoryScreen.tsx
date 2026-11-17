@@ -6,7 +6,6 @@ import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { Feather } from "@expo/vector-icons";
 import Animated, { FadeInDown } from "react-native-reanimated";
-import * as Haptics from "expo-haptics";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { Card } from "@/components/Card";
@@ -79,7 +78,7 @@ function LogbookCard({ item, index, onDelete }: { item: LogbookDisplayItem; inde
   const [entry, setEntry] = useState(item.entry);
 
   const toggleExpanded = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
     setExpanded(!expanded);
   };
 
@@ -109,7 +108,7 @@ function LogbookCard({ item, index, onDelete }: { item: LogbookDisplayItem; inde
 
   const handleOpenMap = () => {
     if (item.latitude && item.longitude) {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      
       const radiusKm = entry?.planning?.radiusKm;
       navigation.navigate("LocationMap", {
         latitude: item.latitude,
@@ -152,7 +151,7 @@ function LogbookCard({ item, index, onDelete }: { item: LogbookDisplayItem; inde
       e?: GestureResponderEvent,
     ) => {
       e?.stopPropagation?.();
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      
       if (entry) {
         navigation.navigate("LogbookEntryDetail", {
           logbookEntryId: entry.id,
@@ -577,7 +576,7 @@ function LogbookCard({ item, index, onDelete }: { item: LogbookDisplayItem; inde
               if (!promptFeatureUpgrade(entitlement, "pdf_export")) return;
               try {
                 await exportFlightProtocolPdf(entry);
-                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                
               } catch (e) {
                 Alert.alert("Fehler", "Protokoll konnte nicht erstellt werden.");
               }
@@ -598,7 +597,7 @@ function LogbookCard({ item, index, onDelete }: { item: LogbookDisplayItem; inde
               if (!promptFeatureUpgrade(entitlement, "pdf_export")) return;
               try {
                 await exportSingleEntryPdf(entry);
-                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                
               } catch (e) {
                 Alert.alert("Fehler", "PDF konnte nicht erstellt werden.");
               }
@@ -828,7 +827,7 @@ export default function HistoryScreen() {
   }, [items, selectedDrone]);
 
   const toggleDroneFilter = (droneName: string) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
     setSelectedDrone(prev => prev === droneName ? null : droneName);
   };
 
@@ -843,14 +842,14 @@ export default function HistoryScreen() {
     }
     try {
       await exportLogbookPdf(logbookEntries);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      
     } catch (e) {
       Alert.alert("Fehler", "PDF konnte nicht erstellt werden.");
     }
   }, [items]);
 
   const handleDelete = useCallback((item: LogbookDisplayItem) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    
     Alert.alert(
       "Eintrag löschen",
       "Möchtest du diesen Logbuch-Eintrag wirklich löschen?",
@@ -866,7 +865,7 @@ export default function HistoryScreen() {
               } else if (item.type === "briefing") {
                 await deleteBriefing(item.id);
               }
-              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              
               loadData();
             } catch (error) {
               Alert.alert("Fehler", "Eintrag konnte nicht gelöscht werden.");

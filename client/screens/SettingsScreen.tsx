@@ -12,7 +12,6 @@ import { Card } from "@/components/Card";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, Typography, Colors, BorderRadius } from "@/constants/theme";
 import { getSettings, saveSettings, Settings, DEFAULT_PROXIMITY_ALARM, getDrones, getSelectedDroneId, setSelectedDroneId, getActiveSessions, getFlightCountsForDrones, getPilotProfile, type DroneProfile, type PilotProfile } from "@/lib/storage";
-import * as Haptics from "expo-haptics";
 import { setActiveNotamCount } from "@/lib/notamAlertStore";
 import { COUNTRY_MAPS, getCountryMapConfig, getCountryFlag } from "@/lib/countryMaps";
 import type { SettingsStackParamList } from "@/navigation/SettingsStackNavigator";
@@ -122,7 +121,7 @@ export default function SettingsScreen() {
 
   const handleSelectDrone = useCallback(async (id: string) => {
     if (Platform.OS !== "web") {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+      
     }
     setSelectedDroneIdState(id);
     await setSelectedDroneId(id);
@@ -142,7 +141,7 @@ export default function SettingsScreen() {
   const handleToggleAttachDocs = useCallback(async () => {
     if (!settings) return;
     if (Platform.OS !== "web") {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+      
     }
     const next: Settings = {
       ...settings,
@@ -155,7 +154,7 @@ export default function SettingsScreen() {
   const handleToggleWildlifeRescue = useCallback(async () => {
     if (!settings) return;
     if (Platform.OS !== "web") {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+      
     }
     const currentlyOn = settings.wildlifeRescueMode ?? false;
     if (currentlyOn) {

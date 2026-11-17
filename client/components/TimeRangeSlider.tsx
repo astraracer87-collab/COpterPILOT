@@ -1,7 +1,6 @@
 import React, { useRef, useState, useCallback, useMemo } from "react";
 import { View, Text, StyleSheet, PanResponder, GestureResponderEvent } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
 import type { SolarTimes } from "@/lib/solar";
 
 const TOTAL_MINUTES = 24 * 60;
@@ -88,14 +87,14 @@ export default function TimeRangeSlider({
       const ns = Math.max(minStartRef.current, Math.min(newMin, valuesRef.current.endMin - SNAP_MIN));
       if (ns !== valuesRef.current.startMin) {
         lastSnapRef.current = ns;
-        Haptics.selectionAsync();
+        
         onChangeRef.current(ns, valuesRef.current.endMin);
       }
     } else {
       const ne = Math.min(MAX_END_MIN, Math.max(newMin, valuesRef.current.startMin + SNAP_MIN));
       if (ne !== valuesRef.current.endMin) {
         lastSnapRef.current = ne;
-        Haptics.selectionAsync();
+        
         onChangeRef.current(valuesRef.current.startMin, ne);
       }
     }
@@ -109,7 +108,7 @@ export default function TimeRangeSlider({
       if (ns !== valuesRef.current.startMin) {
         if (ns !== lastSnapRef.current) {
           lastSnapRef.current = ns;
-          Haptics.selectionAsync();
+          
         }
         onChangeRef.current(ns, valuesRef.current.endMin);
       }
@@ -118,7 +117,7 @@ export default function TimeRangeSlider({
       if (ne !== valuesRef.current.endMin) {
         if (ne !== lastSnapRef.current) {
           lastSnapRef.current = ne;
-          Haptics.selectionAsync();
+          
         }
         onChangeRef.current(valuesRef.current.startMin, ne);
       }

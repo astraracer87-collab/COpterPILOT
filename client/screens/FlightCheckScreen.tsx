@@ -7,7 +7,6 @@ import type { RouteProp } from "@react-navigation/native";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
 import * as Location from "@/lib/location";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
@@ -351,20 +350,20 @@ export default function FlightCheckScreen() {
         next.delete(id);
       } else {
         next.add(id);
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        
       }
       return next;
     });
   };
 
   const showTip = (title: string, tip: string) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
     setTipModal({ visible: true, title, tip });
   };
 
   const recenterToGps = useCallback(async () => {
     try {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      
       const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
       setGpsLat(loc.coords.latitude);
       setGpsLon(loc.coords.longitude);
@@ -390,7 +389,7 @@ export default function FlightCheckScreen() {
           takeoffTime: new Date().toISOString(),
         },
       });
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      
       navigation.getParent()?.goBack();
     } catch (error) {
       Alert.alert("Fehler", "Flight-Check konnte nicht gespeichert werden.");
@@ -543,7 +542,7 @@ export default function FlightCheckScreen() {
         {nearbyCtr.length > 0 ? (
           <Card style={[styles.ctrEmergencyCard, { borderColor: "#FF3B30" }]}>
             <Pressable
-              onPress={() => { setShowCtrContacts(!showCtrContacts); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+              onPress={() => { setShowCtrContacts(!showCtrContacts);  }}
               style={styles.ctrEmergencyHeader}
             >
               <Feather name="navigation" size={18} color="#FF3B30" />
@@ -710,7 +709,7 @@ export default function FlightCheckScreen() {
         ) : (
           <Pressable
             onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              
               navigation.navigate("LiveRadar");
             }}
             style={[styles.radarButton, { backgroundColor: theme.primary + "12" }]}

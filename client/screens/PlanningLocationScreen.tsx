@@ -8,7 +8,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { Feather } from "@expo/vector-icons";
 import * as Location from "@/lib/location";
-import * as Haptics from "expo-haptics";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { Card } from "@/components/Card";
@@ -351,12 +350,12 @@ export default function PlanningLocationScreen() {
 
   const handleMapPress = (latitude: number, longitude: number) => {
     selectLocation(latitude, longitude);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
   };
 
   const handleMapLongPress = (latitude: number, longitude: number) => {
     selectLocation(latitude, longitude);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    
   };
 
   const handleGetCurrentLocation = async (silent: boolean = false) => {
@@ -376,7 +375,6 @@ export default function PlanningLocationScreen() {
       setSelectedLocation({ latitude, longitude });
       animateToLocation(latitude, longitude);
       await reverseGeocode(latitude, longitude);
-      if (!silent) Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (error) {
       if (!silent) Alert.alert("Fehler", "Standort konnte nicht ermittelt werden.");
     } finally {
@@ -488,7 +486,7 @@ export default function PlanningLocationScreen() {
   }, [restrictionNoteDraft]);
 
   const openZoneDetail = useCallback((zone: GeozoneFeatureInfo) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    
     setDetailZone(zone);
   }, []);
 
@@ -579,7 +577,7 @@ export default function PlanningLocationScreen() {
     setSearchLoading(false);
     setSearchQuery(poi.name);
     selectLocation(poi.latitude, poi.longitude, poi.detail ? `${poi.name}, ${poi.detail.split(",")[0]}` : poi.name);
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    
   };
 
   const handleManualCoords = () => {
@@ -599,7 +597,7 @@ export default function PlanningLocationScreen() {
     setSelectedLocation({ latitude: lat, longitude: lng });
     animateToLocation(lat, lng);
     reverseGeocode(lat, lng);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
   };
 
   const [detectingCountry, setDetectingCountry] = useState(false);

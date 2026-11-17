@@ -49,7 +49,6 @@ import {
   DRONE_CLASS_INFO,
   DRONE_TYPE_INFO,
 } from "@/lib/dronePresets";
-import * as Haptics from "expo-haptics";
 import { DocumentField } from "@/components/DocumentField";
 import { DocumentRef } from "@/lib/documents";
 import type { SettingsStackParamList } from "@/navigation/SettingsStackNavigator";
@@ -187,7 +186,7 @@ export default function DroneSetupScreen() {
   };
 
   const selectPreset = (preset: DronePreset) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
     setName(`${preset.manufacturer} ${preset.model}`);
     setManufacturer(preset.manufacturer);
     setModel(preset.model);
@@ -213,13 +212,13 @@ export default function DroneSetupScreen() {
   };
 
   const selectManual = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
     setSelectedPreset(null);
     setStep("details");
   };
 
   const applyNdKit = (kit: string[]) => {
-    Haptics.selectionAsync().catch(() => {});
+    
     setOwnedNdFilters((prev) => {
       const merged = new Set(prev);
       kit.forEach((nd) => merged.add(nd));
@@ -284,7 +283,7 @@ export default function DroneSetupScreen() {
         });
         await setSelectedDroneId(newDrone.id);
       }
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      
       setSaving(false);
       if (isEditing && navigation.canGoBack()) {
         navigation.goBack();
@@ -576,7 +575,7 @@ export default function DroneSetupScreen() {
           {ownedNdFilters.length > 0 ? (
             <Pressable
               onPress={() => {
-                Haptics.selectionAsync().catch(() => {});
+                
                 setOwnedNdFilters([]);
               }}
               style={[styles.ndKitChip, { borderColor: theme.border }]}
@@ -597,7 +596,7 @@ export default function DroneSetupScreen() {
               <Pressable
                 key={nd}
                 onPress={() => {
-                  Haptics.selectionAsync().catch(() => {});
+                  
                   setOwnedNdFilters((prev) =>
                     prev.includes(nd) ? prev.filter((v) => v !== nd) : [...prev, nd],
                   );
@@ -640,7 +639,7 @@ export default function DroneSetupScreen() {
           <Pressable
             testID="battery-add-button"
             onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+              
               setBatteryEditor({ visible: true, editingId: null, name: "", serial: "" });
             }}
             style={({ pressed }) => [
@@ -830,7 +829,7 @@ export default function DroneSetupScreen() {
           settings?.windUnit === "km/h" ? (v * 3.6).toFixed(1) : String(v);
         const resetToManufacturer = () => {
           if (!presetLimits) return;
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          
           setLimits(presetLimits);
         };
         return (
@@ -856,7 +855,7 @@ export default function DroneSetupScreen() {
                 ) : null}
                 <Pressable
                   onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    
                     setCustomLimitsEnabled((v) => !v);
                   }}
                   style={{ flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12,

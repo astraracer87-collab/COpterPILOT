@@ -6,7 +6,6 @@ import type { RouteProp } from "@react-navigation/native";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { Card } from "@/components/Card";
@@ -191,7 +190,7 @@ export default function PlanningResultScreen() {
         },
       });
       
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      
       setSaved(true);
     } catch (error) {
       Alert.alert("Fehler", "Die Planung konnte nicht gespeichert werden.");
@@ -205,7 +204,7 @@ export default function PlanningResultScreen() {
   };
 
   const handleReplan = () => {
-    Haptics.selectionAsync();
+    
     const nav = navigation as any;
     if (typeof nav.popTo === "function") {
       try {
@@ -219,7 +218,7 @@ export default function PlanningResultScreen() {
   };
 
   const handleOverride = () => {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    
     Alert.alert(
       "Trotz No-Go fliegen?",
       "Du übernimmst hiermit die volle Verantwortung. Diese Freigabe wird mit Zeitstempel und Gründen in deinem Flugprotokoll dokumentiert und ist im Logbuch sichtbar.\n\nWirklich fortfahren?",
@@ -237,7 +236,7 @@ export default function PlanningResultScreen() {
               reasons: reasons.length > 0 ? reasons : ["NO-GO bewusst übersteuert"],
               originalStatus: assessment.status,
             });
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            
           },
         },
       ],

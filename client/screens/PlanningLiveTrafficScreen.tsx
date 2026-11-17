@@ -6,7 +6,6 @@ import type { RouteProp } from "@react-navigation/native";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
 import TrafficMapView, { TrafficMarker, AircraftTrail, WindData } from "@/components/TrafficMapView";
 import { fetchDipulWind } from "@/lib/weather";
 import { fetchElevation } from "@/lib/elevation";
@@ -161,7 +160,7 @@ export default function PlanningLiveTrafficScreen() {
   }, []);
 
   const handleManualRefresh = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
     setLoading(true);
     loadAircraft();
   };
@@ -299,7 +298,7 @@ export default function PlanningLiveTrafficScreen() {
           onPress={() => {
             if (Platform.OS === "web") return;
             setViewMode("map");
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            
           }}
           style={[
             styles.toggleBtn,
@@ -317,7 +316,7 @@ export default function PlanningLiveTrafficScreen() {
         <Pressable
           onPress={() => {
             setViewMode("list");
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            
           }}
           style={[
             styles.toggleBtn,
@@ -338,7 +337,7 @@ export default function PlanningLiveTrafficScreen() {
             onPress={() => {
               setRadiusKm(r);
               saveRadarSettings({ radiusKm: r });
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              
             }}
             style={[styles.radiusChip, { backgroundColor: radiusKm === r ? theme.primary : theme.backgroundSecondary }]}
           >
@@ -351,7 +350,7 @@ export default function PlanningLiveTrafficScreen() {
 
       <View style={styles.geozoneRow}>
         <Pressable
-          onPress={() => { setShowGeozoneModal(true); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+          onPress={() => { setShowGeozoneModal(true);  }}
           style={[styles.geozoneBtn, { backgroundColor: activeGeozoneLayers.length > 0 ? theme.primary : theme.backgroundSecondary }]}
         >
           <Feather name="layers" size={14} color={activeGeozoneLayers.length > 0 ? "#FFFFFF" : theme.textSecondary} />
@@ -365,7 +364,7 @@ export default function PlanningLiveTrafficScreen() {
             const next = MAP_STYLES[(idx + 1) % MAP_STYLES.length];
             setMapStyle(next.id);
             saveMapStyle(next.id);
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            
           }}
           style={[styles.geozoneBtn, { backgroundColor: theme.backgroundSecondary }]}
         >
@@ -530,7 +529,7 @@ export default function PlanningLiveTrafficScreen() {
       </Pressable>
       {infoId && GEOZONE_REGULATORY_INFO[infoId] ? (
         <Pressable
-          onPress={() => { setLayerInfoId(infoId); try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch (_e) {} }}
+          onPress={() => { setLayerInfoId(infoId); try {  } catch (_e) {} }}
           hitSlop={10}
           style={[styles.geozoneLayerInfoBtn, { borderColor: theme.primary }]}
         >
@@ -560,7 +559,7 @@ export default function PlanningLiveTrafficScreen() {
               allGeozoneToggleKeys.forEach((k) => { next[k] = !allOn; });
               setGeozoneSettings(next);
               saveGeozoneSettings(next);
-              try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); } catch (_e) {}
+              try {  } catch (_e) {}
             }}
             style={[styles.geozoneToggleAllBtn, { backgroundColor: theme.primary + "18" }]}
           >

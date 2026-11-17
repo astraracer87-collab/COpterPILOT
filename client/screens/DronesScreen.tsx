@@ -24,7 +24,6 @@ import {
   DroneProfile,
   PilotProfile,
 } from "@/lib/storage";
-import * as Haptics from "expo-haptics";
 import type { SettingsStackParamList } from "@/navigation/SettingsStackNavigator";
 import { DocumentPreviewModal } from "@/components/DocumentPreviewModal";
 import { DroneCard } from "@/components/DroneCard";
@@ -77,13 +76,13 @@ export default function DronesScreen() {
   );
 
   const handleSelect = async (drone: DroneProfile) => {
-    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
     await setSelectedDroneId(drone.id);
     setSelectedId(drone.id);
   };
 
   const handleUnarchive = async (drone: DroneProfile) => {
-    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
     await unarchiveDrone(drone.id);
     await loadDrones();
   };

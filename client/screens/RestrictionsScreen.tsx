@@ -6,7 +6,6 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
@@ -35,17 +34,17 @@ export default function RestrictionsScreen() {
   const handleNoRestrictions = () => {
     setHasRestrictions(false);
     setRestrictionStatus(null);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
   };
 
   const handleHasRestrictions = () => {
     setHasRestrictions(true);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
   };
 
   const handleSelectStatus = (status: RestrictionStatus) => {
     setRestrictionStatus(status);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
   };
 
   const handleContinue = () => {

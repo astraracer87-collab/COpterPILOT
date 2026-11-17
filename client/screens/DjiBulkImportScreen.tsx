@@ -5,7 +5,6 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { Card } from "@/components/Card";
@@ -275,7 +274,7 @@ export default function DjiBulkImportScreen() {
       setAssignedTo({});
       setPlaceNames({});
       requestedPlaces.current.clear();
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      
     } catch (e) {
       Alert.alert("Fehler", e instanceof Error ? e.message : "Import fehlgeschlagen.");
     } finally {
@@ -309,7 +308,7 @@ export default function DjiBulkImportScreen() {
         }
         setAssignedTo((prev) => ({ ...prev, [group.id]: entryId! }));
         setEntries(await getLogbook());
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        
       } catch (e) {
         Alert.alert("Fehler", e instanceof Error ? e.message : "Zuordnung fehlgeschlagen.");
       } finally {

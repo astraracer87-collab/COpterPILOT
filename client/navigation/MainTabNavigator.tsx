@@ -6,7 +6,6 @@ import { BlurView } from "expo-blur";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import * as Haptics from "expo-haptics";
 import BriefingsStackNavigator from "@/navigation/BriefingsStackNavigator";
 import HistoryStackNavigator from "@/navigation/HistoryStackNavigator";
 import NotamsStackNavigator from "@/navigation/NotamsStackNavigator";
@@ -54,7 +53,7 @@ function ChooserModal({
   const handlePlanning = () => {
     if (isProcessingRef.current) return;
     isProcessingRef.current = true;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
     onClose();
     onSelectPlanning();
   };
@@ -62,7 +61,7 @@ function ChooserModal({
   const handlePreflight = () => {
     if (isProcessingRef.current) return;
     isProcessingRef.current = true;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
     onClose();
     onSelectPreflight();
   };
@@ -341,7 +340,7 @@ function FloatingFab() {
       );
       return;
     }
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    
     setShowChooser(true);
   };
 

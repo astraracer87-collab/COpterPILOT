@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
 import {
   ALL_SOURCES,
   DegradedSource,
@@ -42,7 +41,7 @@ export default function SourceHealthIndicator({ isDark, testID }: Props) {
   );
 
   const handlePress = useCallback(() => {
-    try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
+    try {  } catch {}
     setShowModal(true);
   }, []);
 

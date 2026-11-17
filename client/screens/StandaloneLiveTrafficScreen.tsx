@@ -5,7 +5,6 @@ import { BottomTabBarHeightContext } from "@react-navigation/bottom-tabs";
 import { useRoute, type RouteProp } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
 import * as Location from "@/lib/location";
 import { captureRef } from "react-native-view-shot";
 import TrafficMapView, { TrafficMarker, AircraftTrail, WindData } from "@/components/TrafficMapView";
@@ -562,7 +561,7 @@ export default function StandaloneLiveTrafficScreen() {
   }, []);
 
   const handleManualRefresh = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
     setLoading(true);
     loadAircraft();
   };
@@ -696,7 +695,7 @@ export default function StandaloneLiveTrafficScreen() {
 
   const handleMapLongPress = useCallback(async (lat: number, lon: number) => {
     try {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      
       setAircraft([]);
       setTrails([]);
       setSidePanelGeozones([]);
@@ -719,7 +718,7 @@ export default function StandaloneLiveTrafficScreen() {
   }, []);
 
   const handleResetLocation = useCallback(async () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
     let lat = gpsLatitude;
     let lon = gpsLongitude;
     if (lat == null || lon == null) {
@@ -754,7 +753,7 @@ export default function StandaloneLiveTrafficScreen() {
   }, [gpsLatitude, gpsLongitude]);
 
   const handleCenterOnGps = useCallback(async () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
     try {
       const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
       const lat = loc.coords.latitude;
@@ -1052,7 +1051,7 @@ export default function StandaloneLiveTrafficScreen() {
       </Pressable>
       {infoId && GEOZONE_REGULATORY_INFO[infoId] ? (
         <Pressable
-          onPress={() => { setLayerInfoId(infoId); try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch (_e) {} }}
+          onPress={() => { setLayerInfoId(infoId); try {  } catch (_e) {} }}
           hitSlop={10}
           style={[styles.geozoneLayerInfoBtn, { borderColor: theme.primary }]}
         >
@@ -1082,7 +1081,7 @@ export default function StandaloneLiveTrafficScreen() {
               allGeozoneToggleKeys.forEach((k) => { next[k] = !allOn; });
               setGeozoneSettings(next);
               saveGeozoneSettings(next);
-              try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); } catch (_e) {}
+              try {  } catch (_e) {}
             }}
             style={[styles.geozoneToggleAllBtn, { backgroundColor: theme.primary + "18" }]}
           >
@@ -1280,7 +1279,7 @@ export default function StandaloneLiveTrafficScreen() {
               showAllGeozones={showAllGeozones}
               mapStyle={mapStyle}
               onCenterGps={handleCenterOnGps}
-              onSettingsPress={() => { setShowMapConfig(!showMapConfig); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+              onSettingsPress={() => { setShowMapConfig(!showMapConfig);  }}
               settingsActive={showMapConfig}
               bottomPadding={showWeatherOverlay && sidePanelForecasts.length > 0 ? 290 : 0}
               infoBubbleBottomInset={(activeAlerts.length > 0 || clearOfConflict) ? 96 : 0}
@@ -1315,7 +1314,7 @@ export default function StandaloneLiveTrafficScreen() {
               </View>
               <Pressable
                 onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                  
                   if (nearbyCtr.length === 1) {
                     openLink(`tel:${nearbyCtr[0].towerPhone.replace(/\s/g, "")}`).catch(() => {});
                   } else {
@@ -1323,7 +1322,7 @@ export default function StandaloneLiveTrafficScreen() {
                   }
                 }}
                 onLongPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+                  
                   setShowCtrEmergency(true);
                 }}
                 style={{
@@ -1391,7 +1390,7 @@ export default function StandaloneLiveTrafficScreen() {
                         </View>
                         <Pressable
                           onPress={() => {
-                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+                            
                             openLink(`tel:${ctr.towerPhone.replace(/\s/g, "")}`).catch(() => {});
                           }}
                           style={{
@@ -1483,7 +1482,7 @@ export default function StandaloneLiveTrafficScreen() {
                 lastUpdate: lastUpdate,
                 sourceStatus: sourceStatus,
                 pilotElevation: pilotElevation,
-                onRadiusChange: (r: number) => { setRadiusKm(r); saveRadarSettings({ radiusKm: r }); try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {} },
+                onRadiusChange: (r: number) => { setRadiusKm(r); saveRadarSettings({ radiusKm: r }); try {  } catch {} },
                 onRefresh: handleManualRefresh,
                 onResetLocation: handleResetLocation,
               }}
@@ -1914,7 +1913,7 @@ function SideTabs({ activePanel, onPress, isDark, safeTop, alertFlags, weatherSt
         return (
           <Pressable
             key={t.id}
-            onPress={() => { onPress(t.id); try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {} }}
+            onPress={() => { onPress(t.id); try {  } catch {} }}
             style={[
               sideTabStyles.tab,
               { backgroundColor: solidBg },
@@ -3632,7 +3631,7 @@ interface MapConfigPopupProps {
 function MapConfigToggle({ label, active, onPress, labelColor, checkBorder }: { label: string; active: boolean; onPress: () => void; labelColor?: string; checkBorder?: string }) {
   const handlePress = useCallback(() => {
     try { onPress(); } catch (_e) { /* safe */ }
-    try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch (_e) { /* safe */ }
+    try {  } catch (_e) { /* safe */ }
   }, [onPress]);
   return (
     <Pressable onPress={handlePress} style={panelStyles.configRow}>
@@ -3673,7 +3672,7 @@ function MapConfigPopup({
             <Pressable
               key={opt.id}
               style={[panelStyles.mapSegBtn, isActive ? panelStyles.mapSegBtnActive : undefined]}
-              onPress={() => { onMapStyleChange(opt.id); try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch (_e) {} }}
+              onPress={() => { onMapStyleChange(opt.id); try {  } catch (_e) {} }}
             >
               <Text style={[panelStyles.mapSegLabel, { color: isActive ? "#FFFFFF" : segInactiveText }]}>{opt.label}</Text>
             </Pressable>
@@ -3697,7 +3696,7 @@ function MapConfigPopup({
       <MapConfigToggle label="Wetter-Tabelle" active={showWeatherOverlay} onPress={onToggleWeatherOverlay} labelColor={labelColor} checkBorder={checkBorder} />
       <View style={panelStyles.geozoneRow}>
         <Pressable
-          onPress={() => { try { onToggleGeozones(); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch (_e) {} }}
+          onPress={() => { try { onToggleGeozones();  } catch (_e) {} }}
           hitSlop={6}
         >
           <View style={[panelStyles.configCheck, showGeozones ? panelStyles.configCheckActive : undefined, !showGeozones ? { borderColor: checkBorder } : undefined]}>
@@ -3706,7 +3705,7 @@ function MapConfigPopup({
         </Pressable>
         <Text style={[panelStyles.configLabel, { color: labelColor, flex: 1 }]}>Geozonen</Text>
         <Pressable
-          onPress={() => { try { onOpenGeozoneDetail(); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch (_e) {} }}
+          onPress={() => { try { onOpenGeozoneDetail();  } catch (_e) {} }}
           hitSlop={8}
         >
           <Feather name="chevron-right" size={18} color={isDark ? "#8CB4E0" : "#4A90D9"} />

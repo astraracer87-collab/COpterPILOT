@@ -6,7 +6,6 @@ import type { RouteProp } from "@react-navigation/native";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { Card } from "@/components/Card";
@@ -247,14 +246,14 @@ export default function DebriefingChecklistScreen() {
         next.delete(id);
       } else {
         next.add(id);
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        
       }
       return next;
     });
   };
 
   const showTip = (title: string, tip: string) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
     setTipModal({ visible: true, title, tip });
   };
 
@@ -337,7 +336,7 @@ export default function DebriefingChecklistScreen() {
       });
       
       await completeSessionWithLogEntry(sessionId, debriefingData);
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      
       dismissModal();
     } catch (error) {
       Alert.alert("Fehler", "Debriefing konnte nicht gespeichert werden.");
@@ -478,7 +477,7 @@ export default function DebriefingChecklistScreen() {
                                 key={opt.value}
                                 testID={`choice-${item.id}-${opt.value}`}
                                 onPress={() => {
-                                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                  
                                   setTextValues(prev => ({ ...prev, [item.id]: opt.value }));
                                 }}
                                 style={({ pressed }) => [

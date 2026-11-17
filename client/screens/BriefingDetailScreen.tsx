@@ -16,7 +16,6 @@ import { Spacing, Typography } from "@/constants/theme";
 import { getBriefing, deleteBriefing, Briefing } from "@/lib/storage";
 import type { BriefingsStackParamList } from "@/navigation/BriefingsStackNavigator";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import * as Haptics from "expo-haptics";
 
 type RouteParams = RouteProp<BriefingsStackParamList, "BriefingDetail">;
 type NavProp = NativeStackNavigationProp<BriefingsStackParamList, "BriefingDetail">;
@@ -64,7 +63,7 @@ export default function BriefingDetailScreen() {
           style: "destructive",
           onPress: async () => {
             await deleteBriefing(route.params.briefingId);
-            await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            
             navigation.goBack();
           },
         },

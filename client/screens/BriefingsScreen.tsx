@@ -6,7 +6,6 @@ import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { Feather } from "@expo/vector-icons";
 import Animated, { FadeInDown, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
-import * as Haptics from "expo-haptics";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { Card } from "@/components/Card";
@@ -156,19 +155,19 @@ function SessionCard({
   };
 
   const openDipulMap = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
     onOpenMap();
   };
 
   const toggleExpanded = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
     setExpanded(!expanded);
   };
 
   const handleArchiveDirectly = async () => {
     try {
       await archiveSessionToLogbook(item.id);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      
       loadData();
     } catch (error) {
       Alert.alert("Fehler", "Session konnte nicht archiviert werden.");
@@ -918,7 +917,7 @@ export default function BriefingsScreen() {
   const handleItemPress = async (item: DisplayItem) => {
     if (item.type === "session" && item.session) {
       const session = item.session;
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      
       
       if (session.currentPhase === "planning") {
         await updateFlightSession(session.id, { currentPhase: "preflight" });
@@ -953,7 +952,7 @@ export default function BriefingsScreen() {
           style: "destructive",
           onPress: async () => {
             await trashFlightSession(item.session!.id);
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            
             loadData();
           },
         },
@@ -1029,7 +1028,7 @@ export default function BriefingsScreen() {
           skippedFlightCheck: true,
         },
       });
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      
       rootNav.navigate("FlightCheck", { sessionId: item.session.id, initialScreen: "DebriefingChecklist" });
     } catch (error) {
       Alert.alert("Fehler", "Konnte nicht zum Post-Check wechseln.");
@@ -1037,7 +1036,7 @@ export default function BriefingsScreen() {
   };
 
   const handleItemLongPress = (item: DisplayItem) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    
     Alert.alert(
       "Planung in Papierkorb",
       `Die Planung wird in den Papierkorb verschoben und nach ${TRASH_RETENTION_DAYS} Tagen endgültig entfernt.`,
@@ -1050,7 +1049,7 @@ export default function BriefingsScreen() {
             if (item.type === "session" && item.session) {
               await trashFlightSession(item.session.id);
             }
-            await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            
             loadData();
           },
         },
@@ -1061,7 +1060,7 @@ export default function BriefingsScreen() {
   const handleRestoreTrashed = useCallback(async (sessionId: string) => {
     try {
       await restoreFlightSession(sessionId);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      
       loadData();
     } catch (e) {
       Alert.alert("Fehler", "Wiederherstellen fehlgeschlagen.");
@@ -1080,7 +1079,7 @@ export default function BriefingsScreen() {
           onPress: async () => {
             try {
               await deleteFlightSession(sessionId);
-              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+              
               loadData();
             } catch (e) {
               Alert.alert("Fehler", "Löschen fehlgeschlagen.");
@@ -1094,7 +1093,7 @@ export default function BriefingsScreen() {
   const handleReplan = useCallback(async (item: SessionDisplayItem) => {
     if (!item.session) return;
     const s = item.session;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    
     // Die alte Session NICHT löschen — wir geben ihre sessionId an die
     // Planung weiter, damit PlanningDetailsScreen denselben Datensatz
     // aktualisiert. So bleibt die Karte sichtbar, falls der Pilot mitten
@@ -1123,7 +1122,7 @@ export default function BriefingsScreen() {
         return (
           <Pressable
             onPress={() => {
-              Haptics.selectionAsync().catch(() => {});
+              
               setExpiredCollapsed((v) => !v);
             }}
             style={[styles.expiredHeader, { backgroundColor: theme.backgroundSecondary, borderColor: theme.border }]}
@@ -1145,7 +1144,7 @@ export default function BriefingsScreen() {
         return (
           <Pressable
             onPress={() => {
-              Haptics.selectionAsync().catch(() => {});
+              
               setTrashCollapsed((v) => !v);
             }}
             style={[styles.expiredHeader, { backgroundColor: theme.backgroundSecondary, borderColor: theme.border }]}

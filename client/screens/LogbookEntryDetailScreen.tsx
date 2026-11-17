@@ -6,7 +6,6 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { Card } from "@/components/Card";
@@ -240,7 +239,7 @@ export default function LogbookEntryDetailScreen() {
         await updateLogbookEntry(entry.id, patch);
         setBatteryPickerFor(null);
         await load();
-        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        
       } catch {
         Alert.alert("Fehler", "Akku konnte nicht zugeordnet werden.");
       } finally {
@@ -320,7 +319,7 @@ export default function LogbookEntryDetailScreen() {
         await updateLogbookEntry(entry.id, patch);
         await load();
         if (!silent) {
-          await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          
           Alert.alert("Gespeichert", "Die Karte (Karte + Satellit) wurde fürs Protokoll-PDF gespeichert.");
         }
         // Erfolg nur, wenn beide Stile erfasst wurden.
@@ -364,7 +363,7 @@ export default function LogbookEntryDetailScreen() {
           debriefing: { ...base, batteryUsedPercent: usage },
         });
         await load();
-        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        
         Alert.alert("Übernommen", `Akkuverbrauch ${usage}% aus dem Fluglog ins Debriefing übernommen.`);
       } catch {
         Alert.alert("Fehler", "Akkuverbrauch konnte nicht übernommen werden.");
@@ -387,7 +386,7 @@ export default function LogbookEntryDetailScreen() {
       const updated = await pickAndUploadDjiLog(entry.id);
       if (updated) {
         setEntry(updated);
-        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        
       }
     } catch (e) {
       Alert.alert("Fehler", e instanceof Error ? e.message : "DJI-Protokoll konnte nicht verarbeitet werden.");
@@ -1218,7 +1217,7 @@ export default function LogbookEntryDetailScreen() {
             const runExport = async (includeDocs: boolean) => {
               try {
                 await exportFlightProtocolPdf(entry, { includeDocs });
-                await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                
               } catch {
                 Alert.alert("Fehler", "Protokoll konnte nicht erstellt werden.");
               }

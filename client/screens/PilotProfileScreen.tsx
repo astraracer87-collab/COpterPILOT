@@ -7,7 +7,6 @@ import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Feather } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { Card } from "@/components/Card";
@@ -123,13 +122,13 @@ export default function PilotProfileScreen() {
     if (profile.allgemeinverfuegung.some((e) => e.bundesland === bl)) return;
     setErlaubnisse([...profile.allgemeinverfuegung, { bundesland: bl, document: null }]);
     setShowAddBundesland(false);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
   };
 
   const removeErlaubnis = (bl: Bundesland) => {
     if (!profile) return;
     setErlaubnisse(profile.allgemeinverfuegung.filter((e) => e.bundesland !== bl));
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    
   };
 
   const updateErlaubnis = (bl: Bundesland, partial: Partial<GeoAllgemeinerlaubnis>) => {
@@ -207,21 +206,21 @@ export default function PilotProfileScreen() {
     if (!profile) return;
     setProfile(enforceLicenseHierarchy({ ...profile, licenseA1A3: v }));
     setDirty(true);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
   };
 
   const toggleA2 = (v: boolean) => {
     if (!profile || !profile.licenseA1A3) return;
     setProfile(enforceLicenseHierarchy({ ...profile, licenseA2: v }));
     setDirty(true);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
   };
 
   const toggleSTS = (v: boolean) => {
     if (!profile || !profile.licenseA2) return;
     setProfile(enforceLicenseHierarchy({ ...profile, licenseSTS: v }));
     setDirty(true);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
   };
 
   const hasCompleteLicense =
@@ -259,10 +258,10 @@ export default function PilotProfileScreen() {
       setProfile(synced);
       await savePilotProfile(synced);
       setDirty(false);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      
       Alert.alert("Gespeichert", "Dein Pilotenprofil wurde gespeichert.");
     } catch (err) {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      
       Alert.alert(
         "Fehler beim Speichern",
         err instanceof Error ? err.message : "Unbekannter Fehler"
@@ -356,7 +355,7 @@ export default function PilotProfileScreen() {
 
           <Pressable
             style={styles.toggleRow}
-            onPress={() => { update({ insuranceActive: !profile.insuranceActive }); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+            onPress={() => { update({ insuranceActive: !profile.insuranceActive });  }}
           >
             <View style={styles.toggleInfo}>
               <ThemedText style={styles.toggleLabel}>Haftpflichtversicherung aktiv</ThemedText>
@@ -366,7 +365,7 @@ export default function PilotProfileScreen() {
             </View>
             <Switch
               value={profile.insuranceActive}
-              onValueChange={(v) => { update({ insuranceActive: v }); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+              onValueChange={(v) => { update({ insuranceActive: v });  }}
               trackColor={{ false: theme.backgroundSecondary, true: theme.primary + "60" }}
               thumbColor={profile.insuranceActive ? theme.primary : theme.textTertiary}
             />
@@ -387,7 +386,7 @@ export default function PilotProfileScreen() {
                 style={styles.toggleRow}
                 onPress={() => {
                   update({ insuranceVerbandsregelDE: !profile.insuranceVerbandsregelDE });
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  
                 }}
                 testID="toggle-insurance-verbandsregel-de"
               >
@@ -406,7 +405,7 @@ export default function PilotProfileScreen() {
                   value={profile.insuranceVerbandsregelDE === true}
                   onValueChange={(v) => {
                     update({ insuranceVerbandsregelDE: v });
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    
                   }}
                   trackColor={{ false: theme.backgroundSecondary, true: theme.primary + "60" }}
                   thumbColor={profile.insuranceVerbandsregelDE ? theme.primary : theme.textTertiary}
@@ -419,7 +418,7 @@ export default function PilotProfileScreen() {
 
           <Pressable
             style={styles.toggleRow}
-            onPress={() => { update({ operatorRegistered: !profile.operatorRegistered }); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+            onPress={() => { update({ operatorRegistered: !profile.operatorRegistered });  }}
           >
             <View style={styles.toggleInfo}>
               <ThemedText style={styles.toggleLabel}>Betreiber beim LBA registriert</ThemedText>
@@ -429,7 +428,7 @@ export default function PilotProfileScreen() {
             </View>
             <Switch
               value={profile.operatorRegistered}
-              onValueChange={(v) => { update({ operatorRegistered: v }); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+              onValueChange={(v) => { update({ operatorRegistered: v });  }}
               trackColor={{ false: theme.backgroundSecondary, true: theme.primary + "60" }}
               thumbColor={profile.operatorRegistered ? theme.primary : theme.textTertiary}
             />
@@ -481,7 +480,7 @@ export default function PilotProfileScreen() {
               <ThemedText style={[styles.fieldLabel, { color: theme.textSecondary }]}>Ausstellungsland</ThemedText>
               <Pressable
                 style={[styles.countryPicker, { backgroundColor: theme.backgroundSecondary, borderColor: theme.border }]}
-                onPress={() => { setShowA1A3Country(!showA1A3Country); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+                onPress={() => { setShowA1A3Country(!showA1A3Country);  }}
               >
                 <ThemedText style={styles.countryPickerText}>
                   {LICENSE_COUNTRIES.find((c) => c.code === (profile.licenseA1A3Details?.country || "DE"))?.label || "Deutschland"}
@@ -500,7 +499,7 @@ export default function PilotProfileScreen() {
                           onPress={() => {
                             updateLicenseA1A3Details({ country: c.code as LicenseCountryCode });
                             setShowA1A3Country(false);
-                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                            
                           }}
                         >
                           <ThemedText style={[styles.countryItemText, selected ? { color: theme.primary, fontWeight: "700" } : null]}>
@@ -582,7 +581,7 @@ export default function PilotProfileScreen() {
               <ThemedText style={[styles.fieldLabel, { color: theme.textSecondary }]}>Ausstellungsland</ThemedText>
               <Pressable
                 style={[styles.countryPicker, { backgroundColor: theme.backgroundSecondary, borderColor: theme.border }]}
-                onPress={() => { setShowA2Country(!showA2Country); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+                onPress={() => { setShowA2Country(!showA2Country);  }}
               >
                 <ThemedText style={styles.countryPickerText}>
                   {LICENSE_COUNTRIES.find((c) => c.code === (profile.licenseA2Details?.country || "DE"))?.label || "Deutschland"}
@@ -601,7 +600,7 @@ export default function PilotProfileScreen() {
                           onPress={() => {
                             updateLicenseA2Details({ country: c.code as LicenseCountryCode });
                             setShowA2Country(false);
-                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                            
                           }}
                         >
                           <ThemedText style={[styles.countryItemText, selected ? { color: theme.primary, fontWeight: "700" } : null]}>
@@ -683,7 +682,7 @@ export default function PilotProfileScreen() {
               <ThemedText style={[styles.fieldLabel, { color: theme.textSecondary }]}>Ausstellungsland</ThemedText>
               <Pressable
                 style={[styles.countryPicker, { backgroundColor: theme.backgroundSecondary, borderColor: theme.border }]}
-                onPress={() => { setShowSTSCountry(!showSTSCountry); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+                onPress={() => { setShowSTSCountry(!showSTSCountry);  }}
               >
                 <ThemedText style={styles.countryPickerText}>
                   {LICENSE_COUNTRIES.find((c) => c.code === (profile.licenseSTSDetails?.country || "DE"))?.label || "Deutschland"}
@@ -702,7 +701,7 @@ export default function PilotProfileScreen() {
                           onPress={() => {
                             updateLicenseSTSDetails({ country: c.code as LicenseCountryCode });
                             setShowSTSCountry(false);
-                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                            
                           }}
                         >
                           <ThemedText style={[styles.countryItemText, selected ? { color: theme.primary, fontWeight: "700" } : null]}>
@@ -899,7 +898,7 @@ export default function PilotProfileScreen() {
                 <>
                   <Pressable
                     style={[styles.addBundeslandBtn, { borderColor: theme.primary + "55" }]}
-                    onPress={() => { setShowAddBundesland(!showAddBundesland); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+                    onPress={() => { setShowAddBundesland(!showAddBundesland);  }}
                     testID="button-add-bundesland"
                   >
                     <Feather name={showAddBundesland ? "x" : "plus"} size={16} color={theme.primary} />
@@ -930,7 +929,7 @@ export default function PilotProfileScreen() {
 
               <Pressable
                 style={styles.expandRow}
-                onPress={() => { setShow21hRules(!show21hRules); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+                onPress={() => { setShow21hRules(!show21hRules);  }}
                 testID="button-toggle-21h-rules"
               >
                 <View style={styles.expandRowLeft}>
