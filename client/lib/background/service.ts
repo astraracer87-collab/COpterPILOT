@@ -13,6 +13,7 @@ const INTERVAL_MS = 2000;
 
 let fccHold = false;
 let traffic = false;
+let keepAwakeCount = 0;
 let fccAppliedFull = false;
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -21,6 +22,7 @@ function statusText(): string {
   const parts: string[] = [];
   if (fccHold) parts.push("FCC halten");
   if (traffic) parts.push("Verkehr überwachen");
+  if (keepAwakeCount > 0) parts.push("Download läuft");
   return parts.join(" · ") || "aktiv";
 }
 
@@ -64,7 +66,7 @@ const OPTIONS = {
 };
 
 async function sync(): Promise<void> {
-  const anyOn = fccHold || traffic;
+  const anyOn = fccHold || traffic || keepAwakeCount > 0;
   if (anyOn && !BackgroundService.isRunning()) {
     await BackgroundService.start(task, OPTIONS);
   } else if (!anyOn && BackgroundService.isRunning()) {
@@ -89,6 +91,18 @@ export const BackgroundJobs = {
   },
   async setTraffic(on: boolean) {
     traffic = on;
+    await sync();
+  },
+  /**
+   * Hält den Prozess wach, solange z. B. ein Länder-Download läuft, damit er im
+   * Hintergrund nicht einfriert. Als Zähler, falls mehrere Downloads parallel laufen.
+   */
+  async acquireKeepAwake() {
+    keepAwakeCount++;
+    await sync();
+  },
+  async releaseKeepAwake() {
+    keepAwakeCount = Math.max(0, keepAwakeCount - 1);
     await sync();
   },
 };
