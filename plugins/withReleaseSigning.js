@@ -45,9 +45,11 @@ module.exports = function withReleaseSigning(config) {
     );
 
     // Release-Build mit dem festen Schlüssel signieren, sobald einer verfügbar ist.
+    // Ganzer Ternär-Ausdruck in den Methodenklammern, sonst parst Groovy
+    // signingConfig(Bedingung) und wirft "Boolean cannot be cast to SigningConfig".
     gradle = gradle.replace(
       /(release\s*\{[^{}]*?)signingConfig\s+signingConfigs\.debug/,
-      `$1signingConfig (System.getenv("CP_KEYSTORE_FILE") || new File(rootProject.projectDir, "${REPO_STORE}").exists()) ? signingConfigs.release : signingConfigs.debug`,
+      `$1signingConfig(((System.getenv("CP_KEYSTORE_FILE") != null) || new File(rootProject.projectDir, "${REPO_STORE}").exists()) ? signingConfigs.release : signingConfigs.debug)`,
     );
 
     cfg.modResults.contents = gradle;
