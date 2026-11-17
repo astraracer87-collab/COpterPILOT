@@ -1,4 +1,5 @@
 import type { DroneClass, DroneType, WeatherLimits } from "@/lib/storage";
+import { HOVERPOINT_DRONE_CATALOG } from "@/lib/hoverpointDroneCatalog";
 
 export type LicenseLevel = "L0" | "L1" | "L2";
 export type ConstraintId =
@@ -73,6 +74,19 @@ export interface DronePreset {
    * (= erste Kamera) für Abwärtskompatibilität.
    */
   cameras?: CameraSpec[];
+  // ─── Zusatzdaten aus dem Hoverpoint-Katalog (Stand 2026-11-17) ──────────────
+  // Übernommen, wo wir bisher keine Werte hatten. Quelle siehe hoverpointDroneCatalog.ts.
+  /** Maximale Böen-Grenze des Herstellers in m/s (Hoverpoint führt km/h). */
+  gustMaxMs?: number;
+  /** Maximale Betriebstemperatur in °C (Ergänzung zu minTemp). */
+  maxTemp?: number;
+  /** Akkukapazität in Wattstunden (Wh) – relevant für den Reise-/Transport-Check. */
+  batteryWh?: number;
+  /**
+   * Von Hoverpoint ausgewiesene maximale VLOS-Sichtweite in Metern
+   * (aus der charakteristischen Dimension berechnet). Nur als Referenzwert.
+   */
+  vlosMeters?: number;
 }
 
 export interface CameraSpec {
@@ -209,6 +223,25 @@ export const DJI_PRESETS: DronePreset[] = [
 
 export const ALL_PRESETS = [...DJI_PRESETS];
 
+// ─── Anreicherung aus dem Hoverpoint-Katalog ──────────────────────────────────
+// Füllt ausschließlich Felder, die wir noch nicht haben (Böen, Temp-Max, Akku Wh,
+// VLOS). Vorhandene, handkuratierte Werte (Wind, CD, FOV, Gewicht, Klasse) werden
+// NICHT überschrieben – mögliche Abweichungen stehen im Prüfbericht.
+{
+  const compact = (s: string) => s.toLowerCase().replace(/[\s\-_/()+.]/g, "");
+  const catByKey = new Map(
+    HOVERPOINT_DRONE_CATALOG.map((c) => [compact(`${c.manufacturer}${c.model}`), c] as const),
+  );
+  for (const preset of ALL_PRESETS) {
+    const c = catByKey.get(compact(`${preset.manufacturer}${preset.model}`));
+    if (!c) continue;
+    if (preset.gustMaxMs == null && c.gustMaxMs != null) preset.gustMaxMs = c.gustMaxMs;
+    if (preset.maxTemp == null && c.maxTemp != null) preset.maxTemp = c.maxTemp;
+    if (preset.batteryWh == null && c.batteryWh != null) preset.batteryWh = c.batteryWh;
+    if (preset.vlosMeters == null && c.vlosMeters != null) preset.vlosMeters = c.vlosMeters;
+  }
+}
+
 export function getMaxAltitudeForClass(classMark: DroneClass | string): number {
   switch (classMark) {
     case "C0":
@@ -249,10 +282,11 @@ export function getPresetLimits(preset: DronePreset): WeatherLimits {
   const maxDistance = getMaxDistanceForClass(preset.classMark);
   return {
     maxWind: preset.maxWindMs,
-    maxGusts: Math.round(preset.maxWindMs * 1.2 * 10) / 10,
+    // Echte Hersteller-Böengrenze nutzen, sonst konservativ Wind × 1,2.
+    maxGusts: preset.gustMaxMs ?? Math.round(preset.maxWindMs * 1.2 * 10) / 10,
     maxRain: 0.5,
     minTemp: preset.minTemp,
-    maxTemp: 40,
+    maxTemp: preset.maxTemp ?? 40,
     minCloudCeiling: maxAltitude,
     minVisibility: maxDistance,
   };
