@@ -25,6 +25,7 @@ import { AuthProvider } from "@/lib/auth";
 import { NetworkProvider } from "@/lib/network";
 import { OfflineBanner } from "@/components/OfflineBanner";
 import { rescheduleExpiryWarnings } from "@/lib/expiryWarnings";
+import { resumeBackgroundTrafficIfEnabled } from "@/lib/trafficBackground";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -147,6 +148,8 @@ function AuthGate({
   useEffect(() => {
     const t = setTimeout(() => {
       rescheduleExpiryWarnings().catch(() => {});
+      // Verkehrsüberwachung im Hintergrund wieder aufnehmen, falls zuletzt aktiv.
+      resumeBackgroundTrafficIfEnabled().catch(() => {});
     }, 1500);
     return () => clearTimeout(t);
   }, []);

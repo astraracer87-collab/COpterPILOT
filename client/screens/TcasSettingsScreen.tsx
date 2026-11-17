@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { View, StyleSheet, ScrollView, Pressable, Switch, Alert } from "react-native";
-import { enableBackgroundTraffic, disableBackgroundTraffic, isBackgroundTrafficOn } from "@/lib/trafficBackground";
+import { enableBackgroundTraffic, disableBackgroundTraffic, isBackgroundTrafficOn, resumeBackgroundTrafficIfEnabled } from "@/lib/trafficBackground";
 import Slider from "@react-native-community/slider";
 import { useFocusEffect } from "@react-navigation/native";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
@@ -33,7 +33,9 @@ export default function TcasSettingsScreen() {
   const [bgTraffic, setBgTraffic] = useState(false);
 
   useEffect(() => {
-    setBgTraffic(isBackgroundTrafficOn());
+    resumeBackgroundTrafficIfEnabled()
+      .catch(() => {})
+      .finally(() => setBgTraffic(isBackgroundTrafficOn()));
   }, []);
 
   const loadSettings = useCallback(async () => {
