@@ -1,9 +1,8 @@
 import type { DronePreset } from "@/lib/dronePresets";
 
-// AUTO-GENERIERT aus dem Hoverpoint-Katalog (web.hoverpoint.info), Stand 2026-11-17.
-// 31 Modelle, die bisher nicht in DJI_PRESETS enthalten waren. Übernahme mit Zustimmung
-// des Erstellers (Christian). Kategorie/Lizenz aus EU-Klasse + Startmasse abgeleitet;
-// Jahr teils geschätzt (siehe notes). Quelle der Rohdaten: hoverpointDroneCatalog.ts.
+// 31 zusätzliche Drohnen-Presets (nicht in DJI_PRESETS enthalten). Kategorie/Lizenz aus
+// EU-Klasse + Startmasse abgeleitet; Jahr teils geschätzt (siehe notes).
+// Datenquelle siehe Einstellungen → Datenquellen.
 export const HOVERPOINT_EXTRA_PRESETS: DronePreset[] = [
   { model: "EVO II Pro V3", manufacturer: "AUTEL", year: 2022, classMark: "C2", mtomGrams: 1191, maxWindMs: 21.0, minTemp: -10, droneType: "standard", hasLidar: false, hasCameraOrSensor: true, hasRemoteId: true, altitudeLocked120m: false, minLicenseLevel: "L1", constraintId: "C_FLEX_A2_A3", charDimensionM: 0.721, gustMaxMs: 23.6, maxTemp: 40, vlosMeters: 256, fovDeg: 82, notes: "Aus Hoverpoint-Katalog übernommen (2026-11-17)." },
   { model: "EVO Lite 640T Enterprise", manufacturer: "AUTEL", year: 2023, classMark: "C1", mtomGrams: 866, maxWindMs: 10.7, minTemp: -10, droneType: "standard", hasLidar: false, hasCameraOrSensor: true, hasRemoteId: true, altitudeLocked120m: false, minLicenseLevel: "L1", constraintId: "C_OPEN_A1", charDimensionM: 0.58, gustMaxMs: 12.5, maxTemp: 40, vlosMeters: 210, fovDeg: 83.4, notes: "Aus Hoverpoint-Katalog übernommen (2026-11-17)." },

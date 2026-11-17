@@ -1,7 +1,5 @@
-// AUTO-GENERIERT aus dem Hoverpoint-Katalog (web.hoverpoint.info), Stand 2026-11-17.
-// Quelle: Drohnenkatalog der Hoverpoint-App; Nutzung mit Zustimmung des Erstellers (Christian).
-// Enthaelt Sachdaten (Masse, Grenzwerte) zu 61 Modellen. Dient zur Anreicherung der
-// DronePresets um Boeen, Temperatur-Max, Akku (Wh) und VLOS.
+// Drohnen-Katalogdaten (61 Modelle) zur Anreicherung der DronePresets um Boeen,
+// Temperatur-Max, Akku (Wh) und VLOS. Datenquelle siehe Einstellungen → Datenquellen.
 //
 // Felder:
 //  maxWindMs / gustMaxMs : Hersteller-Grenzwerte in m/s (Hoverpoint fuehrt km/h).
