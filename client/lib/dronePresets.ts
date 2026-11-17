@@ -1,5 +1,6 @@
 import type { DroneClass, DroneType, WeatherLimits } from "@/lib/storage";
 import { HOVERPOINT_DRONE_CATALOG } from "@/lib/hoverpointDroneCatalog";
+import { HOVERPOINT_EXTRA_PRESETS } from "@/lib/hoverpointExtraPresets";
 
 export type LicenseLevel = "L0" | "L1" | "L2";
 export type ConstraintId =
@@ -113,7 +114,7 @@ export const DJI_PRESETS: DronePreset[] = [
     sensor: "1/1.3-inch CMOS", apertureValue: 1.8, fovDeg: 79, focalLength35mmEquiv: 26, filterEcosystem: DJI_ECO_MINI_4 },
   { model: "Flip", manufacturer: "DJI", year: 2025, classMark: "C0", mtomGrams: 249, maxWindMs: 10.7, minTemp: -10, droneType: "standard", hasLidar: false, hasCameraOrSensor: true, hasRemoteId: true, altitudeLocked120m: true, minLicenseLevel: "L0", constraintId: "C_OPEN_A1", charDimensionM: 0.22, notes: "Foldable mit Klapp-Propellern, vorwärts-OA. CD ≈220 mm.", manualUrl: "https://www.dji.com/de/flip/downloads",
     sensor: "1/1.3-inch CMOS", apertureValue: 1.7, fovDeg: 82, focalLength35mmEquiv: 24, filterEcosystem: DJI_ECO_MINI_4 },
-  { model: "Neo 2", manufacturer: "DJI", year: 2025, classMark: "C0", mtomGrams: 145, maxWindMs: 8.0, minTemp: -10, droneType: "hybrid_fpv", hasLidar: false, hasCameraOrSensor: true, hasRemoteId: true, altitudeLocked120m: true, minLicenseLevel: "L0", constraintId: "C_OPEN_A1", charDimensionM: 0.182, notes: "AI-Tracking. CD = Außenring Propellerschutzkäfig (JSON dji-neo-2: 182 mm).", manualUrl: "https://www.dji.com/de/neo-2/downloads",
+  { model: "Neo 2", manufacturer: "DJI", year: 2025, classMark: "C0", mtomGrams: 151, maxWindMs: 8.0, minTemp: -10, droneType: "hybrid_fpv", hasLidar: false, hasCameraOrSensor: true, hasRemoteId: true, altitudeLocked120m: true, minLicenseLevel: "L0", constraintId: "C_OPEN_A1", charDimensionM: 0.182, notes: "AI-Tracking. CD = Außenring Propellerschutzkäfig (JSON dji-neo-2: 182 mm). Startgewicht 151 g offiziell (DJI).", manualUrl: "https://www.dji.com/de/neo-2/downloads",
     sensor: "1/2-inch CMOS", apertureValue: 2.8, fovDeg: 84, focalLength35mmEquiv: 24, filterEcosystem: [] },
   { model: "Neo", manufacturer: "DJI", year: 2024, classMark: "C0", mtomGrams: 135, maxWindMs: 8.0, minTemp: 0, droneType: "hybrid_fpv", hasLidar: false, hasCameraOrSensor: true, hasRemoteId: true, altitudeLocked120m: true, minLicenseLevel: "L0", constraintId: "C_OPEN_A1", charDimensionM: 0.178, notes: "Einsteiger / Selfie. CD = Außenring Propellerschutzkäfig (JSON dji-neo: 178 mm).", manualUrl: "https://www.dji.com/de/neo/downloads",
     sensor: "1/2-inch CMOS", apertureValue: 2.8, fovDeg: 117.6, focalLength35mmEquiv: 14, filterEcosystem: [] },
@@ -148,14 +149,14 @@ export const DJI_PRESETS: DronePreset[] = [
       { name: "Weitwinkel 24 mm", sensor: "1/1.3-inch CMOS", apertureValue: 1.7, fovDeg: 82, focalLength35mmEquiv: 24 },
       { name: "Mittlere Tele 70 mm", sensor: "1/1.3-inch CMOS", apertureValue: 2.8, fovDeg: 35, focalLength35mmEquiv: 70 },
     ] },
-  { model: "Air 2S", manufacturer: "DJI", year: 2021, classMark: "C1", mtomGrams: 595, maxWindMs: 10.7, minTemp: 0, droneType: "standard", hasLidar: false, hasCameraOrSensor: true, hasRemoteId: true, altitudeLocked120m: false, minLicenseLevel: "L1", constraintId: "C_OPEN_A1", charDimensionM: 0.35, notes: "1-Zoll Sensor. CD aus JSON (354 mm).", manualUrl: "https://www.dji.com/de/air-2s/downloads",
+  { model: "Air 2S", manufacturer: "DJI", year: 2021, classMark: "legacy", mtomGrams: 595, maxWindMs: 10.7, minTemp: 0, droneType: "standard", hasLidar: false, hasCameraOrSensor: true, hasRemoteId: false, altitudeLocked120m: false, minLicenseLevel: "L1", constraintId: "C_LEGACY_A3", charDimensionM: 0.35, notes: "1-Zoll Sensor. CD aus JSON (354 mm). Kein offizielles C1-Klassenlabel von DJI → Legacy (>250 g: A3).", manualUrl: "https://www.dji.com/de/air-2s/downloads",
     sensor: "1-inch CMOS", apertureValue: 2.8, fovDeg: 88, focalLength35mmEquiv: 22, filterEcosystem: ["ND4", "ND8", "ND16", "ND32", "ND64", "ND128"] },
   { model: "Mavic 3 Classic", manufacturer: "DJI", year: 2022, classMark: "C1", mtomGrams: 895, maxWindMs: 12.0, minTemp: -10, droneType: "standard", hasLidar: false, hasCameraOrSensor: true, hasRemoteId: true, altitudeLocked120m: false, minLicenseLevel: "L1", constraintId: "C_OPEN_A1", charDimensionM: 0.388, notes: "Zertifiziert. CD aus JSON (388 mm).", manualUrl: "https://www.dji.com/de/mavic-3-classic/downloads",
     sensor: "4/3 CMOS Hasselblad", apertureValue: 2.8, hasVariableAperture: true, fovDeg: 84, focalLength35mmEquiv: 24, filterEcosystem: DJI_ECO_MAVIC_3 },
   { model: "Mavic 3", manufacturer: "DJI", year: 2021, classMark: "C1", mtomGrams: 895, maxWindMs: 12.0, minTemp: -10, droneType: "standard", hasLidar: false, hasCameraOrSensor: true, hasRemoteId: true, altitudeLocked120m: false, minLicenseLevel: "L1", constraintId: "C_OPEN_A1", charDimensionM: 0.388, notes: "Erste C1 Drohne. CD aus JSON (388 mm).", manualUrl: "https://www.dji.com/de/mavic-3/downloads",
     sensor: "4/3 CMOS Hasselblad", apertureValue: 2.8, hasVariableAperture: true, fovDeg: 84, focalLength35mmEquiv: 24, filterEcosystem: DJI_ECO_MAVIC_3 },
 
-  { model: "Mavic 4 Pro", manufacturer: "DJI", year: 2025, classMark: "C2", mtomGrams: 942, maxWindMs: 12.0, minTemp: -10, droneType: "standard", hasLidar: true, hasCameraOrSensor: true, hasRemoteId: true, altitudeLocked120m: false, minLicenseLevel: "L1", constraintId: "C_FLEX_A2_A3", charDimensionM: 0.402, notes: "Triple-Cam / Lidar. CD aus JSON (402 mm).", manualUrl: "https://www.dji.com/de/mavic-4-pro/downloads",
+  { model: "Mavic 4 Pro", manufacturer: "DJI", year: 2025, classMark: "C2", mtomGrams: 1063, maxWindMs: 12.0, minTemp: -10, droneType: "standard", hasLidar: true, hasCameraOrSensor: true, hasRemoteId: true, altitudeLocked120m: false, minLicenseLevel: "L1", constraintId: "C_FLEX_A2_A3", charDimensionM: 0.402, notes: "Triple-Cam / Lidar. CD aus JSON (402 mm). Startgewicht 1063 g offiziell (DJI).", manualUrl: "https://www.dji.com/de/mavic-4-pro/downloads",
     sensor: "4/3 CMOS Hasselblad", apertureValue: 2.0, hasVariableAperture: true, fovDeg: 84, focalLength35mmEquiv: 28, filterEcosystem: DJI_ECO_MAVIC_3,
     cameras: [
       { name: "Hasselblad 28 mm", sensor: "4/3 CMOS Hasselblad", apertureValue: 2.0, hasVariableAperture: true, fovDeg: 84, focalLength35mmEquiv: 28 },
@@ -185,7 +186,7 @@ export const DJI_PRESETS: DronePreset[] = [
   { model: "Matrice 350 RTK", manufacturer: "DJI", year: 2023, classMark: "C3", mtomGrams: 9200, maxWindMs: 12.0, minTemp: -20, droneType: "standard", hasLidar: false, hasCameraOrSensor: true, hasRemoteId: true, altitudeLocked120m: false, minLicenseLevel: "L1", constraintId: "C_DIST_A3", charDimensionM: 0.895, notes: "Schwerlast / Vermessung. CD aus JSON (895 mm).", manualUrl: "https://www.dji.com/de/matrice-350-rtk/downloads",
     sensor: "Payload-abhängig" },
 
-  { model: "Avata 360", manufacturer: "DJI", year: 2025, classMark: "C1", mtomGrams: 485, maxWindMs: 10.7, minTemp: -10, droneType: "fpv_only", hasLidar: false, hasCameraOrSensor: true, hasRemoteId: true, altitudeLocked120m: false, minLicenseLevel: "L1", constraintId: "C_FPV_SPOT", charDimensionM: 0.245, notes: "FPV 360° (Spotter Pflicht). CD = Außenring Cinewhoop (JSON: 245 mm).", manualUrl: "https://www.dji.com/de/avata-360/downloads",
+  { model: "Avata 360", manufacturer: "DJI", year: 2025, classMark: "C1", mtomGrams: 455, maxWindMs: 10.7, minTemp: -10, droneType: "fpv_only", hasLidar: false, hasCameraOrSensor: true, hasRemoteId: true, altitudeLocked120m: false, minLicenseLevel: "L1", constraintId: "C_FPV_SPOT", charDimensionM: 0.245, notes: "FPV 360° (Spotter Pflicht). CD = Außenring Cinewhoop (JSON: 245 mm). Startgewicht 455 g offiziell (DJI).", manualUrl: "https://www.dji.com/de/avata-360/downloads",
     sensor: "1/1.3-inch CMOS 360", apertureValue: 2.8, fovDeg: 360, focalLength35mmEquiv: 8, filterEcosystem: DJI_ECO_AVATA },
   { model: "Avata 2", manufacturer: "DJI", year: 2024, classMark: "C1", mtomGrams: 377, maxWindMs: 10.7, minTemp: -10, droneType: "fpv_only", hasLidar: false, hasCameraOrSensor: true, hasRemoteId: true, altitudeLocked120m: false, minLicenseLevel: "L1", constraintId: "C_FPV_SPOT", charDimensionM: 0.25, notes: "FPV (Spotter Pflicht). CD = Außenring Cinewhoop (250 mm; ALOS ≈102 m).", manualUrl: "https://www.dji.com/de/avata-2/downloads",
     sensor: "1/1.3-inch CMOS", apertureValue: 2.8, fovDeg: 155, focalLength35mmEquiv: 12, filterEcosystem: DJI_ECO_AVATA },
@@ -221,12 +222,14 @@ export const DJI_PRESETS: DronePreset[] = [
   { model: "Agras T50", manufacturer: "DJI", year: 2023, classMark: "legacy", mtomGrams: 52000, maxWindMs: 6.0, minTemp: 0, droneType: "standard", hasLidar: false, hasCameraOrSensor: true, hasRemoteId: true, altitudeLocked120m: false, minLicenseLevel: "L1", constraintId: "C_SPECIFIC", charDimensionM: 2.85, notes: "Agrar-Sprühdrohne (SORA)", manualUrl: "https://www.dji.com/de/t50/downloads" },
 ];
 
-export const ALL_PRESETS = [...DJI_PRESETS];
+export const ALL_PRESETS = [...DJI_PRESETS, ...HOVERPOINT_EXTRA_PRESETS];
 
-// ─── Anreicherung aus dem Hoverpoint-Katalog ──────────────────────────────────
-// Füllt ausschließlich Felder, die wir noch nicht haben (Böen, Temp-Max, Akku Wh,
-// VLOS). Vorhandene, handkuratierte Werte (Wind, CD, FOV, Gewicht, Klasse) werden
-// NICHT überschrieben – mögliche Abweichungen stehen im Prüfbericht.
+// ─── Anreicherung / Abgleich mit dem Hoverpoint-Katalog ───────────────────────
+// - Böen, Temp-Max, Akku Wh, VLOS: übernommen, wo wir sie nicht hatten.
+// - charakteristische Dimension (CD): aus dem Katalog übernommen (Spannweite inkl.
+//   Propeller, EU-/SORA-konform) – vom Nutzer freigegeben am 2026-11-17.
+// - Gewicht (MTOM) und Klasse werden NICHT automatisch überschrieben; einzelne,
+//   offiziell gegengeprüfte Korrekturen stehen direkt an den Presets.
 {
   const compact = (s: string) => s.toLowerCase().replace(/[\s\-_/()+.]/g, "");
   const catByKey = new Map(
@@ -239,6 +242,8 @@ export const ALL_PRESETS = [...DJI_PRESETS];
     if (preset.maxTemp == null && c.maxTemp != null) preset.maxTemp = c.maxTemp;
     if (preset.batteryWh == null && c.batteryWh != null) preset.batteryWh = c.batteryWh;
     if (preset.vlosMeters == null && c.vlosMeters != null) preset.vlosMeters = c.vlosMeters;
+    // CD aus dem Katalog als maßgeblich übernehmen (freigegeben).
+    if (c.charDimensionM != null) preset.charDimensionM = c.charDimensionM;
   }
 }
 
