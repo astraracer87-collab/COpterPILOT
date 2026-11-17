@@ -1,16 +1,22 @@
 /**
- * Expo-Config-Plugin: signiert den Release-Build mit dem Keystore aus den
- * Umgebungsvariablen (GitHub Actions). Ohne Variablen bleibt die Signatur
- * mit dem Debug-Schlüssel (nur zum Testen; Updates erfordern dann Neuinstallation).
+ * Expo-Config-Plugin: signiert den Release-Build mit einem FESTEN Schlüssel,
+ * damit App-Updates (drüber­installieren) alle gespeicherten Daten behalten.
  *
- *   CP_KEYSTORE_FILE      Pfad zur .jks/.keystore-Datei
- *   CP_KEYSTORE_PASSWORD  Passwort des Keystores
- *   CP_KEY_ALIAS          Alias des Schlüssels
- *   CP_KEY_PASSWORD       Passwort des Schlüssels
+ * Reihenfolge:
+ *   1. GitHub-Secrets (CP_KEYSTORE_FILE/…), falls gesetzt – für CI-Override.
+ *   2. Fester Keystore im Repo: signing/copterpilot-release.keystore
+ *      (Alias/Passwörter „copterpilot"). Dadurch ist die Signatur über alle
+ *      Builds identisch und Updates löschen keine Daten.
+ *   3. Sonst Debug-Schlüssel (nur falls der Repo-Keystore fehlt).
+ *
+ * Hinweis: Der Keystore liegt bewusst im (privaten) Repo. Für eine privat
+ * verteilte RC-App ist das vertretbar; ein echter Play-Store-Release sollte
+ * stattdessen GitHub-Secrets verwenden.
  */
 const { withAppBuildGradle } = require("expo/config-plugins");
 
 const MARKER = "// copterpilot-release-signing";
+const REPO_STORE = '../signing/copterpilot-release.keystore';
 
 module.exports = function withReleaseSigning(config) {
   return withAppBuildGradle(config, (cfg) => {
@@ -22,19 +28,26 @@ module.exports = function withReleaseSigning(config) {
       `signingConfigs {
         ${MARKER}
         release {
-            if (System.getenv("CP_KEYSTORE_FILE")) {
-                storeFile file(System.getenv("CP_KEYSTORE_FILE"))
+            def cpEnvStore = System.getenv("CP_KEYSTORE_FILE")
+            def cpRepoStore = new File(rootProject.projectDir, "${REPO_STORE}")
+            if (cpEnvStore) {
+                storeFile file(cpEnvStore)
                 storePassword System.getenv("CP_KEYSTORE_PASSWORD")
                 keyAlias System.getenv("CP_KEY_ALIAS")
                 keyPassword System.getenv("CP_KEY_PASSWORD")
+            } else if (cpRepoStore.exists()) {
+                storeFile cpRepoStore
+                storePassword "copterpilot"
+                keyAlias "copterpilot"
+                keyPassword "copterpilot"
             }
         }`,
     );
 
-    // Im release-Block die Signatur umstellen (nur wenn ein Keystore gesetzt ist)
+    // Release-Build mit dem festen Schlüssel signieren, sobald einer verfügbar ist.
     gradle = gradle.replace(
       /(release\s*\{[^{}]*?)signingConfig\s+signingConfigs\.debug/,
-      `$1signingConfig System.getenv("CP_KEYSTORE_FILE") ? signingConfigs.release : signingConfigs.debug`,
+      `$1signingConfig (System.getenv("CP_KEYSTORE_FILE") || new File(rootProject.projectDir, "${REPO_STORE}").exists()) ? signingConfigs.release : signingConfigs.debug`,
     );
 
     cfg.modResults.contents = gradle;
