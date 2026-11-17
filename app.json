@@ -31,7 +31,9 @@
         "FOREGROUND_SERVICE",
         "FOREGROUND_SERVICE_DATA_SYNC",
         "POST_NOTIFICATIONS",
-        "CHANGE_WIFI_STATE"
+        "CHANGE_WIFI_STATE",
+        "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE_LOCATION"
       ],
       "versionCode": 3,
       "blockedPermissions": [
@@ -59,7 +61,9 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "Wir benötigen Ihren Standort für die Wetter- und Luftraumprüfung."
+          "locationWhenInUsePermission": "Wir benötigen Ihren Standort für die Wetter- und Luftraumprüfung.",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
         }
       ],
       "expo-audio",

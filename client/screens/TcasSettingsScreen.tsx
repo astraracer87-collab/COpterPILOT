@@ -1,5 +1,6 @@
-import React, { useCallback, useState } from "react";
-import { View, StyleSheet, ScrollView, Pressable, Switch } from "react-native";
+import React, { useCallback, useEffect, useState } from "react";
+import { View, StyleSheet, ScrollView, Pressable, Switch, Alert } from "react-native";
+import { enableBackgroundTraffic, disableBackgroundTraffic, isBackgroundTrafficOn } from "@/lib/trafficBackground";
 import Slider from "@react-native-community/slider";
 import { useFocusEffect } from "@react-navigation/native";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
@@ -29,6 +30,11 @@ export default function TcasSettingsScreen() {
   const headerHeight = useHeaderHeight();
   const tabBarHeight = useBottomTabBarHeight();
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [bgTraffic, setBgTraffic] = useState(false);
+
+  useEffect(() => {
+    setBgTraffic(isBackgroundTrafficOn());
+  }, []);
 
   const loadSettings = useCallback(async () => {
     const data = await getSettings();
@@ -87,6 +93,36 @@ export default function TcasSettingsScreen() {
               trackColor={{ false: theme.backgroundSecondary, true: theme.primary }}
               thumbColor="#FFFFFF"
               testID="toggle-proximity-alarm"
+            />
+          </View>
+        </Card>
+        <Card style={styles.menuItem}>
+          <View style={styles.switchRow}>
+            <Feather name="radio" size={20} color={theme.primary} />
+            <View style={styles.switchContent}>
+              <ThemedText style={styles.menuText}>Im Hintergrund überwachen</ThemedText>
+              <ThemedText style={[styles.switchDescription, { color: theme.textSecondary }]}>
+                Annäherungsalarm läuft weiter, während z. B. DJI Fly vorne ist (Vordergrunddienst, Ton). Braucht „Standort immer".
+              </ThemedText>
+            </View>
+            <Switch
+              value={bgTraffic}
+              onValueChange={async (value) => {
+                if (value) {
+                  const r = await enableBackgroundTraffic();
+                  if (r.ok) setBgTraffic(true);
+                  else {
+                    setBgTraffic(false);
+                    Alert.alert("Hintergrund nicht aktiviert", r.message ?? "Bitte Berechtigungen prüfen.");
+                  }
+                } else {
+                  await disableBackgroundTraffic();
+                  setBgTraffic(false);
+                }
+              }}
+              trackColor={{ false: theme.backgroundSecondary, true: theme.primary }}
+              thumbColor="#FFFFFF"
+              testID="toggle-bg-traffic"
             />
           </View>
         </Card>

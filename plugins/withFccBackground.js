@@ -12,6 +12,7 @@ const { withAndroidManifest } = require("expo/config-plugins");
 const PERMISSIONS = [
   "android.permission.FOREGROUND_SERVICE",
   "android.permission.FOREGROUND_SERVICE_DATA_SYNC",
+  "android.permission.FOREGROUND_SERVICE_LOCATION",
   "android.permission.POST_NOTIFICATIONS",
   "android.permission.CHANGE_WIFI_STATE",
 ];
@@ -40,13 +41,13 @@ module.exports = function withFccBackground(config) {
       app.service = app.service || [];
       const existing = app.service.find((s) => s.$ && s.$["android:name"] === BG_SERVICE);
       if (existing) {
-        existing.$["android:foregroundServiceType"] = "dataSync";
+        existing.$["android:foregroundServiceType"] = "location|dataSync";
         existing.$["tools:node"] = "merge";
       } else {
         app.service.push({
           $: {
             "android:name": BG_SERVICE,
-            "android:foregroundServiceType": "dataSync",
+            "android:foregroundServiceType": "location|dataSync",
             "tools:node": "merge",
           },
         });
