@@ -1,7 +1,6 @@
 import Constants from "expo-constants";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { View, StyleSheet, ScrollView, Pressable, TextInput, Modal, SectionList, Platform, Alert } from "react-native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useNavigation, useFocusEffect, useRoute, type RouteProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
@@ -43,6 +42,9 @@ const SORTED_COUNTRY_MAPS = [...COUNTRY_MAPS].sort((a, b) => a.nameDE.localeComp
 type NavigationProp = NativeStackNavigationProp<SettingsStackParamList>;
 type SettingsRoute = RouteProp<SettingsStackParamList, "Settings">;
 
+// Freischaltung des FCC-Punkts – nur für die laufende App-Sitzung (wird beim App-Neustart zurückgesetzt).
+let fccUnlockedSession = false;
+
 export default function SettingsScreen() {
   const navigation = useNavigation<NavigationProp>();
   const route = useRoute<SettingsRoute>();
@@ -63,14 +65,10 @@ export default function SettingsScreen() {
   const [mapStyle, setMapStyle] = useState<MapStyleOption>("grayscale");
   const [showEnergyInfrastructure, setShowEnergyInfrastructure] = useState(true);
   // Versteckter Schalter: 8× auf die Kopf-Überschrift „Einstellungen" tippen blendet den FCC-Punkt ein/aus.
-  const [fccUnlocked, setFccUnlocked] = useState(false);
+  // Gilt nur für die laufende App-Sitzung (fccUnlockedSession, Modulebene) – nach dem Schließen
+  // der App ist der Punkt wieder versteckt und muss erneut per 8× Tippen freigeschaltet werden.
+  const [fccUnlocked, setFccUnlocked] = useState(fccUnlockedSession);
   const fccTapsRef = useRef<number[]>([]);
-
-  useEffect(() => {
-    AsyncStorage.getItem("fccToolUnlocked")
-      .then((v) => setFccUnlocked(v === "1"))
-      .catch(() => {});
-  }, []);
 
   const handleSecretTap = useCallback(() => {
     const now = Date.now();
@@ -79,8 +77,7 @@ export default function SettingsScreen() {
       fccTapsRef.current = [];
       setFccUnlocked((prev) => {
         const next = !prev;
-        AsyncStorage.setItem("fccToolUnlocked", next ? "1" : "0").catch(() => {});
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+        fccUnlockedSession = next;
         Alert.alert(
           next ? "FCC-Tool sichtbar" : "FCC-Tool ausgeblendet",
           next
