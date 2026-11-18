@@ -329,17 +329,6 @@ function buildMapFallbackEntries(): DataSourceEntry[] {
       url: "https://www.openstreetmap.org",
     },
     {
-      id: "map-google",
-      provider: "Google Map Tiles API (Satellit)",
-      usage:
-        "Optionales Satellitenbild – nur mit eigenem Google-API-Schlüssel des Nutzers, nur online.",
-      license: "Google Maps Platform – Nutzungsbedingungen",
-      licenseUrl: "https://cloud.google.com/maps-platform/terms",
-      attributions: ["© Google"],
-      note: "Kein Vorab-Herunterladen ganzer Gebiete; Google-Logo und Copyright-Hinweise der API werden angezeigt.",
-      url: "https://developers.google.com/maps/documentation/tile",
-    },
-    {
       id: "map-glyphs",
       provider: "MapLibre Demo-Schriften (Open Sans)",
       usage: "Schrift für Höhenangaben an Hindernissen auf der Karte.",
@@ -712,15 +701,6 @@ export function getDataSourceGroups(): DataSourceGroup[] {
       id: "services",
       title: "Weitere Dienste",
       entries: [
-        {
-          id: "deepl",
-          provider: "DeepL SE",
-          usage:
-            "Optionale Übersetzung fremdsprachiger Behördentexte – nur mit eigenem DeepL-API-Schlüssel des Nutzers.",
-          license: "DeepL-API-Nutzungsbedingungen",
-          licenseUrl: "https://www.deepl.com/pro-license",
-          url: "https://www.deepl.com",
-        },
         {
           id: "qrserver",
           provider: "goQR.me (api.qrserver.com)",

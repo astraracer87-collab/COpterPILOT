@@ -13,15 +13,7 @@ jest.mock("@react-navigation/elements", () => ({ useHeaderHeight: () => 0 }));
 jest.mock("@react-navigation/bottom-tabs", () => ({ useBottomTabBarHeight: () => 0 }));
 jest.mock("@react-navigation/native", () => ({ useNavigation: () => ({ navigate: jest.fn() }) }));
 jest.mock("@/lib/webBrowser", () => ({ openLink: jest.fn(async () => {}) }));
-jest.mock("@/lib/googleTiles", () => ({
-  getGoogleKey: jest.fn(async () => null),
-  setGoogleKey: jest.fn(async () => ({ ok: true })),
-  clearGoogleKey: jest.fn(async () => {}),
-}));
 jest.mock("@/lib/zoneTranslationStore", () => ({
-  getDeeplKey: jest.fn(async () => null),
-  setDeeplKey: jest.fn(async () => ({ ok: true })),
-  clearDeeplKey: jest.fn(async () => {}),
 }));
 jest.mock("@/lib/geozoneDirect/dflightAuth", () => ({
   getDflightCredentials: jest.fn(async () => null),

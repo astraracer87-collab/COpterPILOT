@@ -25,11 +25,21 @@ jest.mock("@expo/vector-icons", () => ({
 }));
 jest.mock("@/hooks/useCharger", () => ({ useChargerSnapshot: () => ({}) }));
 
+const mounted: ReactTestRenderer[] = [];
+
+// Puls-Animation (Animated.loop) läuft sonst über das Testende hinaus weiter
+afterEach(() => {
+  act(() => {
+    for (const t of mounted.splice(0)) t.unmount();
+  });
+});
+
 function render(el: React.ReactElement): ReactTestRenderer {
   let tree!: ReactTestRenderer;
   act(() => {
     tree = renderer.create(el);
   });
+  mounted.push(tree);
   return tree;
 }
 

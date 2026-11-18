@@ -28,7 +28,6 @@ import {
 } from "@/lib/obstacles";
 import { tilesForBounds } from "@/lib/obstacleTileCache";
 import { stringifyYielding } from "../../shared/yieldingWork";
-import { ensureGoogleTiles, onGoogleTilesChange } from "@/lib/googleTiles";
 import { getOfflineTileConfig, onOfflineTilesChange } from "@/lib/offlineMaps";
 
 export const GRID_ZOOM = 10;
@@ -354,7 +353,7 @@ export function useRcLeaflet(webRef: RefObject<WebView | null>, ready: boolean, 
     } catch {}
   };
   const lists = useMemo(providerLists, []);
-  const cfgRef = useRef<{ google: string | null; offline: Record<string, number>; root: string }>({ google: null, offline: {}, root: "" });
+  const cfgRef = useRef<{ offline: Record<string, number>; root: string }>({ offline: {}, root: "" });
 
   // Grundkonfiguration + Google-Schlüssel + Offline-Kacheln
   useEffect(() => {
@@ -366,17 +365,12 @@ export function useRcLeaflet(webRef: RefObject<WebView | null>, ready: boolean, 
           map: lists.map,
           sat: lists.sat,
           fbMap: FALLBACK_MAP.tiles,
-          fbSat: c.google ?? FALLBACK_SATELLITE.tiles,
+          fbSat: FALLBACK_SATELLITE.tiles,
           root: c.root,
           offline: c.offline,
         })})`,
       );
     };
-    const offG = onGoogleTilesChange((s) => {
-      cfgRef.current.google = s.template;
-      push();
-    });
-    ensureGoogleTiles().catch(() => {});
     const offO = onOfflineTilesChange(() => {
       getOfflineTileConfig()
         .then((c) => {
@@ -388,7 +382,6 @@ export function useRcLeaflet(webRef: RefObject<WebView | null>, ready: boolean, 
     });
     push();
     return () => {
-      offG();
       offO();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

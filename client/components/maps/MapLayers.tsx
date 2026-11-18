@@ -11,14 +11,11 @@ import {
   loadObstaclesForBounds,
   onObstaclesEnabledChange,
 } from "@/lib/obstacles";
-import { ensureGoogleTiles, onGoogleTilesChange } from "@/lib/googleTiles";
 
 /** Reihenfolge der Länder-Ebenen (unten → oben). Länder, deren Kacheln außerhalb
  *  des Landes durchsichtig sind (DE), liegen oben. */
 const BASE_ORDER = ["ch-", "nl-", "fr-", "at-", "de-"];
 export const BASE_ANCHORS = BASE_ORDER.map((_, i) => `cp-base-${i}`);
-/** Google-Satellit liegt über den Länder-Luftbildern: online Google, offline die gespeicherten amtlichen Bilder */
-export const GOOGLE_ANCHOR = "cp-google";
 
 function anchorFor(def: RasterDef): string {
   const i = BASE_ORDER.findIndex((p) => def.id.startsWith(p));
@@ -49,21 +46,6 @@ export function CountryBaseLayers({ view, satellite }: { view: LngLatBox | null;
         </RasterSource>
       ))}
     </>
-  );
-}
-
-export function GoogleSatelliteLayer() {
-  const [template, setTemplate] = useState<string | null>(null);
-  useEffect(() => {
-    const off = onGoogleTilesChange((st) => setTemplate(st.template));
-    ensureGoogleTiles().catch(() => {});
-    return off;
-  }, []);
-  if (!template) return null;
-  return (
-    <RasterSource key={template} id="cp-google-sat" tiles={[template]} tileSize={256} maxzoom={21} attribution="Bilder © Google">
-      <Layer type="raster" id="cp-google-sat-layer" beforeId={GOOGLE_ANCHOR} paint={{ "raster-fade-duration": 0 }} />
-    </RasterSource>
   );
 }
 

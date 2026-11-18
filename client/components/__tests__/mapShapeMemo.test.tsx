@@ -31,8 +31,6 @@ jest.mock("@/lib/location", () => ({}));
 jest.mock("../maps/MapLayers", () => ({
   BASE_ANCHORS: [],
   CountryBaseLayers: () => null,
-  GOOGLE_ANCHOR: "g",
-  GoogleSatelliteLayer: () => null,
   ObstacleLayer: () => null,
 }));
 

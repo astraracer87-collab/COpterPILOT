@@ -153,12 +153,10 @@ test("Hindernisse/OSM, Nominatim, Wetter, Verkehr, Bibliotheken vorhanden", () =
     "autorouter",
     "adsblol",
     "ogn",
-    "deepl",
     "easa",
     "lib-leaflet",
     "lib-maplibre",
     "lib-pdfjs",
-    "map-google",
     "map-esri-street",
     "map-esri",
   ]) {
