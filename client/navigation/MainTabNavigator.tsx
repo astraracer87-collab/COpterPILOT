@@ -4,7 +4,7 @@ import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { Feather } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, getFocusedRouteNameFromRoute } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import BriefingsStackNavigator from "@/navigation/BriefingsStackNavigator";
 import HistoryStackNavigator from "@/navigation/HistoryStackNavigator";
@@ -384,19 +384,28 @@ export default function MainTabNavigator() {
   const insets = useSafeAreaInsets();
   const [activeTab, setActiveTab] = useState<keyof MainTabParamList>("BriefingsTab");
 
+  // Basis-Stil der Tab-Leiste – an einer Stelle definiert, damit einzelne
+  // Screens ihn unverändert weiterverwenden oder gezielt ausblenden können.
+  const baseTabBarStyle = {
+    position: "absolute" as const,
+    backgroundColor: Platform.OS === "ios" ? "transparent" : theme.backgroundDefault,
+    borderTopWidth: 0,
+    elevation: 0,
+    height: 60 + insets.bottom,
+    paddingBottom: insets.bottom,
+  };
+
+  // Screens, die die untere Leiste vollflächig überdecken sollen (z. B. das
+  // FCC-Tool). Ist einer davon im Settings-Stack fokussiert, verschwindet die
+  // Tab-Leiste, auf allen anderen Screens bleibt sie sichtbar.
+  const FULLSCREEN_ROUTES = ["FccTool"];
+
   return (
     <View style={{ flex: 1 }}>
       <Tab.Navigator
         screenOptions={{
           headerShown: false,
-          tabBarStyle: {
-            position: "absolute",
-            backgroundColor: Platform.OS === "ios" ? "transparent" : theme.backgroundDefault,
-            borderTopWidth: 0,
-            elevation: 0,
-            height: 60 + insets.bottom,
-            paddingBottom: insets.bottom,
-          },
+          tabBarStyle: baseTabBarStyle,
           tabBarBackground: () =>
             Platform.OS === "ios" ? (
               <BlurView
@@ -465,9 +474,14 @@ export default function MainTabNavigator() {
         <Tab.Screen
           name="SettingsTab"
           component={SettingsStackNavigator}
-          options={{
-            tabBarLabel: "Einstellungen",
-            tabBarIcon: ({ focused }) => <TabBarIcon name="settings" focused={focused} />,
+          options={({ route }) => {
+            const routeName = getFocusedRouteNameFromRoute(route);
+            const hideBar = routeName != null && FULLSCREEN_ROUTES.includes(routeName);
+            return {
+              tabBarLabel: "Einstellungen",
+              tabBarIcon: ({ focused }) => <TabBarIcon name="settings" focused={focused} />,
+              tabBarStyle: hideBar ? { ...baseTabBarStyle, display: "none" as const } : baseTabBarStyle,
+            };
           }}
         />
       </Tab.Navigator>
