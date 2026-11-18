@@ -1,4 +1,5 @@
 import React, { useState, useCallback } from "react";
+import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { View, StyleSheet, FlatList, Pressable, TextInput, Modal, RefreshControl, Alert } from "react-native";
 import { useRoute, RouteProp, useFocusEffect, useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -388,6 +389,7 @@ export default function DroneHistoryScreen() {
         onRequestClose={() => setModalVisible(false)}
       >
         <ThemedView style={styles.modalContainer}>
+          <KeyboardAwareScrollViewCompat bottomOffset={24} contentContainerStyle={{ flexGrow: 1 }}>
           <View style={styles.modalHeader}>
             <ThemedText style={styles.modalTitle}>Neuer Eintrag</ThemedText>
             <Pressable onPress={() => setModalVisible(false)}>
@@ -466,6 +468,7 @@ export default function DroneHistoryScreen() {
               style={{ flex: 1 }}
             />
           </View>
+          </KeyboardAwareScrollViewCompat>
         </ThemedView>
       </Modal>
     </ThemedView>

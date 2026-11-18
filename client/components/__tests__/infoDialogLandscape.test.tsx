@@ -53,8 +53,8 @@ test("Querformat 960×540: breites Panel, zwei Spalten, X unterhalb der Statusle
 
     const panel = StyleSheet.flatten(hostById(tree, "info-dialog-landscape").props.style);
     expect(panel.width).toBeGreaterThanOrEqual(0.7 * 960);
-    expect(panel.width).toBeLessThanOrEqual(760);
-    expect(panel.maxHeight).toBeLessThanOrEqual(0.85 * 540);
+    expect(panel.width).toBeLessThanOrEqual(940);
+    expect(panel.maxHeight).toBeLessThanOrEqual(0.94 * 540);
     expect(panel.maxHeight).toBeGreaterThan(400);
 
     // Overlay hält den Statusleisten-Streifen (Download-Pille) frei.
@@ -108,11 +108,11 @@ test("Querformat mit kurzem Text bleibt einspaltig", () => {
 test("Layout-Berechnung und Spaltenaufteilung", () => {
   const l = computeInfoDialogLayout(960, 540, { top: 24, bottom: 0, left: 0, right: 0 });
   expect(l.landscape).toBe(true);
-  expect(l.panelWidth).toBe(749);
+  expect(l.panelWidth).toBe(902);
   expect(l.topReserve).toBe(32);
-  expect(l.panelMaxHeight).toBe(459);
+  expect(l.panelMaxHeight).toBe(500);
   const wide = computeInfoDialogLayout(1400, 800, { top: 0, bottom: 0, left: 0, right: 0 });
-  expect(wide.panelWidth).toBe(760);
+  expect(wide.panelWidth).toBe(1100);
   const p = computeInfoDialogLayout(540, 960, { top: 24, bottom: 16, left: 0, right: 0 });
   expect(p.landscape).toBe(false);
   expect(p.panelWidth).toBe(540);

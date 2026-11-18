@@ -1,4 +1,5 @@
 import { openLink } from "@/lib/webBrowser";
+import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import React, { useState, useRef, useMemo, useEffect, useCallback } from "react";
 import { View, StyleSheet, TextInput, TouchableOpacity, Alert, Platform, Keyboard, ActivityIndicator, ScrollView, Pressable, FlatList, Modal, Linking, useWindowDimensions } from "react-native";
 import { useNavigation, useRoute } from "@react-navigation/native";
@@ -1102,7 +1103,7 @@ export default function PlanningLocationScreen() {
         }
         testID={isLandscape ? "planning-location-side-panel" : "planning-location-bottom-sheet"}
       >
-        <ScrollView
+        <KeyboardAwareScrollViewCompat bottomOffset={24}
           style={isLandscape ? styles.sidePanelScroll : styles.bottomSheetScroll}
           contentContainerStyle={isLandscape ? styles.sidePanelScrollContent : undefined}
           showsVerticalScrollIndicator={isLandscape}
@@ -1519,7 +1520,7 @@ export default function PlanningLocationScreen() {
               </View>
             )
           ) : null}
-        </ScrollView>
+        </KeyboardAwareScrollViewCompat>
 
         <Button
           title={detectingCountry ? "Land wird erkannt..." : "Standort bestätigen"}

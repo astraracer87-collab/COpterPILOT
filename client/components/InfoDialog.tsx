@@ -95,8 +95,8 @@ export function computeInfoDialogLayout(
     const topReserve = topStrip + 8;
     const bottomReserve = insets.bottom + 8;
     const horizontalRoom = width - insets.left - insets.right - 24;
-    const panelWidth = Math.round(Math.max(Math.min(760, width * 0.78, horizontalRoom), Math.min(320, horizontalRoom)));
-    const panelMaxHeight = Math.round(Math.min(height * 0.85, height - topReserve - bottomReserve));
+    const panelWidth = Math.round(Math.max(Math.min(1100, width * 0.94, horizontalRoom), Math.min(320, horizontalRoom)));
+    const panelMaxHeight = Math.round(Math.min(height * 0.94, height - topReserve - bottomReserve));
     return { landscape, panelWidth, panelMaxHeight, topReserve, bottomReserve };
   }
   const topReserve = topStrip + 24;

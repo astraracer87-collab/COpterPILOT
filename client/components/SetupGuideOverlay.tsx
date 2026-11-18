@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import {
   Modal,
   View,
@@ -370,7 +371,7 @@ function DronesStep({ theme, onNext }: { theme: ThemeT; onNext: () => void }) {
         title="Drohnen"
         subtitle="Wähle deine Drohnen aus der Liste oder lege sie manuell an. Du kannst mehrere hinzufügen."
       />
-      <ScrollView
+      <KeyboardAwareScrollViewCompat bottomOffset={24}
         contentContainerStyle={styles.stepScroll}
         keyboardShouldPersistTaps="handled"
       >
@@ -463,7 +464,7 @@ function DronesStep({ theme, onNext }: { theme: ThemeT; onNext: () => void }) {
             />
           </View>
         ) : null}
-      </ScrollView>
+      </KeyboardAwareScrollViewCompat>
 
       <View style={styles.footer}>
         <PrimaryButton theme={theme} title="Weiter" onPress={onNext} testID="setup-drones-next" />
@@ -527,11 +528,11 @@ function PilotStep({ theme, onNext }: { theme: ThemeT; onNext: () => void }) {
           <ActivityIndicator color={theme.primary} />
         </View>
       ) : (
-        <ScrollView contentContainerStyle={styles.stepScroll} keyboardShouldPersistTaps="handled">
+        <KeyboardAwareScrollViewCompat bottomOffset={24} contentContainerStyle={styles.stepScroll} keyboardShouldPersistTaps="handled">
           <ManualField theme={theme} label="Name" value={name} onChange={setName} placeholder="Max Mustermann" />
           <ManualField theme={theme} label="eID / Fernpiloten-Nr." value={pilotId} onChange={setPilotId} placeholder="z. B. FRA-..." />
           <ManualField theme={theme} label="Betreiber-Nr. (Operator-ID)" value={operatorId} onChange={setOperatorId} placeholder="z. B. DEUop..." />
-        </ScrollView>
+        </KeyboardAwareScrollViewCompat>
       )}
       <View style={styles.footer}>
         <PrimaryButton theme={theme} title="Weiter" onPress={saveAndNext} loading={saving} testID="setup-pilot-next" />
@@ -598,12 +599,12 @@ function LicensesStep({ theme, onNext }: { theme: ThemeT; onNext: () => void }) 
           <ActivityIndicator color={theme.primary} />
         </View>
       ) : (
-        <ScrollView contentContainerStyle={styles.stepScroll} keyboardShouldPersistTaps="handled">
+        <KeyboardAwareScrollViewCompat bottomOffset={24} contentContainerStyle={styles.stepScroll} keyboardShouldPersistTaps="handled">
           <ToggleRow theme={theme} label="EU-Kompetenznachweis A1/A3" value={a1a3} onToggle={() => setA1a3((v) => !v)} testID="setup-license-a1a3" />
           <ToggleRow theme={theme} label="Fernpiloten-Zeugnis A2" value={a2} onToggle={() => setA2((v) => !v)} testID="setup-license-a2" />
           <ToggleRow theme={theme} label="STS / Spezielle Kategorie" value={sts} onToggle={() => setSts((v) => !v)} testID="setup-license-sts" />
           <ToggleRow theme={theme} label="Haftpflichtversicherung aktiv" value={insurance} onToggle={() => setInsurance((v) => !v)} testID="setup-license-insurance" />
-        </ScrollView>
+        </KeyboardAwareScrollViewCompat>
       )}
       <View style={styles.footer}>
         <PrimaryButton theme={theme} title="Abschließen" onPress={saveAndNext} loading={saving} testID="setup-licenses-next" />

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
+import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { View, StyleSheet, ScrollView, Pressable, Alert } from "react-native";
 import { useNavigation, useRoute, CommonActions } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -284,7 +285,7 @@ export default function ChecklistScreen() {
 
   return (
     <ThemedView style={styles.container}>
-      <ScrollView
+      <KeyboardAwareScrollViewCompat bottomOffset={24}
         contentContainerStyle={[
           styles.content,
           {
@@ -341,7 +342,7 @@ export default function ChecklistScreen() {
             </ThemedText>
           </Pressable>
         </Card>
-      </ScrollView>
+      </KeyboardAwareScrollViewCompat>
 
       <View style={[styles.footer, { paddingBottom: insets.bottom + Spacing.lg, backgroundColor: theme.backgroundDefault }]}>
         <Button
