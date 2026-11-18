@@ -16,7 +16,7 @@ import { Spacing, Typography } from "@/constants/theme";
 import { getBriefing, deleteBriefing, Briefing } from "@/lib/storage";
 import type { BriefingsStackParamList } from "@/navigation/BriefingsStackNavigator";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import * as Haptics from "expo-haptics";
+import * as Haptics from "@/lib/noHaptics";
 
 type RouteParams = RouteProp<BriefingsStackParamList, "BriefingDetail">;
 type NavProp = NativeStackNavigationProp<BriefingsStackParamList, "BriefingDetail">;

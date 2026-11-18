@@ -1,7 +1,7 @@
 import React, { useRef, useState, useCallback, useMemo } from "react";
 import { View, Text, StyleSheet, PanResponder, GestureResponderEvent } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
+import * as Haptics from "@/lib/noHaptics";
 import type { SolarTimes } from "@/lib/solar";
 
 const TOTAL_MINUTES = 24 * 60;

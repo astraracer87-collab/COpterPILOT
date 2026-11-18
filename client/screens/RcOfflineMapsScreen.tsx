@@ -10,6 +10,7 @@
  * Länder bereinigen“. Datei-Importe bleiben auch bei „Aus“ erhalten.
  */
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
+import { acquireDownloadKeepAlive, releaseDownloadKeepAlive } from "@/lib/downloadKeepAlive";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Switch, TextInput, View } from "react-native";
 import { useHeaderHeight } from "@react-navigation/elements";
@@ -298,6 +299,7 @@ export default function OfflineMapsScreen() {
       stopFlags.current[iso] = false;
       patchState(iso, (s) => ({ ...s, running: true }));
       setSaved((prev) => new Set(prev).add(iso));
+      await acquireDownloadKeepAlive(countries.find((x) => x.iso === iso)?.label ?? iso);
       try {
         await startCountryDownload(
           c,
@@ -308,13 +310,14 @@ export default function OfflineMapsScreen() {
       } catch (e: any) {
         Alert.alert("Download", e?.message || "Download konnte nicht gestartet werden.");
       } finally {
+        await releaseDownloadKeepAlive();
         patchState(iso, (s) => ({ ...s, running: false }));
       }
     };
     if (est.totalMB > 2048) {
       Alert.alert(
         "Große Datenmenge",
-        `Für ${countries.find((x) => x.iso === iso)?.label} werden ca. ${formatMB(est.totalMB)} gespeichert. Am besten im WLAN laden und die App dabei geöffnet lassen.`,
+        `Für ${countries.find((x) => x.iso === iso)?.label} werden ca. ${formatMB(est.totalMB)} gespeichert. Am besten im WLAN laden – der Download läuft auch im Hintergrund weiter.`,
         [{ text: "Abbrechen", style: "cancel" }, { text: "Laden", onPress: go }],
       );
     } else {

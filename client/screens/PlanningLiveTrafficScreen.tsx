@@ -6,7 +6,7 @@ import type { RouteProp } from "@react-navigation/native";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
+import * as Haptics from "@/lib/noHaptics";
 import TrafficMapView, { TrafficMarker, AircraftTrail, WindData } from "@/components/TrafficMapView";
 import { fetchDipulWind } from "@/lib/weather";
 import { fetchElevation } from "@/lib/elevation";

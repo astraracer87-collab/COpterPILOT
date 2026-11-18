@@ -24,7 +24,7 @@ import {
   DroneProfile,
   PilotProfile,
 } from "@/lib/storage";
-import * as Haptics from "expo-haptics";
+import * as Haptics from "@/lib/noHaptics";
 import type { SettingsStackParamList } from "@/navigation/SettingsStackNavigator";
 import { DocumentPreviewModal } from "@/components/DocumentPreviewModal";
 import { DroneCard } from "@/components/DroneCard";

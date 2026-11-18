@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useRef, useCallback, useEffect } from "react";
 import { View, StyleSheet, LayoutChangeEvent, PanResponder, GestureResponderEvent, Animated } from "react-native";
 import Svg, { Path, Line, Circle, Text as SvgText, Rect, Defs, LinearGradient, Stop, ClipPath, G } from "react-native-svg";
-import * as Haptics from "expo-haptics";
+import * as Haptics from "@/lib/noHaptics";
 import { ThemedText } from "@/components/ThemedText";
 import { useTheme } from "@/hooks/useTheme";
 import { hourlySunArc, SunArcSample, formatSolarTime, computeSunElevation, calculateSolarTimes } from "@/lib/solar";

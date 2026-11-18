@@ -5,7 +5,7 @@ import { Feather } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import * as Haptics from "expo-haptics";
+import * as Haptics from "@/lib/noHaptics";
 import BriefingsStackNavigator from "@/navigation/BriefingsStackNavigator";
 import HistoryStackNavigator from "@/navigation/HistoryStackNavigator";
 import NotamsStackNavigator from "@/navigation/NotamsStackNavigator";

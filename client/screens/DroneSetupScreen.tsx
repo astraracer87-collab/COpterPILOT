@@ -52,7 +52,7 @@ import {
   DRONE_CLASS_INFO,
   DRONE_TYPE_INFO,
 } from "@/lib/dronePresets";
-import * as Haptics from "expo-haptics";
+import * as Haptics from "@/lib/noHaptics";
 import { DocumentField } from "@/components/DocumentField";
 import { DocumentRef } from "@/lib/documents";
 import type { SettingsStackParamList } from "@/navigation/SettingsStackNavigator";

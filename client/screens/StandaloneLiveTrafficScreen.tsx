@@ -5,7 +5,7 @@ import { BottomTabBarHeightContext } from "@react-navigation/bottom-tabs";
 import { useRoute, type RouteProp } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
+import * as Haptics from "@/lib/noHaptics";
 import QRCode from "react-native-qrcode-svg";
 import * as Location from "@/lib/location";
 import { loadLastKnownPosition, mapCenterHint, peekLastKnownPosition, resolveMapCenter, type StoredPosition } from "@/lib/mapFallbackCenter";

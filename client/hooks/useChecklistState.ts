@@ -17,7 +17,7 @@ import { createContext, useCallback, useContext, useEffect, useLayoutEffect, use
 import type React from "react";
 import { AppState, type AppStateStatus } from "react-native";
 import { NavigationContext } from "@react-navigation/native";
-import * as Haptics from "expo-haptics";
+import * as Haptics from "@/lib/noHaptics";
 
 export interface ChecklistStateOptions {
   /** Gebündelte Speicherung des aktuellen Stands (IDs in Einfüge-Reihenfolge). */

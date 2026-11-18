@@ -24,7 +24,7 @@ import { Card } from "@/components/Card";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, Typography, BorderRadius } from "@/constants/theme";
 import { getSettings, saveSettings, Settings, DEFAULT_PROXIMITY_ALARM, getDrones, getSelectedDroneId, setSelectedDroneId, getActiveSessions, getFlightCountsForDrones, getPilotProfile, type DroneProfile, type PilotProfile } from "@/lib/storage";
-import * as Haptics from "expo-haptics";
+import * as Haptics from "@/lib/noHaptics";
 import { setActiveNotamCount } from "@/lib/notamAlertStore";
 import { COUNTRY_MAPS, getCountryMapConfig, getCountryFlag } from "@/lib/countryMaps";
 import type { SettingsStackParamList } from "@/navigation/SettingsStackNavigator";
