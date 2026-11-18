@@ -12,6 +12,7 @@ import { Card } from "@/components/Card";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, Typography, BorderRadius } from "@/constants/theme";
 import { COUNTRY_INFO } from "@/lib/countryInfo";
+import { COUNTRY_DRONE_RULES } from "../../shared/countryDroneRules";
 import type { SettingsStackParamList } from "@/navigation/SettingsStackNavigator";
 
 type Nav = NativeStackNavigationProp<SettingsStackParamList, "CountryInfo">;
@@ -21,6 +22,15 @@ export default function CountryInfoScreen() {
   const headerHeight = useHeaderHeight();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<Nav>();
+
+  // Union aus den ausführlich gepflegten Ländern (COUNTRY_INFO) und den
+  // weltweiten Reise-Check-Ländern (COUNTRY_DRONE_RULES), dedupliziert nach ISO.
+  const countries = React.useMemo(() => {
+    const byIso = new Map<string, { iso: string; name: string; detailed: boolean }>();
+    for (const r of COUNTRY_DRONE_RULES) byIso.set(r.code, { iso: r.code, name: r.name, detailed: false });
+    for (const c of COUNTRY_INFO) byIso.set(c.iso, { iso: c.iso, name: c.name, detailed: true });
+    return [...byIso.values()].sort((a, b) => a.name.localeCompare(b.name, "de"));
+  }, []);
 
   return (
     <ThemedView style={styles.container}>
@@ -37,7 +47,7 @@ export default function CountryInfoScreen() {
           EU-Basics, nationale Besonderheiten, Pflichten und offizielle Karten.
         </ThemedText>
 
-        {COUNTRY_INFO.map((c) => (
+        {countries.map((c) => (
           <Pressable
             key={c.iso}
             onPress={() => navigation.navigate("CountryDetail", { iso: c.iso })}
@@ -53,7 +63,7 @@ export default function CountryInfoScreen() {
                   style={[styles.subtitle, { color: theme.textSecondary }]}
                   numberOfLines={2}
                 >
-                  Rules &amp; Regulations
+                  {c.detailed ? "Rules & Regulations · ausführlich" : "Rules & Regulations"}
                 </ThemedText>
               </View>
               <Feather name="chevron-right" size={20} color={theme.textTertiary} />

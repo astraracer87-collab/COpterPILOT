@@ -239,6 +239,14 @@ export default function DroneInfoScreen() {
             label="Charakteristische Dimension"
             value={drone.charDimensionM && drone.charDimensionM > 0 ? `${Math.round(drone.charDimensionM * 1000)} mm` : DASH}
           />
+          <Row
+            label="Max. Sichtweite (VLOS)"
+            value={preset?.vlosMeters != null ? `${preset.vlosMeters} m` : DASH}
+          />
+          <Row
+            label="Akku (Katalog)"
+            value={preset?.batteryWh != null ? `${preset.batteryWh} Wh` : DASH}
+          />
           {preset ? (
             <View style={[styles.constraintBox, { backgroundColor: theme.backgroundSecondary }]}>
               <Feather name="alert-circle" size={14} color={theme.textSecondary} />

@@ -22,6 +22,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing } from "@/constants/theme";
 import { glossaryEntries, type GlossaryEntry } from "@/lib/glossary";
+import { NOTAM_ABBREVIATIONS } from "@/lib/notamAbbreviations";
+import { GEOZONE_TERMS_INTL } from "@/lib/geozoneTermsIntl";
 import { apiRequest } from "@/lib/query-client";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 
@@ -94,7 +96,12 @@ export default function GlossaryScreen() {
       definition: e.definition,
       isCustom: true,
     }));
-    const merged = [...userEntries, ...glossaryEntries];
+    // NOTAM-Abkürzungen ergänzen, aber nur Begriffe, die das Glossar noch nicht führt.
+    const known = new Set(glossaryEntries.map((e) => e.term.toLowerCase()));
+    const notamExtra = NOTAM_ABBREVIATIONS.filter((e) => !known.has(e.term.toLowerCase()));
+    notamExtra.forEach((e) => known.add(e.term.toLowerCase()));
+    const zoneExtra = GEOZONE_TERMS_INTL.filter((e) => !known.has(e.term.toLowerCase()));
+    const merged = [...userEntries, ...glossaryEntries, ...notamExtra, ...zoneExtra];
     return merged.sort((a, b) => a.term.localeCompare(b.term, "de", { sensitivity: "base" }));
   }, [userQuery.data]);
 

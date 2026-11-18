@@ -695,6 +695,16 @@ export function getDataSourceGroups(): DataSourceGroup[] {
             "https://eur-lex.europa.eu/content/legal-notice/legal-notice.html",
           url: "https://eur-lex.europa.eu",
         },
+        {
+          id: "hoverpoint",
+          provider: "Hoverpoint (web.hoverpoint.info)",
+          usage:
+            "Drohnen-Katalogdaten (Maße und Grenzwerte), weltweite Länder-Regeln, Landesluftfahrtbehörden sowie NOTAM- und Zonen-Begriffe.",
+          writtenPermission: true,
+          attributions: ["Hoverpoint – mit Zustimmung des Erstellers"],
+          url: "https://web.hoverpoint.info",
+          note: "Datenübernahme mit Zustimmung des App-Erstellers (2026-11-17). Verbindlich bleiben stets die jeweils verlinkten offiziellen Stellen.",
+        },
       ],
     },
     {

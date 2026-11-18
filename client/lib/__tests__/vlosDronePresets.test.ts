@@ -4,14 +4,15 @@ import assert from "node:assert/strict";
 import { findPresetForDrone, searchPresets } from "../dronePresets";
 import { computeHorizontalVlosLimitM, computeVlosM } from "../vlos";
 
+// CD aus dem Hoverpoint-Katalog (Spannweite inkl. Propeller, vom Nutzer freigegeben)
 const expectedPresets = [
   { model: "Air 3S", dimensionM: 0.58, vlosM: 210 },
   { model: "Avata 2", dimensionM: 0.25, vlosM: 102 },
-  { model: "Mini 4 Pro", dimensionM: 0.3884, vlosM: 147 },
+  { model: "Mini 4 Pro", dimensionM: 0.395, vlosM: 149 },
   { model: "Mini 5 Pro", dimensionM: 0.4, vlosM: 151 },
-  { model: "Mavic 3T", dimensionM: 0.612, vlosM: 220 },
-  { model: "Matrice 4T", dimensionM: 0.72, vlosM: 255 },
-  { model: "Matrice 4TD", dimensionM: 0.81, vlosM: 285 },
+  { model: "Mavic 3T", dimensionM: 0.6, vlosM: 216 },
+  { model: "Matrice 4T", dimensionM: 0.71, vlosM: 252 },
+  { model: "Matrice 4TD", dimensionM: 0.825, vlosM: 290 },
   { model: "Matrice 30T", dimensionM: 1.05, vlosM: 363 },
 ];
 

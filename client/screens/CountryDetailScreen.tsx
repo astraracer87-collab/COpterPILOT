@@ -13,6 +13,7 @@ import { Card } from "@/components/Card";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, Typography, BorderRadius } from "@/constants/theme";
 import { getCountryInfo } from "@/lib/countryInfo";
+import { getCountryDroneRule } from "../../shared/countryDroneRules";
 import type { SettingsStackParamList } from "@/navigation/SettingsStackNavigator";
 
 type RouteT = RouteProp<SettingsStackParamList, "CountryDetail">;
@@ -25,12 +26,14 @@ export default function CountryDetailScreen() {
   const route = useRoute<RouteT>();
   const navigation = useNavigation<NavT>();
   const country = getCountryInfo(route.params.iso);
+  const rule = getCountryDroneRule(route.params.iso);
+  const displayName = country?.name ?? rule?.name ?? "Land";
 
   useLayoutEffect(() => {
-    navigation.setOptions({ headerTitle: country?.name ?? "Land" });
-  }, [navigation, country]);
+    navigation.setOptions({ headerTitle: displayName });
+  }, [navigation, displayName]);
 
-  if (!country) {
+  if (!country && !rule) {
     return (
       <ThemedView style={styles.container}>
         <ThemedText style={{ padding: Spacing.lg, color: theme.textSecondary }}>
@@ -53,15 +56,21 @@ export default function CountryDetailScreen() {
         <Card style={styles.headerCard}>
           <View style={styles.headerRow}>
             <View style={[styles.flagBadge, { backgroundColor: theme.primary + "18" }]}>
-              <ThemedText style={[styles.flagText, { color: theme.primary }]}>{country.iso}</ThemedText>
+              <ThemedText style={[styles.flagText, { color: theme.primary }]}>
+                {country?.iso ?? rule?.code ?? route.params.iso}
+              </ThemedText>
             </View>
-            <ThemedText style={styles.title}>{country.name}</ThemedText>
+            <ThemedText style={styles.title}>{displayName}</ThemedText>
           </View>
-          <ThemedText style={[styles.summary, { color: theme.textSecondary }]}>
-            {country.summary}
-          </ThemedText>
+          {country?.summary ? (
+            <ThemedText style={[styles.summary, { color: theme.textSecondary }]}>
+              {country.summary}
+            </ThemedText>
+          ) : null}
         </Card>
 
+        {country ? (
+        <>
         <SectionTitle theme={theme}>RULES &amp; REGULATIONS</SectionTitle>
         <Card style={styles.card}>
           <Row icon="users" label="Mindestalter" value={country.minAge} theme={theme} />
@@ -157,6 +166,52 @@ export default function CountryDetailScreen() {
             />
           ) : null}
         </Card>
+
+        </>
+        ) : null}
+
+        {rule ? (
+          <>
+            <SectionTitle theme={theme}>LÄNDERHINWEISE (REISE-CHECK)</SectionTitle>
+            <Card style={styles.card}>
+              {rule.maxAltitude != null ? (
+                <Row
+                  icon="trending-up"
+                  label="Max. Flughöhe"
+                  value={`${rule.maxAltitude} m über Grund`}
+                  theme={theme}
+                />
+              ) : null}
+              <Row
+                icon="user-check"
+                label="Registrierung"
+                value={rule.registrationRequired ? "erforderlich" : "nicht erforderlich"}
+                theme={theme}
+              />
+              <Row
+                icon="shield"
+                label="Versicherung"
+                value={rule.insuranceRequired ? "Pflicht" : "keine Pflicht"}
+                theme={theme}
+              />
+            </Card>
+            {rule.rules.length > 0 ? (
+              <Card style={styles.card}>
+                {rule.rules.map((n, i) => (
+                  <View key={i} style={[styles.bulletRow, i > 0 && { marginTop: Spacing.sm }]}>
+                    <ThemedText style={[styles.bulletDot, { color: theme.primary }]}>•</ThemedText>
+                    <ThemedText style={[styles.bulletText, { color: theme.text }]}>{n}</ThemedText>
+                  </View>
+                ))}
+              </Card>
+            ) : null}
+            {rule.sourceUrl ? (
+              <Card style={styles.card}>
+                <LinkRow icon="external-link" label="Offizielle Quelle" url={rule.sourceUrl} theme={theme} />
+              </Card>
+            ) : null}
+          </>
+        ) : null}
 
         <ThemedText style={[styles.disclaimer, { color: theme.textTertiary }]}>
           Stand: 2026. Angaben ohne Gewähr.
