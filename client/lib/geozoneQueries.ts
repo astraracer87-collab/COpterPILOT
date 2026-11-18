@@ -9,6 +9,7 @@
 // (CH-Identify-URL/-Layers, NL-Layer, FR-WMS-Basis-URL), sodass die öffentliche
 // API (und alle Aufrufer) unverändert bleibt.
 import { translateTextDe } from "../../shared/zoneTranslate";
+import { railwayZoneNotes } from "../../shared/railwayZoneInfo";
 import type { GeozoneFeatureInfo, GeozoneLayer } from "./geozones";
 import { FR_ZONE_TYPES, classifyFrRestrictionType, frRestrictionFromText } from "./frZoneTypes";
 import { deRestrictionForLayer, normalizeRestriction, restrictionFromText, type Restriction } from "../../shared/restrictionPolicy";
@@ -170,6 +171,8 @@ export function dipulZoneFromFeature(
   // Kartenfarbe nach Zonenart wie in der dipul-Karte (nicht pauschal nach
   // Einstufung – sonst wären fast alle DE-Zonen orange).
   const colors = dipulZoneColors(layer.wmsLayer || layer.id, { typeCodeDetail: typeDetail, restriction });
+  const railway = (layer.wmsLayer || layer.id) === "bahnanlagen" ? railwayNotesForRings(polygonRings) : null;
+  if (railway) details.push("", railway.text);
   return {
     ...heightFields,
     layerLabel: layer.label,
@@ -184,7 +187,20 @@ export function dipulZoneFromFeature(
     ...(colors ? { fillColor: colors.fill, strokeColor: colors.stroke } : {}),
     ...(typeCode ? { restrictionRaw: typeCode } : {}),
     ...(validStartTs != null || validEndTs != null ? { validStartTs, validEndTs } : {}),
+    ...(railway ? { links: railway.links } : {}),
   };
+}
+
+function railwayNotesForRings(rings: [number, number][][]) {
+  const ring = rings[0];
+  if (!ring || ring.length === 0) return railwayZoneNotes(null, null);
+  let lat = 0;
+  let lon = 0;
+  for (const [a, b] of ring) {
+    lat += a;
+    lon += b;
+  }
+  return railwayZoneNotes(lat / ring.length, lon / ring.length);
 }
 
 export function parseDipulWfsBatches(

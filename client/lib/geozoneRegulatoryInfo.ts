@@ -4,6 +4,7 @@
 // Web-Frontend (web/src) als einzige Quelle der Wahrheit importiert werden kann.
 
 import { isDfsZonenEffective } from "./ctrAltitude";
+import { BAVARIA_NORTH_AV_URL, BAVARIA_SOUTH_AV_URL, DB_UAS_GEOZONE_EMAIL, RAILWAY_NFL_URL } from "../../shared/railwayZoneInfo";
 
 // Datumsgesteuerte Textbausteine zum Stichtag des DFS-4-Zonen-Modells
 // (NfL 2026-1-3960): Vor dem 6.8.2026 wird auf den Stichtag hingewiesen,
@@ -263,6 +264,14 @@ export const GEOZONE_REGULATORY_INFO: Record<string, GeozoneRegulatoryInfo> = {
     definition: "Ein Bereich \u00fcber und innerhalb eines seitlichen Abstands von 100 m von Bahnanlagen.",
     abstandsregel: "100 m",
     betriebsvoraussetzung: "a. Betrieb in der Kategorie \u201eSpecific\u201c oder\nb. Vorliegen einer Genehmigung der zust\u00e4ndigen Stelle oder der Betreiber der Einrichtungen oder\nc. H\u00f6he des Flugger\u00e4tes \u00fcber Grund ist stets kleiner als der seitliche Abstand zur Infrastruktur und der seitliche Abstand zur Infrastruktur ist stets gr\u00f6\u00dfer als 10 m.",
+
+    hinweis: "DB InfraGO (NfL 2026-1-3788): Zustimmung f\u00fcr Fl\u00fcge au\u00dferhalb der 1:1-Regel per E-Mail an uas-geozone@deutschebahn.com, mindestens 4 Wochen vorher; \u00fcbliche Auflagen u. a. A2, \u00dcberflug ab 40 m, An- und Abmeldung des Flugs. In Bayern erlauben Allgemeinverf\u00fcgungen der Luft\u00e4mter Flug und \u00dcberflug ab 15 m ohne Antrag (nur DB-InfraGO-Anlagen). Details in der Zonen-Info auf der Karte.",
+    links: [
+      { label: "NfL 2026-1-3788 (DB InfraGO)", url: RAILWAY_NFL_URL },
+      { label: "Allgemeinverf\u00fcgung Luftamt S\u00fcdbayern", url: BAVARIA_SOUTH_AV_URL },
+      { label: "Allgemeinverf\u00fcgung Luftamt Nordbayern", url: BAVARIA_NORTH_AV_URL },
+    ],
+    contacts: [{ type: "email", label: "DB InfraGO \u2013 UAS-Geozone", value: DB_UAS_GEOZONE_EMAIL }],
   },
   diplomatische_vertretungen: {
     title: "Diplomatische Vertretungen",

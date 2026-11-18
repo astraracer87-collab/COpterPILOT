@@ -44,7 +44,7 @@ export function deZoneFromStored(f: any): GeozoneFeatureInfo | null {
   return {
     ...z,
     details: `${z.details ? `${z.details}\n` : ""}Quelle: ${DE_ATTR.label}`,
-    links: DE_LINKS,
+    links: [...(z.links ?? []), ...DE_LINKS],
   };
 }
 
