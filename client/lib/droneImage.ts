@@ -1,21 +1,21 @@
 import type { ImageSourcePropType } from "react-native";
 
 const IMAGES: Record<string, ImageSourcePropType> = {
-  "dji-avata":      require("@assets/images/drones/dji-avata.png"),
-  "dji-avata-2":    require("@assets/images/drones/dji-avata-2.png"),
-  "dji-avata-360":  require("@assets/images/drones/dji-avata-360.png"),
-  "dji-neo":        require("@assets/images/drones/dji-neo.png"),
-  "dji-neo-2":      require("@assets/images/drones/dji-neo-2.png"),
-  "dji-mini-2":     require("@assets/images/drones/dji-mini-2.png"),
-  "dji-mini-3":     require("@assets/images/drones/dji-mini-3.png"),
-  "dji-mini-4":     require("@assets/images/drones/dji-mini-4.png"),
-  "dji-mini-4k":    require("@assets/images/drones/dji-mini-4k.png"),
-  "dji-mini-5":     require("@assets/images/drones/dji-mini-5.png"),
-  "dji-air-3s":     require("@assets/images/drones/dji-air-3s.png"),
-  "dji-lito-1":     require("@assets/images/drones/dji-lito-1.png"),
-  "dji-mavic-4-pro":require("@assets/images/drones/dji-mavic-4-pro.png"),
-  "dji-inspire-3":  require("@assets/images/drones/dji-inspire-3.png"),
-  "dji-flip":       require("@assets/images/drones/dji-flip.png"),
+  "dji-avata":      require("../../assets/images/drones/dji-avata.png"),
+  "dji-avata-2":    require("../../assets/images/drones/dji-avata-2.png"),
+  "dji-avata-360":  require("../../assets/images/drones/dji-avata-360.png"),
+  "dji-neo":        require("../../assets/images/drones/dji-neo.png"),
+  "dji-neo-2":      require("../../assets/images/drones/dji-neo-2.png"),
+  "dji-mini-2":     require("../../assets/images/drones/dji-mini-2.png"),
+  "dji-mini-3":     require("../../assets/images/drones/dji-mini-3.png"),
+  "dji-mini-4":     require("../../assets/images/drones/dji-mini-4.png"),
+  "dji-mini-4k":    require("../../assets/images/drones/dji-mini-4k.png"),
+  "dji-mini-5":     require("../../assets/images/drones/dji-mini-5.png"),
+  "dji-air-3s":     require("../../assets/images/drones/dji-air-3s.png"),
+  "dji-lito-1":     require("../../assets/images/drones/dji-lito-1.png"),
+  "dji-mavic-4-pro":require("../../assets/images/drones/dji-mavic-4-pro.png"),
+  "dji-inspire-3":  require("../../assets/images/drones/dji-inspire-3.png"),
+  "dji-flip":       require("../../assets/images/drones/dji-flip.png"),
 };
 
 const MODEL_TO_KEY: Array<[RegExp, string]> = [
