@@ -18,6 +18,7 @@ import {
 } from "@/lib/storage";
 import { findPresetForDrone } from "@/lib/dronePresets";
 import { getAlphaTangoFrStatus } from "@/lib/countryCompliance";
+import { getCountryUsage } from "@/lib/countryUsage";
 import type { SettingsStackParamList } from "@/navigation/SettingsStackNavigator";
 import type { DocumentRef } from "@/lib/documents";
 
@@ -61,7 +62,8 @@ export function DroneCard({
 
   const complianceStatus = getComplianceStatus(drone, pilot || undefined);
   const complianceColor = COMPLIANCE_COLORS[complianceStatus];
-  const alphaTangoFrStatus = getAlphaTangoFrStatus(drone);
+  // Nur relevant, wer in Frankreich fliegt (Land in den Einstellungen aktiviert)
+  const alphaTangoFrStatus = (getCountryUsage("FR") ?? "off") !== "off" ? getAlphaTangoFrStatus(drone) : "not-required";
   const preset = findPresetForDrone(drone.name, drone.manufacturer, drone.model);
   const droneImage = getDroneImage(drone.manufacturer, drone.model ?? preset?.model);
   const hasDocsSection = !!(drone.alphaTangoDocument || drone.dflightDocument || preset?.manualUrl);
