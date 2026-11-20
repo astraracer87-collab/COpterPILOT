@@ -104,7 +104,7 @@ test("Steuerkreuz-Fokus auf einem inaktiven Tab sieht nicht aktiv aus; aktiver T
 
 const SEVEN_TABS = ["BriefingsTab", "RadarTab", "NotamsTab", "HistoryTab", "NdFilterTab", "ChargerTab", "SettingsTab"];
 
-test("7 Tabs: Akkus direkt links von Einstellungen, DJI-Knopf zwischen NOTAMs und Logbuch", () => {
+test("6 sichtbare Tabs: Logbuch ausgeblendet, DJI-Knopf mittig (3 links, 3 rechts), Akkus links von Einstellungen", () => {
   const routes = SEVEN_TABS.map((name) => ({ key: name, name, params: undefined }));
   const descriptors: Record<string, any> = Object.fromEntries(
     SEVEN_TABS.map((name) => [name, { options: { tabBarLabel: name === "ChargerTab" ? "Akkus" : name } }]),
@@ -127,10 +127,22 @@ test("7 Tabs: Akkus direkt links von Einstellungen, DJI-Knopf zwischen NOTAMs un
     "tab-RadarTab",
     "tab-NotamsTab",
     "tab-dji-launch",
-    "tab-HistoryTab",
     "tab-NdFilterTab",
     "tab-ChargerTab",
     "tab-SettingsTab",
   ]);
   expect(tree.root.findAll((n) => n.props.testID === "tab-active-pill-ChargerTab").length).toBeGreaterThan(0);
+});
+
+test("im ausgeblendeten Logbuch ist der Einstellungen-Tab markiert", () => {
+  const routes = SEVEN_TABS.map((name) => ({ key: name, name, params: undefined }));
+  const descriptors: Record<string, any> = Object.fromEntries(SEVEN_TABS.map((name) => [name, { options: { tabBarLabel: name } }]));
+  const tree = render({
+    state: { index: SEVEN_TABS.indexOf("HistoryTab"), routes } as any,
+    descriptors: descriptors as any,
+    navigation: { emit: jest.fn(() => ({ defaultPrevented: false })), navigate: jest.fn() } as any,
+    insets: { top: 0, bottom: 0, left: 0, right: 0 },
+  });
+  expect(tree.root.findAll((n) => n.props.testID === "tab-active-pill-SettingsTab").length).toBeGreaterThan(0);
+  expect(tree.root.findAll((n) => n.props.testID === "tab-HistoryTab")).toHaveLength(0);
 });

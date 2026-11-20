@@ -1,4 +1,5 @@
 import React from "react";
+import { HeaderBackButton } from "@react-navigation/elements";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import HistoryScreen from "@/screens/HistoryScreen";
 import BriefingDetailScreen from "@/screens/BriefingDetailScreen";
@@ -38,9 +39,17 @@ export default function HistoryStackNavigator() {
       <Stack.Screen
         name="History"
         component={HistoryScreen}
-        options={{
+        options={({ navigation }) => ({
           headerTitle: "Logbuch",
-        }}
+          // Logbuch steht nicht mehr in der Tab-Leiste: zurück zu den Einstellungen
+          headerLeft: (props) => (
+            <HeaderBackButton
+              {...props}
+              testID="logbook-back-to-settings"
+              onPress={() => navigation.getParent()?.navigate("SettingsTab")}
+            />
+          ),
+        })}
       />
       <Stack.Screen
         name="BriefingDetail"

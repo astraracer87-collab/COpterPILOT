@@ -28,6 +28,8 @@ export function withAlpha(color: string, alpha: number): string {
 
 /** Der runde DJI-Knopf steht direkt hinter diesem Tab (zwischen NOTAMs und Logbuch). */
 export const DJI_BUTTON_AFTER_ROUTE = "NotamsTab";
+/** Tabs, die nicht in der Leiste stehen (über die Einstellungen erreichbar) und welcher Tab dann markiert ist */
+export const HIDDEN_TAB_ROUTES: Record<string, string> = { HistoryTab: "SettingsTab" };
 
 /**
  * Index des Tabs, hinter dem der DJI-Knopf steht: nach „NotamsTab“ (per Name,
@@ -75,8 +77,10 @@ export function MainTabBar({ state, descriptors, navigation, insets }: BottomTab
       ]}
     >
       {state.routes.flatMap((route, index) => {
+        if (HIDDEN_TAB_ROUTES[route.name]) return [];
         const { options } = descriptors[route.key];
-        const focused = state.index === index;
+        const currentName = state.routes[state.index]?.name;
+        const focused = state.index === index || HIDDEN_TAB_ROUTES[currentName] === route.name;
         const color = focused ? theme.primary : theme.textTertiary;
         const labelOption = options.tabBarLabel;
         const title = typeof labelOption === "string" ? labelOption : options.title ?? route.name;

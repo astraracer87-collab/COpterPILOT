@@ -550,6 +550,13 @@ export default function SettingsScreen() {
   const dataCard = (
     <SettingsCard id="data" title="DATEN & SPEICHER" icon="database">
       <SettingsRow
+        testID="settings-row-logbook"
+        icon={icon("book")}
+        title="Logbuch"
+        subtitle="Flüge, Wartung, DJI-Flugprotokolle"
+        onPress={() => (navigation as unknown as { navigate(r: string, p?: unknown): void }).navigate("HistoryTab", { screen: "History" })}
+      />
+      <SettingsRow
         testID="settings-row-my-data"
         icon={icon("database")}
         title="Meine Daten"
