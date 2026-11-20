@@ -1,8 +1,9 @@
 import * as Print from "expo-print";
+import { saveToDevice } from "./saveToDevice";
 import * as Sharing from "expo-sharing";
 import * as MailComposer from "expo-mail-composer";
 import * as SMS from "expo-sms";
-import { Platform } from "react-native";
+import { Alert, Platform } from "react-native";
 import { LogbookEntry, TrafficLogData, SavedGeozoneFeature, SavedDipulRestriction, DjiLogMeta, DjiLogRecord, getEntryDjiLogs, getPilotProfile, getSettings } from "@/lib/storage";
 import { getCheckItemLabel } from "@/lib/checklists";
 import { groupDanishBufferRings } from "../../shared/danishGeozones";
@@ -1489,6 +1490,14 @@ async function sharePdf(html: string, dialogTitle: string): Promise<void> {
     base64: false,
   });
 
+  if (Platform.OS === "android") {
+    // Fernsteuerung: kein „Teilen“ möglich → PDF direkt in einen Ordner speichern
+    const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
+    const name = `${dialogTitle.replace(/[^\wäöüÄÖÜß -]+/g, "").trim().replace(/\s+/g, "-") || "export"}-${stamp}.pdf`;
+    const r = await saveToDevice({ fileName: name, mimeType: "application/pdf", srcUri: uri });
+    if (r.saved) Alert.alert("PDF gespeichert", `Gespeichert unter: ${r.location}`);
+    return;
+  }
   const isAvailable = await Sharing.isAvailableAsync();
   if (isAvailable) {
     await Sharing.shareAsync(uri, {

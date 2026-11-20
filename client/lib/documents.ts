@@ -158,6 +158,26 @@ export async function viewDocument(doc: DocumentRef): Promise<void> {
     return;
   }
   const path = await materializeDocument(doc);
+  if (Platform.OS === "android") {
+    // Fernsteuerung: „Teilen“ hat keine Ziele → mit passender App öffnen
+    // (z. B. Firefox für PDFs), sonst in einen Ordner speichern.
+    try {
+      const contentUri = await FileSystem.getContentUriAsync(path);
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const IntentLauncher = require("expo-intent-launcher") as typeof import("expo-intent-launcher");
+      await IntentLauncher.startActivityAsync("android.intent.action.VIEW", {
+        data: contentUri,
+        flags: 1, // FLAG_GRANT_READ_URI_PERMISSION
+        type: doc.mimeType,
+      });
+      return;
+    } catch {
+      const { saveToDevice } = require("./saveToDevice") as typeof import("./saveToDevice");
+      const r = await saveToDevice({ fileName: doc.fileName, mimeType: doc.mimeType, srcUri: path });
+      if (r.saved) Alert.alert("Gespeichert", `Keine App zum Öffnen gefunden – gespeichert unter: ${r.location}`);
+      return;
+    }
+  }
   const canShare = await Sharing.isAvailableAsync();
   if (!canShare) {
     Alert.alert("Nicht verfügbar", "Teilen/Öffnen wird auf diesem Gerät nicht unterstützt.");

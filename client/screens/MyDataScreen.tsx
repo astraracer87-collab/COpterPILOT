@@ -1,4 +1,5 @@
 import React, { useCallback, useState } from "react";
+import { saveToDevice } from "@/lib/saveToDevice";
 import { StyleSheet, ScrollView, View, Pressable, Alert, Platform, ActivityIndicator, useWindowDimensions } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -223,6 +224,13 @@ export default function MyDataScreen() {
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
+        return;
+      }
+
+      if (Platform.OS === "android") {
+        // Fernsteuerung: kein „Teilen“ möglich → direkt in einen Ordner speichern
+        const r = await saveToDevice({ fileName, mimeType: "application/json", text: json });
+        if (r.saved) Alert.alert("Export gespeichert", `Gespeichert unter: ${r.location}`);
         return;
       }
 
