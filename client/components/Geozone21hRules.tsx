@@ -16,11 +16,14 @@ export function Geozone21hRules({
   isDark,
   covered,
   bundesland,
+  avMissingHint,
 }: {
   layerLabel?: string | null;
   isDark: boolean;
   covered?: boolean;
   bundesland?: string | null;
+  /** Warum die AV hier (noch) nicht greift, z. B. „keine AV für Hessen eingetragen“ */
+  avMissingHint?: string | null;
 }) {
   const rule = find21hRuleForLayer(layerLabel);
   if (!rule) return null;
@@ -35,11 +38,19 @@ export function Geozone21hRules({
     <View style={[styles.box, { backgroundColor: boxBg, borderColor: boxBorder }]}>
       <View style={styles.headerRow}>
         <Feather name="check-circle" size={13} color={accent} />
-        <Text style={[styles.heading, { color: accent }]}>So darfst du hier fliegen</Text>
+        <Text style={[styles.heading, { color: accent }]}>
+          {covered
+            ? bundesland
+              ? `Mit deiner Allgemeinverfügung ${bundesland} erlaubt`
+              : "Mit deiner Allgemeinverfügung erlaubt"
+            : "So darfst du hier fliegen"}
+        </Text>
       </View>
       <Text style={[styles.paragraph, { color: mutedColor }]}>{rule.paragraph}</Text>
       <Text style={[styles.grundsatz, { color: mutedColor }]}>Grundsatz: {rule.tatbestand}</Text>
-      <Text style={[styles.auflagenLabel, { color: accent }]}>Zulässig unter diesen Auflagen:</Text>
+      <Text style={[styles.auflagenLabel, { color: accent }]}>
+        {covered ? "Diese Auflagen musst du einhalten:" : "Zulässig unter diesen Auflagen:"}
+      </Text>
       {rule.auflagen.map((a, i) => (
         <View key={i} style={styles.bulletRow}>
           <Text style={[styles.bulletDot, { color: accent }]}>•</Text>
@@ -54,6 +65,11 @@ export function Geozone21hRules({
               ? `Durch deine Allgemeinverfügung für ${bundesland} abgedeckt`
               : "Durch deine Allgemeinverfügung abgedeckt"}
           </Text>
+        </View>
+      ) : avMissingHint ? (
+        <View style={styles.coveredRow}>
+          <Feather name="alert-circle" size={11} color={isDark ? "#F5D080" : "#92400E"} />
+          <Text style={[styles.coveredText, { color: isDark ? "#F5D080" : "#92400E" }]}>{avMissingHint}</Text>
         </View>
       ) : null}
     </View>

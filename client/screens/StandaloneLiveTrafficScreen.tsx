@@ -275,9 +275,13 @@ export default function StandaloneLiveTrafficScreen() {
   }, [showCtrEmergency, nearbyCtr]);
   // Pilotenprofil für die AV-/§21h-Abdeckungsprüfung des Geozonen-Reiters.
   const [pilotProfile, setPilotProfile] = useState<PilotProfile | null>(null);
-  useEffect(() => {
-    getPilotProfile().then(setPilotProfile).catch(() => {});
-  }, []);
+  // Bei jedem Öffnen neu laden – sonst bleibt eine später im Profil
+  // eingetragene A2-Lizenz/Allgemeinverfügung unberücksichtigt (Reiter rot).
+  useFocusEffect(
+    useCallback(() => {
+      getPilotProfile().then(setPilotProfile).catch(() => {});
+    }, []),
+  );
   const geozonePrefetchLatitude = latitude == null ? null : Math.round(latitude * 200) / 200;
   const geozonePrefetchLongitude = longitude == null ? null : Math.round(longitude * 200) / 200;
   useEffect(() => {
@@ -1582,6 +1586,7 @@ export default function StandaloneLiveTrafficScreen() {
               geozones={displayedGeozones}
               geozoneDataStatus={geozoneDataStatus}
               isZoneSerious={isZoneSeriousProhibition}
+              pilotProfileForAv={pilotProfile}
               tempRestrictions={sidePanelTempRestrictions}
               dipulRestrictions={sidePanelDipulRestrictions}
               notams={sidePanelNotams}
@@ -2119,13 +2124,15 @@ function openGeozoneContact(c: GeozoneContact) {
   }).catch(() => {});
 }
 
-function SidePanelView({ panel, loading, geozones, windFacilityWarnings = [], geozoneDataStatus = "loading", isZoneSerious, tempRestrictions, dipulRestrictions, notams, notamStatusUnknown = false, standLines = [], onRefreshStand, refreshingStand = false, weather, forecasts, kpIndex, kpTimeline = [], wind, isDark, safeTop, onClose, radarData, weatherStatus = "unknown", latitude: propLat, longitude: propLon, countryIso }: {
+function SidePanelView({ panel, loading, geozones, windFacilityWarnings = [], geozoneDataStatus = "loading", isZoneSerious, tempRestrictions, dipulRestrictions, notams, notamStatusUnknown = false, standLines = [], onRefreshStand, refreshingStand = false, weather, forecasts, kpIndex, kpTimeline = [], wind, isDark, safeTop, onClose, radarData, weatherStatus = "unknown", latitude: propLat, longitude: propLon, countryIso, pilotProfileForAv = null }: {
   panel: "geozone" | "notam" | "wetter" | "radar";
   loading: boolean;
   geozones: GeozoneFeatureInfo[];
   windFacilityWarnings?: Array<{ id: string; name: string; distanceMeters: number }>;
   geozoneDataStatus?: "loading" | "loaded" | "error";
   isZoneSerious?: (z: GeozoneFeatureInfo) => boolean;
+  /** Pilotenprofil (A2 + Allgemeinverfügungen) für Hinweise in den Zonenkarten */
+  pilotProfileForAv?: PilotProfile | null;
   tempRestrictions: GeozoneFeatureInfo[];
   dipulRestrictions: DipulTempRestriction[];
   notams: NotamData[];
@@ -2289,6 +2296,19 @@ function SidePanelView({ panel, loading, geozones, windFacilityWarnings = [], ge
                     propLat != null && propLon != null
                       ? detectBundeslandFromCoordinates(propLat, propLon)
                       : null;
+                  // Warum eine AV-fähige Zone nicht gedeckt ist (Hinweis in der Karte)
+                  const avMissingHint = !pilotProfileForAv
+                    ? null
+                    : !pilotProfileForAv.licenseA2
+                      ? "Allgemeinverfügungen gelten nur mit A2-Fernpiloten-Zeugnis – im Pilotenprofil A2 eintragen."
+                      : !detectedBl
+                        ? null
+                        : (() => {
+                            const e = (pilotProfileForAv.allgemeinverfuegung || []).find((x) => x.bundesland === detectedBl);
+                            if (!e) return `Für ${detectedBl} ist im Pilotenprofil keine Allgemeinverfügung eingetragen.`;
+                            if (isErlaubnisExpired(e)) return `Deine Allgemeinverfügung für ${detectedBl} ist abgelaufen.`;
+                            return null;
+                          })();
                   return sortedGeozones.map((z, i) => {
                   const details = filterGeozoneDetailLines(z.details, isAdmin || z.featureId?.startsWith("energy-zone:") === true);
                   const badgeLabel = geozoneBadgeLabel(z.layerLabel, isAdmin, Object.values(ED269_SOURCE_LABELS));
@@ -2400,6 +2420,7 @@ function SidePanelView({ panel, loading, geozones, windFacilityWarnings = [], ge
                           isDark={isDark}
                           covered={zAvCovered}
                           bundesland={detectedBl}
+                          avMissingHint={!zAvCovered && z21hRule.avEligible ? avMissingHint : null}
                         />
                       ) : null}
                       {isExpanded && regInfo ? (
