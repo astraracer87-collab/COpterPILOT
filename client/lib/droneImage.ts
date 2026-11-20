@@ -83,6 +83,7 @@ const MODEL_TO_KEY: Array<[RegExp, string]> = [
 
 /** Bilder anderer Hersteller: [Herstellerschlüssel (nur a-z0-9), Modell-Regex, Bild] */
 const OTHER_MAKES: [string, RegExp, ImageSourcePropType][] = [
+  ["autel", /nano/i, require("../../assets/images/drones/autel-evo-nano.png")],
   ["autel", /lite\s*640/i, require("../../assets/images/drones/autel-evo-lite-640t.png")],
   ["antigravity", /a\s*1/i, require("../../assets/images/drones/antigravity-a1.png")],
   ["hoverair", /x\s*1\s*pro/i, require("../../assets/images/drones/hoverair-x1-pro.png")],
