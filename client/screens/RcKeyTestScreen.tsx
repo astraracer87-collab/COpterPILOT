@@ -10,7 +10,7 @@
  * Zurück bleibt normal; beim Verlassen des Bildschirms endet der Test.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
+import { Alert, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
@@ -70,6 +70,13 @@ export default function RcKeyTestScreen() {
   const [axisState, setAxisState] = useState<RcAxisState>({});
   const [deviceInfo, setDeviceInfo] = useState<RcDeviceInfo | null>(null);
   const nextId = useRef(1);
+  // Fokus-Test: bewegt die Fernsteuerung den Fokus (Bedienungshilfe) statt Tasten zu senden?
+  const [focusLog, setFocusLog] = useState<string[]>([]);
+  const [focusedBox, setFocusedBox] = useState<string | null>(null);
+  const noteFocus = useCallback((text: string) => {
+    const t = new Date().toLocaleTimeString("de-DE");
+    setFocusLog((prev) => [`${t} ${text}`, ...prev].slice(0, 60));
+  }, []);
   const markerCount = useRef(0);
 
   const loadDeviceInfo = useCallback(() => {
@@ -136,6 +143,9 @@ export default function RcKeyTestScreen() {
       "",
       `Ereignisse (älteste zuerst, max. ${RC_LOG_MAX}):`,
       ...[...log].reverse().map((e) => (e.kind === "marker" ? markerLine(e.n) : formatRcLogLine(e.event))),
+      "",
+      "Fokus-Test (älteste zuerst):",
+      ...(focusLog.length ? [...focusLog].reverse() : ["(keine Fokus-Ereignisse)"]),
     ].join("\n");
     try {
       await Clipboard.setStringAsync(text);
@@ -143,7 +153,7 @@ export default function RcKeyTestScreen() {
     } catch {
       Alert.alert("Fehler", "Das Protokoll konnte nicht kopiert werden.");
     }
-  }, [deviceInfo, log]);
+  }, [deviceInfo, log, focusLog]);
 
   // Achsen-Panel: Joystick-/Gamepad-Geräte aus den Geräteangaben plus jedes Gerät, das Bewegungen meldet.
   const panelDevices = useMemo(() => {
@@ -301,6 +311,50 @@ export default function RcKeyTestScreen() {
         <Button title="Protokoll leeren" variant="secondary" onPress={clearLog} style={styles.flexButton} testID="rc-key-clear" />
       </View>
       <Card style={styles.infoCard}>
+        <ThemedText style={styles.sectionTitle}>Fokus-Test</ThemedText>
+        <ThemedText style={[styles.small, { color: theme.textSecondary }]}>
+          Sticks bewegen, ohne den Bildschirm zu berühren: Springt der Rahmen zwischen den Feldern, steuert die
+          Fernsteuerung über den Fokus (wie in den Android-Einstellungen).
+        </ThemedText>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: Spacing.sm, marginTop: Spacing.sm }}>
+          {["Feld A", "Feld B", "Feld C", "Feld D"].map((name) => (
+            <Pressable
+              key={name}
+              testID={`rc-focus-${name}`}
+              focusable
+              accessible
+              accessibilityRole="button"
+              accessibilityLabel={name}
+              accessibilityActions={[{ name: "activate" }, { name: "increment" }, { name: "decrement" }]}
+              onAccessibilityAction={(e: { nativeEvent: { actionName: string } }) => noteFocus(`${name}: Bedienungshilfe-Aktion „${e.nativeEvent.actionName}“`)}
+              onFocus={() => {
+                setFocusedBox(name);
+                noteFocus(`${name}: Fokus erhalten`);
+              }}
+              onBlur={() => {
+                setFocusedBox((f) => (f === name ? null : f));
+                noteFocus(`${name}: Fokus verloren`);
+              }}
+              onPress={() => noteFocus(`${name}: ausgelöst (Klick/Enter)`)}
+              style={[
+                styles.focusBox,
+                {
+                  borderColor: focusedBox === name ? theme.primary : theme.border,
+                  backgroundColor: focusedBox === name ? theme.primary + "22" : theme.backgroundSecondary,
+                },
+              ]}
+            >
+              <ThemedText style={{ fontWeight: "700" }}>{name}</ThemedText>
+            </Pressable>
+          ))}
+        </View>
+        {focusLog.slice(0, 6).map((l, i) => (
+          <ThemedText key={i} style={[styles.mono, { color: theme.textSecondary }]}>
+            {l}
+          </ThemedText>
+        ))}
+      </Card>
+      <Card style={styles.infoCard}>
         <ThemedText style={styles.sectionTitle}>Gerät</ThemedText>
         {deviceInfo ? (
           <>
@@ -408,6 +462,7 @@ export default function RcKeyTestScreen() {
 }
 
 const styles = StyleSheet.create({
+  focusBox: { minWidth: 110, paddingVertical: 14, paddingHorizontal: 16, borderRadius: 10, borderWidth: 3, alignItems: "center" },
   container: { flex: 1 },
   row: { flex: 1, flexDirection: "row", paddingHorizontal: Spacing.lg, gap: Spacing.lg },
   column: { flex: 1 },

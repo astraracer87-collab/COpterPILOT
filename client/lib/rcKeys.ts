@@ -125,6 +125,10 @@ export interface RcDeviceInfo {
   devInput?: { name: string; readable: boolean }[] | null;
   /** Inhalt von /proc/bus/input/devices (null: nicht lesbar) */
   procInputDevices?: string | null;
+  /** aktive Bedienungshilfen (Settings.Secure, durch „:“ getrennt) */
+  accessibilityEnabled?: string;
+  /** installierte Bedienungshilfen (Paket/Dienst) */
+  accessibilityInstalled?: string[];
 }
 
 interface RcKeysNative {
@@ -314,6 +318,12 @@ export function formatRcDeviceInfo(info: RcDeviceInfo | null): string {
   }
   if (info.procInputDevices !== undefined) {
     lines.push(info.procInputDevices ? `/proc/bus/input/devices:\n${info.procInputDevices.trim()}` : "/proc/bus/input/devices: nicht lesbar");
+  }
+  if (info.accessibilityEnabled !== undefined) {
+    lines.push(`Bedienungshilfen aktiv: ${info.accessibilityEnabled || "keine"}`);
+  }
+  if (info.accessibilityInstalled) {
+    lines.push(`Bedienungshilfen installiert: ${info.accessibilityInstalled.join(", ") || "keine"}`);
   }
   return lines.join("\n");
 }

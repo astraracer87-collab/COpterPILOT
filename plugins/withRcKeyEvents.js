@@ -323,6 +323,16 @@ class RcKeysModule(private val reactContext: ReactApplicationContext) :
       }
       val proc = try { File("/proc/bus/input/devices").readText().take(16000) } catch (ignored: Throwable) { null }
       if (proc == null) map.putNull("procInputDevices") else map.putString("procInputDevices", proc)
+      // Diagnose: Bedienungshilfen (z. B. ein DJI-Dienst, der Sticks als Fokus-Navigation nutzt)
+      try {
+        val enabled = android.provider.Settings.Secure.getString(reactContext.contentResolver, "enabled_accessibility_services")
+        map.putString("accessibilityEnabled", enabled ?: "")
+        val am = reactContext.getSystemService(Context.ACCESSIBILITY_SERVICE) as? android.view.accessibility.AccessibilityManager
+        val inst = Arguments.createArray()
+        am?.installedAccessibilityServiceList?.forEach { inst.pushString(it.id ?: "?") }
+        map.putArray("accessibilityInstalled", inst)
+      } catch (ignored: Throwable) {
+      }
       promise.resolve(map)
     } catch (t: Throwable) {
       promise.reject("E_RC_DEVICE_INFO", t.message, t)
