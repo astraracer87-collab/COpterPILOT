@@ -176,6 +176,11 @@ export function mergeSelectionWithDefaults(sel: GeozoneSelection | null | undefi
 // Filtert eine Liste von WMS-Layer-Namen eines Landes auf die laut Auswahl
 // aktiven Layer. Kategorisierte Layer folgen ihrer Kategorie, nicht
 // kategorisierte Layer folgen dem kombinierten Länder-Gesamt-Schalter.
+const SORA_ONLY_LAYERS = new Set([
+  "ch.bazl.intrinsisches-bodenrisiko_sora_100",
+  "ch.bazl.intrinsisches-bodenrisiko_sora_200",
+]);
+
 export function filterActiveWmsLayers(
   countryIso: string,
   wmsLayerNames: string[],
@@ -183,6 +188,10 @@ export function filterActiveWmsLayers(
 ): string[] {
   const combinedId = getCombinedSwitchId(countryIso);
   return wmsLayerNames.filter((name) => {
+    // SORA-Bodenrisiko (CH) nur für Betriebsgenehmigungen der speziellen
+    // Kategorie relevant – auf der Karte nur graue/blaue/grüne Flächen ohne
+    // Aussage für normale Flüge. Daher nie einblenden.
+    if (SORA_ONLY_LAYERS.has(name)) return false;
     const cat = getLayerCategory(countryIso, name);
     if (cat) return !!sel[cat];
     if (combinedId) return !!sel[combinedId];
