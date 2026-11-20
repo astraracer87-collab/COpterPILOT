@@ -802,8 +802,10 @@ const styles = StyleSheet.create({
     height: ROW_MIN_HEIGHT,
     borderRadius: BorderRadius.md,
   },
+  // Mindestbreite statt fester Breite: breitere Inhalte (Auswahlkreis + Drohnenbild)
+  // schieben den Text nach rechts, statt ihn zu überdecken
   rowIcon: {
-    width: 24,
+    minWidth: 24,
     alignItems: "center",
   },
   rowText: {
