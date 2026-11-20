@@ -16,6 +16,13 @@ const IMAGES: Record<string, ImageSourcePropType> = {
   "dji-mavic-4-pro":require("../../assets/images/drones/dji-mavic-4-pro.png"),
   "dji-inspire-3":  require("../../assets/images/drones/dji-inspire-3.png"),
   "dji-flip":       require("../../assets/images/drones/dji-flip.png"),
+  "dji-flycart-30": require("../../assets/images/drones/dji-flycart-30.png"),
+  "dji-mini-se":    require("../../assets/images/drones/dji-mini-se.png"),
+  "dji-air-3":      require("../../assets/images/drones/dji-air-3.png"),
+  "dji-air-2s":     require("../../assets/images/drones/dji-air-2s.png"),
+  "dji-agras-t50":  require("../../assets/images/drones/dji-agras-t50.png"),
+  "dji-fpv":        require("../../assets/images/drones/dji-fpv.png"),
+  "dji-inspire-2":  require("../../assets/images/drones/dji-inspire-2.png"),
 };
 
 const MODEL_TO_KEY: Array<[RegExp, string]> = [
@@ -29,11 +36,18 @@ const MODEL_TO_KEY: Array<[RegExp, string]> = [
   [/mini\s*4/i,        "dji-mini-4"],
   [/mini\s*3/i,        "dji-mini-3"],
   [/mini\s*2/i,        "dji-mini-2"],
+  [/mini\s*se|mavic\s*mini/i, "dji-mini-se"],
   [/air\s*3\s*s/i,     "dji-air-3s"],
+  [/air\s*3/i,         "dji-air-3"],
+  [/air\s*2\s*s|mavic\s*air\s*2/i, "dji-air-2s"],
   [/mavic\s*4\s*pro/i, "dji-mavic-4-pro"],
   [/inspire\s*3/i,     "dji-inspire-3"],
+  [/inspire\s*2/i,     "dji-inspire-2"],
+  [/agras/i,           "dji-agras-t50"],
+  [/^\s*(dji\s*)?fpv\s*$/i, "dji-fpv"],
   [/lito\s*1/i,        "dji-lito-1"],
   [/flip/i,            "dji-flip"],
+  [/fly\s*cart/i,      "dji-flycart-30"],
 ];
 
 export function getDroneImage(
