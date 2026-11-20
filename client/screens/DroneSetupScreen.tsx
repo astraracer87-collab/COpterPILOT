@@ -395,31 +395,29 @@ export default function DroneSetupScreen() {
     setLimits((prev) => ({ ...prev, [key]: numValue }));
   };
 
+  // Modell-Kacheln: großes Bild + Name (Details erst im nächsten Schritt)
   const renderPresetItem = ({ item }: { item: DronePreset }) => {
     const key = `${item.manufacturer}-${item.model}`;
     const opening = openingKey === key;
     return (
-      <View style={presetColumns > 1 ? styles.presetCell : undefined}>
+      <View style={[styles.modelCell, { maxWidth: presetColumns > 1 ? "25%" : "50%" }]}>
         <Card
-          style={[styles.presetCard, opening && { borderWidth: 1, borderColor: theme.primary }]}
+          style={[styles.modelCard, opening && { borderWidth: 1, borderColor: theme.primary }]}
           onPress={() => selectPreset(item)}
+          testID={`preset-${key}`}
         >
-          <View style={styles.presetImage}>
-            <DroneImage manufacturer={item.manufacturer} model={item.model} size={40} iconColor={theme.textTertiary} iconSize={20} />
+          <View style={styles.modelImage}>
+            <DroneImage manufacturer={item.manufacturer} model={item.model} size={104} iconColor={theme.textTertiary} iconSize={40} />
+            {opening ? (
+              <View style={styles.modelSpinner}>
+                <ActivityIndicator size="small" color={theme.primary} />
+              </View>
+            ) : null}
           </View>
-          <View style={styles.presetInfo}>
-            <ThemedText style={styles.presetName} numberOfLines={1}>
-              {item.manufacturer} {item.model}
-            </ThemedText>
-            <ThemedText style={[styles.presetDetails, { color: theme.textSecondary }]} numberOfLines={1}>
-              {DRONE_CLASS_INFO[item.classMark].label} | {item.mtomGrams}g | Wind: {item.maxWindMs} m/s
-            </ThemedText>
-          </View>
-          {opening ? (
-            <ActivityIndicator size="small" color={theme.primary} />
-          ) : (
-            <Feather name="chevron-right" size={20} color={theme.textTertiary} />
-          )}
+          <ThemedText style={styles.modelName} numberOfLines={2}>
+            {/* bei Suche über alle Hersteller den Hersteller mit anzeigen */}
+            {searchQuery.trim() || !selectedMfr ? `${item.manufacturer} ${item.model}` : item.model}
+          </ThemedText>
         </Card>
       </View>
     );
@@ -487,9 +485,9 @@ export default function DroneSetupScreen() {
         </Pressable>
       ) : null}
       <FlatList
-        key={`cols-${presetColumns}`}
+        key={`models-${presetColumns}`}
         data={searchQuery.trim() || !selectedMfr ? filteredPresets : sortedPresets.filter((p) => p.manufacturer === selectedMfr)}
-        numColumns={presetColumns}
+        numColumns={presetColumns > 1 ? 4 : 2}
         keyExtractor={(item) => `${item.manufacturer}-${item.model}`}
         renderItem={renderPresetItem}
         style={styles.presetList}
@@ -1436,6 +1434,11 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   mfrCell: { flex: 1, padding: Spacing.xs / 2 },
+  modelCell: { flex: 1, padding: Spacing.xs / 2 },
+  modelCard: { alignItems: "center", paddingVertical: Spacing.sm, paddingHorizontal: Spacing.sm, gap: 4 },
+  modelImage: { width: 104, height: 104, alignItems: "center", justifyContent: "center" },
+  modelSpinner: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, alignItems: "center", justifyContent: "center" },
+  modelName: { fontSize: 15, fontWeight: "700", textAlign: "center", lineHeight: 19 },
   mfrCard: { alignItems: "center", justifyContent: "center", gap: Spacing.xs, paddingVertical: Spacing.md, paddingHorizontal: Spacing.sm },
   mfrBack: { flexDirection: "row", alignItems: "center", gap: 2, marginBottom: Spacing.sm },
   presetCell: { flex: 1 / 2, paddingHorizontal: Spacing.xs / 2 },
