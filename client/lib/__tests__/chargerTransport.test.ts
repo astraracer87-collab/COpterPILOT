@@ -64,6 +64,8 @@ interface MockOpts {
   connectFails?: boolean;
   mtu?: number;
   advertise?: BleDiscovered[];
+  /** Antwort auf 12 C4 (rr); null = keine Antwort */
+  settingsAck?: number | null;
 }
 
 function mockBle(o: MockOpts = {}) {
@@ -123,6 +125,10 @@ function mockBle(o: MockOpts = {}) {
         notify("af02", [0xe1, 1, 0, 1, 5, 1, 2, 3, 4, 5, 6, 7, 8]);
       else if (ch === "af01" && data[1] === 0xc6)
         notify("af01", [0x31, 0xc7, 1, 0, 1, 0, 0, 1, 0]);
+      else if (ch === "af01" && data[1] === 0xc4) {
+        const rr = o.settingsAck === undefined ? 1 : o.settingsAck;
+        if (rr != null) notify("af01", [0x31, 0xc5, rr]);
+      }
       else if (ch === "af01" && data[1] === 0xc2) {
         state.inFlight++;
         state.maxInFlight = Math.max(state.maxInFlight, state.inFlight);
@@ -302,6 +308,43 @@ describe("Verbinden und Koppeln", () => {
       (m.scanOpts[1] as { manufacturerFilter?: unknown }).manufacturerFilter,
       undefined,
     );
+  });
+});
+
+describe("Einstellungen schreiben", () => {
+  async function connected(o: MockOpts = {}) {
+    const ctx = setup(o);
+    ctx.tr.start();
+    await ctx.clock.advance(3500);
+    await ctx.clock.advance(1000); // 12 C6 → Einstellungen gelesen
+    assert.ok(ctx.tr.snapshot().settings);
+    return ctx;
+  }
+
+  it("schreibt genau 12 C4 mit dem geänderten Feld, wertet 31 C5 aus und liest neu", async () => {
+    const { m, tr, clock } = await connected();
+    const cur = tr.snapshot().settings!;
+    const r = await tr.writeSettings({ ...cur, chargeTarget: 0 });
+    assert.equal(r, "ok");
+    assert.equal(m.writes.filter((w) => w.hex.startsWith("12 c4")).map((w) => w.hex)[0], "12 c4 00 00 01 00 00 01 00");
+    assert.equal(tr.snapshot().settings, null);
+    await clock.advance(1000);
+    assert.ok(m.writes.slice(-1)[0].hex === "12 c6");
+  });
+
+  it("abgelehnt und keine Antwort werden gemeldet; nicht verbunden wird nichts gesendet", async () => {
+    const rej = await connected({ settingsAck: 0 });
+    assert.equal(await rej.tr.writeSettings({ ...rej.tr.snapshot().settings!, lamp: true }), "rejected");
+    const silent = await connected({ settingsAck: null });
+    const p = silent.tr.writeSettings({ ...silent.tr.snapshot().settings!, lamp: true });
+    await silent.clock.advance(5000);
+    assert.equal(await p, "timeout");
+    const off = setup();
+    assert.equal(await off.tr.writeSettings({ chargeTarget: 1, dischargeToZero: false, alarm: true, lamp: false, mute: false, screenAutoOff: true, mode: 0 }), "not-connected");
+    assert.equal(off.m.writes.length, 0);
+    const bad = await connected();
+    assert.equal(await bad.tr.writeSettings({ ...bad.tr.snapshot().settings!, mute: true, screenAutoOff: true }), "invalid");
+    assert.ok(!bad.m.writes.some((w) => w.hex.startsWith("12 c4")));
   });
 });
 

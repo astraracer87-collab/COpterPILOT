@@ -19,6 +19,8 @@ import type {
   TransportSnapshot,
 } from "./bleTransport";
 import { formatRawFrames } from "./bleTransport";
+import type { SettingsWriteResult } from "./bleTransport";
+import { applySettingsPatch } from "./ma331WriteCommands";
 import {
   createSessionTracker,
   type BatteryRef,
@@ -43,6 +45,7 @@ import {
 import {
   productionDateKey,
   IsdtSlotState,
+  type IsdtSettings,
   type IsdtStatus,
 } from "./ma331Protocol";
 
@@ -108,6 +111,8 @@ export interface ChargerController {
   hasActiveSession(): boolean;
   /** Antwort auf „Welcher Akku ist das?“ (undefined = später/überspringen) */
   answerPrompt(slot: number, ref: BatteryRef | undefined): Promise<void>;
+  /** Einstellung am Ladegerät ändern (nur das übergebene Feld, Rest wie gelesen) */
+  writeSettings(patch: Partial<IsdtSettings>): Promise<SettingsWriteResult>;
   startBackground(): Promise<boolean>;
   stopBackground(): Promise<void>;
   /** Für Tests/Diagnose: Status direkt einspeisen */
@@ -413,6 +418,12 @@ export function createChargerController(
     rawFramesText: (n = 60) => formatRawFrames(transport?.rawFrames() ?? [], n),
     rawFrames: () => transport?.rawFrames() ?? [],
     hasActiveSession: () => (tracker?.active().length ?? 0) > 0,
+    async writeSettings(patch) {
+      const tr = transport;
+      const cur = tr?.snapshot().settings;
+      if (!tr || !cur) return "not-connected";
+      return tr.writeSettings(applySettingsPatch(cur, patch));
+    },
     async answerPrompt(slot, ref) {
       const p = prompts.find((x) => x.slot === slot);
       dropPrompt(slot);

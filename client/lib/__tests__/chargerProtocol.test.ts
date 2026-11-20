@@ -30,10 +30,10 @@ import {
 } from "../charger/ma331Protocol";
 import { SPEC_STATUS_HEX, encodeStatus } from "./helpers/chargerFixtures";
 import {
-  buildRename,
+  applySettingsPatch,
   buildSettingsWrite,
-  parseWriteAck,
-  WRITE_COMMANDS_ENABLED,
+  isAllowedSettingsWrite,
+  parseSettingsAck,
 } from "../charger/ma331WriteCommands";
 
 describe("MA331 Status 31 C3 (Beispiel aus der Spec)", () => {
@@ -211,25 +211,34 @@ describe("nur lesen", () => {
     assert.equal(isAllowedRequest([]), false);
   });
 
-  it("vorbereitete Schreibbefehle sind nicht freigeschaltet und würden vom Transport blockiert", () => {
-    assert.equal(WRITE_COMMANDS_ENABLED, false);
-    const w = buildSettingsWrite({
+  it("Einstellungen schreiben: nur exakt geprüfte 12-C4-Frames, Umbenennen bleibt gesperrt", () => {
+    const cur = {
       chargeTarget: 1,
       dischargeToZero: false,
       alarm: true,
       lamp: false,
       mute: false,
       screenAutoOff: true,
-      mode: 0,
-    });
-    assert.equal(toHex(w), "12 c4 01 00 01 00 00 01 00");
+      mode: 4,
+    };
+    const w = buildSettingsWrite(cur);
+    assert.equal(toHex(w), "12 c4 01 00 01 00 00 01 04");
     assert.equal(isAllowedRequest(w), false);
-    const r = buildRename("Werkstatt");
-    assert.equal(r.length, 16);
-    assert.equal(isAllowedRequest(r), false);
-    assert.equal(parseWriteAck([0x31, 0xc5, 1], "settings"), true);
-    assert.equal(parseWriteAck([0x31, 0xc5, 0], "settings"), false);
-    assert.equal(parseWriteAck([0x31, 0xc1, 0], "settings"), null);
+    assert.equal(isAllowedSettingsWrite(w), true);
+    assert.equal(isAllowedSettingsWrite([0x12, 0xc4, 4, 0, 0, 0, 0, 0, 0]), false);
+    assert.equal(isAllowedSettingsWrite([0x12, 0xc4, 1, 0, 0, 0, 1, 1, 0]), false);
+    assert.equal(isAllowedSettingsWrite([0x12, 0xc0, 0x41]), false);
+    assert.throws(() => buildSettingsWrite({ ...cur, mute: true, screenAutoOff: true }));
+    // nur das geänderte Feld, Stumm schaltet Display-aus ab
+    const next = applySettingsPatch(cur, { mute: true });
+    assert.equal(next.mute, true);
+    assert.equal(next.screenAutoOff, false);
+    assert.equal(next.mode, 4);
+    assert.equal(applySettingsPatch(cur, { chargeTarget: 0 }).alarm, true);
+    assert.equal(parseSettingsAck([0x31, 0xc5, 1]), true);
+    assert.equal(parseSettingsAck([0x31, 0xc5, 0]), false);
+    assert.equal(parseSettingsAck([0x31, 0xc1, 0]), null);
+    assert.equal(classifyFrame([0x31, 0xc5, 1]), "settings-ack");
   });
 });
 

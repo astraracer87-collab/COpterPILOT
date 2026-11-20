@@ -545,7 +545,7 @@ export type FrameKind =
   | "status"
   | "settings"
   | "expired"
-  | "unknown";
+  | "unknown" | "settings-ack";
 
 export function classifyFrame(f: ArrayLike<number>): FrameKind {
   if (!f || f.length === 0) return "unknown";
@@ -555,6 +555,7 @@ export function classifyFrame(f: ArrayLike<number>): FrameKind {
   if (a === 0xe1 || (a === 0x31 && b === 0xe1)) return "hwinfo";
   if (a === 0x31 && b === 0xc3) return "status";
   if (a === 0x31 && b === 0xc7) return "settings";
+  if (a === 0x31 && b === 0xc5) return "settings-ack";
   if (isBindingExpiredResponse(f)) return "expired";
   return "unknown";
 }

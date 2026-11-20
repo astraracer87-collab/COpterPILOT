@@ -1,6 +1,7 @@
 /**
  * Ladegerät-Einstellungen: „Ladegerät im Hintergrund loggen“ (Immer fragen /
- * Immer im Hintergrund / Nie), gekoppeltes Gerät vergessen, Hinweise zum Gerät.
+ * Immer im Hintergrund / Nie), gekoppeltes Gerät: Einstellungen am Gerät und
+ * vergessen, Hinweise zum Gerät.
  */
 import React, { useEffect, useState } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, View } from "react-native";
@@ -22,6 +23,7 @@ import {
   setChargerBackgroundMode,
 } from "@/lib/chargerStore";
 import { chargerController } from "@/lib/charger/chargerControllerNative";
+import { ChargerDeviceSettings } from "@/components/charger/ChargerDeviceSettings";
 
 const MODES: ChargerBackgroundMode[] = ["ask", "always", "never"];
 
@@ -145,6 +147,12 @@ export default function ChargerSettingsScreen() {
               </ThemedText>
             </Pressable>
           ) : null}
+          {device ? (
+            <>
+              <ThemedText style={[styles.title, { marginTop: Spacing.sm }]}>Einstellungen am Ladegerät</ThemedText>
+              <ChargerDeviceSettings />
+            </>
+          ) : null}
         </View>
 
         <View
@@ -158,8 +166,9 @@ export default function ChargerSettingsScreen() {
         >
           <ThemedText style={styles.title}>Hinweise</ThemedText>
           <ThemedText style={[styles.help, { color: theme.textSecondary }]}>
-            • COpter Pilot liest das Ladegerät nur aus und ändert nichts
-            (Ladeziel, Modus usw. bleiben in der Polying-App bzw. am Gerät).
+            • Ladeziel, Modus, Ton, Lampe und Display lassen sich oben
+            ändern – jede Änderung wird vorher bestätigt und danach vom
+            Ladegerät neu gelesen. Umbenennen geht nur in der Polying-App.
             {"\n"}• Das Ladegerät erlaubt nur eine Bluetooth-Verbindung: die
             Polying-App schließen.{"\n"}• Android 11 (DJI RC Pro 2):
             Standort-Berechtigung erlauben und Standort einschalten – sonst

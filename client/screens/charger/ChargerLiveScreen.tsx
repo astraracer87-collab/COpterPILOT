@@ -1,5 +1,5 @@
 /**
- * Akkus-Tab, Startseite: Live-Ansicht des ISDT MA331 (nur lesen).
+ * Akkus-Tab, Startseite: Live-Ansicht des ISDT MA331.
  * Kopfzeile mit Verbindung, Firmware und Hub-Modus; drei gleich breite
  * Schacht-Karten; USB-Ports; „Rohdaten kopieren“ (letzte Frames als Hex, um
  * unbekannte Felder gemeinsam zu prüfen).
@@ -138,7 +138,7 @@ export default function ChargerLiveScreen() {
                 ? `FW ${t?.hardware?.firmwareLabel ?? "…"} · Modus ${hubModeLabel(status?.mode ?? null)}${t?.settings ? ` · Ziel ${chargeTargetLabel(t.settings.chargeTarget)}` : ""}${snap.backgroundActive ? " · loggt im Hintergrund" : ""}`
                 : t?.lastError
                   ? t.lastError
-                  : "Nur lesen – am Ladegerät wird nichts verändert"}
+                  : "Einstellungen am Gerät über das Zahnrad"}
             </ThemedText>
           </View>
           {running ? (

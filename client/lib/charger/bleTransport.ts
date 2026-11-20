@@ -48,6 +48,7 @@ import {
   type IsdtSettings,
   type IsdtStatus,
 } from "./ma331Protocol";
+import { buildSettingsWrite, isAllowedSettingsWrite, parseSettingsAck } from "./ma331WriteCommands";
 
 // ── Schnittstelle zum BLE-Modul ────────────────────────────────────────────
 export interface BleAdvertising {
@@ -226,10 +227,18 @@ export interface ChargerTransport {
   stop(): Promise<void>;
   /** Sofort neu versuchen (z. B. nach „Polying geschlossen“) */
   retryNow(): void;
+  /**
+   * Einstellungen am Ladegerät schreiben (`12 C4`). `next` muss aus den zuletzt
+   * gelesenen Einstellungen entstehen (applySettingsPatch). Danach wird neu gelesen.
+   */
+  writeSettings(next: IsdtSettings): Promise<SettingsWriteResult>;
   snapshot(): TransportSnapshot;
   rawFrames(): RawFrame[];
   subscribe(l: (e: TransportEvent) => void): Unsubscribe;
 }
+
+export type SettingsWriteResult = "ok" | "rejected" | "timeout" | "not-connected" | "invalid";
+export const SETTINGS_ACK_TIMEOUT_MS = 4000;
 
 export const CONNECT_TIMEOUT_MS = 6000;
 export const BIND_TIMEOUT_MS = 8000;
@@ -298,6 +307,7 @@ export function createChargerTransport(deps: TransportDeps): ChargerTransport {
   let bound = false;
   let inFlightSince: number | null = null;
   let settingsTries = 0;
+  let settingsAck: ((ok: boolean | null) => void) | null = null;
   let scanAttempt = 0;
   let initialized = false;
 
@@ -334,6 +344,11 @@ export function createChargerTransport(deps: TransportDeps): ChargerTransport {
   function cancelAll() {
     for (const h of scheduled) timers.clearTimeout(h);
     scheduled = [];
+    if (settingsAck) {
+      const pending = settingsAck;
+      settingsAck = null;
+      pending(null);
+    }
   }
   function unsubscribeAll() {
     for (const u of subs) {
@@ -375,7 +390,8 @@ export function createChargerTransport(deps: TransportDeps): ChargerTransport {
   }
 
   async function write(ch: "af01" | "af02", frame: number[]): Promise<void> {
-    if (!isAllowedRequest(frame)) {
+    const settingsWrite = ch === "af01" && isAllowedSettingsWrite(frame);
+    if (!isAllowedRequest(frame) && !settingsWrite) {
       // Nur lesen: alles andere verlässt die App nie
       deps.log?.(`[charger] blockiert: ${toHex(frame)}`);
       return;
@@ -685,6 +701,12 @@ export function createChargerTransport(deps: TransportDeps): ChargerTransport {
         if (s) set({ settings: s });
         return;
       }
+      case "settings-ack": {
+        const done = settingsAck;
+        settingsAck = null;
+        done?.(parseSettingsAck(value));
+        return;
+      }
       case "status": {
         const r = parseStatus(value, snap.modelKind ?? "MA331");
         if (r.ok) {
@@ -782,6 +804,39 @@ export function createChargerTransport(deps: TransportDeps): ChargerTransport {
       if (wasConnected)
         emit({ type: "connection-lost", at: deps.now(), reason: "beendet" });
       set({ state: "stopped", connectedAt: null, nextRetryAt: null });
+    },
+    async writeSettings(next) {
+      if (snap.state !== "connected" || !snap.settings || settingsAck) return "not-connected";
+      let frame: number[];
+      try {
+        frame = buildSettingsWrite(next);
+      } catch {
+        return "invalid";
+      }
+      if (!isAllowedSettingsWrite(frame)) return "invalid";
+      const myGen = gen;
+      const ack = new Promise<boolean | null>((resolve) => {
+        settingsAck = resolve;
+        later(() => {
+          if (settingsAck === resolve) {
+            settingsAck = null;
+            resolve(null);
+          }
+        }, SETTINGS_ACK_TIMEOUT_MS);
+      });
+      try {
+        await write("af01", frame);
+      } catch {
+        settingsAck = null;
+        return "not-connected";
+      }
+      const ok = await ack;
+      if (myGen !== gen) return "not-connected";
+      // In jedem Fall neu lesen: zeigt, was das Ladegerät tatsächlich übernommen hat
+      settingsTries = 0;
+      set({ settings: null });
+      if (ok == null) return "timeout";
+      return ok ? "ok" : "rejected";
     },
     retryNow() {
       if (!running) return;
