@@ -1,4 +1,5 @@
 import React from "react";
+import { getLogbookOrigin } from "@/lib/logbookOrigin";
 import { compactHeader } from "@/components/CompactStackHeader";
 import { HeaderBackButton } from "@react-navigation/elements";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
@@ -43,12 +44,12 @@ export default function HistoryStackNavigator() {
         options={({ navigation }) => ({
           header: compactHeader,
           headerTitle: "Logbuch",
-          // Logbuch steht nicht mehr in der Tab-Leiste: zurück zu den Einstellungen
+          // Logbuch steht nicht in der Tab-Leiste: zurück dorthin, wo es geöffnet wurde
           headerLeft: (props) => (
             <HeaderBackButton
               {...props}
               testID="logbook-back-to-settings"
-              onPress={() => navigation.getParent()?.navigate("SettingsTab")}
+              onPress={() => navigation.getParent()?.navigate(getLogbookOrigin())}
             />
           ),
         })}

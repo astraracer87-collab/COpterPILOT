@@ -1,4 +1,5 @@
 import React, { useContext, useState } from "react";
+import { getLogbookOrigin } from "@/lib/logbookOrigin";
 import { View, Pressable, StyleSheet, useWindowDimensions, type LayoutChangeEvent } from "react-native";
 import {
   BottomTabBarHeightCallbackContext,
@@ -30,6 +31,12 @@ export function withAlpha(color: string, alpha: number): string {
 export const DJI_BUTTON_AFTER_ROUTE = "NotamsTab";
 /** Tabs, die nicht in der Leiste stehen (über die Einstellungen erreichbar) und welcher Tab dann markiert ist */
 export const HIDDEN_TAB_ROUTES: Record<string, string> = { HistoryTab: "SettingsTab" };
+
+/** Welcher Tab für einen ausgeblendeten Bereich hervorgehoben wird (Logbuch: dort, wo es geöffnet wurde) */
+export function hiddenTabHighlight(name: string | undefined): string | undefined {
+  if (!name || !HIDDEN_TAB_ROUTES[name]) return undefined;
+  return name === "HistoryTab" ? getLogbookOrigin() : HIDDEN_TAB_ROUTES[name];
+}
 
 /**
  * Index des Tabs, hinter dem der DJI-Knopf steht: nach „NotamsTab“ (per Name,
@@ -80,7 +87,7 @@ export function MainTabBar({ state, descriptors, navigation, insets }: BottomTab
         if (HIDDEN_TAB_ROUTES[route.name]) return [];
         const { options } = descriptors[route.key];
         const currentName = state.routes[state.index]?.name;
-        const focused = state.index === index || HIDDEN_TAB_ROUTES[currentName] === route.name;
+        const focused = state.index === index || hiddenTabHighlight(currentName) === route.name;
         const color = focused ? theme.primary : theme.textTertiary;
         const labelOption = options.tabBarLabel;
         const title = typeof labelOption === "string" ? labelOption : options.title ?? route.name;

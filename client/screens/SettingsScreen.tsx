@@ -1,4 +1,5 @@
 import Constants from "expo-constants";
+import { setLogbookOrigin } from "@/lib/logbookOrigin";
 import { DroneImage } from "@/components/DroneImage";
 import React, { useCallback, useMemo, useState } from "react";
 import {
@@ -559,7 +560,10 @@ export default function SettingsScreen() {
         icon={icon("book")}
         title="Logbuch"
         subtitle="Flüge, Wartung, DJI-Flugprotokolle"
-        onPress={() => (navigation as unknown as { navigate(r: string, p?: unknown): void }).navigate("HistoryTab", { screen: "History" })}
+        onPress={() => {
+          setLogbookOrigin("SettingsTab");
+          (navigation as unknown as { navigate(r: string, p?: unknown): void }).navigate("HistoryTab", { screen: "History" });
+        }}
       />
       <SettingsRow
         testID="settings-row-my-data"
