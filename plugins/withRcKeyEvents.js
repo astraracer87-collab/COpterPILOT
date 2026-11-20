@@ -319,7 +319,9 @@ class RcKeysModule(private val reactContext: ReactApplicationContext) :
           dir.mkdirs()
           src.copyTo(File(dir, fileName), overwrite = true)
         }
-        promise.resolve("Download/CopterPilot/" + fileName)
+        // Größe mitmelden, damit man eine beim Hochladen abgeschnittene Datei erkennt
+        val mb = String.format(java.util.Locale.US, "%.1f", src.length() / 1048576.0)
+        promise.resolve("Download/CopterPilot/" + fileName + " (" + mb + " MB)")
       } catch (t: Throwable) {
         promise.reject("E_RC_EXPORT", t.message, t)
       }
