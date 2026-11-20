@@ -5,6 +5,9 @@ import {
   createLogbookEntry,
   getDrones,
   getLogbookEntry,
+  getLogbook,
+  getEntryDjiLogs,
+  deleteLogbookEntry,
   updateDrone,
   attachDjiLogToEntry,
   type DroneProfile,
@@ -301,12 +304,59 @@ async function linkDroneAndBattery(
  * Ordnet eine Auswertung einem Flug zu: bestehender Eintrag (Log anhängen)
  * oder neuer Eintrag. Verknüpft dabei Drohne (Seriennummer) und Akku.
  */
+/** Gleiches Protokoll? Dateiname, sonst gleicher Startzeitpunkt (± 2 s) derselben Drohne. */
+export function sameDjiLog(a: Pick<DjiLogMeta, "fileName" | "startTs" | "aircraftSn">, b: Pick<DjiLogMeta, "fileName" | "startTs" | "aircraftSn">): boolean {
+  const fa = (a.fileName || "").toLowerCase();
+  const fb = (b.fileName || "").toLowerCase();
+  if (fa && fa === fb) return true;
+  if (a.startTs != null && b.startTs != null && Math.abs(a.startTs - b.startTs) <= 2000) {
+    const sa = (a.aircraftSn || "").toUpperCase();
+    const sb = (b.aircraftSn || "").toUpperCase();
+    return !sa || !sb || sa === sb;
+  }
+  return false;
+}
+
+/** Logbuch-Eintrag, der dieses Protokoll schon enthält (oder null). */
+export function findEntryWithDjiLog(entries: readonly LogbookEntry[], meta: DjiLogMeta): LogbookEntry | null {
+  for (const e of entries) {
+    if (getEntryDjiLogs(e).some((l) => sameDjiLog(l, meta))) return e;
+  }
+  return null;
+}
+
+/**
+ * Doppelt importierte Flüge entfernen: ein aus einem DJI-Protokoll angelegter
+ * Eintrag, dessen Protokolle alle schon in einem älteren Eintrag stecken.
+ * Rückgabe: Anzahl gelöschter Einträge.
+ */
+export async function removeDuplicateDjiLogEntries(): Promise<number> {
+  const entries = [...(await getLogbook())].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
+  const kept: LogbookEntry[] = [];
+  let removed = 0;
+  for (const e of entries) {
+    const logs = getEntryDjiLogs(e);
+    const fromLog = typeof e.sessionId === "string" && e.sessionId.startsWith("dji-log:");
+    const dup = fromLog && logs.length > 0 && logs.every((l) => kept.some((k) => getEntryDjiLogs(k).some((kl) => sameDjiLog(kl, l))));
+    if (dup) {
+      await deleteLogbookEntry(e.id);
+      removed++;
+    } else {
+      kept.push(e);
+    }
+  }
+  return removed;
+}
+
 export async function assignDjiLog(params: {
   meta: DjiLogMeta;
   target: "existing" | "new";
   entryId?: string;
 }): Promise<LogbookEntry> {
   const { meta, target, entryId } = params;
+  // Ein Flug nur einmal: steckt das Protokoll schon in einem Eintrag, diesen nehmen
+  const already = findEntryWithDjiLog(await getLogbook().catch(() => [] as LogbookEntry[]), meta);
+  if (already && (target === "new" || already.id === entryId)) return already;
   if (target === "existing") {
     if (!entryId) throw new Error("Kein Flug ausgewählt.");
     const entry = await getLogbookEntry(entryId);

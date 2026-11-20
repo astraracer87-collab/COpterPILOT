@@ -2,7 +2,7 @@
 // Läuft beim App-Start und wenn die App wieder in den Vordergrund kommt
 // (höchstens alle 5 min). Android erlaubt für SAF-Ordner keine echte
 // Hintergrund-Überwachung.
-import { analyzeDjiLogFiles, assignDjiLog, listDjiLogsInFolder } from "./djiLog";
+import { analyzeDjiLogFiles, assignDjiLog, listDjiLogsInFolder, removeDuplicateDjiLogEntries } from "./djiLog";
 import { groupDjiAnalyses } from "./djiLogCore";
 import {
   getDjiLogAutoImport,
@@ -40,6 +40,8 @@ export function runDjiLogAutoImport(opts: { force?: boolean } = {}): Promise<Dji
 }
 
 async function doImport(): Promise<DjiAutoImportResult | null> {
+  // früher doppelt importierte Flüge aufräumen
+  await removeDuplicateDjiLogEntries().catch(() => 0);
   if (!isFolderImportSupported() || !(await getDjiLogAutoImport())) return null;
   const uri = await getDjiLogFolder();
   if (!uri) return null;
