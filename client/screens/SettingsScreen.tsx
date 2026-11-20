@@ -145,7 +145,7 @@ function PairedRows({ id, items, paired }: { id: string; items: React.ReactEleme
     rows.push(
       <View key={`${id}-pair-${i}`} style={styles.pairRow} testID={`settings-${id}-pair`}>
         {React.cloneElement(left, { style: styles.pairCell })}
-        {right ? React.cloneElement(right, { style: styles.pairCell }) : <View style={styles.pairCell} />}
+        {right ? React.cloneElement(right, { style: styles.pairCell }) : <View style={[styles.row, styles.pairCell]} />}
       </View>,
     );
   }
