@@ -58,7 +58,11 @@ export async function listAllBatteries(): Promise<AppBattery[]> {
       link: l,
     });
   }
-  return out;
+  // Nach Drohne, dann Akku 1, 2, … 10 (natürliche Reihenfolge)
+  const coll = new Intl.Collator("de", { numeric: true, sensitivity: "base" });
+  return out.sort(
+    (a, b) => coll.compare(a.droneName ?? "\uffff", b.droneName ?? "\uffff") || coll.compare(a.label, b.label),
+  );
 }
 
 export function refOf(b: AppBattery): BatteryRef {

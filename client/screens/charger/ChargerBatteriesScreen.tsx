@@ -4,7 +4,7 @@
  * Funktioniert ohne Verbindung zum Ladegerät.
  */
 import React, { useCallback, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Feather } from "@expo/vector-icons";
@@ -41,6 +41,10 @@ export function formatDateTime(ms: number): string {
 export default function ChargerBatteriesScreen() {
   const navigation = useNavigation<Nav>();
   const { theme } = useTheme();
+  // Gleich große Kacheln: feste Spaltenzahl nach Breite
+  const { width: winW } = useWindowDimensions();
+  const cols = winW >= 900 ? 3 : winW >= 560 ? 2 : 1;
+  const cardWidth = Math.floor((winW - Spacing.sm * 2 - Spacing.sm * (cols - 1)) / cols) - 1;
   const [rows, setRows] = useState<
     { battery: AppBattery; stats: BatteryStats }[]
   >([]);
@@ -104,6 +108,8 @@ export default function ChargerBatteriesScreen() {
               }
               style={({ pressed }) => [
                 styles.card,
+                styles.gridCard,
+                { width: cardWidth },
                 {
                   backgroundColor: theme.backgroundDefault,
                   borderColor: theme.border,
@@ -221,6 +227,7 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   content: { padding: Spacing.sm, gap: Spacing.sm },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: Spacing.sm },
+  gridCard: { flexGrow: 0, flexBasis: "auto" },
   card: {
     flexGrow: 1,
     flexBasis: 300,

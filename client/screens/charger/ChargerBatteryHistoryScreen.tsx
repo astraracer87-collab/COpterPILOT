@@ -42,6 +42,8 @@ export default function ChargerBatteryHistoryScreen() {
   const route =
     useRoute<RouteProp<ChargerStackParamList, "ChargerBatteryHistory">>();
   const { theme } = useTheme();
+  // Zellen-Kacheln gleich groß: alle in einer Reihe (bis 4), sonst gleichmäßig auf 2 Reihen
+  const [cellGridW, setCellGridW] = useState(0);
   const { batteryKey, label } = route.params;
   const [entries, setEntries] = useState<SessionIndexEntry[]>([]);
   const [link, setLink] = useState<BatteryLink | null>(null);
@@ -142,8 +144,11 @@ export default function ChargerBatteryHistoryScreen() {
                 </View>
               );
             })()}
-            <View style={styles.cellGrid}>
+            <View style={styles.cellGrid} onLayout={(e) => setCellGridW(e.nativeEvent.layout.width)}>
               {Array.from({ length: cells.cells }, (_, i) => {
+                const n = cells.cells;
+                const cols = n <= 4 ? n : Math.ceil(n / 2) > 4 ? 4 : Math.ceil(n / 2);
+                const cellW = cellGridW > 0 ? Math.floor((cellGridW - Spacing.sm * (cols - 1)) / cols) - 1 : 0;
                 const lag = cells.lagMv[i][cells.lagMv[i].length - 1]?.y ?? null;
                 const lvl = spreadLevel(lag) ?? "ok";
                 const color = lvl === "ok" ? theme.border : lvl === "watch" ? theme.statusCaution : theme.statusNoGo;
@@ -151,7 +156,7 @@ export default function ChargerBatteryHistoryScreen() {
                 return (
                   <View
                     key={i}
-                    style={[styles.cellTile, { borderColor: color, backgroundColor: lvl === "ok" ? theme.backgroundDefault : color + "18" }]}
+                    style={[styles.cellTile, cellW ? { width: cellW, flexGrow: 0, flexBasis: "auto" } : null, { borderColor: color, backgroundColor: lvl === "ok" ? theme.backgroundDefault : color + "18" }]}
                     testID={`battery-cell-tile-${i + 1}`}
                   >
                     <ThemedText style={[styles.cellName, lvl !== "ok" ? { color } : null]}>
