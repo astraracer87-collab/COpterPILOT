@@ -599,3 +599,37 @@ describe("Akku-Statistik (Flüge pro Akku)", () => {
     assert.equal(formatTrend([], 0, "°C"), "—");
   });
 });
+
+describe("Akku-Zuordnung bei Tippfehler in der Seriennummer", () => {
+  it("nimmt den fast gleichen Akku und übernimmt die Nummer aus dem Log", () => {
+    const drone = {
+      id: "d1",
+      name: "Air 3S",
+      serialNumber: "X",
+      batteries: [
+        { id: "b1", name: "Akku 1", serialNumber: "89PN5LDA002J9" },
+        { id: "b2", name: "Akku 2", serialNumber: "894PN5MDA0049F" },
+      ],
+    };
+    const r = linkBatteryForLog(drone as any, { batterySn: "894PN5LDA002J9" } as any, { now: "2026-11-20T00:00:00Z" });
+    assert.equal(r.createdBattery, false);
+    assert.equal(r.batteryId, "b1");
+    assert.equal(r.updatedDrone!.batteries!.length, 2);
+    assert.equal(r.updatedDrone!.batteries![0].serialNumber, "894PN5LDA002J9");
+  });
+
+  it("legt bei zwei möglichen Treffern keinen falschen zu, sondern einen neuen an", () => {
+    const drone = {
+      id: "d1",
+      name: "Air 3S",
+      serialNumber: "X",
+      batteries: [
+        { id: "b1", name: "Akku 1", serialNumber: "894PN5LDA002J8" },
+        { id: "b2", name: "Akku 2", serialNumber: "894PN5LDA002J7" },
+      ],
+    };
+    const r = linkBatteryForLog(drone as any, { batterySn: "894PN5LDA002J9" } as any, { now: "2026-11-20T00:00:00Z", newId: () => "new" });
+    assert.equal(r.createdBattery, true);
+    assert.equal(r.batteryId, "new");
+  });
+});

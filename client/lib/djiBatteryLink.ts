@@ -59,6 +59,35 @@ export function serialsMatch(a?: string | null, b?: string | null): boolean {
   return na.length >= 4 && na === nb;
 }
 
+/** Levenshtein-Abstand (kleine Strings, früher Abbruch über maxDist) */
+function editDistance(a: string, b: string, maxDist: number): number {
+  if (Math.abs(a.length - b.length) > maxDist) return maxDist + 1;
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    let rowMin = i;
+    for (let j = 1; j <= b.length; j++) {
+      const v = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      cur.push(v);
+      if (v < rowMin) rowMin = v;
+    }
+    if (rowMin > maxDist) return maxDist + 1;
+    prev = cur;
+  }
+  return prev[b.length];
+}
+
+/**
+ * Fast gleiche Seriennummer (ein Tippfehler: ein Zeichen fehlt/zu viel/falsch),
+ * z. B. von Hand eingetragen „89PN5LDA002J9“ statt „894PN5LDA002J9“.
+ */
+export function serialsNearlyMatch(a?: string | null, b?: string | null): boolean {
+  const na = normalizeSerial(a);
+  const nb = normalizeSerial(b);
+  if (na.length < 8 || nb.length < 8) return false;
+  return na === nb || editDistance(na, nb, 1) <= 1;
+}
+
 /** Drohne zu einem Log finden: Seriennummer, sonst eindeutiger Modellname. */
 export function findDroneForLog<D extends LinkDrone>(
   drones: readonly D[],
@@ -134,6 +163,18 @@ export function linkBatteryForLog<D extends LinkDrone>(
     serialsMatch(b.serialNumber, meta.batterySn),
   );
   let created = false;
+  if (idx < 0) {
+    // Tippfehler in der von Hand eingetragenen Seriennummer: eindeutigen,
+    // fast gleichen Akku nehmen und die Nummer aus dem Log übernehmen
+    const near = batteries
+      .map((b, i) => ({ b, i }))
+      .filter(({ b }) => serialsNearlyMatch(b.serialNumber, meta.batterySn));
+    if (near.length === 1) {
+      idx = near[0].i;
+      batteries[idx] = { ...batteries[idx], serialNumber: meta.batterySn };
+      changed = true;
+    }
+  }
   if (idx < 0) {
     const id = opts.newId
       ? opts.newId()
