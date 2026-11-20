@@ -12,6 +12,7 @@ import {
   View,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
+import { useKeyboardInset } from "@/hooks/useKeyboardInset";
 import { ThemedText } from "@/components/ThemedText";
 import { useTheme } from "@/hooks/useTheme";
 import { BorderRadius, Spacing, Typography } from "@/constants/theme";
@@ -55,6 +56,7 @@ function AssignDialog({
     () => `Akku ${fmtDate(prompt.fingerprint.productionDate)}`,
   );
   const [creating, setCreating] = useState(false);
+  const keyboard = useKeyboardInset();
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -100,7 +102,7 @@ function AssignDialog({
       onRequestClose={() => onAnswer(slot, undefined)}
       supportedOrientations={["landscape", "portrait"]}
     >
-      <View style={styles.backdrop}>
+      <View style={[styles.backdrop, keyboard > 0 && { justifyContent: "flex-end", paddingBottom: keyboard + Spacing.sm }]}>
         <View
           style={[
             styles.box,
@@ -119,7 +121,7 @@ function AssignDialog({
             {prompt.reason === "ambiguous" ? " · mehrere Akkus passen" : ""}
           </ThemedText>
           <ScrollView
-            style={{ maxHeight: 260 }}
+            style={keyboard > 0 && creating ? { display: "none" } : { maxHeight: 260 }}
             contentContainerStyle={{ gap: 6 }}
           >
             {ordered.map((b) => (

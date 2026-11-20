@@ -256,6 +256,16 @@ describe("Erkennung im Advertisement", () => {
     assert.equal(a.userName, "MA331 Werk");
   });
 
+  it("Name endet am ersten Null-Byte (Restinhalt dahinter ignoriert)", () => {
+    const name = [..."0000MA331"].map((c) => c.charCodeAt(0));
+    const a = parseIsdtManufacturerPayload([
+      0xaf, 0xfa, 0x01, 0x40, 0x00, 0x00,
+      ...name, 0x00, 0x44, 0x6d, 0x37, 0x3b,
+    ]);
+    assert.equal(a?.userName, "0000MA331");
+    assert.equal(hubModeLabel(4), "unbekannt (4)");
+  });
+
   it("Bootloader 81400000 wird erkannt (nicht verbinden)", () => {
     const a = parseIsdtManufacturerPayload([
       0xaf, 0xfa, 0x81, 0x40, 0x00, 0x00,

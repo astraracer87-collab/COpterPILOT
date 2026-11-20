@@ -95,6 +95,8 @@ export function parseIsdtManufacturerPayload(
     const chars: string[] = [];
     for (let i = 6; i < 20; i++) {
       const c = payload[i] & 0xff;
+      // Name endet am ersten Null-Byte, dahinter steht Restinhalt des Puffers
+      if (c === 0) break;
       chars.push(c >= 0x20 && c < 0x7f ? String.fromCharCode(c) : " ");
     }
     userName = chars.join("").trim() || null;
@@ -606,7 +608,7 @@ export function hubModeLabel(mode: number | null): string {
     case IsdtHubMode.Balance:
       return "Ausgleichen";
     default:
-      return `Modus ${mode}`;
+      return `unbekannt (${mode})`;
   }
 }
 

@@ -1,4 +1,5 @@
 import { openLink } from "@/lib/webBrowser";
+import { useKeyboardInset } from "@/hooks/useKeyboardInset";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import React, { useState, useRef, useMemo, useEffect, useCallback } from "react";
 import { View, StyleSheet, TextInput, TouchableOpacity, Alert, Platform, Keyboard, ActivityIndicator, ScrollView, Pressable, FlatList, Modal, Linking, useWindowDimensions } from "react-native";
@@ -155,6 +156,7 @@ async function searchNominatim(query: string, signal?: AbortSignal): Promise<Poi
 }
 
 export default function PlanningLocationScreen() {
+  const keyboardInset = useKeyboardInset();
   const navigation = useNavigation<NavigationProp>();
   const route = useRoute<RouteParams>();
   const { theme } = useTheme();
@@ -1538,7 +1540,7 @@ export default function PlanningLocationScreen() {
         animationType="fade"
         onRequestClose={() => setRestrictionModalVisible(false)}
       >
-        <View style={styles.modalOverlay}>
+        <View style={[styles.modalOverlay, keyboardInset > 0 && { justifyContent: "flex-end", paddingBottom: keyboardInset + 8 }]}>
           <View style={[styles.modalCard, { backgroundColor: theme.backgroundDefault }]}>
             <ThemedText style={styles.modalTitle}>Einschränkungen am Standort?</ThemedText>
             <ThemedText style={[styles.modalText, { color: theme.textSecondary }]}>

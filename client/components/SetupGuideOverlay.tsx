@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useKeyboardInset } from "@/hooks/useKeyboardInset";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import {
   Modal,
@@ -84,6 +85,7 @@ function buildDroneFromPreset(p: DronePreset): NewDrone {
 }
 
 export function SetupGuideOverlay() {
+  const keyboardInset = useKeyboardInset();
   const { theme } = useTheme();
   const insets = useSafeAreaInsets();
   const { user, status } = useAuth();
@@ -193,7 +195,7 @@ export function SetupGuideOverlay() {
       presentationStyle="fullScreen"
       onRequestClose={() => finish("skipped")}
     >
-      <View style={[styles.root, { backgroundColor: theme.backgroundRoot, paddingTop: insets.top }]}>
+      <View style={[styles.root, { backgroundColor: theme.backgroundRoot, paddingTop: insets.top, paddingBottom: keyboardInset }]}>
         <View style={styles.header}>
           <ThemedText style={styles.headerTitle}>Einrichtung</ThemedText>
           <Pressable

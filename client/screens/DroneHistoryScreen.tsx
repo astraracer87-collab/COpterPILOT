@@ -1,4 +1,5 @@
 import React, { useState, useCallback } from "react";
+import { useKeyboardInset } from "@/hooks/useKeyboardInset";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { View, StyleSheet, FlatList, Pressable, TextInput, Modal, RefreshControl, Alert } from "react-native";
 import { useRoute, RouteProp, useFocusEffect, useNavigation } from "@react-navigation/native";
@@ -46,6 +47,7 @@ type TimelineItem =
   | { kind: "flight"; date: string; flight: LogbookEntry };
 
 export default function DroneHistoryScreen() {
+  const keyboardInset = useKeyboardInset();
   const route = useRoute<RouteProp<{ params: DroneHistoryParams }, "params">>();
   const navigation = useNavigation<NavProp>();
   const { theme } = useTheme();
@@ -388,7 +390,7 @@ export default function DroneHistoryScreen() {
         presentationStyle="pageSheet"
         onRequestClose={() => setModalVisible(false)}
       >
-        <ThemedView style={styles.modalContainer}>
+        <ThemedView style={[styles.modalContainer, { paddingBottom: keyboardInset }]}>
           <KeyboardAwareScrollViewCompat bottomOffset={24} contentContainerStyle={{ flexGrow: 1 }}>
           <View style={styles.modalHeader}>
             <ThemedText style={styles.modalTitle}>Neuer Eintrag</ThemedText>
