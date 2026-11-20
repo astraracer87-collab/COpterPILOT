@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { DroneImage } from "@/components/DroneImage";
+import { DroneImage, ManufacturerBadge } from "@/components/DroneImage";
 import { beaufortLevel, warnThresholdMs, WIND_WARN_FRACTION } from "@/lib/beaufort";
 import { activeNdKitId, applyNdKitSelection, buildNdKits, type NdKit } from "@/lib/ndKits";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
@@ -91,6 +91,13 @@ export default function DroneSetupScreen() {
   // Antippen zeigt sofort eine Rückmeldung; der große Detail-Schritt wird
   // erst im nächsten Frame aufgebaut
   const [openingKey, setOpeningKey] = useState<string | null>(null);
+  // Erst Herstellerübersicht, dann die Modelle des gewählten Herstellers
+  const [selectedMfr, setSelectedMfr] = useState<string | null>(null);
+  const manufacturers = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const p of sortedPresets) m.set(p.manufacturer, (m.get(p.manufacturer) ?? 0) + 1);
+    return [...m.entries()].map(([name, count]) => ({ name, count }));
+  }, [sortedPresets]);
   const { width: winW } = useWindowDimensions();
   const kbInset = useKeyboardInset();
   const presetColumns = winW >= 700 ? 2 : 1;
@@ -451,9 +458,37 @@ export default function DroneSetupScreen() {
         </Pressable>
       </View>
 
+      {!searchQuery.trim() && !selectedMfr ? (
+        <FlatList
+          key={`mfr-${presetColumns}`}
+          data={manufacturers}
+          numColumns={presetColumns > 1 ? 4 : 2}
+          keyExtractor={(m) => m.name}
+          style={styles.presetList}
+          keyboardShouldPersistTaps="handled"
+          renderItem={({ item }) => (
+            <View style={[styles.mfrCell, { maxWidth: presetColumns > 1 ? "25%" : "50%" }]}>
+              <Card style={styles.mfrCard} onPress={() => setSelectedMfr(item.name)} testID={`mfr-${item.name}`}>
+                <ManufacturerBadge manufacturer={item.name} size={64} color={theme.text} />
+                <ThemedText style={[styles.presetDetails, { color: theme.textSecondary, textAlign: "center" }]} numberOfLines={1}>
+                  {item.name} · {item.count} {item.count === 1 ? "Modell" : "Modelle"}
+                </ThemedText>
+              </Card>
+            </View>
+          )}
+        />
+      ) : (
+      <>
+      {!searchQuery.trim() && selectedMfr ? (
+        <Pressable onPress={() => setSelectedMfr(null)} style={styles.mfrBack} testID="mfr-back" hitSlop={8}>
+          <Feather name="chevron-left" size={18} color={theme.primary} />
+          <ThemedText style={[styles.presetName, { color: theme.primary }]}>Alle Hersteller</ThemedText>
+          <ThemedText style={[styles.presetDetails, { color: theme.textSecondary }]}> · {selectedMfr}</ThemedText>
+        </Pressable>
+      ) : null}
       <FlatList
         key={`cols-${presetColumns}`}
-        data={filteredPresets}
+        data={searchQuery.trim() || !selectedMfr ? filteredPresets : sortedPresets.filter((p) => p.manufacturer === selectedMfr)}
         numColumns={presetColumns}
         keyExtractor={(item) => `${item.manufacturer}-${item.model}`}
         renderItem={renderPresetItem}
@@ -466,6 +501,8 @@ export default function DroneSetupScreen() {
           </ThemedText>
         }
       />
+      </>
+      )}
     </View>
   );
 
@@ -1398,6 +1435,9 @@ const styles = StyleSheet.create({
   presetList: {
     flex: 1,
   },
+  mfrCell: { flex: 1, padding: Spacing.xs / 2 },
+  mfrCard: { alignItems: "center", justifyContent: "center", gap: Spacing.xs, paddingVertical: Spacing.md, paddingHorizontal: Spacing.sm },
+  mfrBack: { flexDirection: "row", alignItems: "center", gap: 2, marginBottom: Spacing.sm },
   presetCell: { flex: 1 / 2, paddingHorizontal: Spacing.xs / 2 },
   selectTopRow: { flexDirection: "row", alignItems: "center", gap: Spacing.sm, marginBottom: Spacing.sm },
   searchInputCompact: { flex: 1, marginBottom: 0, height: 44 },
