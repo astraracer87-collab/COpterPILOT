@@ -28,7 +28,7 @@ export function getManufacturerLogo(name: string | undefined): ImageSourcePropTy
 }
 
 /** Einfarbige Logos: werden in der Textfarbe eingefärbt (hell/dunkel) */
-const MONOCHROME = new Set(["dji", "antigravity", "hoverair", "potensic", "hubsan", "ryze", "yuneec", "vcoptr"]);
+const MONOCHROME = new Set(["dji", "antigravity", "hoverair", "potensic", "hubsan", "ryze", "yuneec", "vcoptr", "betafpv"]);
 export function isMonochromeLogo(name: string | undefined): boolean {
   return MONOCHROME.has(manufacturerKey(name));
 }
