@@ -14,6 +14,8 @@ const LOGOS: Record<string, ImageSourcePropType> = {
   hubsan: require("../../assets/images/logos/logo-hubsan.png"),
   ryze: require("../../assets/images/logos/logo-ryze.png"),
   nafyre: require("../../assets/images/logos/logo-nafyre.png"),
+  vcoptr: require("../../assets/images/logos/logo-vcoptr.png"),
+  yuneec: require("../../assets/images/logos/logo-yuneec.png"),
 };
 
 export function manufacturerKey(name: string | undefined): string {
@@ -26,7 +28,7 @@ export function getManufacturerLogo(name: string | undefined): ImageSourcePropTy
 }
 
 /** Einfarbige Logos: werden in der Textfarbe eingefärbt (hell/dunkel) */
-const MONOCHROME = new Set(["dji", "antigravity", "hoverair", "potensic", "hubsan", "ryze"]);
+const MONOCHROME = new Set(["dji", "antigravity", "hoverair", "potensic", "hubsan", "ryze", "yuneec"]);
 export function isMonochromeLogo(name: string | undefined): boolean {
   return MONOCHROME.has(manufacturerKey(name));
 }
