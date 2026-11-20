@@ -1,6 +1,9 @@
 import type { ImageSourcePropType } from "react-native";
 
 const IMAGES: Record<string, ImageSourcePropType> = {
+  "dji-matrice-30": require("../../assets/images/drones/dji-matrice-30.png"),
+  "dji-matrice-350": require("../../assets/images/drones/dji-matrice-350.png"),
+  "dji-matrice-400": require("../../assets/images/drones/dji-matrice-400.png"),
   "dji-avata":      require("../../assets/images/drones/dji-avata.png"),
   "dji-avata-2":    require("../../assets/images/drones/dji-avata-2.png"),
   "dji-avata-360":  require("../../assets/images/drones/dji-avata-360.png"),
@@ -29,6 +32,9 @@ const IMAGES: Record<string, ImageSourcePropType> = {
 };
 
 const MODEL_TO_KEY: Array<[RegExp, string]> = [
+  [/matrice\s*30/i, "dji-matrice-30"],
+  [/matrice\s*3[05]0/i, "dji-matrice-350"],
+  [/matrice\s*400/i, "dji-matrice-400"],
   [/avata\s*360/i,     "dji-avata-360"],
   [/avata\s*2/i,       "dji-avata-2"],
   [/avata/i,           "dji-avata"],
