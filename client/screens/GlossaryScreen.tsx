@@ -26,6 +26,7 @@ import { NOTAM_ABBREVIATIONS } from "@/lib/notamAbbreviations";
 import { GEOZONE_TERMS_INTL } from "@/lib/geozoneTermsIntl";
 import { apiRequest } from "@/lib/query-client";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
+import { useKeyboardInset } from "@/hooks/useKeyboardInset";
 
 type UserGlossaryEntry = {
   id: string;
@@ -43,6 +44,8 @@ export default function GlossaryScreen() {
   const { theme } = useTheme();
   const headerHeight = useHeaderHeight();
   const insets = useSafeAreaInsets();
+  // Modal-Fenster wird unter Android nicht verkleinert → selbst ausweichen
+  const kbInset = useKeyboardInset();
   const queryClient = useQueryClient();
   const navigation = useNavigation<NativeStackNavigationProp<SettingsStackParamList>>();
 
@@ -318,7 +321,7 @@ export default function GlossaryScreen() {
         transparent
         onRequestClose={() => setModalOpen(false)}
       >
-        <View style={styles.modalBackdrop}>
+        <View style={[styles.modalBackdrop, kbInset > 0 && { paddingBottom: kbInset }]}>
           <View style={[styles.modalSheet, { backgroundColor: theme.background }]}>
             <KeyboardAwareScrollViewCompat
               contentContainerStyle={{ padding: Spacing.lg, paddingBottom: insets.bottom + 24 }}

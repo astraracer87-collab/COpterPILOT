@@ -31,6 +31,7 @@ import {
 } from "@/lib/resourceLinks";
 import { apiRequest } from "@/lib/query-client";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
+import { useKeyboardInset } from "@/hooks/useKeyboardInset";
 
 const CATEGORY_ICONS: Record<string, keyof typeof Feather.glyphMap> = {
   "Luftraum & NOTAMs": "alert-circle",
@@ -57,6 +58,8 @@ export default function ResourceLinksScreen() {
   const { theme } = useTheme();
   const headerHeight = useHeaderHeight();
   const insets = useSafeAreaInsets();
+  // Modal-Fenster wird unter Android nicht verkleinert → selbst ausweichen
+  const kbInset = useKeyboardInset();
   const queryClient = useQueryClient();
 
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(
@@ -338,7 +341,7 @@ export default function ResourceLinksScreen() {
         transparent
         onRequestClose={() => setModalOpen(false)}
       >
-        <View style={styles.modalBackdrop}>
+        <View style={[styles.modalBackdrop, kbInset > 0 && { paddingBottom: kbInset }]}>
           <View style={[styles.modalSheet, { backgroundColor: theme.background }]}>
             <KeyboardAwareScrollViewCompat
               contentContainerStyle={{ padding: Spacing.lg, paddingBottom: insets.bottom + 24 }}
