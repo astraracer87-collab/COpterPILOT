@@ -1,5 +1,6 @@
 import { openLink } from "@/lib/webBrowser";
-import React, { useLayoutEffect } from "react";
+import React, { useEffect, useLayoutEffect, useState } from "react";
+import { getPilotProfile } from "@/lib/storage";
 import { View, StyleSheet, ScrollView, Pressable, Linking } from "react-native";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -28,6 +29,13 @@ export default function CountryDetailScreen() {
   const country = getCountryInfo(route.params.iso);
   const rule = getCountryDroneRule(route.params.iso);
   const displayName = country?.name ?? rule?.name ?? "Land";
+  // Gewerblich/Freizeit aus dem Pilotenprofil (z. B. FR Arrêté Espace)
+  const [commercial, setCommercial] = useState<boolean | null>(null);
+  useEffect(() => {
+    void getPilotProfile()
+      .then((p) => setCommercial(!!p?.commercialOperator))
+      .catch(() => setCommercial(null));
+  }, []);
 
   useLayoutEffect(() => {
     navigation.setOptions({ headerTitle: displayName });
@@ -89,6 +97,64 @@ export default function CountryDetailScreen() {
             </View>
           ))}
         </Card>
+
+        {country.nationalRules ? (
+          <>
+            <SectionTitle theme={theme}>{country.nationalRules.title.toUpperCase()}</SectionTitle>
+            <Card style={styles.card} testID="national-rules">
+              <ThemedText style={[styles.bulletText, { color: theme.textSecondary, marginBottom: Spacing.sm }]}>
+                {country.nationalRules.basis}
+              </ThemedText>
+              <ThemedText style={[styles.guideTitle, { color: theme.text }]}>Für alle</ThemedText>
+              {country.nationalRules.general.map((n, i) => (
+                <View key={`g${i}`} style={[styles.bulletRow, { marginTop: Spacing.xs }]}>
+                  <ThemedText style={[styles.bulletDot, { color: theme.primary }]}>•</ThemedText>
+                  <ThemedText style={[styles.bulletText, { color: theme.text }]}>{n}</ThemedText>
+                </View>
+              ))}
+              {([
+                { key: "commercial", label: "Gewerblich", items: country.nationalRules.commercial, mine: commercial === true },
+                { key: "leisure", label: "Freizeit", items: country.nationalRules.leisure, mine: commercial === false },
+              ] as const)
+                // die für den Piloten geltende Gruppe zuerst
+                .slice()
+                .sort((a, b) => Number(b.mine) - Number(a.mine))
+                .map((g) => (
+                  <View
+                    key={g.key}
+                    style={[
+                      styles.rulesGroup,
+                      {
+                        borderColor: g.mine ? theme.primary : theme.border,
+                        backgroundColor: g.mine ? theme.primary + "14" : "transparent",
+                        opacity: commercial == null || g.mine ? 1 : 0.65,
+                      },
+                    ]}
+                    testID={`national-rules-${g.key}`}
+                  >
+                    <ThemedText style={[styles.guideTitle, { color: g.mine ? theme.primary : theme.text }]}>
+                      {g.label}{g.mine ? " – gilt für dich" : ""}
+                    </ThemedText>
+                    {g.items.map((n, i) => (
+                      <View key={i} style={[styles.bulletRow, { marginTop: Spacing.xs }]}>
+                        <ThemedText style={[styles.bulletDot, { color: theme.primary }]}>•</ThemedText>
+                        <ThemedText style={[styles.bulletText, { color: theme.text }]}>{n}</ThemedText>
+                      </View>
+                    ))}
+                  </View>
+                ))}
+              <ThemedText style={[styles.bulletText, { color: theme.textTertiary, marginTop: Spacing.sm }]}>
+                Gewerblich oder Freizeit stellst du im Pilotenprofil ein („Gewerblich unterwegs“).
+              </ThemedText>
+              {country.nationalRules.links.map((l) => (
+                <Pressable key={l.url} onPress={() => void openLink(l.url)} style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: Spacing.sm }}>
+                  <Feather name="external-link" size={14} color={theme.primary} />
+                  <ThemedText style={[styles.bulletText, { color: theme.primary }]}>{l.label}</ThemedText>
+                </Pressable>
+              ))}
+            </Card>
+          </>
+        ) : null}
 
         {country.iso === "IT" ? (
           <>
@@ -259,6 +325,7 @@ function SectionTitle({ children, theme }: { children: React.ReactNode; theme: a
 }
 
 const styles = StyleSheet.create({
+  rulesGroup: { marginTop: Spacing.md, borderWidth: 1, borderRadius: BorderRadius.md, padding: Spacing.sm },
   container: { flex: 1 },
   headerCard: { padding: Spacing.lg },
   headerRow: { flexDirection: "row", alignItems: "center", gap: Spacing.md },

@@ -2864,6 +2864,12 @@ export interface PilotProfile {
   allgemeinverfuegung: GeoAllgemeinerlaubnis[];
   countrySpecific: CountrySpecificPilot;
   insuranceActive: boolean;
+  /**
+   * Gewerblich tätig (Berufspilot/Unternehmen). Steuert länderspezifische
+   * Regeln, z. B. Frankreich (Arrêté Espace): Agglomeration nur gewerblich,
+   * mit Vorab-Meldung an die Präfektur.
+   */
+  commercialOperator?: boolean;
   /** Ablaufdatum der Haftpflichtversicherung (TT.MM.JJJJ). */
   insuranceExpirationDate?: string;
   /** Hochgeladene Versicherungsbestätigung (PDF/Bild, base64). */

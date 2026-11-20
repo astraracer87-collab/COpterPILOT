@@ -11,6 +11,18 @@ export interface CountryInfo {
   noFlyApp: { name: string; url: string };
   specialNotes: string[];
   checklist: string[];
+  /** Nationale Zusatzregeln mit Unterschied Freizeit / gewerblich (z. B. FR Arrêté Espace) */
+  nationalRules?: NationalRules;
+}
+
+export interface NationalRules {
+  title: string;
+  /** Stand / Rechtsgrundlage in einer Zeile */
+  basis: string;
+  general: string[];
+  leisure: string[];
+  commercial: string[];
+  links: { label: string; url: string }[];
 }
 
 export const COUNTRY_INFO: CountryInfo[] = [
@@ -122,27 +134,60 @@ export const COUNTRY_INFO: CountryInfo[] = [
     iso: "FR",
     name: "Frankreich",
     summary:
-      "EU-Recht gilt — DGAC ergänzt nationale Regeln: AlphaTango-Registrierung zusätzlich nötig, ab 800 g elektronische Balise (Remote-ID) Pflicht.",
-    minAge: "14 Jahre für A1/A3.",
+      "EU-Recht gilt – dazu nationale DGAC-Regeln (Arrêté Espace, geändert zum 01.01.2026): Agglomerationen für Freizeitpiloten tabu, gewerblich nur mit Vorab-Meldung. Registrierung über AlphaTango.",
+    minAge: "14 Jahre (A1/A3), Ausnahmen möglich.",
     insurance: "Empfohlen; bei gewerblicher Nutzung Pflicht. Deutsche Haftpflicht im EU-Ausland meist gültig — vorher prüfen.",
-    nightFlight: "In Open verboten ohne Sonderfreigabe (Préfecture).",
-    maxAltitudeM: "120 m AGL (Open).",
+    nightFlight:
+      "Verboten (Nacht = 30 min nach Sonnenuntergang bis 30 min vor Sonnenaufgang). Ausnahme nur per Präfektur (Formular R5-UAS-DEROG, ≥ 30 Tage vorher); gewerblich in der Kategorie Spécifique unter engen Bedingungen (STS-01, < 50 m, Beleuchtung).",
+    maxAltitudeM:
+      "120 m über Grund/Wasser; Géoportail-Karte zeigt geringere Grenzen (0/30/50/60/100 m). Zivile CTR: max. 50 m, militärische CTR: Flugverbot.",
     registration:
-      "Zusätzlich zur EU-e-ID Pflicht-Registrierung im AlphaTango-Portal (DGAC). Erforderlich ab 800 g oder mit Kamera.",
+      "AlphaTango: Betreiberregistrierung (Nummer FRA…, auf die Drohne) ab 250 g oder mit Kamera. Ab 800 g zusätzlich Drohnenregistrierung (UAS-FR, 5 Jahre) und elektronische Signalisierung (Balise) – Registerauszug mitführen.",
     authority: { name: "Direction Générale de l'Aviation Civile (DGAC)", url: "https://alphatango.aviation-civile.gouv.fr" },
-    noFlyApp: { name: "Géoportail Drones", url: "https://www.geoportail.gouv.fr/donnees/restrictions-pour-drones-de-loisir" },
+    noFlyApp: { name: "Géoportail – Restrictions UAS", url: "https://www.geoportail.gouv.fr/donnees/restrictions-uas-categorie-ouverte-et-aeromodelisme" },
     specialNotes: [
-      "Balise électronique (Remote-ID) Pflicht ab 800 g — entspricht EU-Remote-ID, muss aktiv sein.",
-      "Nationalparks (Mercantour, Écrins, Vanoise…) und Naturreservate komplett gesperrt.",
-      "Paris + ganz Île-de-France: weitläufige Sperrzonen.",
-      "Strände und Küsten in der Hochsaison oft per Préfectoral-Dekret gesperrt.",
+      "Balise électronique (Signalisierung) Pflicht ab 800 g – Kennung in AlphaTango eintragen.",
+      "Nationalparks und Naturreservate: Überflug verboten. Natura 2000 nicht grundsätzlich, aber per Präfektur-Erlass zeitweise gesperrt.",
+      "Paris (Zone P 23) komplett gesperrt – auch auf Privatgelände.",
+      "Temporäre Sperren (Waldbrände, Veranstaltungen, NOTAM/SUP AIP) zeigt die Karte nicht – vor dem Flug beim SIA prüfen.",
     ],
     checklist: [
-      "AlphaTango-Registrierung absolviert",
-      "Remote-ID/Balise aktiv (>800 g)",
+      "AlphaTango-Registrierung (FRA-Nummer auf der Drohne)",
+      "Ab 800 g: UAS-FR-Registrierung + Balise aktiv, Registerauszug dabei",
       "EU-Kompetenznachweis A1/A3 dabei",
-      "Géoportail vor Start geprüft",
+      "Géoportail und SIA (temporäre Sperren) vor Start geprüft",
     ],
+    nationalRules: {
+      title: "Arrêté Espace (Luftraumerlass)",
+      basis: "Arrêté vom 3.12.2020, geändert zum 01.01.2026 – Zusammenfassung nach den DSAC-Leitfäden (Stand 2026), ohne Gewähr.",
+      general: [
+        "Max. 120 m; darunter gelten die Höhenstufen der Géoportail-Karte (Flugverbot / 30 / 50 / 60 / 100 m).",
+        "Auf Flugplatzgelände jeder Flug verboten; ringsum reduzierte Höhen. Zivile CTR: max. 50 m, militärische CTR: Verbot.",
+        "Zonen P verboten; R und D nur außerhalb der Aktivierung bzw. mit Zustimmung des Betreibers.",
+        "Militärischer Tiefflug (SETBA): ab 900 g Meldung über AlphaTango (frühestens J-2 4 Uhr, spätestens J 4 Uhr, max. 12 h).",
+        "Menschenansammlungen nie überfliegen; „zone peuplée“ = < 50 m an einer Ortschaft oder < 150 m an einer Ansammlung.",
+        "Nachtflug verboten (30 min nach Sonnenuntergang bis 30 min vor Sonnenaufgang).",
+      ],
+      leisure: [
+        "Über öffentlichem Raum in Ortschaften (Agglomeration) verboten – egal wie klein die Ortschaft.",
+        "Erlaubt nur auf Privatgelände mit Zustimmung oder an von der Präfektur freigegebenen Orten.",
+        "Ausnahmen für Freizeitpiloten werden praktisch nie erteilt.",
+      ],
+      commercial: [
+        "Kategorie Offen: Flug über öffentlichem Raum in Ortschaften im Rahmen der Berufstätigkeit zulässig.",
+        "In der „zone peuplée“: Vorab-Meldung an die Präfektur über AlphaTango oder CERFA 15476 – 10 Werktage vorher (seit 01.01.2026, vorher 5). Ohne Antwort gilt der Flug als genehmigt.",
+        "Kategorie Spécifique: nationale Szenarien S-1/S-2/S-3 gelten seit 01.01.2026 nicht mehr – nur STS-01/02, Betriebsgenehmigung (SORA) oder LUC.",
+        "Jeder BVLOS-Flug vorher über AlphaTango melden; über 120 m Betriebsgenehmigung + Zustimmung (CERFA 15478).",
+        "Nachtflug in der Spécifique möglich: < 50 m, < 8 kg, nach STS-01, mit Beleuchtung und gesicherter Zone.",
+      ],
+      links: [
+        { label: "Arrêté Espace (Légifrance)", url: "https://www.legifrance.gouv.fr/jorf/id/JORFTEXT000042635803" },
+        { label: "DSAC-Leitfaden Kategorie Offen", url: "https://www.ecologie.gouv.fr/sites/default/files/documents/Guide_categorie_Ouverte.pdf" },
+        { label: "DSAC-Leitfaden Kategorie Spécifique", url: "https://www.ecologie.gouv.fr/sites/default/files/documents/Guide_categorie_Specifique_0.pdf" },
+        { label: "Géoportail – Restrictions UAS", url: "https://www.geoportail.gouv.fr/donnees/restrictions-uas-categorie-ouverte-et-aeromodelisme" },
+        { label: "AlphaTango (Registrierung & Meldungen)", url: "https://alphatango.aviation-civile.gouv.fr/" },
+      ],
+    },
   },
   {
     iso: "IT",
@@ -269,7 +314,7 @@ const NIGHT_FLIGHT_RULES: Record<string, NightFlightRule> = {
   NL: { status: "forbidden", severity: "danger", shortText: "Nachtflug in NL verboten", detail: "Open-Kategorie: Nachtflug streng verboten. Nur während gesetzlicher Tageszeit." },
   AT: { status: "allowed_with_lights", severity: "warn", shortText: "Nachtflug — grünes Blinklicht Pflicht", detail: "Open-Kategorie: erlaubt mit grün blinkenden Positionslichtern (EU-Standard)." },
   CH: { status: "allowed_with_lights", severity: "warn", shortText: "Nachtflug — grünes Blinklicht Pflicht", detail: "Open-Kategorie: erlaubt mit grün blinkenden Positionslichtern (EU-Standard)." },
-  FR: { status: "permit_required", severity: "danger", shortText: "Nachtflug in FR verboten ohne Préfecture-Freigabe", detail: "Open: Nachtflug nur mit Sonderfreigabe der Préfecture." },
+  FR: { status: "permit_required", severity: "danger", shortText: "Nachtflug in FR verboten ohne Préfecture-Freigabe", detail: "Nacht = 30 min nach Sonnenuntergang bis 30 min vor Sonnenaufgang. Ausnahme nur per Präfektur (R5-UAS-DEROG, ≥ 30 Tage vorher); gewerblich in der Spécifique nach STS-01 (< 50 m, < 8 kg, Beleuchtung)." },
   IT: { status: "allowed_with_lights", severity: "warn", shortText: "Nachtflug — grünes Blinklicht Pflicht", detail: "Open-Kategorie: erlaubt mit grün blinkenden Positionslichtern (EU-Standard)." },
   ES: { status: "allowed_with_lights", severity: "warn", shortText: "Nachtflug — grünes Blinklicht Pflicht", detail: "Open-Kategorie: erlaubt mit grün blinkenden Positionslichtern (EU-Standard)." },
   LU: { status: "allowed_with_lights", severity: "warn", shortText: "Nachtflug — grünes Blinklicht Pflicht", detail: "Open-Kategorie: erlaubt mit grün blinkenden Positionslichtern (EU-Standard)." },

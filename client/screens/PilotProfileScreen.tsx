@@ -375,6 +375,25 @@ export default function PilotProfileScreen() {
             />
           </Pressable>
 
+          <Pressable
+            style={styles.toggleRow}
+            onPress={() => { update({ commercialOperator: !profile.commercialOperator }); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+            testID="toggle-commercial-operator"
+          >
+            <View style={styles.toggleInfo}>
+              <ThemedText style={styles.toggleLabel}>Gewerblich unterwegs</ThemedText>
+              <ThemedText style={[styles.toggleDesc, { color: theme.textTertiary }]}>
+                Berufliche Flüge – z. B. in Frankreich gelten dann andere Regeln (Arrêté Espace)
+              </ThemedText>
+            </View>
+            <Switch
+              value={!!profile.commercialOperator}
+              onValueChange={(v) => { update({ commercialOperator: v }); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+              trackColor={{ false: theme.backgroundSecondary, true: theme.primary + "60" }}
+              thumbColor={profile.commercialOperator ? theme.primary : theme.textTertiary}
+            />
+          </Pressable>
+
           <DocumentField
             testID="pilot-insurance-doc"
             label="Versicherungsbestätigung"
