@@ -17,10 +17,11 @@ import { ThemedText } from "@/components/ThemedText";
 import { useTheme } from "@/hooks/useTheme";
 import { BorderRadius, Spacing } from "@/constants/theme";
 import { TrendChart } from "@/components/charger/TrendChart";
-import { getBatteryLinks, listChargeSessions, type SessionIndexEntry } from "@/lib/chargerStore";
+import { backfillCellData, getBatteryLinks, listChargeSessions, type SessionIndexEntry } from "@/lib/chargerStore";
 import type { BatteryLink } from "@/lib/charger/batteryFingerprint";
 import { getDrone, type DroneBattery } from "@/lib/storage";
 import {
+  cellHistory,
   computeBatteryStats,
   END_REASON_LABEL,
   HEALTH_LABEL,
@@ -66,15 +67,19 @@ export default function ChargerBatteryHistoryScreen() {
     useCallback(() => {
       let cancelled = false;
       void listChargeSessions()
-        .then((all) => {
-          if (!cancelled)
-            setEntries(
-              all.filter((e) =>
-                batteryKey === UNASSIGNED_KEY
-                  ? !e.batteryKey
-                  : e.batteryKey === batteryKey,
-              ),
-            );
+        .then(async (all) => {
+          const mine = all.filter((e) =>
+            batteryKey === UNASSIGNED_KEY ? !e.batteryKey : e.batteryKey === batteryKey,
+          );
+          if (cancelled) return;
+          setEntries(mine);
+          // Ältere Ladevorgänge: Zellwerte einmalig aus den gespeicherten Daten ergänzen
+          const missing = mine.filter((e) => !("maxCellDeltaMv" in e)).map((e) => e.id);
+          if (missing.length === 0) return;
+          const filled = await backfillCellData(missing);
+          if (cancelled) return;
+          const byId = new Map(filled.map((e) => [e.id, e]));
+          setEntries(mine.map((e) => byId.get(e.id) ?? e));
         })
         .catch(() => {});
       return () => {
@@ -85,6 +90,7 @@ export default function ChargerBatteryHistoryScreen() {
 
   const stats = computeBatteryStats(entries);
   const trend = trendSeries(entries);
+  const cells = cellHistory(entries);
 
   return (
     <ThemedView style={styles.container}>
@@ -116,6 +122,48 @@ export default function ChargerBatteryHistoryScreen() {
                 <ThemedText style={styles.dataValue}>{(v as string | null) ?? "–"}</ThemedText>
               </View>
             ))}
+          </View>
+        ) : null}
+        {cells.cells > 0 ? (
+          <View style={[styles.dataCard, { borderColor: theme.border, backgroundColor: theme.backgroundSecondary }]} testID="battery-cells-card">
+            <ThemedText style={styles.rowTitle}>Zellen ({cells.cells}) – {cells.sessions} Ladevorgänge mit Zellwerten</ThemedText>
+            <View style={styles.dataRow}>
+              <ThemedText style={[styles.sub, styles.cellCol, { color: theme.textSecondary }]}>Zelle</ThemedText>
+              <ThemedText style={[styles.sub, styles.cellCol, { color: theme.textSecondary }]}>Zuletzt (Ende)</ThemedText>
+              <ThemedText style={[styles.sub, styles.cellCol, { color: theme.textSecondary }]}>Abw. vom Mittel</ThemedText>
+              <ThemedText style={[styles.sub, styles.cellCol, { color: theme.textSecondary }]}>Schwächste</ThemedText>
+            </View>
+            {Array.from({ length: cells.cells }, (_, i) => {
+              const dev = cells.deviationMv[i][cells.deviationMv[i].length - 1]?.y ?? null;
+              const weakest = cells.lowestCount[i] > 0 && cells.lowestCount[i] === Math.max(...cells.lowestCount);
+              return (
+                <View key={i} style={styles.dataRow} testID={`battery-cell-row-${i + 1}`}>
+                  <ThemedText style={[styles.dataValue, styles.cellCol]}>Z{i + 1}</ThemedText>
+                  <ThemedText style={[styles.dataValue, styles.cellCol]}>
+                    {cells.lastMv[i] != null ? `${(cells.lastMv[i]! / 1000).toFixed(3).replace(".", ",")} V` : "–"}
+                  </ThemedText>
+                  <ThemedText style={[styles.dataValue, styles.cellCol]}>{dev != null ? `${dev > 0 ? "+" : ""}${dev} mV` : "–"}</ThemedText>
+                  <ThemedText style={[styles.dataValue, styles.cellCol, weakest ? { color: theme.statusCaution } : null]}>
+                    {cells.lowestCount[i]}×
+                  </ThemedText>
+                </View>
+              );
+            })}
+            <ThemedText style={[styles.sub, { color: theme.textTertiary }]}>
+              Verlauf je Zelle: Abweichung vom Mittel aller Zellen am Ladeende. Driftet eine Zelle dauerhaft nach unten, altert sie schneller.
+            </ThemedText>
+            <View style={styles.charts}>
+              {cells.deviationMv.map((pts, i) => (
+                <TrendChart key={i} title={`Z${i + 1} – Abweichung`} unit="mV" points={pts} testID={`trend-cell-${i + 1}`} />
+              ))}
+              <TrendChart
+                title="Größte Spreizung beim Laden"
+                unit="mV"
+                points={cells.maxDuringCharge}
+                color={theme.statusCaution}
+                testID="trend-max-spread"
+              />
+            </View>
           </View>
         ) : null}
         <View style={styles.charts}>
@@ -215,6 +263,7 @@ const styles = StyleSheet.create({
   dataCard: { borderWidth: 1, borderRadius: BorderRadius.sm, padding: Spacing.sm, gap: 4 },
   dataRow: { flexDirection: "row", alignItems: "center", gap: Spacing.sm },
   dataValue: { fontSize: 13, fontWeight: "600" },
+  cellCol: { flex: 1 },
 });
 
 function formatDay(iso: string): string {

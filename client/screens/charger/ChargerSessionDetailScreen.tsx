@@ -93,6 +93,17 @@ export default function ChargerSessionDetailScreen() {
               }))}
             color={theme.statusGo}
           />
+          {(s.endCellsMv.length >= 2 ? s.endCellsMv : []).map((_, i) => (
+            <TrendChart
+              key={`cell-${i}`}
+              title={`Zelle Z${i + 1}`}
+              unit="mV"
+              points={s.series
+                .filter((p) => (p.cells[i] ?? 0) > 1000)
+                .map((p) => ({ x: min(p.t), y: p.cells[i] }))}
+              testID={`session-cell-${i + 1}`}
+            />
+          ))}
         </View>
       </ScrollView>
     </ThemedView>

@@ -53,6 +53,10 @@ export interface SessionIndexEntry {
   maxCurrentA: number;
   maxPowerW: number;
   endCellDeltaMv: number | null;
+  /** Zellspannungen am Ende (mV), falls vom Akku gemeldet */
+  endCellsMv?: number[];
+  /** Größte Zell-Spreizung während des Ladens (mV) */
+  maxCellDeltaMv?: number | null;
   cyclesStart: number;
   cyclesEnd: number;
   productionDate: string | null;
@@ -149,6 +153,21 @@ async function writeJson(path: string, value: unknown): Promise<void> {
   await writeTextAtomic(fs(), path, JSON.stringify(value));
 }
 
+function validCells(cells: number[] | undefined): cells is number[] {
+  return Array.isArray(cells) && cells.length >= 2 && cells.every((v) => Number.isFinite(v) && v > 1000);
+}
+
+/** Größte Spreizung (max − min) über alle Messpunkte mit gültigen Zellwerten */
+export function maxCellDelta(series: { cells: number[] }[]): number | null {
+  let best: number | null = null;
+  for (const p of series) {
+    if (!validCells(p.cells)) continue;
+    const d = Math.max(...p.cells) - Math.min(...p.cells);
+    if (best == null || d > best) best = d;
+  }
+  return best;
+}
+
 export function toIndexEntry(s: ChargeSession): SessionIndexEntry {
   return {
     id: s.id,
@@ -167,6 +186,8 @@ export function toIndexEntry(s: ChargeSession): SessionIndexEntry {
     maxCurrentA: s.maxCurrentA,
     maxPowerW: s.maxPowerW,
     endCellDeltaMv: s.endCellDeltaMv,
+    endCellsMv: validCells(s.endCellsMv) ? [...s.endCellsMv] : undefined,
+    maxCellDeltaMv: maxCellDelta(s.series),
     cyclesStart: s.cyclesStart,
     cyclesEnd: s.cyclesEnd,
     productionDate: s.productionDate,
@@ -208,6 +229,28 @@ export async function getChargeSession(
 ): Promise<ChargeSession | null> {
   await queue.catch(() => {});
   return readJson<ChargeSession | null>(sessionPath(id), null);
+}
+
+/**
+ * Ältere Index-Einträge ohne Zellwerte einmalig aus den gespeicherten
+ * Ladevorgängen ergänzen (Zellspannungen am Ende, größte Spreizung).
+ */
+export function backfillCellData(ids: string[]): Promise<SessionIndexEntry[]> {
+  return serial(async () => {
+    const idx = await readJson<SessionIndexEntry[]>(indexPath(), []);
+    const want = new Set(ids);
+    let changed = false;
+    for (let i = 0; i < idx.length; i++) {
+      const e = idx[i];
+      if (!want.has(e.id) || "maxCellDeltaMv" in e) continue;
+      const full = await readJson<ChargeSession | null>(sessionPath(e.id), null);
+      if (!full) continue;
+      idx[i] = { ...e, endCellsMv: toIndexEntry(full).endCellsMv, maxCellDeltaMv: maxCellDelta(full.series ?? []) };
+      changed = true;
+    }
+    if (changed) await writeJson(indexPath(), idx);
+    return idx.filter((e) => want.has(e.id));
+  });
 }
 
 export function deleteChargeSession(id: string): Promise<void> {

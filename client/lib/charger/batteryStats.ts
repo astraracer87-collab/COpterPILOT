@@ -7,6 +7,7 @@
  * Innenwiderstand. Der Zustand hier ist eine grobe eigene Einschätzung.
  */
 import type { SessionIndexEntry } from "../chargerStore";
+type TrendPoint = { x: number; y: number };
 
 export type HealthLevel = "good" | "watch" | "bad" | "unknown";
 
@@ -102,3 +103,57 @@ export const END_REASON_LABEL: Record<string, string> = {
   interrupted: "abgebrochen",
   disconnected: "Verbindung weg",
 };
+
+// ── Zellen einzeln über die Zeit ───────────────────────────────────────────
+export interface CellHistory {
+  /** Anzahl Zellen (aus dem jüngsten Ladevorgang mit Zellwerten) */
+  cells: number;
+  /** Je Zelle: Spannung am Ladeende (mV) über die Ladevorgänge */
+  endMv: TrendPoint[][];
+  /** Je Zelle: Abweichung vom Mittel aller Zellen am Ladeende (mV) */
+  deviationMv: TrendPoint[][];
+  /** Je Zelle: wie oft sie am Ladeende die niedrigste war */
+  lowestCount: number[];
+  /** Je Zelle: letzte Spannung am Ladeende (mV) */
+  lastMv: (number | null)[];
+  /** Größte Spreizung während des Ladens (mV) je Ladevorgang */
+  maxDuringCharge: TrendPoint[];
+  sessions: number;
+}
+
+export function cellHistory(entries: SessionIndexEntry[]): CellHistory {
+  const done = [...entries]
+    .filter((e) => e.status === "done")
+    .sort((a, b) => a.startedAt - b.startedAt);
+  const withCells = done.filter((e) => Array.isArray(e.endCellsMv) && e.endCellsMv.length >= 2);
+  const n = withCells.length ? withCells[withCells.length - 1].endCellsMv!.length : 0;
+  const endMv: TrendPoint[][] = Array.from({ length: n }, () => []);
+  const deviationMv: TrendPoint[][] = Array.from({ length: n }, () => []);
+  const lowestCount = new Array(n).fill(0);
+  const lastMv: (number | null)[] = new Array(n).fill(null);
+  for (const e of withCells) {
+    const cells = e.endCellsMv!;
+    if (cells.length !== n) continue;
+    const mean = cells.reduce((a, b) => a + b, 0) / n;
+    const min = Math.min(...cells);
+    cells.forEach((mv, i) => {
+      endMv[i].push({ x: e.startedAt, y: mv });
+      deviationMv[i].push({ x: e.startedAt, y: Math.round(mv - mean) });
+      lastMv[i] = mv;
+    });
+    // Gleichstand zählt für keine Zelle (sonst wäre bei 0 mV Spreizung jede „schwach“)
+    const lows = cells.map((v, i) => (v === min ? i : -1)).filter((i) => i >= 0);
+    if (lows.length === 1) lowestCount[lows[0]]++;
+  }
+  return {
+    cells: n,
+    endMv,
+    deviationMv,
+    lowestCount,
+    lastMv,
+    maxDuringCharge: done
+      .filter((e) => e.maxCellDeltaMv != null)
+      .map((e) => ({ x: e.startedAt, y: e.maxCellDeltaMv as number })),
+    sessions: withCells.length,
+  };
+}
