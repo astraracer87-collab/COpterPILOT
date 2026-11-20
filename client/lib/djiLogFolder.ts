@@ -13,6 +13,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { getEntryDjiLogs, getLogbook, type LogbookEntry } from "./storage";
 import {
   DJI_LOG_AUTO_CHECK_STORAGE_KEY,
+  DJI_LOG_AUTO_IMPORT_STORAGE_KEY,
   DJI_LOG_FOLDER_STORAGE_KEY,
   checkDjiLogFolderAccessWith,
   suggestDjiFlyFolderUri,
@@ -123,6 +124,33 @@ export async function getDjiLogAutoCheck(): Promise<boolean> {
 export async function setDjiLogAutoCheck(on: boolean): Promise<void> {
   await AsyncStorage.setItem(DJI_LOG_AUTO_CHECK_STORAGE_KEY, on ? "1" : "0").catch(() => {});
   if (!on) setNewHint(null);
+}
+
+export async function getDjiLogAutoImport(): Promise<boolean> {
+  try {
+    return (await AsyncStorage.getItem(DJI_LOG_AUTO_IMPORT_STORAGE_KEY)) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export async function setDjiLogAutoImport(on: boolean): Promise<void> {
+  await AsyncStorage.setItem(DJI_LOG_AUTO_IMPORT_STORAGE_KEY, on ? "1" : "0").catch(() => {});
+}
+
+/** Zuletzt automatisch übernommene Protokolle (für den Logbuch-Hinweis). */
+let autoImported = 0;
+export function getDjiLogAutoImported(): number {
+  return autoImported;
+}
+export function setDjiLogAutoImported(n: number): void {
+  autoImported = n;
+  hintVersion += 1;
+  for (const l of hintListeners) {
+    try {
+      l();
+    } catch {}
+  }
 }
 
 let newHint: number | null = null;

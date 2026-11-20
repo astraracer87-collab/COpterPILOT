@@ -12,6 +12,8 @@
 export const DJI_LOG_FOLDER_STORAGE_KEY = "@copterpilot/djiFlightRecordFolderUri";
 /** AsyncStorage-Schlüssel: neue Logs beim App-Start still prüfen ("1"/"0"). */
 export const DJI_LOG_AUTO_CHECK_STORAGE_KEY = "@copterpilot/djiFlightRecordAutoCheck";
+/** Neue Logs automatisch auswerten und ins Logbuch übernehmen */
+export const DJI_LOG_AUTO_IMPORT_STORAGE_KEY = "@copterpilot/djiFlightRecordAutoImport";
 
 /** DJI Fly legt die Protokolle hier ab (Android 11 sperrt Android/data teilweise). */
 export const DJI_FLY_FLIGHTRECORD_PATH = "Android/data/dji.go.v5/files/FlightRecord";

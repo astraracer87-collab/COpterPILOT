@@ -21,7 +21,7 @@ import { promptFeatureUpgrade } from "@/components/FeatureGate";
 import { ShareControls } from "@/components/ShareControls";
 import type { HistoryStackParamList } from "@/navigation/HistoryStackNavigator";
 import { formatPlannedTimeRange } from "@/lib/planningDateTime";
-import { getDjiLogNewHint, getDjiLogNewHintVersion, subscribeDjiLogNewHint } from "@/lib/djiLogFolder";
+import { getDjiLogAutoImported, getDjiLogNewHint, getDjiLogNewHintVersion, subscribeDjiLogNewHint } from "@/lib/djiLogFolder";
 
 type NavigationProp = NativeStackNavigationProp<HistoryStackParamList>;
 
@@ -807,6 +807,7 @@ export default function HistoryScreen() {
   // Stille Prüfung beim App-Start (Einstellungen → DJI-Flugprotokolle – Speicherort)
   useSyncExternalStore(subscribeDjiLogNewHint, getDjiLogNewHintVersion, getDjiLogNewHintVersion);
   const djiNewLogs = getDjiLogNewHint() ?? 0;
+  const djiAutoImported = getDjiLogAutoImported();
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -913,6 +914,17 @@ export default function HistoryScreen() {
         <ThemedText style={[styles.djiEntryText, { color: theme.primary }]} numberOfLines={1}>
           Mehrere Logs / Ordner
         </ThemedText>
+        {djiNewLogs === 0 && djiAutoImported > 0 ? (
+          <View
+            testID="badge-dji-auto-imported"
+            accessibilityLabel={`${djiAutoImported} DJI-Flugprotokolle automatisch übernommen`}
+            style={[styles.djiNewBadge, { backgroundColor: theme.primary }]}
+          >
+            <ThemedText style={styles.djiNewBadgeText} numberOfLines={1}>
+              {`${djiAutoImported} übernommen`}
+            </ThemedText>
+          </View>
+        ) : null}
         {djiNewLogs > 0 ? (
           <View
             testID="badge-dji-new-logs"

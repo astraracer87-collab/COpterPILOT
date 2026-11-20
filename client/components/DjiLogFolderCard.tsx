@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { runDjiLogAutoImport } from "@/lib/djiLogAutoImport";
 import { View, StyleSheet, Pressable, ActivityIndicator, Alert, Switch } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { Feather } from "@expo/vector-icons";
@@ -15,11 +16,13 @@ import {
   clearDjiLogFolder,
   folderLabelFromUri,
   getDjiLogAutoCheck,
+  getDjiLogAutoImport,
   getDjiLogFolder,
   isAndroidDataFolder,
   isFolderImportSupported,
   refreshDjiLogNewHint,
   setDjiLogAutoCheck,
+  setDjiLogAutoImport,
   subscribeDjiLogFolder,
   type DjiLogFolderAccess,
 } from "@/lib/djiLogFolder";
@@ -53,6 +56,7 @@ export function DjiLogFolderCard() {
   const [busy, setBusy] = useState(false);
   const [refused, setRefused] = useState(false);
   const [autoCheck, setAutoCheckState] = useState(false);
+  const [autoImport, setAutoImportState] = useState(false);
   const checkSeq = useRef(0);
 
   const check = useCallback(async (uri: string | null) => {
@@ -79,6 +83,9 @@ export function DjiLogFolderCard() {
       .catch(() => {});
     getDjiLogAutoCheck()
       .then((v) => alive && setAutoCheckState(v))
+      .catch(() => {});
+    getDjiLogAutoImport()
+      .then((v) => alive && setAutoImportState(v))
       .catch(() => {});
     // Logbuch ändert den Ordner → hier mitziehen
     const unsub = subscribeDjiLogFolder((uri) => {
@@ -150,6 +157,13 @@ export function DjiLogFolderCard() {
     setAutoCheckState(v);
     setDjiLogAutoCheck(v)
       .then(() => refreshDjiLogNewHint())
+      .catch(() => {});
+  }, []);
+
+  const toggleAutoImport = useCallback((v: boolean) => {
+    setAutoImportState(v);
+    setDjiLogAutoImport(v)
+      .then(() => (v ? runDjiLogAutoImport({ force: true }) : null))
       .catch(() => {});
   }, []);
 
@@ -281,6 +295,16 @@ export function DjiLogFolderCard() {
               </ThemedText>
             </View>
             <Switch testID="switch-dji-folder-autocheck" value={autoCheck} onValueChange={toggleAuto} />
+          </View>
+
+          <View style={[styles.row, { marginTop: Spacing.md }]}>
+            <View style={{ flex: 1 }}>
+              <ThemedText style={styles.rowLabel}>Neue Logs automatisch ins Logbuch übernehmen</ThemedText>
+              <ThemedText style={[styles.small, { color: theme.textSecondary }]}>
+                Beim App-Start und beim Zurückkehren in die App (höchstens alle 5 min): passt ein Log eindeutig zu einem Flug, wird er dort angehängt, sonst entsteht ein neuer Eintrag. Neuere DJI-Logs brauchen den DJI-Schlüssel.
+              </ThemedText>
+            </View>
+            <Switch testID="switch-dji-folder-autoimport" value={autoImport} onValueChange={toggleAutoImport} />
           </View>
         </>
       )}
