@@ -51,6 +51,7 @@ export function TrendChart({
   height = 64,
   maxPoints = 120,
   testID,
+  compact = false,
 }: {
   title: string;
   unit: string;
@@ -59,6 +60,8 @@ export function TrendChart({
   height?: number;
   maxPoints?: number;
   testID?: string;
+  /** in kleinen Kacheln: volle Kachelbreite statt Mindestbreite (sonst ragt das Diagramm heraus) */
+  compact?: boolean;
 }) {
   const { theme } = useTheme();
   const [w, setW] = useState(0);
@@ -75,6 +78,7 @@ export function TrendChart({
     <View
       style={[
         styles.box,
+        compact ? styles.boxCompact : null,
         { borderColor: theme.border, backgroundColor: theme.backgroundDefault },
       ]}
       testID={testID}
@@ -134,6 +138,7 @@ export function TrendChart({
 }
 
 const styles = StyleSheet.create({
+  boxCompact: { flex: 0, minWidth: 0, alignSelf: "stretch", marginTop: 4 },
   box: {
     flex: 1,
     borderWidth: 1,

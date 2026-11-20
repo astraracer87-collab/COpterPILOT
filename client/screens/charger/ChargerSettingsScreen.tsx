@@ -65,6 +65,19 @@ export default function ChargerSettingsScreen() {
   return (
     <ThemedView style={styles.container}>
       <ScrollView contentContainerStyle={styles.content}>
+        {/* Einstellungen am Ladegerät zuerst; Hintergrund-Loggen und Kopplung darunter */}
+        {device ? (
+          <View
+            style={[
+              styles.card,
+              { backgroundColor: theme.backgroundDefault, borderColor: theme.border },
+            ]}
+          >
+            <ThemedText style={styles.title}>Einstellungen am Ladegerät</ThemedText>
+            <ChargerDeviceSettings />
+          </View>
+        ) : null}
+
         <View
           style={[
             styles.card,
@@ -146,12 +159,6 @@ export default function ChargerSettingsScreen() {
                 Ladegerät vergessen
               </ThemedText>
             </Pressable>
-          ) : null}
-          {device ? (
-            <>
-              <ThemedText style={[styles.title, { marginTop: Spacing.sm }]}>Einstellungen am Ladegerät</ThemedText>
-              <ChargerDeviceSettings />
-            </>
           ) : null}
         </View>
 

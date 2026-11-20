@@ -266,6 +266,18 @@ export function deleteChargeSession(id: string): Promise<void> {
   });
 }
 
+/**
+ * Abgeschlossene Ladevorgänge ohne Akku-Zuordnung löschen (lassen sich
+ * nachträglich nicht zuordnen). Laufende bleiben – dort kann der Akku noch
+ * gewählt werden. Rückgabe: Anzahl gelöschter Vorgänge.
+ */
+export async function deleteUnassignedSessions(): Promise<number> {
+  const all = await listChargeSessions().catch(() => [] as SessionIndexEntry[]);
+  const drop = all.filter((e) => !e.batteryKey && e.status !== "active");
+  for (const e of drop) await deleteChargeSession(e.id);
+  return drop.length;
+}
+
 /** Offene (unterbrochene) Vorgänge eines Ladegeräts – zum Fortsetzen */
 export async function loadActiveSessions(
   chargerId?: string,

@@ -16,7 +16,7 @@ import {
   listAllBatteries,
   type AppBattery,
 } from "@/lib/charger/batteryAccounts";
-import { listChargeSessions, type SessionIndexEntry } from "@/lib/chargerStore";
+import { deleteUnassignedSessions, listChargeSessions, type SessionIndexEntry } from "@/lib/chargerStore";
 import {
   computeBatteryStats,
   HEALTH_LABEL,
@@ -55,6 +55,8 @@ export default function ChargerBatteriesScreen() {
     useCallback(() => {
       let cancelled = false;
       void (async () => {
+        // Nicht zugeordnete, abgeschlossene Ladevorgänge verwerfen
+        await deleteUnassignedSessions().catch(() => 0);
         const [bats, entries] = await Promise.all([
           listAllBatteries().catch(() => []),
           listChargeSessions().catch(() => []),
@@ -68,7 +70,7 @@ export default function ChargerBatteriesScreen() {
             ),
           })),
         );
-        setUnassigned(entries.filter((e) => !e.batteryKey));
+        setUnassigned(entries.filter((e) => !e.batteryKey && e.status === "active"));
         setLoaded(true);
       })();
       return () => {
@@ -202,7 +204,7 @@ export default function ChargerBatteriesScreen() {
             testID="charger-battery-unassigned"
           >
             <ThemedText style={styles.title}>
-              Nicht zugeordnete Ladevorgänge ({unassigned.length})
+              Laufende Ladevorgänge ohne Akku ({unassigned.length})
             </ThemedText>
           </Pressable>
         ) : null}

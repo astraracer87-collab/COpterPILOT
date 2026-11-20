@@ -360,7 +360,8 @@ describe("Einstellungen schreiben", () => {
     const r = await tr.writeSettings({ ...cur, chargeTarget: 0 });
     assert.equal(r, "ok");
     assert.equal(m.writes.filter((w) => w.hex.startsWith("12 c4")).map((w) => w.hex)[0], "12 c4 00 00 01 00 00 01 00");
-    assert.equal(tr.snapshot().settings, null);
+    // alter Stand bleibt sichtbar (keine springende Anzeige), es wird aber neu gelesen
+    assert.notEqual(tr.snapshot().settings, null);
     await clock.advance(1000);
     assert.ok(m.writes.slice(-1)[0].hex === "12 c6");
   });

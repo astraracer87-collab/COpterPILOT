@@ -316,6 +316,8 @@ export function createChargerTransport(deps: TransportDeps): ChargerTransport {
   let bound = false;
   let inFlightSince: number | null = null;
   let settingsTries = 0;
+  /** nach einem Schreiben neu lesen, ohne den alten Stand zu verwerfen (sonst springt die Anzeige) */
+  let settingsReread = false;
   let settingsAck: ((ok: boolean | null) => void) | null = null;
   let scanAttempt = 0;
   let initialized = false;
@@ -751,7 +753,10 @@ export function createChargerTransport(deps: TransportDeps): ChargerTransport {
       }
       case "settings": {
         const s = parseSettings(value);
-        if (s) set({ settings: s });
+        if (s) {
+          settingsReread = false;
+          set({ settings: s });
+        }
         return;
       }
       case "settings-ack": {
@@ -823,7 +828,7 @@ export function createChargerTransport(deps: TransportDeps): ChargerTransport {
       return;
     }
     const frame =
-      snap.settings == null && settingsTries < 3
+      (snap.settings == null || settingsReread) && settingsTries < 3
         ? (settingsTries++, [...REQ_SETTINGS_READ])
         : [...REQ_STATUS];
     inFlightSince = now;
@@ -890,7 +895,7 @@ export function createChargerTransport(deps: TransportDeps): ChargerTransport {
       if (myGen !== gen) return "not-connected";
       // In jedem Fall neu lesen: zeigt, was das Ladegerät tatsächlich übernommen hat
       settingsTries = 0;
-      set({ settings: null });
+      settingsReread = true;
       if (ok == null) return "timeout";
       return ok ? "ok" : "rejected";
     },

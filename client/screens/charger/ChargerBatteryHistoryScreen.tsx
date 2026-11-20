@@ -167,7 +167,7 @@ export default function ChargerBatteryHistoryScreen() {
                     <CellLine label="Abstand zur stärksten" value={lag != null ? `${lag} mV` : "–"} color={lvl !== "ok" ? color : undefined} />
                     <CellLine label="Größter Abstand bisher" value={cells.maxLagMv[i] != null ? `${cells.maxLagMv[i]} mV` : "–"} />
                     <CellLine label="Schwächste Zelle" value={`${cells.lowestCount[i]}×`} />
-                    <TrendChart title="Abstand zur stärksten" unit="mV" points={cells.lagMv[i]} color={lvl === "ok" ? undefined : color} height={44} testID={`trend-cell-${i + 1}`} />
+                    <TrendChart title="Abstand zur stärksten" unit="mV" points={cells.lagMv[i]} color={lvl === "ok" ? undefined : color} height={44} compact testID={`trend-cell-${i + 1}`} />
                   </View>
                 );
               })}
