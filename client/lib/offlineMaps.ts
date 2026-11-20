@@ -931,7 +931,11 @@ async function runCountryDownload(
               break;
             }
             // Anzeige erst, wenn wirklich geladen wird
-            activityId ??= beginDownload({ id: `obstacles:${c.iso}`, iso: c.iso, labelDe: "Hindernisse", kind: "obstacles", totalItems: tiles.length });
+            if (!activityId) {
+              activityId = beginDownload({ id: `obstacles:${c.iso}`, iso: c.iso, labelDe: "Hindernisse", kind: "obstacles", totalItems: tiles.length });
+              // Fortsetzen: schon vorhandene Kacheln sofort mitzählen (sonst „0 %“ wie ein Neustart)
+              progressDownload(activityId, { doneItems: done });
+            }
             await loadObstacleTile(t.x, t.y, { force: true, track: false });
             summary.updated = true;
             await new Promise((r) => setTimeout(r, 1200));

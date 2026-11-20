@@ -21,6 +21,18 @@ export const ISDT_CHAR_DATA_UUID = "0000af01-0000-1000-8000-00805f9b34fb";
 export const ISDT_CHAR_BIND_UUID = "0000af02-0000-1000-8000-00805f9b34fb";
 export const ISDT_REQUESTED_MTU = 240;
 
+/**
+ * Gerätenamen bereinigen: endet am ersten Null-Byte (dahinter steht Restinhalt
+ * des Puffers, z. B. „0000MA331\0D…m7;“), Steuerzeichen raus, Leerraum kürzen.
+ */
+export function cleanDeviceName(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  // Name endet am ersten Steuer-/Ersatzzeichen
+  const cut = String(raw).split(/[\u0000-\u001f\u007f-\u009f\ufffd]/)[0];
+  const clean = cut.replace(/\s+/g, " ").trim();
+  return clean || null;
+}
+
 // ── Erkennung (Herstellerdaten) ────────────────────────────────────────────
 /** Company-ID 0xABBA (LE im Advertisement: BA AB) */
 export const ISDT_COMPANY_ID = 0xabba;
@@ -95,9 +107,9 @@ export function parseIsdtManufacturerPayload(
     const chars: string[] = [];
     for (let i = 6; i < 20; i++) {
       const c = payload[i] & 0xff;
-      // Name endet am ersten Null-Byte, dahinter steht Restinhalt des Puffers
-      if (c === 0) break;
-      chars.push(c >= 0x20 && c < 0x7f ? String.fromCharCode(c) : " ");
+      // Name endet am ersten nicht druckbaren Byte, dahinter steht Restinhalt des Puffers
+      if (c < 0x20 || c >= 0x7f) break;
+      chars.push(String.fromCharCode(c));
     }
     userName = chars.join("").trim() || null;
   }

@@ -30,7 +30,8 @@ export function DjiLaunchButton({ size = 48 }: { size?: number }) {
   };
 
   return (
-    <View style={styles.slot} pointerEvents="box-none">
+    // Ragt etwas über die Tab-Leiste hinaus (größerer Knopf, Leiste bleibt flach)
+    <View style={[styles.slot, { marginTop: -Math.round(size * 0.3) }]} pointerEvents="box-none">
       <Pressable
         onPress={onPress}
         accessibilityRole="button"
@@ -43,9 +44,9 @@ export function DjiLaunchButton({ size = 48 }: { size?: number }) {
         ]}
       >
         {app.iconUri ? (
-          <Image source={{ uri: app.iconUri }} style={{ width: size * 0.62, height: size * 0.62, borderRadius: size * 0.14 }} />
+          <Image source={{ uri: app.iconUri }} style={{ width: size * 0.7, height: size * 0.7, borderRadius: size * 0.16 }} />
         ) : (
-          <Feather name="navigation" size={size * 0.42} color="#1C1C1E" />
+          <Feather name="navigation" size={size * 0.46} color="#1C1C1E" />
         )}
       </Pressable>
       <Text style={styles.caption} numberOfLines={1}>{app.label}</Text>

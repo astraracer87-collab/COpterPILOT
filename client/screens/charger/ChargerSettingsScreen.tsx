@@ -167,8 +167,8 @@ export default function ChargerSettingsScreen() {
           <ThemedText style={styles.title}>Hinweise</ThemedText>
           <ThemedText style={[styles.help, { color: theme.textSecondary }]}>
             • Ladeziel, Modus, Ton, Lampe und Display lassen sich oben
-            ändern – jede Änderung wird vorher bestätigt und danach vom
-            Ladegerät neu gelesen. Umbenennen geht nur in der Polying-App.
+            ändern – die Änderung geht sofort ans Ladegerät und wird danach
+            neu gelesen. Umbenennen geht nur in der Polying-App.
             {"\n"}• Das Ladegerät erlaubt nur eine Bluetooth-Verbindung: die
             Polying-App schließen.{"\n"}• Android 11 (DJI RC Pro 2):
             Standort-Berechtigung erlauben und Standort einschalten – sonst

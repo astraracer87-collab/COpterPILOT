@@ -121,7 +121,7 @@ export function MainTabBar({ state, descriptors, navigation, insets }: BottomTab
           </TabItem>
         );
         return index === djiAfterIndex(state.routes)
-          ? [item, <DjiLaunchButton key="dji-launch" size={landscape ? 40 : 48} />]
+          ? [item, <DjiLaunchButton key="dji-launch" size={landscape ? 54 : 62} />]
           : [item];
       })}
     </View>

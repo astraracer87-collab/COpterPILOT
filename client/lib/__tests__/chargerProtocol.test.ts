@@ -27,6 +27,7 @@ import {
   slotStateLabel,
   toHex,
   hubModeLabel,
+  cleanDeviceName,
 } from "../charger/ma331Protocol";
 import { SPEC_STATUS_HEX, encodeStatus } from "./helpers/chargerFixtures";
 import {
@@ -273,6 +274,12 @@ describe("Erkennung im Advertisement", () => {
     ]);
     assert.equal(a?.userName, "0000MA331");
     assert.equal(hubModeLabel(4), "unbekannt (4)");
+    const b = parseIsdtManufacturerPayload([0xaf, 0xfa, 0x01, 0x40, 0x00, 0x00, ...name, 0xff, 0x44, 0x6d, 0x37, 0x3b]);
+    assert.equal(b?.userName, "0000MA331");
+    assert.equal(cleanDeviceName("0000MA331\u0000D\u0000\u0000m7;"), "0000MA331");
+    assert.equal(cleanDeviceName("0000MA331\ufffd\ufffdD m7;"), "0000MA331");
+    assert.equal(cleanDeviceName("  MA331 Werk  "), "MA331 Werk");
+    assert.equal(cleanDeviceName("\u0000"), null);
   });
 
   it("Bootloader 81400000 wird erkannt (nicht verbinden)", () => {

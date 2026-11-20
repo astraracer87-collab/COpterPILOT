@@ -37,6 +37,7 @@ import {
   parseHardwareInfo,
   parseIsdtManufacturerPayload,
   parseSettings,
+  cleanDeviceName,
   parseStatus,
   REQ_HARDWARE_INFO,
   REQ_SETTINGS_READ,
@@ -509,9 +510,9 @@ export function createChargerTransport(deps: TransportDeps): ChargerTransport {
         const d: DiscoveredCharger = {
           id: p.id,
           name:
-            adv.userName ||
-            p.name ||
-            p.advertising?.localName ||
+            cleanDeviceName(adv.userName) ||
+            cleanDeviceName(p.name) ||
+            cleanDeviceName(p.advertising?.localName) ||
             adv.model.name,
           rssi: p.rssi,
           modelId: adv.modelId,

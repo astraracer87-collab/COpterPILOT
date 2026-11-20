@@ -1,11 +1,10 @@
 /**
  * Einstellungen direkt am ISDT MA331 (Ladeziel, Modus, Ton, Lampe …).
- * Jede Änderung wird bestätigt, einzeln geschrieben (`12 C4`) und danach
+ * Jede Änderung wird sofort einzeln geschrieben (`12 C4`) und danach
  * vom Ladegerät neu gelesen – angezeigt wird immer der gelesene Stand.
  */
 import React, { useState } from "react";
-import { Alert, Pressable, StyleSheet, View } from "react-native";
-import { Feather } from "@expo/vector-icons";
+import { Alert, Pressable, StyleSheet, Switch, View } from "react-native";
 import { ThemedText } from "@/components/ThemedText";
 import { useTheme } from "@/hooks/useTheme";
 import { BorderRadius, Spacing } from "@/constants/theme";
@@ -38,22 +37,15 @@ export function ChargerDeviceSettings() {
   const t = snap.transport;
   const settings = t?.state === "connected" ? t.settings : null;
 
-  const apply = (patch: Partial<IsdtSettings>, what: string) => {
-    Alert.alert("Am Ladegerät ändern?", `${what}\n\nDie Einstellung wird direkt im ISDT MA331 gespeichert.`, [
-      { text: "Abbrechen", style: "cancel" },
-      {
-        text: "Ändern",
-        onPress: async () => {
-          setBusy(true);
-          try {
-            const r = await chargerController.writeSettings(patch);
-            if (r !== "ok") Alert.alert("Nicht geändert", RESULT_TEXT[r]);
-          } finally {
-            setBusy(false);
-          }
-        },
-      },
-    ]);
+  // Direkt schreiben (keine Rückfrage); nur Fehler werden gemeldet
+  const apply = async (patch: Partial<IsdtSettings>) => {
+    setBusy(true);
+    try {
+      const r = await chargerController.writeSettings(patch);
+      if (r !== "ok") Alert.alert("Nicht geändert", RESULT_TEXT[r]);
+    } finally {
+      setBusy(false);
+    }
   };
 
   if (t?.state !== "connected") {
@@ -97,14 +89,14 @@ export function ChargerDeviceSettings() {
       <ThemedText style={styles.label}>Ladeziel</ThemedText>
       <View style={styles.row}>
         {TARGETS.map((v) =>
-          chip(settings.chargeTarget === v, chargeTargetLabel(v), () => apply({ chargeTarget: v }, `Ladeziel: ${chargeTargetLabel(settings.chargeTarget)} → ${chargeTargetLabel(v)}`), `charger-target-${v}`),
+          chip(settings.chargeTarget === v, chargeTargetLabel(v), () => void apply({ chargeTarget: v }), `charger-target-${v}`),
         )}
       </View>
 
       <ThemedText style={styles.label}>Betriebsmodus</ThemedText>
       <View style={styles.row}>
         {MODES.map((v) =>
-          chip(settings.mode === v, hubModeLabel(v), () => apply({ mode: v }, `Modus: ${hubModeLabel(settings.mode)} → ${hubModeLabel(v)}`), `charger-mode-${v}`),
+          chip(settings.mode === v, hubModeLabel(v), () => void apply({ mode: v }), `charger-mode-${v}`),
         )}
       </View>
       {!MODES.includes(settings.mode) ? (
@@ -117,16 +109,16 @@ export function ChargerDeviceSettings() {
         {TOGGLES.map(({ key, label }) => {
           const on = Boolean(settings[key]);
           return (
-            <Pressable
-              key={key}
-              testID={`charger-toggle-${key}`}
-              disabled={busy}
-              onPress={() => apply({ [key]: !on } as Partial<IsdtSettings>, `${label}: ${on ? "an → aus" : "aus → an"}`)}
-              style={[styles.toggle, { backgroundColor: theme.backgroundSecondary, opacity: busy ? 0.5 : 1 }]}
-            >
+            <View key={key} style={[styles.toggle, { backgroundColor: theme.backgroundSecondary }]}>
               <ThemedText style={{ flex: 1 }}>{label}</ThemedText>
-              <Feather name={on ? "toggle-right" : "toggle-left"} size={26} color={on ? theme.primary : theme.textTertiary} />
-            </Pressable>
+              <Switch
+                testID={`charger-toggle-${key}`}
+                value={on}
+                disabled={busy}
+                onValueChange={(v) => void apply({ [key]: v } as Partial<IsdtSettings>)}
+                trackColor={{ true: theme.primary }}
+              />
+            </View>
           );
         })}
       </View>
