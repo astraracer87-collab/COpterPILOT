@@ -241,8 +241,10 @@ describe("startCountryDownload without basemap", () => {
 
 describe("deleteCountry", () => {
   it("keeps tiles shared with another country (LI uses the CH swisstopo tiles)", async () => {
-    const tpl = getMapProvider("CH")!.map!.tiles;
-    expect(getMapProvider("LI")!.map!.tiles).toBe(tpl);
+    // CH/LI: keine swisstopo-Grundkarte mehr (normale Karte), Luftbild gemeinsam
+    expect(getMapProvider("CH")!.map).toBeUndefined();
+    const tpl = getMapProvider("CH")!.satellite![0].tiles;
+    expect(getMapProvider("LI")!.satellite![0].tiles).toBe(tpl);
     await AsyncStorage.setItem(
       "@copterpilot/offline_progress",
       JSON.stringify({

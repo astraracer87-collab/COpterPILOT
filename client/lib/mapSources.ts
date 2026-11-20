@@ -135,15 +135,9 @@ export const COUNTRY_MAP_PROVIDERS: CountryMapProvider[] = [
     iso: "CH",
     label: "Schweiz",
     bounds: [5.95, 45.82, 10.49, 47.81],
-    map: {
-      id: "ch-swisstopo",
-      tiles: "https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg",
-      tileSize: 256,
-      maxzoom: 18,
-      attribution: "© swisstopo",
-      bounds: [5.95, 45.82, 10.49, 47.81],
-      kbPerTile: 35,
-    },
+    // Keine swisstopo-Landeskarte als Grundkarte: Wechsel beim Hineinzoomen
+    // wirkte wie „eine andere Karte“ – es gilt die normale Karte, nur die
+    // Schweizer Geozonen (BAZL) kommen als Ebene dazu. Luftbild bleibt.
     satellite: [
       {
         id: "ch-swissimage",
@@ -226,15 +220,9 @@ export const COUNTRY_MAP_PROVIDERS: CountryMapProvider[] = [
     bounds: [9.47, 47.05, 9.64, 47.27],
     // swisstopo-Landeskarten und SWISSIMAGE decken Liechtenstein mit ab; gleiche
     // Kachel-Adressen wie CH, damit gespeicherte Kacheln gemeinsam genutzt werden.
-    map: {
-      id: "li-swisstopo",
-      tiles: "https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg",
-      tileSize: 256,
-      maxzoom: 18,
-      attribution: "© swisstopo",
-      bounds: [9.47, 47.05, 9.64, 47.27],
-      kbPerTile: 35,
-    },
+    // Keine swisstopo-Landeskarte als Grundkarte: Wechsel beim Hineinzoomen
+    // wirkte wie „eine andere Karte“ – es gilt die normale Karte, nur die
+    // Schweizer Geozonen (BAZL) kommen als Ebene dazu. Luftbild bleibt.
     satellite: [
       {
         id: "li-swissimage",

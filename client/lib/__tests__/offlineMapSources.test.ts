@@ -16,10 +16,9 @@ import { COUNTRY_BOUNDING_BOXES } from "../../../shared/countryDetection";
 const EXPECTED_MAP = [
   "DE",
   "AT",
-  "CH",
+  // CH/LI: bewusst ohne swisstopo-Grundkarte (normale Karte + BAZL-Geozonen)
   "NL",
   "FR",
-  "LI",
   "NO",
   "ES",
   "EE",
@@ -55,6 +54,8 @@ test("provider list: official basemaps/orthophotos per country", () => {
   assert.deepEqual(withSat, [...EXPECTED_SAT].sort());
   // ohne freie Grundkarte: Karte nur online
   for (const iso of [
+    "CH",
+    "LI",
     "LU",
     "PL",
     "DK",
