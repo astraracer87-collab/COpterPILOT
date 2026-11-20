@@ -135,6 +135,8 @@ export async function collectExpiryItems(): Promise<ExpiryItem[]> {
   if (pilot) {
     const pushLicense = (key: "licenseA1A3" | "licenseA2" | "licenseSTS", label: string) => {
       if (!pilot[key]) return;
+      // Mit A2 laufen Gültigkeit & Co. über das A2-Zeugnis – A1/A3 nicht doppelt melden
+      if (key === "licenseA1A3" && pilot.licenseA2) return;
       const details =
         key === "licenseA1A3"
           ? pilot.licenseA1A3Details
@@ -147,7 +149,7 @@ export async function collectExpiryItems(): Promise<ExpiryItem[]> {
         id: `pilot:${key}`,
         category: "license",
         label,
-        subtitle: details?.identificationNumber ? `eID ${details.identificationNumber}` : undefined,
+        subtitle: details?.identificationNumber ? `ID ${details.identificationNumber}` : undefined,
         rawDate: details?.expirationDate,
         expiresAt: exp,
         daysUntilExpiry: days,

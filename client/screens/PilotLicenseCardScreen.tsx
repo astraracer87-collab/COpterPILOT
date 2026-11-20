@@ -517,7 +517,7 @@ function GenericEasaLicenseCard({
           </View>
           <View style={genericStyles.fieldRow}>
             {field(
-              "Identifizierungsnummer (ID)",
+              "Identifizierungsnummer (Identification number)",
               profile.pilotId || details.identificationNumber,
               `text-generic-id-${tier}`,
             )}

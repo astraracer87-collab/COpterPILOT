@@ -62,6 +62,26 @@ export function DocumentPreviewModal({ visible, onClose, document }: Props) {
   const loadSettledRef = useRef<(() => void) | null>(null);
 
   const isPdf = document?.mimeType === "application/pdf";
+  // Android: die WebView zeigt PDFs nicht an (bleibt schwarz) → PDF.js-Seite
+  const [pdfHtml, setPdfHtml] = useState<string | null>(null);
+  useEffect(() => {
+    setPdfHtml(null);
+    if (Platform.OS !== "android" || !isPdf || !fileUri) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const b64 = await FileSystem.readAsStringAsync(fileUri, { encoding: FileSystem.EncodingType.Base64 });
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { buildPdfViewerHtml } = require("@/lib/pdfViewerHtml") as typeof import("@/lib/pdfViewerHtml");
+        if (!cancelled) setPdfHtml(buildPdfViewerHtml(b64));
+      } catch {
+        if (!cancelled) setError("PDF konnte nicht gelesen werden. Bitte 'Mit System-App öffnen' nutzen.");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [fileUri, isPdf]);
   const isImage = document?.mimeType.startsWith("image/") ?? false;
   const docKey = documentKey(document);
 
@@ -138,7 +158,7 @@ export function DocumentPreviewModal({ visible, onClose, document }: Props) {
   // in den Fehler-Fallback übergehen.
   const shouldRenderPdf = modalShown && !!fileUri && !error && isPdf;
   useEffect(() => {
-    if (!shouldRenderPdf || Platform.OS === "web") return;
+    if (!shouldRenderPdf || Platform.OS !== "ios") return;
     let settled = false;
     const timer = setTimeout(() => {
       if (settled) return;
@@ -213,6 +233,33 @@ export function DocumentPreviewModal({ visible, onClose, document }: Props) {
             backgroundColor: "#fff",
           },
         });
+      }
+      if (Platform.OS === "android") {
+        if (!pdfHtml) {
+          return (
+            <View style={styles.loading}>
+              <ActivityIndicator size="large" color={theme.primary} />
+            </View>
+          );
+        }
+        return (
+          <WebView
+            key={`pdfjs-${fileUri}`}
+            originWhitelist={["*"]}
+            source={{ html: pdfHtml, baseUrl: "about:blank" }}
+            setSupportMultipleWindows={false}
+            javaScriptEnabled
+            style={{ flex: 1, backgroundColor: "#202431" }}
+            onMessage={(e) => {
+              try {
+                const m = JSON.parse(e.nativeEvent.data) as { type: string };
+                if (m.type === "error") setError("PDF-Vorschau fehlgeschlagen. Bitte 'Mit System-App öffnen' nutzen.");
+              } catch {
+                /* ignorieren */
+              }
+            }}
+          />
+        );
       }
       return (
         <WebView

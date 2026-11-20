@@ -330,7 +330,7 @@ export default function PilotProfileScreen() {
           />
 
           <ThemedText style={[styles.fieldLabel, { color: theme.textSecondary }]}>
-            Fernpiloten-Zeugnisnummer (eID)
+            Identifizierungsnummer (Identification number)
           </ThemedText>
           <TextInput disableFullscreenUI
             style={[styles.input, { color: theme.text, backgroundColor: theme.backgroundSecondary, borderColor: theme.border }]}
@@ -446,7 +446,7 @@ export default function PilotProfileScreen() {
               gepflegt und gilt für A1/A3, A2 und STS gleichermaßen — pro
               Lizenz fragen wir hier nur Ausstellungsland + Gültigkeitsdatum ab. */}
           <ThemedText style={[styles.toggleDesc, { color: theme.textTertiary, marginBottom: Spacing.md }]}>
-            Die Fernpiloten-Zeugnisnummer (eID) aus den Personalien gilt für A1/A3, A2 und STS — pro Lizenz unterscheidet sich nur das Datum.
+            Die Identifizierungsnummer (Identification number) aus den Personalien gilt für A1/A3, A2 und STS — pro Lizenz unterscheidet sich nur das Datum.
           </ThemedText>
 
           {/* A1/A3 — Grundlage */}
@@ -479,7 +479,12 @@ export default function PilotProfileScreen() {
             />
           </Pressable>
 
-          {profile.licenseA1A3 ? (
+          {profile.licenseA1A3 && profile.licenseA2 ? (
+            <ThemedText style={[styles.fieldHint, { color: theme.textTertiary }]} testID="a1a3-covered-by-a2">
+              Land, Gültigkeit und QR-Link laufen über das Fernpiloten-Zeugnis A2 – hier nichts weiter einzutragen.
+            </ThemedText>
+          ) : null}
+          {profile.licenseA1A3 && !profile.licenseA2 ? (
             <View style={styles.licenseDetails}>
               <ThemedText style={[styles.fieldLabel, { color: theme.textSecondary }]}>Ausstellungsland</ThemedText>
               <Pressable
