@@ -108,6 +108,12 @@ function activityBlock(language) {
     '    if (RcKeysModule.handleMotionEvent(event, "activity-fallback")) return true',
     "    return super.onGenericMotionEvent(event)",
     "  }",
+    "",
+    "  // Trackball-Bewegungen (manche Steuerknüppel/Steuerkreuze) kommen nicht über dispatchGenericMotionEvent",
+    "  override fun dispatchTrackballEvent(event: MotionEvent): Boolean {",
+    '    if (RcKeysModule.handleMotionEvent(event, "activity-trackball")) return true',
+    "    return super.dispatchTrackballEvent(event)",
+    "  }",
     `  ${END}`,
   ].join("\n");
 }
@@ -721,6 +727,22 @@ class RcWindowCallback(val base: Window.Callback) : Window.Callback by base {
   override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
     if (RcKeysModule.handleMotionEvent(event, "window")) return true
     return base.dispatchGenericMotionEvent(event)
+  }
+
+  override fun dispatchTrackballEvent(event: MotionEvent): Boolean {
+    if (RcKeysModule.handleMotionEvent(event, "window-trackball")) return true
+    return base.dispatchTrackballEvent(event)
+  }
+
+  /** Nur melden (Touchscreen wird ausgefiltert), nie abfangen: z. B. Touchpad-/Zeiger-Quellen */
+  override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+    if (!event.isFromSource(InputDevice.SOURCE_TOUCHSCREEN)) RcKeysModule.handleMotionEvent(event, "window-touch")
+    return base.dispatchTouchEvent(event)
+  }
+
+  override fun dispatchKeyShortcutEvent(event: KeyEvent): Boolean {
+    if (RcKeysModule.handleKeyEvent(event, "window-shortcut")) return true
+    return base.dispatchKeyShortcutEvent(event)
   }
 
   override fun onProvideKeyboardShortcuts(data: MutableList<KeyboardShortcutGroup>?, menu: Menu?, deviceId: Int) {
