@@ -203,10 +203,10 @@ const LAYOUTS: Record<LicenseTier, LicenseFieldLayout> = {
     // ≈ y 0.84. Werte werden direkt unter die jeweiligen Labels gesetzt.
     // QR-Code in der freien weißen Fläche rechts (unter dem A1/A3-Badge).
     firstNameX: 0.036,
-    lastNameX: 0.505,
+    lastNameX: 0.478,
     nameY: 0.760,
     idX: 0.036,
-    dateX: 0.505,
+    dateX: 0.478,
     idY: 0.842,
     nameFontPct: 0.026,
     idFontPct: 0.026,
@@ -222,10 +222,10 @@ const LAYOUTS: Record<LicenseTier, LicenseFieldLayout> = {
     // Vorname/Ident.nr. starten bei x ≈ 0.036, Nachname/Datum bei x ≈ 0.473.
     // QR-Code in der freien Fläche rechts unten (unter dem A2-Badge).
     firstNameX: 0.036,
-    lastNameX: 0.505,
+    lastNameX: 0.478,
     nameY: 0.760,
     idX: 0.036,
-    dateX: 0.505,
+    dateX: 0.478,
     idY: 0.842,
     nameFontPct: 0.026,
     idFontPct: 0.026,
@@ -240,10 +240,10 @@ const LAYOUTS: Record<LicenseTier, LicenseFieldLayout> = {
   // Fläche links daneben (rechts neben der Drohne, über dem Titel).
   STS: {
     firstNameX: 0.036,
-    lastNameX: 0.505,
+    lastNameX: 0.478,
     nameY: 0.760,
     idX: 0.036,
-    dateX: 0.505,
+    dateX: 0.478,
     idY: 0.842,
     nameFontPct: 0.026,
     idFontPct: 0.026,
