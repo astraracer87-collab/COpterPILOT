@@ -21,6 +21,7 @@ import { useHeaderHeight } from "@react-navigation/elements";
 import { chargerPairingStore, forgetCharger } from "@/lib/chargerStore";
 import { chargerController } from "@/lib/charger/chargerControllerNative";
 import { connectCharger } from "@/hooks/useCharger";
+import { useKeyboardInset } from "@/hooks/useKeyboardInset";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { ThemedText } from "@/components/ThemedText";
@@ -67,6 +68,12 @@ type RouteParams = RouteProp<SettingsStackParamList, "DroneSetup">;
 
 type SetupStep = "select" | "details";
 
+const batteryCollator = new Intl.Collator("de", { numeric: true, sensitivity: "base" });
+/** Akku 1, Akku 2, … Akku 10 – natürliche Reihenfolge nach Name */
+function sortBatteriesByName<T extends { name: string }>(list: T[]): T[] {
+  return [...list].sort((a, b) => batteryCollator.compare(a.name.trim(), b.name.trim()));
+}
+
 export default function DroneSetupScreen() {
   const route = useRoute<RouteParams>();
   const navigation = useNavigation();
@@ -85,6 +92,7 @@ export default function DroneSetupScreen() {
   // erst im nächsten Frame aufgebaut
   const [openingKey, setOpeningKey] = useState<string | null>(null);
   const { width: winW } = useWindowDimensions();
+  const kbInset = useKeyboardInset();
   const presetColumns = winW >= 700 ? 2 : 1;
   const [chargerMac, setChargerMac] = useState<string | null>(null);
   const [pairedCharger, setPairedCharger] = useState<string | null>(null);
@@ -837,7 +845,7 @@ export default function DroneSetupScreen() {
           </ThemedText>
         ) : (
           <View style={{ marginTop: Spacing.sm, gap: Spacing.xs }}>
-            {batteries.map((b) => (
+            {sortBatteriesByName(batteries).map((b) => (
               <View
                 key={b.id}
                 style={[styles.batteryRow, { borderColor: theme.border, backgroundColor: theme.backgroundSecondary }]}
@@ -1240,33 +1248,44 @@ export default function DroneSetupScreen() {
         onRequestClose={() => setBatteryEditor((p) => ({ ...p, visible: false }))}
       >
         <Pressable
-          style={styles.batteryModalOverlay}
+          style={[
+            styles.batteryModalOverlay,
+            // Tastatur offen: Dialog nach oben, damit die Felder sichtbar bleiben
+            kbInset > 0 && { justifyContent: "flex-start", paddingTop: Spacing.sm, paddingBottom: kbInset },
+          ]}
           onPress={() => setBatteryEditor((p) => ({ ...p, visible: false }))}
         >
-          <Pressable style={[styles.batteryModalContent, { backgroundColor: theme.backgroundSecondary }]}>
-            <ThemedText style={{ ...Typography.h4, marginBottom: Spacing.md }}>
+          <Pressable style={[styles.batteryModalContent, { backgroundColor: theme.backgroundSecondary }, kbInset > 0 && { padding: Spacing.md }]}>
+            <ThemedText style={{ ...Typography.h4, marginBottom: kbInset > 0 ? 0 : Spacing.sm }}>
               {batteryEditor.editingId ? "Akku bearbeiten" : "Neuen Akku anlegen"}
             </ThemedText>
-            <ThemedText style={[styles.sectionLabel, { color: theme.textSecondary }]}>NAME</ThemedText>
-            <TextInput disableFullscreenUI
-              testID="battery-input-name"
-              style={[styles.input, { backgroundColor: theme.backgroundDefault, color: theme.text }]}
-              placeholder="z.B. Akku #1"
-              placeholderTextColor={theme.textTertiary}
-              value={batteryEditor.name}
-              onChangeText={(t) => setBatteryEditor((p) => ({ ...p, name: t }))}
-            />
-            <ThemedText style={[styles.sectionLabel, { color: theme.textSecondary }]}>SERIENNUMMER</ThemedText>
-            <TextInput disableFullscreenUI
-              testID="battery-input-serial"
-              style={[styles.input, { backgroundColor: theme.backgroundDefault, color: theme.text }]}
-              placeholder="z.B. DJI-BAT-12345"
-              placeholderTextColor={theme.textTertiary}
-              value={batteryEditor.serial}
-              onChangeText={(t) => setBatteryEditor((p) => ({ ...p, serial: t }))}
-              autoCapitalize="characters"
-            />
-            <View style={{ flexDirection: "row", gap: Spacing.md, marginTop: Spacing.md }}>
+            <View style={styles.row}>
+              <View style={styles.halfInput}>
+                <ThemedText style={[styles.sectionLabel, kbInset > 0 && { marginTop: Spacing.xs }, { color: theme.textSecondary }]}>NAME</ThemedText>
+                <TextInput disableFullscreenUI
+                  testID="battery-input-name"
+                  style={[styles.input, { backgroundColor: theme.backgroundDefault, color: theme.text }]}
+                  placeholder="z.B. Akku 1"
+                  placeholderTextColor={theme.textTertiary}
+                  value={batteryEditor.name}
+                  onChangeText={(t) => setBatteryEditor((p) => ({ ...p, name: t }))}
+                />
+              </View>
+              <View style={styles.halfInput}>
+                <ThemedText style={[styles.sectionLabel, kbInset > 0 && { marginTop: Spacing.xs }, { color: theme.textSecondary }]}>SERIENNUMMER</ThemedText>
+                <TextInput disableFullscreenUI
+                  testID="battery-input-serial"
+                  style={[styles.input, { backgroundColor: theme.backgroundDefault, color: theme.text }]}
+                  placeholder="z.B. 894PN5LDA002J9"
+                  placeholderTextColor={theme.textTertiary}
+                  value={batteryEditor.serial}
+                  onChangeText={(t) => setBatteryEditor((p) => ({ ...p, serial: t }))}
+                  autoCapitalize="characters"
+                  autoCorrect={false}
+                />
+              </View>
+            </View>
+            <View style={{ flexDirection: "row", gap: Spacing.md, marginTop: kbInset > 0 ? Spacing.sm : Spacing.md }}>
               <Button
                 title="Abbrechen"
                 variant="secondary"
