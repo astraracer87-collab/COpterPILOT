@@ -1,4 +1,5 @@
 import { LEAFLET_CSS, LEAFLET_JS } from "@/lib/leafletBundle";
+import { useIsNight } from "@/hooks/useIsNight";
 import { RC_LEAFLET_JS, RC_WEBVIEW_FILE_PROPS, useRcLeaflet } from "@/lib/leafletRc";
 import { openLink } from "@/lib/webBrowser";
 import React, { useRef, useEffect, useState, useMemo, useCallback } from "react";
@@ -460,6 +461,9 @@ export const MAIN_MAP_HTML = `<!DOCTYPE html>
   .gzl { color: #C8D0E0; font-size: 11px; font-weight: 600; padding: 2px 4px; }
   .ctrpin { background: rgba(20,30,48,0.85); color: #fff; font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.6); white-space: nowrap; }
   .basemap-grayscale .leaflet-tile { filter: grayscale(1) contrast(1.04) brightness(1.03); }
+  /* Nacht (Sonnenuntergang bis -aufgang): Grundkarte dunkel, Ebenen darüber unverändert */
+  .basemap-night .leaflet-tile { filter: invert(1) hue-rotate(180deg) brightness(0.92) contrast(0.9) saturate(0.8); }
+  .basemap-grayscale.basemap-night .leaflet-tile { filter: grayscale(1) invert(1) brightness(0.9) contrast(0.9); }
   .ctrh { font-size: 12px; font-weight: 700; color: #fff; margin-bottom: 3px; }
   .ctrs { font-size: 10px; color: #8E9AB0; }
   .apm { display: flex; align-items: center; justify-content: center; width: 20px; height: 20px; background: rgba(20,30,48,0.82); border: 1.5px solid rgba(74,144,217,0.9); border-radius: 10px; color: #4A90D9; font-size: 12px; font-weight: 800; font-family: Georgia, serif; font-style: italic; box-shadow: 0 1px 3px rgba(0,0,0,0.4); }
@@ -499,7 +503,7 @@ export const MAIN_MAP_HTML = `<!DOCTYPE html>
       keepBuffer: 1,
       updateWhenIdle: false,
       attribution: "&copy; OpenStreetMap-Mitwirkende",
-      className: style === "grayscale" ? "basemap-grayscale" : "",
+      className: (style === "grayscale" ? "basemap-grayscale " : "") + (dark && style !== "satellite" ? "basemap-night" : ""),
     });
     var layerStyle = style;
     baseLayer.on("tileload", function(){
@@ -1172,6 +1176,7 @@ export default function TrafficMapView({
   const geozoneQueryDisabled = disableGeozoneQuery || lockPan;
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
+  const isNight = useIsNight(latitude, longitude);
 
   const webRef = useRef<WebView>(null);
   const [ready, setReady] = useState(false);
@@ -1896,7 +1901,8 @@ export default function TrafficMapView({
       center: [latitude, longitude] as [number, number],
       zoom: targetZoom,
       base: mapStyle,
-      dark: isDark,
+      // dunkle Grundkarte nach Sonnenuntergang am Kartenort (Satellit bleibt)
+      dark: isNight,
       lockPan,
       geo,
       user: hideUserPosition ? null : ([latitude, longitude] as [number, number]),
@@ -1918,7 +1924,7 @@ export default function TrafficMapView({
       windBuffers: [],
     };
     return JSON.stringify(state);
-  }, [fit, hideUserPosition, latitude, longitude, targetZoom, mapStyle, isDark, lockPan, geozonesVisible, geozoneTileUrls, countryIso, renderableMarkers, renderableTrails, scanRadiusM, taRadiusM, alarmRadiusM, fovCoords, hzPolys, ctrBands, airportMarkers, energyInfrastructure, windRestrictionPoints, energyTilesEnabled, energyTilesShowSupplemental]);
+  }, [fit, hideUserPosition, latitude, longitude, targetZoom, mapStyle, isDark, isNight, lockPan, geozonesVisible, geozoneTileUrls, countryIso, renderableMarkers, renderableTrails, scanRadiusM, taRadiusM, alarmRadiusM, fovCoords, hzPolys, ctrBands, airportMarkers, energyInfrastructure, windRestrictionPoints, energyTilesEnabled, energyTilesShowSupplemental]);
 
   useEffect(() => {
     if (!ready) return;
