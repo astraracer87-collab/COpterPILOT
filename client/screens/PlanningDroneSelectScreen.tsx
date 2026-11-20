@@ -1,4 +1,5 @@
 import React, { useState, useCallback } from "react";
+import { DroneImage } from "@/components/DroneImage";
 import { View, StyleSheet, FlatList, Pressable, ActivityIndicator } from "react-native";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -102,7 +103,7 @@ export default function PlanningDroneSelectScreen() {
           >
             <Card style={styles.card}>
               <View style={[styles.droneIconContainer, { backgroundColor: theme.backgroundSecondary }]}>
-                <MaterialCommunityIcons name="quadcopter" size={24} color={theme.primary} />
+                <DroneImage manufacturer={item.manufacturer} model={item.model} size={52} iconColor={theme.primary} />
                 <View style={[styles.statusDot, { backgroundColor: getStatusColor(status) }]} />
               </View>
               <View style={styles.droneInfo}>
@@ -200,8 +201,8 @@ const styles = StyleSheet.create({
     padding: Spacing.lg,
   },
   droneIconContainer: {
-    width: 48,
-    height: 48,
+    width: 56,
+    height: 56,
     borderRadius: 12,
     justifyContent: "center",
     alignItems: "center",

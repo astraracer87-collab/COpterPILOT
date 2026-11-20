@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
+import { DroneImage } from "@/components/DroneImage";
 import { beaufortLevel, warnThresholdMs, WIND_WARN_FRACTION } from "@/lib/beaufort";
 import { activeNdKitId, applyNdKitSelection, buildNdKits, type NdKit } from "@/lib/ndKits";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
@@ -318,6 +319,9 @@ export default function DroneSetupScreen() {
 
   const renderPresetItem = ({ item }: { item: DronePreset }) => (
     <Card style={styles.presetCard} onPress={() => selectPreset(item)}>
+      <View style={styles.presetImage}>
+        <DroneImage manufacturer={item.manufacturer} model={item.model} size={44} iconColor={theme.textTertiary} iconSize={22} />
+      </View>
       <View style={styles.presetInfo}>
         <ThemedText style={styles.presetName}>
           {item.manufacturer} {item.model}
@@ -373,9 +377,14 @@ export default function DroneSetupScreen() {
   const renderDetailsStep = () => {
     return (
     <KeyboardAwareScrollViewCompat bottomOffset={24} contentContainerStyle={styles.scrollContent}>
-      <ThemedText style={styles.stepTitle}>
-        {isEditing ? "Drohne bearbeiten" : "Details eingeben"}
-      </ThemedText>
+      <View style={styles.detailsHeader}>
+        <View style={[styles.detailsImage, { backgroundColor: theme.backgroundSecondary }]}>
+          <DroneImage manufacturer={manufacturer} model={model} size={84} iconColor={theme.primary} iconSize={40} />
+        </View>
+        <ThemedText style={[styles.stepTitle, { flex: 1 }]}>
+          {isEditing ? "Drohne bearbeiten" : "Details eingeben"}
+        </ThemedText>
+      </View>
 
       <ThemedText style={[styles.sectionLabel, { color: theme.textSecondary }]}>NAME</ThemedText>
       <TextInput disableFullscreenUI
@@ -1169,6 +1178,9 @@ const styles = StyleSheet.create({
   presetList: {
     flex: 1,
   },
+  presetImage: { width: 48, height: 48, alignItems: "center", justifyContent: "center", marginRight: Spacing.md },
+  detailsHeader: { flexDirection: "row", alignItems: "center", gap: Spacing.lg },
+  detailsImage: { width: 92, height: 92, borderRadius: 16, alignItems: "center", justifyContent: "center", overflow: "hidden" },
   presetCard: {
     flexDirection: "row",
     alignItems: "center",
