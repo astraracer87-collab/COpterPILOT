@@ -9,6 +9,7 @@ const LOGOS: Record<string, ImageSourcePropType> = {
   autel: require("../../assets/images/logos/logo-autel.png"),
   antigravity: require("../../assets/images/logos/logo-antigravity.png"),
   hoverair: require("../../assets/images/logos/logo-hoverair.png"),
+  potensic: require("../../assets/images/logos/logo-potensic.png"),
 };
 
 export function manufacturerKey(name: string | undefined): string {
@@ -21,7 +22,7 @@ export function getManufacturerLogo(name: string | undefined): ImageSourcePropTy
 }
 
 /** Einfarbige Logos: werden in der Textfarbe eingefärbt (hell/dunkel) */
-const MONOCHROME = new Set(["dji", "antigravity", "hoverair"]);
+const MONOCHROME = new Set(["dji", "antigravity", "hoverair", "potensic"]);
 export function isMonochromeLogo(name: string | undefined): boolean {
   return MONOCHROME.has(manufacturerKey(name));
 }
