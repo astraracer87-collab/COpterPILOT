@@ -111,7 +111,27 @@ export function progressDownload(id: string, p: DownloadProgress): void {
   if (p.totalBytes != null) t.totalBytes = p.totalBytes;
   if (p.totalItems != null) t.totalItems = p.totalItems;
   if (p.fraction != null) t.fraction = Math.max(0, Math.min(1, p.fraction));
-  emit();
+  emitThrottled();
+}
+
+// Fortschritt höchstens ~3× pro Sekunde melden (die Anzeige rendert sonst
+// bei jedem Teilschritt neu und bremst die ganze App)
+let throttleTimer: ReturnType<typeof setTimeout> | null = null;
+let lastProgressEmit = 0;
+function emitThrottled(): void {
+  const now = Date.now();
+  const wait = 300 - (now - lastProgressEmit);
+  if (wait <= 0) {
+    lastProgressEmit = now;
+    emit();
+    return;
+  }
+  if (throttleTimer) return;
+  throttleTimer = setTimeout(() => {
+    throttleTimer = null;
+    lastProgressEmit = Date.now();
+    emit();
+  }, wait);
 }
 
 export function endDownload(id: string): void {

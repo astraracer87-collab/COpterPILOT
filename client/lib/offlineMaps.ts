@@ -112,7 +112,7 @@ export const TILE_STORE_ES_PART_MB: Record<"infra" | "enp", number> = { infra: 7
 export const TILE_STORE_DOWNLOAD_MB: Record<string, number> = {
   DE: 205, FR: 80, CZ: 36, DE_WOHN: 160, ES: 23, ES_INFRA: 177, ES_ENP: 380,
 };
-const PARALLEL = 6;
+const PARALLEL = 4;
 
 // ---------------------------------------------------------------------------
 // Hilfsfunktionen
@@ -660,8 +660,10 @@ async function downloadTile(template: string, hash: string, z: number, x: number
     await FileSystem.deleteAsync(path, { idempotent: true }).catch(() => {});
     return 0;
   }
-  const after = await FileSystem.getInfoAsync(path);
-  return after.exists && "size" in after ? after.size ?? 0 : 0;
+  // Größe aus dem Header statt einer weiteren Dateiabfrage (weniger Last im JS-Thread)
+  const h = res.headers ?? {};
+  const len = Number(h["Content-Length"] ?? h["content-length"] ?? 0);
+  return Number.isFinite(len) && len > 0 ? len : 30 * 1024;
 }
 
 /** Wird die Kachel-Adresse noch von einem anderen Paket benutzt (z. B. LI = CH)? */
@@ -895,6 +897,8 @@ async function runCountryDownload(
           if (failures > 30) throw new Error("Zu viele Fehler – Internetverbindung prüfen");
         }
         st.done++;
+        // Bedienung hat Vorrang: zwischendurch den JS-Thread freigeben
+        if (shouldYield()) await yieldToUi("offline-tiles");
         if (Date.now() - lastSave > 1500) {
           lastSave = Date.now();
           await saveProgress(progress);

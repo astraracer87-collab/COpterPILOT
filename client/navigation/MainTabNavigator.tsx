@@ -92,7 +92,7 @@ function ChooserModal({
     <Modal
       visible={visible}
       transparent
-      animationType="slide"
+      animationType="fade"
       onRequestClose={onClose}
     >
       <View style={styles.modalContainer}>
@@ -265,9 +265,13 @@ function FloatingFab() {
   const { width, height } = useWindowDimensions();
   const [showChooser, setShowChooser] = useState(false);
 
+  // Auswahl sofort öffnen; die Drohnen-Prüfung läuft danach (sonst wartet der
+  // Tipp auf den Speicher, während z. B. ein Download läuft)
   const handlePress = async () => {
-    const drones = await getDrones();
+    setShowChooser(true);
+    const drones = await getDrones().catch(() => [] as Awaited<ReturnType<typeof getDrones>>);
     if (drones.length === 0) {
+      setShowChooser(false);
       Alert.alert(
         "Keine Drohne angelegt",
         "Bitte lege zuerst eine Drohne an, bevor du starten kannst.",
@@ -283,8 +287,6 @@ function FloatingFab() {
       );
       return;
     }
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setShowChooser(true);
   };
 
   const handleSelectPlanning = () => {
