@@ -5,6 +5,7 @@
  * hervorgehoben.
  */
 import React from "react";
+import { CELL_SPREAD_BAD_MV, CELL_SPREAD_WATCH_MV } from "@/lib/charger/batteryStats";
 import { Pressable, StyleSheet, View } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { ThemedText } from "@/components/ThemedText";
@@ -19,8 +20,9 @@ import {
   type IsdtSlot,
 } from "@/lib/charger/ma331Protocol";
 
-export const CELL_DELTA_WARN_MV = 30;
-export const CELL_DELTA_BAD_MV = 60;
+// Richtwerte DJI-Akkus (siehe batteryStats): ab 50 mV beobachten, ab 100 mV auffällig
+export const CELL_DELTA_WARN_MV = CELL_SPREAD_WATCH_MV;
+export const CELL_DELTA_BAD_MV = CELL_SPREAD_BAD_MV;
 export const COLD_COLOR = "#22B8CF";
 
 export function formatMinutes(min: number): string {
@@ -213,7 +215,7 @@ export function ChargerSlotCard({
               style={[styles.small, { color: deltaColor, fontWeight: "700" }]}
               testID={`charger-slot-${index}-delta`}
             >
-              Δ {delta ? delta.delta : "–"} mV
+              {delta && delta.delta >= CELL_DELTA_WARN_MV ? "⚠️ " : ""}Δ {delta ? delta.delta : "–"} mV
             </ThemedText>
           </View>
         </>

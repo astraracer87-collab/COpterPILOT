@@ -22,6 +22,8 @@ import type { BatteryLink } from "@/lib/charger/batteryFingerprint";
 import { getDrone, type DroneBattery } from "@/lib/storage";
 import {
   cellHistory,
+  spreadLevel,
+  type SpreadLevel,
   computeBatteryStats,
   END_REASON_LABEL,
   HEALTH_LABEL,
@@ -127,43 +129,54 @@ export default function ChargerBatteryHistoryScreen() {
         {cells.cells > 0 ? (
           <View style={[styles.dataCard, { borderColor: theme.border, backgroundColor: theme.backgroundSecondary }]} testID="battery-cells-card">
             <ThemedText style={styles.rowTitle}>Zellen ({cells.cells}) – {cells.sessions} Ladevorgänge mit Zellwerten</ThemedText>
-            <View style={styles.dataRow}>
-              <ThemedText style={[styles.sub, styles.cellCol, { color: theme.textSecondary }]}>Zelle</ThemedText>
-              <ThemedText style={[styles.sub, styles.cellCol, { color: theme.textSecondary }]}>Zuletzt (Ende)</ThemedText>
-              <ThemedText style={[styles.sub, styles.cellCol, { color: theme.textSecondary }]}>Abw. vom Mittel</ThemedText>
-              <ThemedText style={[styles.sub, styles.cellCol, { color: theme.textSecondary }]}>Schwächste</ThemedText>
-            </View>
-            {Array.from({ length: cells.cells }, (_, i) => {
-              const dev = cells.deviationMv[i][cells.deviationMv[i].length - 1]?.y ?? null;
-              const weakest = cells.lowestCount[i] > 0 && cells.lowestCount[i] === Math.max(...cells.lowestCount);
+            {(() => {
+              const lvl = spreadLevel(cells.lastSpreadMv);
+              if (!lvl) return null;
+              const color = lvl === "ok" ? theme.statusGo : lvl === "watch" ? theme.statusCaution : theme.statusNoGo;
               return (
-                <View key={i} style={styles.dataRow} testID={`battery-cell-row-${i + 1}`}>
-                  <ThemedText style={[styles.dataValue, styles.cellCol]}>Z{i + 1}</ThemedText>
-                  <ThemedText style={[styles.dataValue, styles.cellCol]}>
-                    {cells.lastMv[i] != null ? `${(cells.lastMv[i]! / 1000).toFixed(3).replace(".", ",")} V` : "–"}
+                <View style={[styles.spreadBanner, { borderColor: color, backgroundColor: color + "18" }]} testID="battery-spread-banner">
+                  <ThemedText style={[styles.dataValue, { color }]}>
+                    {lvl === "ok" ? "" : "⚠️ "}Spreizung am Ladeende: {cells.lastSpreadMv} mV – {SPREAD_TEXT[lvl].title}
                   </ThemedText>
-                  <ThemedText style={[styles.dataValue, styles.cellCol]}>{dev != null ? `${dev > 0 ? "+" : ""}${dev} mV` : "–"}</ThemedText>
-                  <ThemedText style={[styles.dataValue, styles.cellCol, weakest ? { color: theme.statusCaution } : null]}>
-                    {cells.lowestCount[i]}×
-                  </ThemedText>
+                  <ThemedText style={[styles.sub, { color: theme.textSecondary }]}>{SPREAD_TEXT[lvl].hint}</ThemedText>
                 </View>
               );
-            })}
-            <ThemedText style={[styles.sub, { color: theme.textTertiary }]}>
-              Verlauf je Zelle: Abweichung vom Mittel aller Zellen am Ladeende. Driftet eine Zelle dauerhaft nach unten, altert sie schneller.
-            </ThemedText>
-            <View style={styles.charts}>
-              {cells.deviationMv.map((pts, i) => (
-                <TrendChart key={i} title={`Z${i + 1} – Abweichung`} unit="mV" points={pts} testID={`trend-cell-${i + 1}`} />
-              ))}
-              <TrendChart
-                title="Größte Spreizung beim Laden"
-                unit="mV"
-                points={cells.maxDuringCharge}
-                color={theme.statusCaution}
-                testID="trend-max-spread"
-              />
+            })()}
+            <View style={styles.cellGrid}>
+              {Array.from({ length: cells.cells }, (_, i) => {
+                const lag = cells.lagMv[i][cells.lagMv[i].length - 1]?.y ?? null;
+                const lvl = spreadLevel(lag) ?? "ok";
+                const color = lvl === "ok" ? theme.border : lvl === "watch" ? theme.statusCaution : theme.statusNoGo;
+                const v = (mv: number | null) => (mv != null ? `${(mv / 1000).toFixed(3).replace(".", ",")} V` : "–");
+                return (
+                  <View
+                    key={i}
+                    style={[styles.cellTile, { borderColor: color, backgroundColor: lvl === "ok" ? theme.backgroundDefault : color + "18" }]}
+                    testID={`battery-cell-tile-${i + 1}`}
+                  >
+                    <ThemedText style={[styles.cellName, lvl !== "ok" ? { color } : null]}>
+                      Z{i + 1}{lvl !== "ok" ? " ⚠️" : ""}
+                    </ThemedText>
+                    <ThemedText style={styles.cellBig}>{v(cells.lastMv[i])}</ThemedText>
+                    <CellLine label="Min / Max" value={`${v(cells.minMv[i])} / ${v(cells.maxMv[i])}`} />
+                    <CellLine label="Abstand zur stärksten" value={lag != null ? `${lag} mV` : "–"} color={lvl !== "ok" ? color : undefined} />
+                    <CellLine label="Größter Abstand bisher" value={cells.maxLagMv[i] != null ? `${cells.maxLagMv[i]} mV` : "–"} />
+                    <CellLine label="Schwächste Zelle" value={`${cells.lowestCount[i]}×`} />
+                    <TrendChart title="Abstand zur stärksten" unit="mV" points={cells.lagMv[i]} color={lvl === "ok" ? undefined : color} height={44} testID={`trend-cell-${i + 1}`} />
+                  </View>
+                );
+              })}
             </View>
+            <TrendChart
+              title="Größte Spreizung beim Laden"
+              unit="mV"
+              points={cells.maxDuringCharge}
+              color={theme.statusCaution}
+              testID="trend-max-spread"
+            />
+            <ThemedText style={[styles.sub, { color: theme.textTertiary }]}>
+              Werte am Ladeende. Richtwerte DJI-Akkus: unter 50 mV gesund, ab 100 mV (nach Ruhephase) gealterte oder beschädigte Zelle, ab etwa 300 mV verweigert das BMS das Laden.
+            </ThemedText>
           </View>
         ) : null}
         <View style={styles.charts}>
@@ -263,8 +276,38 @@ const styles = StyleSheet.create({
   dataCard: { borderWidth: 1, borderRadius: BorderRadius.sm, padding: Spacing.sm, gap: 4 },
   dataRow: { flexDirection: "row", alignItems: "center", gap: Spacing.sm },
   dataValue: { fontSize: 13, fontWeight: "600" },
-  cellCol: { flex: 1 },
+  cellGrid: { flexDirection: "row", flexWrap: "wrap", gap: Spacing.sm },
+  cellTile: { flexGrow: 1, flexBasis: 200, borderWidth: 1, borderRadius: BorderRadius.sm, padding: Spacing.sm, gap: 2 },
+  cellName: { fontSize: 14, fontWeight: "700" },
+  cellBig: { fontSize: 20, fontWeight: "700" },
+  spreadBanner: { borderWidth: 1, borderRadius: BorderRadius.sm, padding: Spacing.sm, gap: 2 },
 });
+
+const SPREAD_TEXT: Record<SpreadLevel, { title: string; hint: string }> = {
+  ok: { title: "gesund", hint: "Unter 50 mV: Zellen gut ausgeglichen." },
+  watch: {
+    title: "beobachten",
+    hint: "Ab 50 mV: Kalibrierungszyklus empfohlen – voll laden, 24 h ruhen lassen (Balancer), auf 10–15 % leerfliegen, abkühlen lassen, wieder auf 100 % laden.",
+  },
+  bad: {
+    title: "auffällig",
+    hint: "Ab 100 mV deutet das auf eine gealterte oder beschädigte Zelle hin. Kalibrierungszyklus durchführen; bleibt die Spreizung danach über 100 mV oder bläht sich der Akku auf, nicht mehr fliegen.",
+  },
+  critical: {
+    title: "kritisch",
+    hint: "Ab etwa 300 mV verweigert das BMS das Laden und sperrt den Akku. Nicht mehr fliegen und Akku fachgerecht entsorgen.",
+  },
+};
+
+function CellLine({ label, value, color }: { label: string; value: string; color?: string }) {
+  const { theme } = useTheme();
+  return (
+    <View style={styles.dataRow}>
+      <ThemedText style={[styles.sub, { color: theme.textSecondary, flex: 1 }]}>{label}</ThemedText>
+      <ThemedText style={[styles.dataValue, color ? { color } : null]}>{value}</ThemedText>
+    </View>
+  );
+}
 
 function formatDay(iso: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);

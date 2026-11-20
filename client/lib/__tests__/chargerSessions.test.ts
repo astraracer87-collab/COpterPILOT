@@ -590,7 +590,15 @@ describe("Akku-Kennzahlen", () => {
     assert.equal(good.cycles, 3);
     assert.equal(
       computeBatteryStats([e(1, {}), e(2, { endCellDeltaMv: 45 })]).health,
+      "good",
+    );
+    assert.equal(
+      computeBatteryStats([e(1, {}), e(2, { endCellDeltaMv: 60 })]).health,
       "watch",
+    );
+    assert.equal(
+      computeBatteryStats([e(1, {}), e(2, { endCellDeltaMv: 100 })]).health,
+      "bad",
     );
     assert.equal(
       computeBatteryStats([e(1, {}), e(2, { endMah: 3000 })]).health,

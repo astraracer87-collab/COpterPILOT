@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { cellHistory } from "../charger/batteryStats";
+import { cellHistory, spreadLevel } from "../charger/batteryStats";
 import { maxCellDelta, type SessionIndexEntry } from "../chargerStore";
 
 const entry = (t: number, cells: number[] | undefined, maxDelta: number | null = null, status: "done" | "active" = "done"): SessionIndexEntry => ({
@@ -11,6 +11,11 @@ const entry = (t: number, cells: number[] | undefined, maxDelta: number | null =
 });
 
 describe("Zell-Historie", () => {
+  it("Schwellen nach DJI-Richtwerten", () => {
+    assert.deepEqual([20, 49, 50, 99, 100, 299, 300].map(spreadLevel), ["ok", "ok", "watch", "watch", "bad", "bad", "critical"]);
+    assert.equal(spreadLevel(null), null);
+  });
+
   it("Verlauf je Zelle, Abweichung vom Mittel, schwächste Zelle, Spreizung beim Laden", () => {
     const h = cellHistory([
       entry(3, [4350, 4348, 4340, 4350], 25),
@@ -26,6 +31,9 @@ describe("Zell-Historie", () => {
     assert.deepEqual(h.lastMv, [4350, 4348, 4340, 4350]);
     assert.equal(h.deviationMv[2][2].y, Math.round(4340 - (4350 + 4348 + 4340 + 4350) / 4));
     assert.deepEqual(h.maxDuringCharge.map((p) => p.y), [12, 18, 25, 30]);
+    assert.deepEqual(h.lagMv[2].map((p) => p.y), [4, 8, 10]);
+    assert.deepEqual([h.minMv[2], h.maxMv[2], h.maxLagMv[2]], [4340, 4346, 10]);
+    assert.equal(h.lastSpreadMv, 10);
   });
 
   it("ohne Zellwerte leer; Gleichstand zählt nicht als schwächste Zelle", () => {

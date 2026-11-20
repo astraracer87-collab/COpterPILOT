@@ -11,6 +11,23 @@ type TrendPoint = { x: number; y: number };
 
 export type HealthLevel = "good" | "watch" | "bad" | "unknown";
 
+/**
+ * Richtwerte Zell-Spreizung DJI-Akkus (Ruhe/nach dem Laden): < 50 mV gesund,
+ * ab 100 mV gealterte/beschädigte Zelle, ab ~300 mV verweigert das BMS das Laden.
+ */
+export const CELL_SPREAD_WATCH_MV = 50;
+export const CELL_SPREAD_BAD_MV = 100;
+export const CELL_SPREAD_CRITICAL_MV = 300;
+
+export type SpreadLevel = "ok" | "watch" | "bad" | "critical";
+export function spreadLevel(mv: number | null | undefined): SpreadLevel | null {
+  if (mv == null || !Number.isFinite(mv)) return null;
+  if (mv >= CELL_SPREAD_CRITICAL_MV) return "critical";
+  if (mv >= CELL_SPREAD_BAD_MV) return "bad";
+  if (mv >= CELL_SPREAD_WATCH_MV) return "watch";
+  return "ok";
+}
+
 export const HEALTH_LABEL: Record<HealthLevel, string> = {
   good: "gut",
   watch: "beobachten",
@@ -56,9 +73,9 @@ export function computeBatteryStats(
   let health: HealthLevel = "unknown";
   if (delta != null || ratio != null) {
     const bad =
-      (delta != null && delta >= 60) || (ratio != null && ratio < 0.8);
+      (delta != null && delta >= CELL_SPREAD_BAD_MV) || (ratio != null && ratio < 0.8);
     const watch =
-      (delta != null && delta >= 30) || (ratio != null && ratio < 0.9);
+      (delta != null && delta >= CELL_SPREAD_WATCH_MV) || (ratio != null && ratio < 0.9);
     health = bad ? "bad" : watch ? "watch" : "good";
   }
   return {
@@ -119,6 +136,15 @@ export interface CellHistory {
   /** Größte Spreizung während des Ladens (mV) je Ladevorgang */
   maxDuringCharge: TrendPoint[];
   sessions: number;
+  /** Je Zelle: Abstand zur stärksten Zelle am Ladeende (mV) über die Ladevorgänge */
+  lagMv: TrendPoint[][];
+  /** Je Zelle: niedrigste/höchste Endspannung über alle Ladevorgänge (mV) */
+  minMv: (number | null)[];
+  maxMv: (number | null)[];
+  /** Je Zelle: größter Abstand zur stärksten Zelle bisher (mV) */
+  maxLagMv: (number | null)[];
+  /** Spreizung am Ende des jüngsten Ladevorgangs (mV) */
+  lastSpreadMv: number | null;
 }
 
 export function cellHistory(entries: SessionIndexEntry[]): CellHistory {
@@ -131,15 +157,26 @@ export function cellHistory(entries: SessionIndexEntry[]): CellHistory {
   const deviationMv: TrendPoint[][] = Array.from({ length: n }, () => []);
   const lowestCount = new Array(n).fill(0);
   const lastMv: (number | null)[] = new Array(n).fill(null);
+  const lagMv: TrendPoint[][] = Array.from({ length: n }, () => []);
+  const minMv: (number | null)[] = new Array(n).fill(null);
+  const maxMv: (number | null)[] = new Array(n).fill(null);
+  const maxLagMv: (number | null)[] = new Array(n).fill(null);
+  let lastSpreadMv: number | null = null;
   for (const e of withCells) {
     const cells = e.endCellsMv!;
     if (cells.length !== n) continue;
     const mean = cells.reduce((a, b) => a + b, 0) / n;
     const min = Math.min(...cells);
+    const max = Math.max(...cells);
+    lastSpreadMv = max - min;
     cells.forEach((mv, i) => {
       endMv[i].push({ x: e.startedAt, y: mv });
       deviationMv[i].push({ x: e.startedAt, y: Math.round(mv - mean) });
+      lagMv[i].push({ x: e.startedAt, y: max - mv });
       lastMv[i] = mv;
+      minMv[i] = minMv[i] == null ? mv : Math.min(minMv[i]!, mv);
+      maxMv[i] = maxMv[i] == null ? mv : Math.max(maxMv[i]!, mv);
+      maxLagMv[i] = maxLagMv[i] == null ? max - mv : Math.max(maxLagMv[i]!, max - mv);
     });
     // Gleichstand zählt für keine Zelle (sonst wäre bei 0 mV Spreizung jede „schwach“)
     const lows = cells.map((v, i) => (v === min ? i : -1)).filter((i) => i >= 0);
@@ -155,5 +192,10 @@ export function cellHistory(entries: SessionIndexEntry[]): CellHistory {
       .filter((e) => e.maxCellDeltaMv != null)
       .map((e) => ({ x: e.startedAt, y: e.maxCellDeltaMv as number })),
     sessions: withCells.length,
+    lagMv,
+    minMv,
+    maxMv,
+    maxLagMv,
+    lastSpreadMv,
   };
 }
