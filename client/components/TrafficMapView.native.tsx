@@ -1,3 +1,4 @@
+import { DroneImage } from "@/components/DroneImage";
 import { LEAFLET_CSS, LEAFLET_JS } from "@/lib/leafletBundle";
 import { useIsNight } from "@/hooks/useIsNight";
 import { RC_LEAFLET_JS, RC_WEBVIEW_FILE_PROPS, useRcLeaflet } from "@/lib/leafletRc";
@@ -119,6 +120,8 @@ interface TrafficMapViewProps {
   alarmRadiusM?: number;
   taRadiusM?: number;
   scanRadiusM?: number;
+  /** Sichtflug-Reichweite (VLOS) als blauer, gestrichelter Kreis */
+  vlosRadiusM?: number;
   onLongPress?: (lat: number, lon: number) => void;
   wind?: WindData | null;
   sourceStatus?: Record<DataSource, "ok" | "error" | "timeout">;
@@ -134,6 +137,8 @@ interface TrafficMapViewProps {
   onMapStyleChange?: (style: "standard" | "satellite" | "osm" | "grayscale") => void;
   onCenterGps?: () => void;
   onSettingsPress?: () => void;
+  /** Drohnenwahl neben GPS/Einstellungen: Bild + VLOS-Reichweite */
+  dronePill?: { manufacturer?: string; model?: string; label: string; onPress: () => void };
   settingsActive?: boolean;
   bottomPadding?: number;
   infoBubbleBottomInset?: number;
@@ -658,6 +663,8 @@ export const MAIN_MAP_HTML = `<!DOCTYPE html>
       if (c && c.scan) ring(center, c.scan, "#7B2FBE", 3.5, null, 0.04);
       if (c && c.ta) ring(center, c.ta, "#FF8A00", 3, "10 6", 0.04);
       if (c && c.ra) ring(center, c.ra, "#E0201A", 3.5, null, 0.08);
+      // Sichtflug-Reichweite (VLOS) der gewählten Drohne – Prüfradius der Geozonen
+      if (c && c.vlos) ring(center, c.vlos, "#0A84FF", 3, "4 6", 0);
     }
     if (fov && fov.length > 2) {
       L.polygon(fov, { pane: "rings", renderer: ringRenderer, color: "#007AFF", opacity: 0.9, weight: 2, fillColor: "#007AFF", fillOpacity: 0.45, interactive: false }).addTo(ringLayer);
@@ -1165,9 +1172,9 @@ function isTempVectorZone(z: GeozoneFeatureInfo): boolean {
 
 export default function TrafficMapView({
   latitude, longitude, latDelta, lonDelta, locationName, markers, trails,
-  fullScreen, alarmRadiusM, taRadiusM, scanRadiusM, onLongPress, wind, sourceStatus,
+  fullScreen, alarmRadiusM, taRadiusM, scanRadiusM, vlosRadiusM, onLongPress, wind, sourceStatus,
   geozoneLayers, countryIso, highlightedZones, additionalGeozones = [], energyInfrastructure = [], windRestrictionPoints = [], energyTilesEnabled, energyTilesShowSupplemental, mapStyle = "grayscale", onMapStyleChange,
-  onCenterGps, onSettingsPress, settingsActive, bottomPadding = 0, infoBubbleBottomInset = 0, topInset = 0, weatherAlerts,
+  onCenterGps, onSettingsPress, dronePill, settingsActive, bottomPadding = 0, infoBubbleBottomInset = 0, topInset = 0, weatherAlerts,
   onHeadingChange, disableGeozoneQuery = false, lockPan = false, onViewportChange,
   maxReachableAltitudeM = DEFAULT_REACHABLE_ALTITUDE_M, showAllGeozones = false,
   hideUserPosition = false, highlightClipRadiusM,
@@ -1912,6 +1919,7 @@ export default function TrafficMapView({
         scan: (scanRadiusM ?? 0) > 0 ? scanRadiusM : 0,
         ta: (taRadiusM ?? 0) > 0 ? taRadiusM : 0,
         ra: (alarmRadiusM ?? 0) > 0 ? alarmRadiusM : 0,
+        vlos: (vlosRadiusM ?? 0) > 0 ? vlosRadiusM : 0,
       },
       fov: hideUserPosition ? null : fovCoords,
       hz: hzPolys,
@@ -1924,7 +1932,7 @@ export default function TrafficMapView({
       windBuffers: [],
     };
     return JSON.stringify(state);
-  }, [fit, hideUserPosition, latitude, longitude, targetZoom, mapStyle, isDark, isNight, lockPan, geozonesVisible, geozoneTileUrls, countryIso, renderableMarkers, renderableTrails, scanRadiusM, taRadiusM, alarmRadiusM, fovCoords, hzPolys, ctrBands, airportMarkers, energyInfrastructure, windRestrictionPoints, energyTilesEnabled, energyTilesShowSupplemental]);
+  }, [fit, hideUserPosition, latitude, longitude, targetZoom, mapStyle, isDark, isNight, lockPan, geozonesVisible, geozoneTileUrls, countryIso, renderableMarkers, renderableTrails, scanRadiusM, taRadiusM, alarmRadiusM, vlosRadiusM, fovCoords, hzPolys, ctrBands, airportMarkers, energyInfrastructure, windRestrictionPoints, energyTilesEnabled, energyTilesShowSupplemental]);
 
   useEffect(() => {
     if (!ready) return;
@@ -2191,6 +2199,24 @@ export default function TrafficMapView({
                 </Pressable>
               ) : null}
             </View>
+          ) : null}
+          {dronePill ? (
+            <Pressable
+              testID="radar-drone-pill"
+              onPress={dronePill.onPress}
+              accessibilityRole="button"
+              accessibilityLabel={`Drohne wählen, ${dronePill.label}`}
+              style={{
+                flexDirection: "row", alignItems: "center", gap: 6, marginTop: 6,
+                height: 36, paddingLeft: 4, paddingRight: 10, borderRadius: 18,
+                borderWidth: 2, borderColor: "#0A84FF",
+                backgroundColor: isDark ? "rgba(30,40,60,0.88)" : "rgba(255,255,255,0.92)",
+                ...(Platform.OS === "ios" ? { shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 4 } : { elevation: 4 }),
+              }}
+            >
+              <DroneImage manufacturer={dronePill.manufacturer} model={dronePill.model} size={28} iconColor="#0A84FF" iconSize={20} />
+              <Text style={{ fontSize: 12, fontWeight: "700", color: "#0A84FF" }} numberOfLines={1}>{dronePill.label}</Text>
+            </Pressable>
           ) : null}
         </WindCompass>
       ) : null}

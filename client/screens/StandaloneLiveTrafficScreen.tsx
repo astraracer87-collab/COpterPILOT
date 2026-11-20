@@ -1,5 +1,16 @@
 import { openLink } from "@/lib/webBrowser";
 import { computeVlosM } from "@/lib/vlos";
+import { DroneImage } from "@/components/DroneImage";
+
+/** VLOS der Drohne in km (ohne Angabe: 0,3 m Spannweite angenommen). */
+function vlosKmForDrone(d: DroneProfile | null | undefined): number {
+  const cd = d?.charDimensionM && d.charDimensionM > 0 ? d.charDimensionM : 0.3;
+  return Math.max(0.1, computeVlosM(cd).vlosM / 1000);
+}
+
+function sortDronesByName(list: DroneProfile[]): DroneProfile[] {
+  return [...list].sort((a, b) => (a.name || "").localeCompare(b.name || "", "de", { numeric: true, sensitivity: "base" }));
+}
 import React, { useState, useEffect, useCallback, useRef, useMemo, useContext } from "react";
 import { View, StyleSheet, FlatList, Pressable, ActivityIndicator, ScrollView, Platform, Text, Modal, Animated, Dimensions, AppState, Linking, Alert, useWindowDimensions } from "react-native";
 import { BottomTabBarHeightContext } from "@react-navigation/bottom-tabs";
@@ -50,7 +61,7 @@ import { GEOZONE_LAYERS, GEOZONE_REGULATORY_INFO, GeozoneRegulatoryInfo, Geozone
 import { GEOZONE_CATEGORIES, COMBINED_COUNTRY_TOGGLES } from "../../shared/geozoneCategories";
 import { getActiveOrUpcomingNearbyMilLowFlight } from "@/lib/milLowFlight";
 import { useFocusEffect } from "@react-navigation/native";
-import { getSettings, saveSettings, getSelectedDrone, getDroneMaxAltitudeM, getPilotProfile, PilotProfile, de21hRule, isDe21hZoneAvEligible, isErlaubnisExpired, Bundesland } from "@/lib/storage";
+import { getSettings, saveSettings, getSelectedDrone, getDrones, setSelectedDroneId, type DroneProfile, getDroneMaxAltitudeM, getPilotProfile, PilotProfile, de21hRule, isDe21hZoneAvEligible, isErlaubnisExpired, Bundesland } from "@/lib/storage";
 import { detectBundeslandFromCoordinates } from "@/lib/countryMaps";
 import { computeGeozoneTabSeverity, GeozoneTabSeverity, assessGeozoneForRadar, isGeozoneActiveForRadar } from "@/lib/geozoneSeverity";
 import { RESTRICTION_POLICY, zoneRestriction } from "../../shared/restrictionPolicy";
@@ -133,6 +144,15 @@ export default function StandaloneLiveTrafficScreen() {
   // Prüfradius für Geozonen = Sichtflug-Reichweite (VLOS) der gewählten Drohne,
   // nicht der Alarm-Radius für Flugverkehr
   const [vlosKm, setVlosKm] = useState(0.5);
+  const [radarDrone, setRadarDrone] = useState<DroneProfile | null>(null);
+  const [droneChoices, setDroneChoices] = useState<DroneProfile[]>([]);
+  const [showDronePicker, setShowDronePicker] = useState(false);
+  const applyDrone = useCallback((d: DroneProfile | null) => {
+    setRadarDrone(d);
+    setMaxReachableAltitudeM(getDroneMaxAltitudeM(d));
+    // Geozonen im Sichtflug-Umkreis (VLOS) der gewählten Drohne prüfen
+    setVlosKm(vlosKmForDrone(d));
+  }, []);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
@@ -423,13 +443,29 @@ export default function StandaloneLiveTrafficScreen() {
 
   useEffect(() => {
     loadGeozoneSettings(detectedCountryIso).then(setGeozoneSettings);
-    getSelectedDrone().then((d) => {
-      setMaxReachableAltitudeM(getDroneMaxAltitudeM(d));
-      // Geozonen im Sichtflug-Umkreis (VLOS) der gewählten Drohne prüfen
-      const cd = d?.charDimensionM && d.charDimensionM > 0 ? d.charDimensionM : 0.3;
-      setVlosKm(Math.max(0.1, computeVlosM(cd).vlosM / 1000));
+    getSelectedDrone().then(applyDrone).catch(() => {});
+  }, [detectedCountryIso, applyDrone]);
+
+  // Gewählte Drohne neu laden, wenn man aus Einstellungen/Drohnen zurückkommt
+  useFocusEffect(
+    useCallback(() => {
+      getSelectedDrone().then(applyDrone).catch(() => {});
+    }, [applyDrone]),
+  );
+
+  const openDronePicker = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    getDrones().then((list) => {
+      setDroneChoices(sortDronesByName(list));
+      setShowDronePicker(true);
     }).catch(() => {});
-  }, [detectedCountryIso]);
+  }, []);
+
+  const chooseDrone = useCallback((d: DroneProfile) => {
+    setShowDronePicker(false);
+    applyDrone(d);
+    setSelectedDroneId(d.id).catch(() => {});
+  }, [applyDrone]);
 
   useFocusEffect(
     useCallback(() => {
@@ -1375,6 +1411,13 @@ export default function StandaloneLiveTrafficScreen() {
               alarmRadiusM={(alarmSettings.ra?.radiusKm ?? 1) * 1000}
               taRadiusM={(alarmSettings.ta?.radiusKm ?? 3) * 1000}
               scanRadiusM={showRadar ? radiusKm * 1000 : 0}
+              vlosRadiusM={vlosKm * 1000}
+              dronePill={{
+                manufacturer: radarDrone?.manufacturer,
+                model: radarDrone?.model,
+                label: `VLOS ${Math.round(vlosKm * 1000)} m`,
+                onPress: openDronePicker,
+              }}
               onLongPress={handleMapLongPress}
               wind={showWindsock ? wind : null}
               sourceStatus={sourceStatus}
@@ -1411,6 +1454,44 @@ export default function StandaloneLiveTrafficScreen() {
           }}>
             <SourceHealthIndicator isDark={isDark} testID="radar-source-health" />
           </View>
+          <Modal visible={showDronePicker} transparent animationType="fade" onRequestClose={() => setShowDronePicker(false)}>
+            <Pressable style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.45)", alignItems: "center", justifyContent: "center", padding: 16 }} onPress={() => setShowDronePicker(false)}>
+              <Pressable onPress={() => {}} style={{ width: "100%", maxWidth: 560, maxHeight: "90%", borderRadius: 16, padding: 14, backgroundColor: theme.backgroundDefault }}>
+                <Text style={{ fontSize: 16, fontWeight: "700", color: theme.text, marginBottom: 2 }}>Drohne für das Radar</Text>
+                <Text style={{ fontSize: 12, color: theme.textSecondary, marginBottom: 10 }}>
+                  Der blaue Kreis zeigt die Sichtflug-Reichweite (VLOS) der Drohne. In diesem Umkreis werden die Geozonen geprüft.
+                </Text>
+                {droneChoices.length === 0 ? (
+                  <Text style={{ fontSize: 13, color: theme.textSecondary, paddingVertical: 12 }}>
+                    Noch keine Drohne angelegt. Unter Einstellungen → Drohnen kannst du eine einrichten.
+                  </Text>
+                ) : (
+                  <ScrollView contentContainerStyle={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                    {droneChoices.map((d) => {
+                      const active = d.id === radarDrone?.id;
+                      const vm = Math.round(vlosKmForDrone(d) * 1000);
+                      return (
+                        <Pressable
+                          key={d.id}
+                          testID={`radar-drone-${d.id}`}
+                          onPress={() => chooseDrone(d)}
+                          style={{
+                            width: "31.5%", alignItems: "center", padding: 8, borderRadius: 12,
+                            borderWidth: 2, borderColor: active ? "#0A84FF" : theme.border,
+                            backgroundColor: active ? "rgba(10,132,255,0.12)" : "transparent",
+                          }}
+                        >
+                          <DroneImage manufacturer={d.manufacturer} model={d.model} size={64} iconColor={theme.textSecondary} iconSize={40} />
+                          <Text style={{ fontSize: 13, fontWeight: "600", color: theme.text, marginTop: 4 }} numberOfLines={1}>{d.name}</Text>
+                          <Text style={{ fontSize: 11, color: "#0A84FF", fontWeight: "700" }}>VLOS {vm} m</Text>
+                        </Pressable>
+                      );
+                    })}
+                  </ScrollView>
+                )}
+              </Pressable>
+            </Pressable>
+          </Modal>
           {noPositionHint ? (
             <View pointerEvents="box-none" style={{ position: "absolute", top: safeTop + 40, left: 0, right: 0, alignItems: "center", zIndex: 109 }}>
               <Pressable

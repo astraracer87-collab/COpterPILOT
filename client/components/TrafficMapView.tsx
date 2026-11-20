@@ -66,6 +66,8 @@ interface TrafficMapViewProps {
   alarmRadiusM?: number;
   taRadiusM?: number;
   scanRadiusM?: number;
+  vlosRadiusM?: number;
+  dronePill?: { manufacturer?: string; model?: string; label: string; onPress: () => void };
   onLongPress?: (lat: number, lon: number) => void;
   wind?: WindData | null;
   sourceStatus?: Record<string, string>;
