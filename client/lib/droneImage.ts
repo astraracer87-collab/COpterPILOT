@@ -23,6 +23,9 @@ const IMAGES: Record<string, ImageSourcePropType> = {
   "dji-agras-t50":  require("../../assets/images/drones/dji-agras-t50.png"),
   "dji-fpv":        require("../../assets/images/drones/dji-fpv.png"),
   "dji-inspire-2":  require("../../assets/images/drones/dji-inspire-2.png"),
+  "dji-lito-x1":    require("../../assets/images/drones/dji-lito-x1.png"),
+  "dji-matrice-4":  require("../../assets/images/drones/dji-matrice-4.png"),
+  "dji-matrice-4td":require("../../assets/images/drones/dji-matrice-4td.png"),
 };
 
 const MODEL_TO_KEY: Array<[RegExp, string]> = [
@@ -44,8 +47,11 @@ const MODEL_TO_KEY: Array<[RegExp, string]> = [
   [/inspire\s*3/i,     "dji-inspire-3"],
   [/inspire\s*2/i,     "dji-inspire-2"],
   [/agras/i,           "dji-agras-t50"],
+  [/matrice\s*4\s*td/i, "dji-matrice-4td"],
+  [/matrice\s*4\s*(e|t)\b/i, "dji-matrice-4"],
   [/^\s*(dji\s*)?fpv\s*$/i, "dji-fpv"],
   [/lito\s*1/i,        "dji-lito-1"],
+  [/lito\s*x\s*1/i,    "dji-lito-x1"],
   [/flip/i,            "dji-flip"],
   [/fly\s*cart/i,      "dji-flycart-30"],
 ];
