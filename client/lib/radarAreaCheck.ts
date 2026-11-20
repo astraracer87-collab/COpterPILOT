@@ -70,13 +70,14 @@ export async function fetchAreaNotamData(lat: number, lon: number, radiusKm: num
   };
 }
 
-export async function fetchRadarAreaData(lat: number, lon: number, raRadiusKm: number, countryIso: string | undefined): Promise<RadarAreaData> {
+/** `geozoneRadiusKm`: Prüfradius für Geozonen (Sichtflug-Reichweite der Drohne); Standard = raRadiusKm */
+export async function fetchRadarAreaData(lat: number, lon: number, raRadiusKm: number, countryIso: string | undefined, geozoneRadiusKm: number = raRadiusKm): Promise<RadarAreaData> {
   const [weatherData, kp, kpTl, area, zones] = await Promise.all([
     fetchWeather(lat, lon, 1440).catch(() => null),
     fetchKpIndex().catch(() => null),
     fetchKpTimeline().catch(() => [] as KpTimeEntry[]),
     fetchAreaNotamData(lat, lon, raRadiusKm, countryIso),
-    queryGeozonesInArea(lat, lon, raRadiusKm, countryIso).catch((e) => {
+    queryGeozonesInArea(lat, lon, geozoneRadiusKm, countryIso).catch((e) => {
       console.warn("[checkAlerts] geozone query failed:", e?.message || e);
       return [] as GeozoneFeatureInfo[];
     }),

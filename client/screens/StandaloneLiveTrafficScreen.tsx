@@ -1,4 +1,5 @@
 import { openLink } from "@/lib/webBrowser";
+import { computeVlosM } from "@/lib/vlos";
 import React, { useState, useEffect, useCallback, useRef, useMemo, useContext } from "react";
 import { View, StyleSheet, FlatList, Pressable, ActivityIndicator, ScrollView, Platform, Text, Modal, Animated, Dimensions, AppState, Linking, Alert, useWindowDimensions } from "react-native";
 import { BottomTabBarHeightContext } from "@react-navigation/bottom-tabs";
@@ -129,6 +130,9 @@ export default function StandaloneLiveTrafficScreen() {
   const [pilotElevation, setPilotElevation] = useState<number | null>(null);
   const { activeAlerts, approachingAircraft, alarmActive, alarmLevel, alarmSettings, clearOfConflict, dismissAlarm } = useProximityAlarm(aircraft, latitude, longitude, undefined, pilotElevation);
   const raRadiusKm = alarmSettings.ra?.radiusKm ?? 1;
+  // Prüfradius für Geozonen = Sichtflug-Reichweite (VLOS) der gewählten Drohne,
+  // nicht der Alarm-Radius für Flugverkehr
+  const [vlosKm, setVlosKm] = useState(0.5);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
@@ -293,7 +297,7 @@ export default function StandaloneLiveTrafficScreen() {
     queryGeozonesInArea(
       geozonePrefetchLatitude,
       geozonePrefetchLongitude,
-      raRadiusKm + 0.5,
+      vlosKm + 0.2,
       detectedCountryIso,
     ).then((zones) => {
       if (cancelled) return;
@@ -307,7 +311,7 @@ export default function StandaloneLiveTrafficScreen() {
       setGeozoneDataStatus("error");
     });
     return () => { cancelled = true; };
-  }, [geozonePrefetchLatitude, geozonePrefetchLongitude, detectedCountryIso, raRadiusKm]);
+  }, [geozonePrefetchLatitude, geozonePrefetchLongitude, detectedCountryIso, vlosKm]);
 
   // Schweregrad des Geozonen-Reiters: rot (aktives Flugverbot ohne passende AV),
   // orange (Höhenbeschränkung oder AV-gedecktes Verbot), blau (Zone vorhanden,
@@ -419,7 +423,12 @@ export default function StandaloneLiveTrafficScreen() {
 
   useEffect(() => {
     loadGeozoneSettings(detectedCountryIso).then(setGeozoneSettings);
-    getSelectedDrone().then((d) => setMaxReachableAltitudeM(getDroneMaxAltitudeM(d))).catch(() => {});
+    getSelectedDrone().then((d) => {
+      setMaxReachableAltitudeM(getDroneMaxAltitudeM(d));
+      // Geozonen im Sichtflug-Umkreis (VLOS) der gewählten Drohne prüfen
+      const cd = d?.charDimensionM && d.charDimensionM > 0 ? d.charDimensionM : 0.3;
+      setVlosKm(Math.max(0.1, computeVlosM(cd).vlosM / 1000));
+    }).catch(() => {});
   }, [detectedCountryIso]);
 
   useFocusEffect(
@@ -696,7 +705,7 @@ export default function StandaloneLiveTrafficScreen() {
       if (!appActiveRef.current) return;
       try {
         // Gemeinsame Gebietsprüfung (auch für die Hintergrund-Überwachung)
-        const area = await fetchRadarAreaData(qLat, qLon, raRadiusKm, detectedCountryIso);
+        const area = await fetchRadarAreaData(qLat, qLon, raRadiusKm, detectedCountryIso, vlosKm);
         if (cancelled) return;
         const { weatherData, kp, kpTimeline: kpTl, notamResult, combinedNotams, tempRestrictions, allDipul, permZones, notamUnknown, flags } = area;
         const f = weatherData?.forecasts?.[0];
@@ -722,7 +731,7 @@ export default function StandaloneLiveTrafficScreen() {
     checkAlerts();
     const iv = setInterval(checkAlerts, 120000);
     return () => { cancelled = true; clearInterval(iv); };
-  }, [stableAlertLat, stableAlertLon, raRadiusKm, detectedCountryIso, geozoneReval.dataVersion]);
+  }, [stableAlertLat, stableAlertLon, raRadiusKm, vlosKm, detectedCountryIso, geozoneReval.dataVersion]);
 
   const openSidePanel = useCallback(async (panel: "geozone" | "notam" | "wetter" | "radar") => {
     if (sidePanel === panel) { setSidePanel(null); return; }
@@ -741,7 +750,7 @@ export default function StandaloneLiveTrafficScreen() {
     try {
       if (panel === "geozone") {
         let geozonesLoaded = true;
-        const zones = await queryGeozonesInArea(latitude, longitude, raRadiusKm, detectedCountryIso).catch((e) => {
+        const zones = await queryGeozonesInArea(latitude, longitude, vlosKm, detectedCountryIso).catch((e) => {
           geozonesLoaded = false;
           setGeozoneDataStatus("error");
           console.warn("[openSidePanel] geozone query failed:", e?.message || e);
@@ -754,7 +763,7 @@ export default function StandaloneLiveTrafficScreen() {
       } else if (panel === "notam") {
         const [result, zones, dipulResult, luTsaNotams] = await Promise.all([
           fetchNotams(latitude, longitude).catch(() => ({ notams: [] as NotamData[], total: 0, queriedCodes: [] as string[], failed: true })),
-          queryGeozonesInArea(latitude, longitude, raRadiusKm, detectedCountryIso).catch(() => [] as GeozoneFeatureInfo[]),
+          queryGeozonesInArea(latitude, longitude, vlosKm, detectedCountryIso).catch(() => [] as GeozoneFeatureInfo[]),
           fetchNearbyTempRestrictionsRaw(latitude, longitude, raRadiusKm).catch(() => ({ active: [] as DipulTempRestriction[], upcoming: [] as DipulTempRestriction[] })),
           detectedCountryIso === "LU" ? fetchLuTsaAsNotams(latitude, longitude, raRadiusKm).catch(() => []) : Promise.resolve([]),
         ]);
