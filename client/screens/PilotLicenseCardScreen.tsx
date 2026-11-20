@@ -378,12 +378,18 @@ function LicenseCard({ tier, profile, cardWidth }: LicenseCardProps) {
     </>
   );
 
+  // Oberen weißen Rand der Vorlage abschneiden → Scheckkartenformat, spart Höhe.
+  // Textpositionen bleiben an der vollen Vorlage ausgerichtet; nur der Rahmen ist
+  // kürzer und schiebt das Bild nach oben (overflow: hidden).
+  const CROP_TOP = 0.08;
+  const visibleHeight = cardHeight * (1 - CROP_TOP);
+
   return (
-    <View style={[cardStyles.card, { width: cardWidth, height: cardHeight }]}>
+    <View style={[cardStyles.card, { width: cardWidth, height: visibleHeight, overflow: "hidden" }]}>
       {template ? (
         <ImageBackground
           source={template}
-          style={{ width: cardWidth, height: cardHeight }}
+          style={{ width: cardWidth, height: cardHeight, marginTop: -CROP_TOP * cardHeight }}
           resizeMode="cover"
         >
           {content}

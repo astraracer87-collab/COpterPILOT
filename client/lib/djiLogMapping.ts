@@ -59,8 +59,19 @@ export function prettyDroneName(
   details: Pick<DjiLogDetailsInfo, "productType" | "aircraftName">,
 ): string | undefined {
   const pt = details.productType;
-  if (pt && pt !== "None" && !pt.startsWith("Unbekannt")) {
-    const spaced = pt
+  const fromLog = details.aircraftName?.trim();
+  // Produkttyp nur verwenden, wenn er wie ein Modellname aussieht (enthält
+  // Buchstaben). Rein numerische/unbekannte Typen (z. B. "139" einer noch nicht
+  // gelisteten Mini 5 Pro) sagen nichts – dann lieber den Namen aus dem Log.
+  const ptUsable =
+    !!pt &&
+    pt !== "None" &&
+    !pt.startsWith("Unbekannt") &&
+    /[A-Za-z]/.test(pt) &&
+    !/^DJI\s*\d+$/i.test(pt.trim());
+  if (!ptUsable && fromLog) return fromLog;
+  if (ptUsable) {
+    const spaced = pt!
       .replace(/([a-z])([A-Z0-9])/g, "$1 $2")
       .replace(/([0-9])([A-Z][a-z])/g, "$1 $2")
       .replace(/RTK/g, " RTK")

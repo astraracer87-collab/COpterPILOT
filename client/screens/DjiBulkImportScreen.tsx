@@ -34,7 +34,8 @@ import {
 } from "@/lib/djiLog";
 import { getLogbook, type LogbookEntry } from "@/lib/storage";
 import { reverseGeocodePlace } from "@/lib/countryMaps";
-import DjiTracksMap, { type DjiMapTrack } from "@/components/DjiTracksMap";
+import { type DjiMapTrack } from "@/components/DjiTracksMap";
+import MiniTrackSketch from "@/components/MiniTrackSketch";
 import { DjiLogHelp } from "@/components/DjiLogHelp";
 import type { HistoryStackParamList } from "@/navigation/HistoryStackNavigator";
 
@@ -384,7 +385,7 @@ export default function DjiBulkImportScreen() {
 
         {previewTracks.length > 0 ? (
           <View style={styles.preview}>
-            <DjiTracksMap tracks={previewTracks} />
+            <MiniTrackSketch tracks={previewTracks} />
           </View>
         ) : null}
 
