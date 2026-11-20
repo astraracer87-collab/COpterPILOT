@@ -1,4 +1,5 @@
 import Constants from "expo-constants";
+import { DroneImage } from "@/components/DroneImage";
 import React, { useCallback, useMemo, useState } from "react";
 import {
   View,
@@ -41,7 +42,8 @@ import {
 const SORTED_COUNTRY_MAPS = [...COUNTRY_MAPS].sort((a, b) => a.nameDE.localeCompare(b.nameDE, "de"));
 
 /** Einheitliche Zeilenhöhe aller Einträge (Titel + einzeilige Unterzeile). */
-const ROW_MIN_HEIGHT = 56;
+/** Einheitliche Zeilenhöhe: alle Einträge gleich hoch, Karten nebeneinander enden bündig */
+const ROW_MIN_HEIGHT = 64;
 
 type NavigationProp = NativeStackNavigationProp<SettingsStackParamList>;
 
@@ -443,7 +445,10 @@ export default function SettingsScreen() {
               accessibilityLabel={`${drone.name} als aktive Drohne wählen`}
               testID={`settings-drone-select-${drone.id}`}
             >
-              <Feather name={isSelected ? "check-circle" : "circle"} size={22} color={isSelected ? theme.primary : theme.textTertiary} />
+              <View style={{ flexDirection: "row", alignItems: "center", gap: Spacing.sm }}>
+                <Feather name={isSelected ? "check-circle" : "circle"} size={22} color={isSelected ? theme.primary : theme.textTertiary} />
+                <DroneImage manufacturer={drone.manufacturer} model={drone.model} size={44} iconColor={theme.textSecondary} iconSize={22} />
+              </View>
             </Pressable>
           }
           title={drone.name}
@@ -794,7 +799,7 @@ const styles = StyleSheet.create({
     gap: Spacing.md,
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
-    minHeight: ROW_MIN_HEIGHT,
+    height: ROW_MIN_HEIGHT,
     borderRadius: BorderRadius.md,
   },
   rowIcon: {
@@ -817,8 +822,10 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     maxWidth: 140,
   },
+  // Basiskarte belegt genau zwei Zeilenhöhen (Titel + Auswahl)
   mapStyleRow: {
-    alignItems: "flex-start",
+    alignItems: "center",
+    height: ROW_MIN_HEIGHT * 2 + Spacing.xs,
   },
   chipRow: {
     flexDirection: "row",
