@@ -313,10 +313,22 @@ export default function ChargerLiveScreen() {
       </ScrollView>
       <BatteryAssignModal
         prompt={snap.prompt}
+        occupiedKeys={occupiedKeysExcept(snap.slots, snap.prompt?.slot)}
         onAnswer={(slot, ref) => void chargerController.answerPrompt(slot, ref)}
       />
     </ThemedView>
   );
+}
+
+function occupiedKeysExcept(
+  slots: Record<number, { battery: Parameters<typeof batteryKey>[0] | null }>,
+  slot: number | undefined,
+): Set<string> {
+  const out = new Set<string>();
+  for (const [idx, s] of Object.entries(slots)) {
+    if (Number(idx) !== slot && s?.battery) out.add(batteryKey(s.battery));
+  }
+  return out;
 }
 
 function HeaderButton({

@@ -33,22 +33,27 @@ function fmtDate(iso: string): string {
 export function BatteryAssignModal({
   prompt,
   onAnswer,
+  occupiedKeys,
 }: {
   prompt: BatteryPrompt | null;
   onAnswer: (slot: number, ref: BatteryRef | undefined) => void;
+  /** Akkus, die gerade in einem anderen Schacht stecken (nicht wählbar) */
+  occupiedKeys?: ReadonlySet<string>;
 }) {
   if (!prompt) return null;
   // neue Frage → frischer Zustand (key)
   const key = `${prompt.slot}-${prompt.fingerprint.productionDate}-${prompt.fingerprint.cycles}`;
-  return <AssignDialog key={key} prompt={prompt} onAnswer={onAnswer} />;
+  return <AssignDialog key={key} prompt={prompt} onAnswer={onAnswer} occupiedKeys={occupiedKeys} />;
 }
 
 function AssignDialog({
   prompt,
   onAnswer,
+  occupiedKeys,
 }: {
   prompt: BatteryPrompt;
   onAnswer: (slot: number, ref: BatteryRef | undefined) => void;
+  occupiedKeys?: ReadonlySet<string>;
 }) {
   const { theme } = useTheme();
   const [batteries, setBatteries] = useState<AppBattery[]>([]);
@@ -75,11 +80,13 @@ function AssignDialog({
   );
   const ordered = useMemo(
     () =>
-      [...batteries].sort(
-        (a, b) =>
-          Number(candidateKeys.has(b.key)) - Number(candidateKeys.has(a.key)),
-      ),
-    [batteries, candidateKeys],
+      batteries
+        .filter((b) => !occupiedKeys?.has(b.key))
+        .sort(
+          (a, b) =>
+            Number(candidateKeys.has(b.key)) - Number(candidateKeys.has(a.key)),
+        ),
+    [batteries, candidateKeys, occupiedKeys],
   );
 
   const slot = prompt.slot;

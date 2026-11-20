@@ -17,7 +17,9 @@ import { ThemedText } from "@/components/ThemedText";
 import { useTheme } from "@/hooks/useTheme";
 import { BorderRadius, Spacing } from "@/constants/theme";
 import { TrendChart } from "@/components/charger/TrendChart";
-import { listChargeSessions, type SessionIndexEntry } from "@/lib/chargerStore";
+import { getBatteryLinks, listChargeSessions, type SessionIndexEntry } from "@/lib/chargerStore";
+import type { BatteryLink } from "@/lib/charger/batteryFingerprint";
+import { getDrone, type DroneBattery } from "@/lib/storage";
 import {
   computeBatteryStats,
   END_REASON_LABEL,
@@ -39,6 +41,26 @@ export default function ChargerBatteryHistoryScreen() {
   const { theme } = useTheme();
   const { batteryKey, label } = route.params;
   const [entries, setEntries] = useState<SessionIndexEntry[]>([]);
+  const [link, setLink] = useState<BatteryLink | null>(null);
+  const [droneName, setDroneName] = useState<string | null>(null);
+  const [appBattery, setAppBattery] = useState<DroneBattery | null>(null);
+
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      void (async () => {
+        const l = (await getBatteryLinks().catch(() => [])).find((x) => x.key === batteryKey) ?? null;
+        const drone = l?.droneId ? await getDrone(l.droneId).catch(() => null) : null;
+        if (cancelled) return;
+        setLink(l);
+        setDroneName(drone?.name ?? null);
+        setAppBattery(drone?.batteries?.find((b) => b.id === l?.batteryId) ?? null);
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [batteryKey]),
+  );
 
   useFocusEffect(
     useCallback(() => {
@@ -75,6 +97,27 @@ export default function ChargerBatteryHistoryScreen() {
             ? ` · Kapazität ${Math.round(stats.capacityRatio * 100)} % vom Bestwert`
             : ""}
         </ThemedText>
+        {batteryKey !== UNASSIGNED_KEY ? (
+          <View style={[styles.dataCard, { borderColor: theme.border, backgroundColor: theme.backgroundSecondary }]} testID="battery-data-card">
+            <ThemedText style={styles.rowTitle}>Akku-Daten</ThemedText>
+            {[
+              ["Drohne", droneName],
+              ["Produktionsdatum", link?.productionDate ? formatDay(link.productionDate) : null],
+              ["Ladezyklen (Akku)", link ? String(Math.max(link.lastCycles, stats.cycles ?? 0)) : stats.cycles != null ? String(stats.cycles) : null],
+              ["Seriennummer", link?.djiSerial || appBattery?.serialNumber || null],
+              ["Zuletzt im Ladegerät", link?.lastSeenAt ? formatDateTime(link.lastSeenAt) : null],
+              ["Angelegt", appBattery?.createdAt ? formatDay(appBattery.createdAt) : null],
+              ["Kapazität bei 100 %", stats.lastFullMah != null ? `${Math.round(stats.lastFullMah)} mAh${stats.bestFullMah != null && stats.bestFullMah !== stats.lastFullMah ? ` (Bestwert ${Math.round(stats.bestFullMah)} mAh)` : ""}` : null],
+              ["Zell-Spreizung (letztes Volladen)", stats.lastFullDeltaMv != null ? `${stats.lastFullDeltaMv} mV` : null],
+              ["Höchsttemperatur", stats.maxTempC != null ? `${stats.maxTempC} °C` : null],
+            ].map(([k, v]) => (
+              <View key={k as string} style={styles.dataRow}>
+                <ThemedText style={[styles.sub, { color: theme.textSecondary, flex: 1 }]}>{k}</ThemedText>
+                <ThemedText style={styles.dataValue}>{(v as string | null) ?? "–"}</ThemedText>
+              </View>
+            ))}
+          </View>
+        ) : null}
         <View style={styles.charts}>
           <TrendChart
             title="Zyklen"
@@ -169,4 +212,12 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.sm,
   },
   rowTitle: { fontSize: 14, fontWeight: "600" },
+  dataCard: { borderWidth: 1, borderRadius: BorderRadius.sm, padding: Spacing.sm, gap: 4 },
+  dataRow: { flexDirection: "row", alignItems: "center", gap: Spacing.sm },
+  dataValue: { fontSize: 13, fontWeight: "600" },
 });
+
+function formatDay(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  return m ? `${m[3]}.${m[2]}.${m[1]}` : iso;
+}
