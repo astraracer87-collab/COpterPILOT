@@ -6,6 +6,8 @@ import type { ImageSourcePropType } from "react-native";
 const LOGOS: Record<string, ImageSourcePropType> = {
   dji: require("../../assets/images/logos/logo-dji.png"),
   betafpv: require("../../assets/images/logos/logo-betafpv.png"),
+  autel: require("../../assets/images/logos/logo-autel.png"),
+  antigravity: require("../../assets/images/logos/logo-antigravity.png"),
 };
 
 export function manufacturerKey(name: string | undefined): string {
@@ -18,7 +20,7 @@ export function getManufacturerLogo(name: string | undefined): ImageSourcePropTy
 }
 
 /** Einfarbige Logos: werden in der Textfarbe eingefärbt (hell/dunkel) */
-const MONOCHROME = new Set(["dji"]);
+const MONOCHROME = new Set(["dji", "antigravity"]);
 export function isMonochromeLogo(name: string | undefined): boolean {
   return MONOCHROME.has(manufacturerKey(name));
 }

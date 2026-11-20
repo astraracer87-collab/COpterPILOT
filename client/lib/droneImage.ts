@@ -81,13 +81,22 @@ const MODEL_TO_KEY: Array<[RegExp, string]> = [
   [/fly\s*cart/i,      "dji-flycart-30"],
 ];
 
+/** Bilder anderer Hersteller: [Herstellerschlüssel (nur a-z0-9), Modell-Regex, Bild] */
+const OTHER_MAKES: [string, RegExp, ImageSourcePropType][] = [
+  ["antigravity", /a\s*1/i, require("../../assets/images/drones/antigravity-a1.png")],
+];
+
 export function getDroneImage(
   manufacturer: string | undefined,
   model: string | undefined
 ): ImageSourcePropType | null {
   const mfr = (manufacturer ?? "").toLowerCase();
   const mdl = (model ?? "").toLowerCase();
-  if (mfr && !mfr.includes("dji")) return null;
+  if (mfr && !mfr.includes("dji")) {
+    const key = mfr.replace(/[^a-z0-9]/g, "");
+    const hit = OTHER_MAKES.find(([k, re]) => key.includes(k) && re.test(mdl));
+    return hit ? hit[2] : null;
+  }
 
   const search = mdl || mfr;
   for (const [regex, key] of MODEL_TO_KEY) {
