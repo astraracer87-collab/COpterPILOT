@@ -271,7 +271,15 @@ class RcKeysModule(private val reactContext: ReactApplicationContext) :
       for (ai in apps.sortedBy { it.packageName }) {
         val name = ai.packageName
         val label = try { pm.getApplicationLabel(ai).toString() } catch (ignored: Throwable) { name }
-        if (!name.lowercase().contains("dji") && !label.lowercase().contains("dji")) continue
+        // DJI-Apps plus alle System-Pakete außerhalb des Standard-Androids
+        // (der Dienst, der die Sticks verteilt, heißt evtl. nicht „dji“)
+        val n = name.lowercase()
+        val isSystem = (ai.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0
+        val stock = n == "android" || n.startsWith("com.android.") || n.startsWith("android.") ||
+          n.startsWith("com.google.") || n.startsWith("com.qualcomm.") || n.startsWith("com.qti.") ||
+          n.startsWith("org.codeaurora.") || n.startsWith("vendor.qti.") || n.startsWith("org.chromium.")
+        val djiLike = n.contains("dji") || label.lowercase().contains("dji") || n.contains("fly") || n.contains("rc")
+        if (!djiLike && !(isSystem && !stock)) continue
         val m = Arguments.createMap()
         m.putString("packageName", name)
         m.putString("label", label)

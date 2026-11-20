@@ -377,7 +377,7 @@ export default function RcKeyTestScreen() {
       <Card style={styles.infoCard}>
         <ThemedText style={styles.sectionTitle}>DJI-Systemteile (Analyse)</ThemedText>
         <ThemedText style={[styles.small, { color: theme.textSecondary }]}>
-          Listet die DJI-Apps und -Dienste auf dem Gerät. „Exportieren“ kopiert die App-Datei nach Download/CopterPilot –
+          Listet die DJI-Apps und alle Systemteile außerhalb des Standard-Androids. „Exportieren“ kopiert die App-Datei nach Download/CopterPilot –
           damit lässt sich herausfinden, wie DJI die Sticks an andere Apps weitergibt.
         </ThemedText>
         {djiPkgs == null ? (
