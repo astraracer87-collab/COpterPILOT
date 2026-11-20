@@ -251,6 +251,14 @@ export const SCAN_SECONDS = 10;
 export const SCAN_PICK_DELAY_MS = 3000;
 export const RECONNECT_BACKOFF_MS = [1000, 2000, 4000, 8000, 15000, 30000];
 export const RAW_FRAME_LIMIT = 200;
+/**
+ * Suche (Scan/Neuversuche ohne Verbindung) nach so vielen ms beenden, damit
+ * nicht dauerhaft im Hintergrund per Bluetooth gesucht wird. Danach erst
+ * wieder über „Erneut suchen“ (start/retryNow).
+ */
+export const SEARCH_LIMIT_MS = 30000;
+/** Text, wenn die Suche nach SEARCH_LIMIT_MS ohne Erfolg beendet wurde */
+export const SEARCH_ENDED_TEXT = "Ladegerät nicht gefunden – Suche nach 30 s beendet";
 /** Status-Antwort 90 B + 3 B ATT-Kopf */
 export const MIN_USEFUL_MTU = 93;
 
@@ -311,6 +319,7 @@ export function createChargerTransport(deps: TransportDeps): ChargerTransport {
   let settingsAck: ((ok: boolean | null) => void) | null = null;
   let scanAttempt = 0;
   let initialized = false;
+  let searchTimer: unknown = null;
 
   function emit(e: TransportEvent) {
     for (const l of listeners) {
@@ -423,7 +432,10 @@ export function createChargerTransport(deps: TransportDeps): ChargerTransport {
     const failures = snap.failures + 1;
     const wait = backoffMs(failures);
     deps.log?.(`[charger] ${reason} → neu in ${wait} ms`);
-    if (wasConnected) emit({ type: "connection-lost", at: deps.now(), reason });
+    if (wasConnected) {
+      emit({ type: "connection-lost", at: deps.now(), reason });
+      armSearchTimer();
+    }
     set({
       state: "reconnecting",
       failures,
@@ -436,6 +448,46 @@ export function createChargerTransport(deps: TransportDeps): ChargerTransport {
     later(() => {
       if (g === gen && running) void cycle();
     }, wait);
+  }
+
+  // ── Suchdauer begrenzen ──────────────────────────────────────────────────
+  function clearSearchTimer() {
+    if (searchTimer != null) timers.clearTimeout(searchTimer as never);
+    searchTimer = null;
+  }
+  function armSearchTimer(ms = SEARCH_LIMIT_MS) {
+    clearSearchTimer();
+    searchTimer = timers.setTimeout(() => {
+      searchTimer = null;
+      if (!running) return;
+      const st = snap.state;
+      if (st === "connected") return;
+      // Mitten im Verbinden/Koppeln (z. B. Bestätigung am Gerät) nicht abbrechen
+      if (st === "connecting" || st === "pairing" || st === "waiting-confirm") {
+        armSearchTimer(5000);
+        return;
+      }
+      void giveUp();
+    }, ms);
+  }
+  async function giveUp() {
+    deps.log?.("[charger] Suche beendet (Zeitlimit)");
+    running = false;
+    gen++;
+    cancelAll();
+    unsubscribeAll();
+    await ble.stopScan().catch(() => {});
+    const id = snap.deviceId;
+    if (id) await ble.disconnect(id).catch(() => {});
+    bound = false;
+    inFlightSince = null;
+    set({
+      state: "stopped",
+      hint: snap.hint === "bootloader" || snap.hint === "bluetooth-off" ? snap.hint : "not-found",
+      lastError: SEARCH_ENDED_TEXT,
+      connectedAt: null,
+      nextRetryAt: null,
+    });
   }
 
   // ── Zyklus: Scan → Verbinden → Koppeln → Abfragen ───────────────────────
@@ -743,6 +795,7 @@ export function createChargerTransport(deps: TransportDeps): ChargerTransport {
       connectedAt: deps.now(),
       nextRetryAt: null,
     });
+    clearSearchTimer();
     settingsTries = 0;
     try {
       await write("af02", [...REQ_HARDWARE_INFO]);
@@ -788,12 +841,14 @@ export function createChargerTransport(deps: TransportDeps): ChargerTransport {
       if (running) return;
       running = true;
       set({ state: "scanning", failures: 0, hint: null, lastError: null });
+      armSearchTimer();
       void cycle();
     },
     async stop() {
       if (!running && snap.state === "stopped") return;
       running = false;
       gen++;
+      clearSearchTimer();
       cancelAll();
       unsubscribeAll();
       const id = snap.deviceId;
@@ -840,10 +895,20 @@ export function createChargerTransport(deps: TransportDeps): ChargerTransport {
       return ok ? "ok" : "rejected";
     },
     retryNow() {
-      if (!running) return;
+      if (!running) {
+        // Suche war beendet → neue Suche starten
+        if (snap.state !== "stopped") return;
+        running = true;
+        set({ state: "scanning", failures: 0, hint: null, lastError: null });
+        armSearchTimer();
+        void cycle();
+        return;
+      }
       if (snap.state === "connected") return;
       gen++;
       cancelAll();
+      set({ failures: 0 });
+      armSearchTimer();
       void cycle();
     },
     snapshot: () => snap,

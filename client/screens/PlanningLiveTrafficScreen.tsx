@@ -474,7 +474,7 @@ export default function PlanningLiveTrafficScreen() {
       lonDelta={lonDelta}
       locationName={locationName}
       markers={mapMarkers}
-      trails={trails}
+      trails={[]}
       alarmRadiusM={alarmSettings.enabled ? (alarmSettings.ra?.radiusKm ?? 1) * 1000 : undefined}
       taRadiusM={alarmSettings.enabled ? (alarmSettings.ta?.radiusKm ?? 3) * 1000 : undefined}
       wind={wind}

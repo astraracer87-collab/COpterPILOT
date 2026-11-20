@@ -10,6 +10,8 @@ import {
   backoffMs,
   createChargerTransport,
   RESPONSE_TIMEOUT_MS,
+  SEARCH_ENDED_TEXT,
+  SEARCH_LIMIT_MS,
   type BleDiscovered,
   type BleLike,
   type PairingRecord,
@@ -308,6 +310,37 @@ describe("Verbinden und Koppeln", () => {
       (m.scanOpts[1] as { manufacturerFilter?: unknown }).manufacturerFilter,
       undefined,
     );
+  });
+});
+
+describe("Suchdauer", () => {
+  it("nichts gefunden → Suche nach 30 s beendet, kein weiterer Scan; „Erneut suchen“ startet neu", async () => {
+    const { clock, m, tr } = setup({ advertise: [] });
+    tr.start();
+    await clock.advance(SEARCH_LIMIT_MS + 100);
+    assert.equal(tr.snapshot().state, "stopped");
+    assert.equal(tr.snapshot().lastError, SEARCH_ENDED_TEXT);
+    assert.equal(tr.snapshot().hint, "not-found");
+    const scans = m.calls.filter((c) => c === "scan").length;
+    await clock.advance(120_000);
+    assert.equal(m.calls.filter((c) => c === "scan").length, scans, "kein Scan im Hintergrund");
+    tr.retryNow();
+    assert.equal(tr.snapshot().state, "scanning");
+    await clock.advance(1000);
+    assert.equal(m.calls.filter((c) => c === "scan").length, scans + 1);
+    await tr.stop();
+  });
+
+  it("Verbindung gefunden → kein Abbruch; nach Verbindungsverlust wieder höchstens 30 s Suche", async () => {
+    const { clock, m, tr } = setup();
+    tr.start();
+    await clock.advance(SEARCH_LIMIT_MS + 5000);
+    assert.equal(tr.snapshot().state, "connected");
+    m.state.connectFails = true;
+    m.dropConnection();
+    await clock.advance(SEARCH_LIMIT_MS + 100);
+    assert.equal(tr.snapshot().state, "stopped");
+    assert.equal(tr.snapshot().lastError, SEARCH_ENDED_TEXT);
   });
 });
 

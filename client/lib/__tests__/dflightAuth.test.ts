@@ -107,6 +107,10 @@ describe("dflightAuth – socket.io / Fehler", () => {
     );
     assert.match(dflightLoginErrorMessage(400, { error: "invalid_grant", error_description: "Account disabled" }).message, /gesperrt/);
     assert.equal(dflightLoginErrorMessage(500, "x").kind, "server");
+    // HTTP 400 ohne eindeutige Keycloak-Antwort ist KEIN „Passwort falsch“
+    const req = dflightLoginErrorMessage(400, { error: "invalid_request", error_description: "Missing form parameter: grant_type" });
+    assert.equal(req.kind, "server");
+    assert.match(req.message, /HTTP 400 – invalid_request: Missing form parameter/);
   });
 });
 

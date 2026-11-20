@@ -23,7 +23,7 @@ import {
 } from "@/hooks/useCharger";
 import { chargerController } from "@/lib/charger/chargerControllerNative";
 import { batteryKey } from "@/lib/charger/batteryFingerprint";
-import { HINT_TEXT, type TransportState } from "@/lib/charger/bleTransport";
+import { HINT_TEXT, SEARCH_ENDED_TEXT, type TransportState } from "@/lib/charger/bleTransport";
 import { LOCATION_OFF_HINT } from "@/lib/charger/blePermissions";
 import { requestEnableBluetooth } from "@/lib/charger/bleManagerAdapter";
 import {
@@ -67,6 +67,8 @@ export default function ChargerLiveScreen() {
   const state: TransportState = t?.state ?? "idle";
   const connected = state === "connected";
   const running = !!t && state !== "stopped" && state !== "idle";
+  // Suche nach 30 s ohne Fund beendet → „Erneut suchen“
+  const searchEnded = state === "stopped" && t?.lastError === SEARCH_ENDED_TEXT;
 
   useEffect(() => {
     void isChargerPaired()
@@ -150,8 +152,8 @@ export default function ChargerLiveScreen() {
             />
           ) : (
             <HeaderButton
-              icon="bluetooth"
-              label="Verbinden"
+              icon={searchEnded ? "refresh-cw" : "bluetooth"}
+              label={searchEnded ? "Erneut suchen" : "Verbinden"}
               onPress={() => void start()}
               testID="charger-connect"
             />

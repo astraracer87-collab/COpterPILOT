@@ -1,6 +1,6 @@
 import { openLink } from "@/lib/webBrowser";
 import React, { useState, useEffect, useCallback, useRef, useMemo, useContext } from "react";
-import { View, StyleSheet, FlatList, Pressable, ActivityIndicator, ScrollView, Platform, Text, Modal, Animated, Dimensions, AppState, Linking, Alert } from "react-native";
+import { View, StyleSheet, FlatList, Pressable, ActivityIndicator, ScrollView, Platform, Text, Modal, Animated, Dimensions, AppState, Linking, Alert, useWindowDimensions } from "react-native";
 import { BottomTabBarHeightContext } from "@react-navigation/bottom-tabs";
 import { useRoute, type RouteProp } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -609,7 +609,13 @@ export default function StandaloneLiveTrafficScreen() {
     viewportBboxRef.current = bbox;
     setEnergyMapCenter((current) => getEnergyInfrastructureCenterForViewport(current, bbox));
   }, []);
+  // Ohne GPS-Fix: Verkehr schon für die letzte bekannte Position laden (wie der
+  // Hintergrundwächter) – sonst warnt dieser, während die Karte leer bleibt.
+  const trafficLat = latitude ?? (mapCenter.source === "last" ? mapCenter.latitude : null);
+  const trafficLon = longitude ?? (mapCenter.source === "last" ? mapCenter.longitude : null);
   const loadAircraft = useCallback(async () => {
+    const latitude = trafficLat;
+    const longitude = trafficLon;
     if (latitude == null || longitude == null) return;
     if (isLoadingAircraft.current) return;
     if (!appActiveRef.current) return;
@@ -630,8 +636,8 @@ export default function StandaloneLiveTrafficScreen() {
       for (const ap of approachingRef.current) {
         if (!stateIds.has(ap.aircraft.icao24) && !allAcForTrails.some((a) => a.icao24 === ap.aircraft.icao24)) allAcForTrails.push(ap.aircraft);
       }
-      const trailResult = updateTrails(allAcForTrails, result.trails, latitude, longitude, radiusKm, alarmSettings.maxAltitudeM ?? 500);
-      setTrails(trailResult.trails);
+      // Keine Flugspuren auf dem Radar (nur die Flugzeuge selbst)
+      void allAcForTrails;
       setAircraft(result.states);
       setSourceStatus(result.sourceStatus);
       setLastUpdate(new Date());
@@ -642,16 +648,16 @@ export default function StandaloneLiveTrafficScreen() {
     } finally {
       isLoadingAircraft.current = false;
     }
-  }, [latitude, longitude, radiusKm, updateTrails]);
+  }, [trafficLat, trafficLon, radiusKm, updateTrails]);
 
   useEffect(() => {
-    if (latitude == null || longitude == null) return;
+    if (trafficLat == null || trafficLon == null) return;
     loadAircraft();
     refreshInterval.current = setInterval(loadAircraft, 2000);
     return () => {
       if (refreshInterval.current) clearInterval(refreshInterval.current);
     };
-  }, [loadAircraft, latitude, longitude]);
+  }, [loadAircraft, trafficLat, trafficLon]);
 
   const loadAircraftRef = useRef(loadAircraft);
   loadAircraftRef.current = loadAircraft;
@@ -1351,7 +1357,7 @@ export default function StandaloneLiveTrafficScreen() {
               hideUserPosition={!hasRealPosition}
               locationName={locationName}
               markers={showTraffic ? mapMarkers : []}
-              trails={showTraffic ? coloredTrails : []}
+              trails={[]}
               fullScreen
               alarmRadiusM={(alarmSettings.ra?.radiusKm ?? 1) * 1000}
               taRadiusM={(alarmSettings.ta?.radiusKm ?? 3) * 1000}
@@ -2977,30 +2983,12 @@ function SidePanelView({ panel, loading, geozones, windFacilityWarnings = [], ge
                 );
               })()}
               <View style={[sidePanelStyles.divider, { backgroundColor: divColor }]} />
-              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-                <Text style={[{ fontSize: 12, fontWeight: "600", color: mutedColor }]}>Radius</Text>
-                <Text style={[{ fontSize: 14, fontWeight: "700", color: "#AF52DE" }]}>{radarData.radiusKm} km</Text>
-              </View>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                <Text style={[{ fontSize: 10, color: mutedColor }]}>3km</Text>
-                <Slider
-                  style={{ flex: 1, height: 30 }}
-                  minimumValue={3}
-                  maximumValue={30}
-                  step={1}
-                  value={radarData.radiusKm}
-                  onSlidingComplete={(val) => {
-                    radarData.onRadiusChange(Math.round(val));
-                  }}
-                  onValueChange={(val) => {
-                    radarData.onRadiusChange(Math.round(val));
-                  }}
-                  minimumTrackTintColor="#AF52DE"
-                  maximumTrackTintColor={isDark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.1)"}
-                  thumbTintColor="#AF52DE"
-                />
-                <Text style={[{ fontSize: 10, color: mutedColor }]}>30km</Text>
-              </View>
+              <RadarRadiusSlider
+                radiusKm={radarData.radiusKm}
+                onCommit={radarData.onRadiusChange}
+                mutedColor={mutedColor}
+                isDark={isDark}
+              />
               <View style={[sidePanelStyles.divider, { backgroundColor: divColor }]} />
               <View style={sidePanelStyles.radarStatsRow}>
                 <View style={sidePanelStyles.radarStatCard}>
@@ -3669,8 +3657,14 @@ function MapConfigPopup({
   const segInactiveText = isDark ? "rgba(160, 180, 210, 0.65)" : "rgba(80, 80, 100, 0.65)";
   const dividerColor = isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.07)";
   const sectionColor = isDark ? "rgba(130,155,200,0.55)" : "rgba(100,100,130,0.55)";
+  // Fernsteuerung im Querformat: oben ansetzen und bis über die Tab-Leiste
+  // begrenzen; der Inhalt scrollt, damit alle Haken erreichbar sind
+  const { height: winH } = useWindowDimensions();
+  const popupTop = winH < 600 ? 60 : 240;
+  const popupMaxH = Math.max(200, winH - popupTop - 110);
   return (
-    <View style={[panelStyles.configPopup, { top: 240, backgroundColor: popupBg }]}>
+    <View style={[panelStyles.configPopup, { top: popupTop, maxHeight: popupMaxH, backgroundColor: popupBg }]}>
+      <ScrollView bounces={false} showsVerticalScrollIndicator contentContainerStyle={{ paddingBottom: 4 }}>
       <Text style={[panelStyles.configSectionTitle, { color: sectionColor }]}>KARTE</Text>
       <View style={[panelStyles.mapSegmented, { backgroundColor: segTrackBg }]}>
         {([
@@ -3730,6 +3724,59 @@ function MapConfigPopup({
         labelColor={labelColor}
         checkBorder={checkBorder}
       />
+      </ScrollView>
     </View>
+  );
+}
+
+/**
+ * Radius-Regler: beim Ziehen nur die Zahl lokal aktualisieren; Karte,
+ * Abfrage und Speichern erst beim Loslassen (sonst ruckelt der Regler,
+ * weil bei jedem Schritt der ganze Radar-Bildschirm neu rendert).
+ */
+function RadarRadiusSlider({
+  radiusKm,
+  onCommit,
+  mutedColor,
+  isDark,
+}: {
+  radiusKm: number;
+  onCommit: (r: number) => void;
+  mutedColor: string;
+  isDark: boolean;
+}) {
+  const [draft, setDraft] = useState<number | null>(null);
+  const shown = draft ?? radiusKm;
+  return (
+    <>
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+        <Text style={[{ fontSize: 12, fontWeight: "600", color: mutedColor }]}>Radius</Text>
+        <Text style={[{ fontSize: 14, fontWeight: "700", color: "#AF52DE" }]}>{shown} km</Text>
+      </View>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+        <Text style={[{ fontSize: 10, color: mutedColor }]}>3km</Text>
+        <Slider
+          testID="radar-radius-slider"
+          style={{ flex: 1, height: 30 }}
+          minimumValue={3}
+          maximumValue={30}
+          step={1}
+          value={radiusKm}
+          onValueChange={(val) => {
+            const r = Math.round(val);
+            setDraft((d) => (d === r ? d : r));
+          }}
+          onSlidingComplete={(val) => {
+            setDraft(null);
+            const r = Math.round(val);
+            if (r !== radiusKm) onCommit(r);
+          }}
+          minimumTrackTintColor="#AF52DE"
+          maximumTrackTintColor={isDark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.1)"}
+          thumbTintColor="#AF52DE"
+        />
+        <Text style={[{ fontSize: 10, color: mutedColor }]}>30km</Text>
+      </View>
+    </>
   );
 }

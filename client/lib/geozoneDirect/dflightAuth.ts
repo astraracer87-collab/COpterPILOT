@@ -381,10 +381,16 @@ export function dflightLoginErrorMessage(status: number, body: any): DflightAuth
     return new DflightAuthError("d-flight-Konto ist noch nicht vollständig eingerichtet (bitte auf d-flight.it abschließen)", "credentials", status);
   }
   if (/disabled/i.test(desc)) return new DflightAuthError("d-flight-Konto ist gesperrt", "credentials", status);
-  if (body?.error === "invalid_grant" || status === 400 || status === 401) {
-    return new DflightAuthError("d-flight: Benutzername oder Passwort falsch", "credentials", status);
+  // Nur die eindeutige Keycloak-Antwort heißt „Zugangsdaten falsch“
+  if (body?.error === "invalid_grant" && (/invalid user credentials/i.test(desc) || !desc)) {
+    return new DflightAuthError(
+      "d-flight: Benutzername oder Passwort falsch (Benutzername so wie bei d-flight.it, ggf. die E-Mail-Adresse)",
+      "credentials",
+      status,
+    );
   }
-  return new DflightAuthError(`d-flight-Anmeldung fehlgeschlagen (HTTP ${status})`, "server", status);
+  const detail = [body?.error, desc].filter(Boolean).join(": ") || raw.slice(0, 120);
+  return new DflightAuthError(`d-flight-Anmeldung fehlgeschlagen (HTTP ${status}${detail ? ` – ${detail}` : ""})`, "server", status);
 }
 
 async function postTokenRequest(url: string, form: string): Promise<DflightToken> {
