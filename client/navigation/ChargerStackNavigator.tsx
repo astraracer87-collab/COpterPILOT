@@ -9,6 +9,7 @@
  *    „Ladegerät im Hintergrund loggen“ (ggf. mit Rückfrage).
  */
 import React, { useEffect } from "react";
+import { compactHeader } from "@/components/CompactStackHeader";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { useNavigation } from "@react-navigation/native";
 import ChargerLiveScreen from "@/screens/charger/ChargerLiveScreen";
@@ -72,7 +73,7 @@ export default function ChargerStackNavigator() {
       <Stack.Screen
         name="ChargerLive"
         component={ChargerLiveScreen}
-        options={{ headerTitle: "Ladegerät (ISDT MA331)" }}
+        options={{ header: compactHeader, headerTitle: "Ladegerät (ISDT MA331)" }}
       />
       <Stack.Screen
         name="ChargerBatteries"

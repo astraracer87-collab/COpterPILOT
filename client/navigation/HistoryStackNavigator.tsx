@@ -1,4 +1,5 @@
 import React from "react";
+import { compactHeader } from "@/components/CompactStackHeader";
 import { HeaderBackButton } from "@react-navigation/elements";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import HistoryScreen from "@/screens/HistoryScreen";
@@ -40,6 +41,7 @@ export default function HistoryStackNavigator() {
         name="History"
         component={HistoryScreen}
         options={({ navigation }) => ({
+          header: compactHeader,
           headerTitle: "Logbuch",
           // Logbuch steht nicht mehr in der Tab-Leiste: zurück zu den Einstellungen
           headerLeft: (props) => (

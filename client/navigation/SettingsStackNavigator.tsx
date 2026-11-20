@@ -1,4 +1,5 @@
 import React from "react";
+import { compactHeader } from "@/components/CompactStackHeader";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import SettingsScreen from "@/screens/SettingsScreen";
 import DronesScreen from "@/screens/DronesScreen";
@@ -76,6 +77,7 @@ export default function SettingsStackNavigator() {
         name="Settings"
         component={SettingsScreen}
         options={{
+          header: compactHeader,
           headerTitle: "Einstellungen",
         }}
       />

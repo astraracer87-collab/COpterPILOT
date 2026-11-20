@@ -1,4 +1,5 @@
 import React from "react";
+import { compactHeader } from "@/components/CompactStackHeader";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import NdFilterFinderScreen from "@/screens/NdFilterFinderScreen";
 import DroneCinematicScreen from "@/screens/DroneCinematicScreen";
@@ -29,7 +30,7 @@ export default function NdFilterStackNavigator() {
       <Stack.Screen
         name="NdFilterFinder"
         component={NdFilterFinderScreen}
-        options={{ headerTitle: "ND-Filter Finder" }}
+        options={{ header: compactHeader, headerTitle: "ND-Filter Finder" }}
       />
       <Stack.Screen
         name="DroneCinematic"
