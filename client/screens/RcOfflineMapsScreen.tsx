@@ -169,6 +169,7 @@ export default function OfflineMapsScreen() {
   const [dflightUser, setDflightUser] = useState<string | null>(null);
   const [dfUserInput, setDfUserInput] = useState("");
   const [dfPassInput, setDfPassInput] = useState("");
+  const [dfPassVisible, setDfPassVisible] = useState(false);
   const [dfBusy, setDfBusy] = useState(false);
   const [dfMsg, setDfMsg] = useState<string | null>(null);
   useEffect(() => {
@@ -470,17 +471,29 @@ export default function OfflineMapsScreen() {
                 textContentType="username"
                 style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.backgroundSecondary }]}
               />
-              <TextInput disableFullscreenUI
-                value={dfPassInput}
-                onChangeText={setDfPassInput}
-                placeholder="d-flight-Passwort"
-                placeholderTextColor={theme.textTertiary}
-                autoCapitalize="none"
-                autoCorrect={false}
-                secureTextEntry
-                textContentType="password"
-                style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.backgroundSecondary }]}
-              />
+              <View style={{ justifyContent: "center" }}>
+                <TextInput disableFullscreenUI
+                  value={dfPassInput}
+                  onChangeText={setDfPassInput}
+                  placeholder="d-flight-Passwort"
+                  placeholderTextColor={theme.textTertiary}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  secureTextEntry={!dfPassVisible}
+                  textContentType="password"
+                  style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.backgroundSecondary, paddingRight: 48 }]}
+                />
+                <Pressable
+                  onPress={() => setDfPassVisible((v) => !v)}
+                  hitSlop={10}
+                  accessibilityRole="button"
+                  accessibilityLabel={dfPassVisible ? "Passwort verbergen" : "Passwort anzeigen"}
+                  testID="toggle-dflight-password"
+                  style={{ position: "absolute", right: 14 }}
+                >
+                  <Feather name={dfPassVisible ? "eye-off" : "eye"} size={20} color={theme.textSecondary} />
+                </Pressable>
+              </View>
               <Pressable
                 onPress={saveDflight}
                 disabled={dfBusy || !dfUserInput.trim() || !dfPassInput}

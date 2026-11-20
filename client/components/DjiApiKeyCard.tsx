@@ -34,6 +34,7 @@ export function DjiApiKeyCard() {
   const { theme } = useTheme();
   const [stored, setStored] = useState<string | null>(null);
   const [input, setInput] = useState("");
+  const [keyVisible, setKeyVisible] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{
     text: string;
@@ -118,6 +119,7 @@ export function DjiApiKeyCard() {
       ) : null}
 
       <View style={{ marginTop: Spacing.md, gap: Spacing.sm }}>
+        <View style={{ justifyContent: "center" }}>
         <TextInput
           disableFullscreenUI
           testID="input-dji-api-key"
@@ -133,16 +135,28 @@ export function DjiApiKeyCard() {
           autoCorrect={false}
           autoComplete="off"
           importantForAutofill="no"
-          secureTextEntry
+          secureTextEntry={!keyVisible}
           style={[
             styles.input,
             {
               color: theme.text,
               borderColor: theme.border,
               backgroundColor: theme.backgroundSecondary,
+              paddingRight: 48,
             },
           ]}
         />
+        <Pressable
+          onPress={() => setKeyVisible((v) => !v)}
+          hitSlop={10}
+          accessibilityRole="button"
+          accessibilityLabel={keyVisible ? "Schlüssel verbergen" : "Schlüssel anzeigen"}
+          testID="toggle-dji-api-key"
+          style={{ position: "absolute", right: 14 }}
+        >
+          <Feather name={keyVisible ? "eye-off" : "eye"} size={20} color={theme.textSecondary} />
+        </Pressable>
+        </View>
         <Pressable
           testID="button-dji-key-save"
           onPress={save}

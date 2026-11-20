@@ -73,6 +73,7 @@
       "./plugins/withDjiAppQueries",
       "./plugins/withRcKeyEvents",
       "./plugins/withAlertOverlay",
+      "./plugins/withNetworkSecurity",
       "expo-secure-store",
       [
         "react-native-ble-manager",
