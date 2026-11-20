@@ -126,6 +126,7 @@ export default function SettingsStackNavigator() {
         component={DroneSetupScreen}
         options={{
           headerTitle: "Drohne einrichten",
+          header: compactHeader,
         }}
       />
       <Stack.Screen

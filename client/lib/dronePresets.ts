@@ -338,6 +338,17 @@ export function getPresetLimits(preset: DronePreset): WeatherLimits {
   };
 }
 
+const presetCollator = new Intl.Collator("de", { numeric: true, sensitivity: "base" });
+
+/** Alphabetisch nach Hersteller, dann Modell (Zahlen natürlich: Mini 2 < Mini 10) */
+export function sortPresetsAlpha(list: readonly DronePreset[]): DronePreset[] {
+  return [...list].sort(
+    (a, b) =>
+      presetCollator.compare(a.manufacturer, b.manufacturer) ||
+      presetCollator.compare(a.model, b.model),
+  );
+}
+
 export function searchPresets(query: string): DronePreset[] {
   const lowerQuery = query.toLowerCase();
   const compactQuery = lowerQuery.replace(/[\s\-_/()]/g, "");

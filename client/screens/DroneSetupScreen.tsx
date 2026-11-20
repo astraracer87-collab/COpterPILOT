@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { DroneImage } from "@/components/DroneImage";
 import { beaufortLevel, warnThresholdMs, WIND_WARN_FRACTION } from "@/lib/beaufort";
 import { activeNdKitId, applyNdKitSelection, buildNdKits, type NdKit } from "@/lib/ndKits";
@@ -13,10 +13,14 @@ import {
   FlatList,
   Modal,
   ActivityIndicator,
+  useWindowDimensions,
 } from "react-native";
 import { useRoute, useNavigation, CommonActions } from "@react-navigation/native";
 import type { RouteProp } from "@react-navigation/native";
 import { useHeaderHeight } from "@react-navigation/elements";
+import { chargerPairingStore, forgetCharger } from "@/lib/chargerStore";
+import { chargerController } from "@/lib/charger/chargerControllerNative";
+import { connectCharger } from "@/hooks/useCharger";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { ThemedText } from "@/components/ThemedText";
@@ -46,6 +50,7 @@ import {
 import {
   ALL_PRESETS,
   searchPresets,
+  sortPresetsAlpha,
   getPresetLimits,
   getDefaultCategoryForPreset,
   findPresetForDrone,
@@ -74,7 +79,15 @@ export default function DroneSetupScreen() {
 
   const [step, setStep] = useState<SetupStep>(isEditing ? "details" : "select");
   const [searchQuery, setSearchQuery] = useState("");
-  const [filteredPresets, setFilteredPresets] = useState<DronePreset[]>(ALL_PRESETS);
+  const sortedPresets = useMemo(() => sortPresetsAlpha(ALL_PRESETS), []);
+  const [filteredPresets, setFilteredPresets] = useState<DronePreset[]>(sortedPresets);
+  // Antippen zeigt sofort eine Rückmeldung; der große Detail-Schritt wird
+  // erst im nächsten Frame aufgebaut
+  const [openingKey, setOpeningKey] = useState<string | null>(null);
+  const { width: winW } = useWindowDimensions();
+  const presetColumns = winW >= 700 ? 2 : 1;
+  const [chargerMac, setChargerMac] = useState<string | null>(null);
+  const [pairedCharger, setPairedCharger] = useState<string | null>(null);
 
   const [name, setName] = useState("");
   const [manufacturer, setManufacturer] = useState("");
@@ -138,9 +151,9 @@ export default function DroneSetupScreen() {
 
   useEffect(() => {
     if (searchQuery.trim()) {
-      setFilteredPresets(searchPresets(searchQuery));
+      setFilteredPresets(sortPresetsAlpha(searchPresets(searchQuery)));
     } else {
-      setFilteredPresets(ALL_PRESETS);
+      setFilteredPresets(sortedPresets);
     }
   }, [searchQuery]);
 
@@ -167,6 +180,7 @@ export default function DroneSetupScreen() {
         setHasRemoteId(drone.hasRemoteId ?? false);
         setAltitudeLocked120m(drone.altitudeLocked120m ?? false);
         setOwnedNdFilters(drone.ownedNdFilters ?? []);
+        setChargerMac(drone.chargerMac ?? null);
         setBatteries(drone.batteries ?? []);
         setDroneType(drone.droneType);
         setOpenCategory(drone.openCategory);
@@ -191,7 +205,47 @@ export default function DroneSetupScreen() {
   };
 
   const selectPreset = (preset: DronePreset) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (openingKey) return;
+    setOpeningKey(`${preset.manufacturer}-${preset.model}`);
+    // Erst die Rückmeldung zeichnen, dann den Detail-Schritt aufbauen
+    requestAnimationFrame(() => setTimeout(() => applyPreset(preset), 0));
+  };
+
+  // ── Ladegerät (zentral pro Drohne) ──────────────────────────────────────
+  useEffect(() => {
+    void chargerPairingStore.getLastDevice().then(setPairedCharger).catch(() => {});
+  }, []);
+
+  const addCharger = () => {
+    if (pairedCharger) {
+      setChargerMac(pairedCharger);
+      return;
+    }
+    // Noch keins gekoppelt: Suche starten (30 s) und zum Ladegerät wechseln
+    void connectCharger();
+    (navigation as any).navigate("ChargerTab", { screen: "ChargerLive" });
+  };
+
+  const removeCharger = () => {
+    const mac = chargerMac;
+    if (!mac) return;
+    Alert.alert("Ladegerät entfernen", `ISDT MA331 · ${mac}`, [
+      { text: "Abbrechen", style: "cancel" },
+      { text: "Nur von Drohne lösen", onPress: () => setChargerMac(null) },
+      {
+        text: "Kopplung löschen",
+        style: "destructive",
+        onPress: async () => {
+          setChargerMac(null);
+          await chargerController.disconnect("interrupted").catch(() => {});
+          await forgetCharger(mac);
+          setPairedCharger(null);
+        },
+      },
+    ]);
+  };
+
+  const applyPreset = (preset: DronePreset) => {
     setName(`${preset.manufacturer} ${preset.model}`);
     setManufacturer(preset.manufacturer);
     setModel(preset.model);
@@ -214,12 +268,19 @@ export default function DroneSetupScreen() {
     setOpenCategory(getDefaultCategoryForPreset(preset));
     setSelectedPreset(preset);
     setStep("details");
+    setOpeningKey(null);
   };
 
   const selectManual = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setSelectedPreset(null);
-    setStep("details");
+    if (openingKey) return;
+    setOpeningKey("manual");
+    requestAnimationFrame(() =>
+      setTimeout(() => {
+        setSelectedPreset(null);
+        setStep("details");
+        setOpeningKey(null);
+      }, 0),
+    );
   };
 
   // Kit antippen setzt die Auswahl GENAU auf das Kit (nicht zusammenführen),
@@ -258,6 +319,7 @@ export default function DroneSetupScreen() {
           hasRemoteId,
           altitudeLocked120m,
           ownedNdFilters: ownedNdFilters.length > 0 ? ownedNdFilters : undefined,
+          chargerMac: chargerMac ?? undefined,
           batteries: batteries.length > 0 ? batteries : undefined,
           droneType,
           openCategory,
@@ -281,6 +343,7 @@ export default function DroneSetupScreen() {
           hasRemoteId,
           altitudeLocked120m,
           ownedNdFilters: ownedNdFilters.length > 0 ? ownedNdFilters : undefined,
+          chargerMac: chargerMac ?? undefined,
           batteries: batteries.length > 0 ? batteries : undefined,
           droneType,
           openCategory,
@@ -317,83 +380,175 @@ export default function DroneSetupScreen() {
     setLimits((prev) => ({ ...prev, [key]: numValue }));
   };
 
-  const renderPresetItem = ({ item }: { item: DronePreset }) => (
-    <Card style={styles.presetCard} onPress={() => selectPreset(item)}>
-      <View style={styles.presetImage}>
-        <DroneImage manufacturer={item.manufacturer} model={item.model} size={44} iconColor={theme.textTertiary} iconSize={22} />
+  const renderPresetItem = ({ item }: { item: DronePreset }) => {
+    const key = `${item.manufacturer}-${item.model}`;
+    const opening = openingKey === key;
+    return (
+      <View style={presetColumns > 1 ? styles.presetCell : undefined}>
+        <Card
+          style={[styles.presetCard, opening && { borderWidth: 1, borderColor: theme.primary }]}
+          onPress={() => selectPreset(item)}
+        >
+          <View style={styles.presetImage}>
+            <DroneImage manufacturer={item.manufacturer} model={item.model} size={40} iconColor={theme.textTertiary} iconSize={20} />
+          </View>
+          <View style={styles.presetInfo}>
+            <ThemedText style={styles.presetName} numberOfLines={1}>
+              {item.manufacturer} {item.model}
+            </ThemedText>
+            <ThemedText style={[styles.presetDetails, { color: theme.textSecondary }]} numberOfLines={1}>
+              {DRONE_CLASS_INFO[item.classMark].label} | {item.mtomGrams}g | Wind: {item.maxWindMs} m/s
+            </ThemedText>
+          </View>
+          {opening ? (
+            <ActivityIndicator size="small" color={theme.primary} />
+          ) : (
+            <Feather name="chevron-right" size={20} color={theme.textTertiary} />
+          )}
+        </Card>
       </View>
-      <View style={styles.presetInfo}>
-        <ThemedText style={styles.presetName}>
-          {item.manufacturer} {item.model}
-        </ThemedText>
-        <ThemedText style={[styles.presetDetails, { color: theme.textSecondary }]}>
-          {DRONE_CLASS_INFO[item.classMark].label} | {item.mtomGrams}g | Wind: {item.maxWindMs} m/s
-        </ThemedText>
-      </View>
-      <Feather name="chevron-right" size={20} color={theme.textTertiary} />
-    </Card>
-  );
+    );
+  };
 
   const renderSelectStep = () => (
     <View style={styles.stepContainer}>
-      <ThemedText style={styles.stepTitle}>Drohne auswählen</ThemedText>
-      <ThemedText style={[styles.stepDescription, { color: theme.textSecondary }]}>
-        Wählen Sie ein vordefiniertes Modell oder richten Sie manuell ein.
-      </ThemedText>
-
-      <TextInput disableFullscreenUI
-        style={[
-          styles.searchInput,
-          { backgroundColor: theme.backgroundSecondary, color: theme.text },
-        ]}
-        placeholder="Drohne suchen..."
-        placeholderTextColor={theme.textTertiary}
-        value={searchQuery}
-        onChangeText={setSearchQuery}
-      />
+      <View style={styles.selectTopRow}>
+        <TextInput disableFullscreenUI
+          style={[
+            styles.searchInput,
+            styles.searchInputCompact,
+            { backgroundColor: theme.backgroundSecondary, color: theme.text },
+          ]}
+          placeholder="Drohne suchen …"
+          placeholderTextColor={theme.textTertiary}
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+        />
+        <Pressable
+          onPress={selectManual}
+          style={({ pressed }) => [
+            styles.manualButton,
+            { borderColor: theme.border, backgroundColor: theme.backgroundSecondary },
+            pressed && styles.pressed,
+          ]}
+          testID="button-manual-setup"
+          accessibilityLabel="Manuell einrichten – eigene Drohne ohne Vorlage"
+        >
+          {openingKey === "manual" ? (
+            <ActivityIndicator size="small" color={theme.primary} />
+          ) : (
+            <Feather name="plus" size={18} color={theme.primary} />
+          )}
+          <ThemedText style={[styles.presetName, { color: theme.primary }]}>Manuell einrichten</ThemedText>
+        </Pressable>
+      </View>
 
       <FlatList
+        key={`cols-${presetColumns}`}
         data={filteredPresets}
+        numColumns={presetColumns}
         keyExtractor={(item) => `${item.manufacturer}-${item.model}`}
         renderItem={renderPresetItem}
         style={styles.presetList}
-        ListHeaderComponent={
-          <Pressable onPress={selectManual} style={({ pressed }) => pressed && styles.pressed} testID="button-manual-setup">
-            <Card style={[styles.presetCard, { borderStyle: "dashed", borderWidth: 1, borderColor: theme.border }]}>
-              <View style={styles.presetInfo}>
-                <ThemedText style={styles.presetName}>Manuell einrichten</ThemedText>
-                <ThemedText style={[styles.presetDetails, { color: theme.textSecondary }]}>
-                  Eigene Drohne ohne Preset konfigurieren
-                </ThemedText>
-              </View>
-              <Feather name="plus" size={20} color={theme.primary} />
-            </Card>
-          </Pressable>
+        keyboardShouldPersistTaps="handled"
+        initialNumToRender={16}
+        ListEmptyComponent={
+          <ThemedText style={[styles.presetDetails, { color: theme.textSecondary, padding: Spacing.md }]}>
+            Kein Modell gefunden – „Manuell einrichten“ nutzen.
+          </ThemedText>
         }
       />
     </View>
   );
 
-  const renderDetailsStep = () => {
-    return (
-    <KeyboardAwareScrollViewCompat bottomOffset={24} contentContainerStyle={styles.scrollContent}>
-      <View style={styles.detailsHeader}>
-        <View style={[styles.detailsImage, { backgroundColor: theme.backgroundSecondary }]}>
-          <DroneImage manufacturer={manufacturer} model={model} size={84} iconColor={theme.primary} iconSize={40} />
-        </View>
-        <ThemedText style={[styles.stepTitle, { flex: 1 }]}>
-          {isEditing ? "Drohne bearbeiten" : "Details eingeben"}
-        </ThemedText>
+  const renderSidePanel = () => (
+    <View style={[styles.sidePanel, { backgroundColor: theme.backgroundDefault, borderColor: theme.border }]} testID="drone-side-panel">
+      <View style={[styles.sideImage, { backgroundColor: theme.backgroundSecondary }]}>
+        <DroneImage manufacturer={manufacturer} model={model} size={200} iconColor={theme.primary} iconSize={72} />
       </View>
-
-      <ThemedText style={[styles.sectionLabel, { color: theme.textSecondary }]}>NAME</ThemedText>
-      <TextInput disableFullscreenUI
-        style={[styles.input, { backgroundColor: theme.backgroundSecondary, color: theme.text }]}
-        placeholder="z.B. DJI Mini 4 Pro"
-        placeholderTextColor={theme.textTertiary}
-        value={name}
-        onChangeText={setName}
+      <ThemedText style={styles.sideName} numberOfLines={2}>
+        {name.trim() || (isEditing ? "Drohne bearbeiten" : "Neue Drohne")}
+      </ThemedText>
+      {manufacturer || model ? (
+        <ThemedText style={[styles.sideSub, { color: theme.textSecondary }]} numberOfLines={1}>
+          {[manufacturer, model].filter(Boolean).join(" ")}
+        </ThemedText>
+      ) : null}
+      <View style={styles.sideChips}>
+        {[
+          DRONE_CLASS_INFO[classMark]?.label ?? classMark,
+          `${mtomGrams} g`,
+          charDimensionM > 0 ? `CD ${Math.round(charDimensionM * 1000)} mm` : null,
+          DRONE_TYPE_INFO[droneType]?.label ?? null,
+        ]
+          .filter(Boolean)
+          .map((c) => (
+            <View key={c as string} style={[styles.sideChip, { backgroundColor: theme.primary + "1F" }]}>
+              <ThemedText style={[styles.sideChipText, { color: theme.primary }]}>{c}</ThemedText>
+            </View>
+          ))}
+      </View>
+      <View style={{ flex: 1 }} />
+      <Button
+        title={isEditing ? "Speichern" : "Drohne anlegen"}
+        onPress={handleSave}
+        disabled={saving}
+        loading={saving}
       />
+    </View>
+  );
+
+  const renderDetailsStep = () => {
+    const wide = winW >= 700;
+    if (!wide) return renderDetailsForm(false);
+    return (
+      <View style={styles.detailsWide}>
+        {renderSidePanel()}
+        <View style={{ flex: 1 }}>{renderDetailsForm(true)}</View>
+      </View>
+    );
+  };
+
+  const renderDetailsForm = (wide: boolean) => {
+    return (
+    <KeyboardAwareScrollViewCompat bottomOffset={24} contentContainerStyle={[styles.scrollContent, wide && styles.scrollContentWide]}>
+      {!wide ? (
+        <View style={styles.detailsHeader}>
+          <View style={[styles.detailsImage, { backgroundColor: theme.backgroundSecondary }]}>
+            <DroneImage manufacturer={manufacturer} model={model} size={84} iconColor={theme.primary} iconSize={40} />
+          </View>
+          <ThemedText style={[styles.stepTitle, { flex: 1 }]}>
+            {isEditing ? "Drohne bearbeiten" : "Details eingeben"}
+          </ThemedText>
+        </View>
+      ) : null}
+
+      <View style={styles.row}>
+        <View style={styles.halfInput}>
+          <ThemedText style={[styles.sectionLabel, wide && styles.sectionLabelFirst, { color: theme.textSecondary }]}>NAME</ThemedText>
+          <TextInput disableFullscreenUI
+            style={[styles.input, { backgroundColor: theme.backgroundSecondary, color: theme.text }]}
+            placeholder="z.B. DJI Mini 4 Pro"
+            placeholderTextColor={theme.textTertiary}
+            value={name}
+            onChangeText={setName}
+          />
+        </View>
+        {wide ? (
+          <View style={styles.halfInput}>
+            <ThemedText style={[styles.sectionLabel, styles.sectionLabelFirst, { color: theme.textSecondary }]}>SERIENNUMMER</ThemedText>
+            <TextInput disableFullscreenUI
+              testID="drone-input-serial"
+              style={[styles.input, { backgroundColor: theme.backgroundSecondary, color: theme.text }]}
+              placeholder="optional, z.B. 1581F4..."
+              placeholderTextColor={theme.textTertiary}
+              value={serialNumber}
+              onChangeText={setSerialNumber}
+              autoCapitalize="characters"
+            />
+          </View>
+        ) : null}
+      </View>
 
       <View style={styles.row}>
         <View style={styles.halfInput}>
@@ -418,16 +573,20 @@ export default function DroneSetupScreen() {
         </View>
       </View>
 
-      <ThemedText style={[styles.sectionLabel, { color: theme.textSecondary }]}>SERIENNUMMER</ThemedText>
-      <TextInput disableFullscreenUI
-        testID="drone-input-serial"
-        style={[styles.input, { backgroundColor: theme.backgroundSecondary, color: theme.text }]}
-        placeholder="optional, z.B. 1581F4..."
-        placeholderTextColor={theme.textTertiary}
-        value={serialNumber}
-        onChangeText={setSerialNumber}
-        autoCapitalize="characters"
-      />
+      {!wide ? (
+        <>
+          <ThemedText style={[styles.sectionLabel, { color: theme.textSecondary }]}>SERIENNUMMER</ThemedText>
+          <TextInput disableFullscreenUI
+            testID="drone-input-serial"
+            style={[styles.input, { backgroundColor: theme.backgroundSecondary, color: theme.text }]}
+            placeholder="optional, z.B. 1581F4..."
+            placeholderTextColor={theme.textTertiary}
+            value={serialNumber}
+            onChangeText={setSerialNumber}
+            autoCapitalize="characters"
+          />
+        </>
+      ) : null}
 
       <ThemedText style={[styles.sectionLabel, { color: theme.textSecondary }]}>EU-KLASSE</ThemedText>
       <View style={styles.classButtons}>
@@ -457,32 +616,37 @@ export default function DroneSetupScreen() {
         ))}
       </View>
 
-      <ThemedText style={[styles.sectionLabel, { color: theme.textSecondary }]}>GEWICHT (MTOM)</ThemedText>
-      <View style={styles.inputRow}>
-        <TextInput disableFullscreenUI
-          style={[styles.input, styles.numberInput, { backgroundColor: theme.backgroundSecondary, color: theme.text }]}
-          value={String(mtomGrams)}
-          onChangeText={(v) => setMtomGrams(parseInt(v) || 0)}
-          keyboardType="numeric"
-        />
-        <ThemedText style={[styles.unitLabel, { color: theme.textSecondary }]}>Gramm</ThemedText>
+      <View style={styles.row}>
+        <View style={styles.halfInput}>
+          <ThemedText style={[styles.sectionLabel, { color: theme.textSecondary }]}>GEWICHT (MTOM)</ThemedText>
+          <View style={styles.inputRow}>
+            <TextInput disableFullscreenUI
+              style={[styles.input, styles.numberInput, { backgroundColor: theme.backgroundSecondary, color: theme.text }]}
+              value={String(mtomGrams)}
+              onChangeText={(v) => setMtomGrams(parseInt(v) || 0)}
+              keyboardType="numeric"
+            />
+            <ThemedText style={[styles.unitLabel, { color: theme.textSecondary }]}>Gramm</ThemedText>
+          </View>
+        </View>
+        <View style={styles.halfInput}>
+          <ThemedText style={[styles.sectionLabel, { color: theme.textSecondary }]}>
+            CHARAKTERISTISCHE DIMENSION (CD)
+          </ThemedText>
+          <View style={styles.inputRow}>
+            <TextInput disableFullscreenUI
+              style={[styles.input, styles.numberInput, { backgroundColor: theme.backgroundSecondary, color: theme.text }]}
+              value={charDimensionM > 0 ? String(Math.round(charDimensionM * 1000)) : ""}
+              onChangeText={(v) => setCharDimensionM((parseInt(v) || 0) / 1000)}
+              keyboardType="number-pad"
+              placeholder="z.B. 300"
+              placeholderTextColor={theme.textTertiary}
+            />
+            <ThemedText style={[styles.unitLabel, { color: theme.textSecondary }]}>mm</ThemedText>
+          </View>
+        </View>
       </View>
-
-      <ThemedText style={[styles.sectionLabel, { color: theme.textSecondary }]}>
-        CHARAKTERISTISCHE DIMENSION (CD)
-      </ThemedText>
-      <View style={styles.inputRow}>
-        <TextInput disableFullscreenUI
-          style={[styles.input, styles.numberInput, { backgroundColor: theme.backgroundSecondary, color: theme.text }]}
-          value={charDimensionM > 0 ? String(Math.round(charDimensionM * 1000)) : ""}
-          onChangeText={(v) => setCharDimensionM((parseInt(v) || 0) / 1000)}
-          keyboardType="number-pad"
-          placeholder="z.B. 300"
-          placeholderTextColor={theme.textTertiary}
-        />
-        <ThemedText style={[styles.unitLabel, { color: theme.textSecondary }]}>mm</ThemedText>
-      </View>
-      <ThemedText style={[styles.checkHint, { color: theme.textTertiary, marginTop: -4, marginBottom: 12 }]}>
+      <ThemedText style={[styles.checkHint, { color: theme.textTertiary, marginTop: 4, marginBottom: 4 }]}>
         Multicopter: Diagonale zwischen den Rotorspitzen in ungünstigster Propellerstellung · Starrflügler: Spannweite oder Rumpflänge.
         Grundlage für die VLOS-Planung (EASA Issue 2).
       </ThemedText>
@@ -665,22 +829,6 @@ export default function DroneSetupScreen() {
               Hinzufügen
             </ThemedText>
           </Pressable>
-          <Pressable
-            testID="battery-open-charger"
-            onPress={() => (navigation as any).navigate("ChargerTab", { screen: "ChargerLive" })}
-            style={({ pressed }) => [
-              styles.batteryAddButton,
-              { backgroundColor: theme.primary + "15", marginLeft: Spacing.xs },
-              pressed && { opacity: 0.7 },
-            ]}
-            hitSlop={8}
-            accessibilityLabel="Ladegerät (ISDT MA331)"
-          >
-            <Feather name="battery-charging" size={18} color={theme.primary} />
-            <ThemedText style={[styles.batteryAddText, { color: theme.primary }]}>
-              Ladegerät
-            </ThemedText>
-          </Pressable>
         </View>
 
         {batteries.length === 0 ? (
@@ -752,6 +900,58 @@ export default function DroneSetupScreen() {
             ))}
           </View>
         )}
+      </Card>
+
+      <Card style={styles.chargerCard} testID="drone-charger-card">
+        <View style={styles.batteryHeaderRow}>
+          <Feather name="battery-charging" size={18} color={theme.primary} />
+          <View style={{ flex: 1 }}>
+            <ThemedText style={{ ...Typography.body, color: theme.text, fontWeight: "600" }}>
+              Ladegerät
+            </ThemedText>
+            <ThemedText style={[styles.checkHint, { color: theme.textTertiary }]} numberOfLines={2}>
+              {chargerMac
+                ? `ISDT MA331 · ${chargerMac}${pairedCharger === chargerMac ? " · gekoppelt" : " · nicht gekoppelt"}`
+                : pairedCharger
+                  ? `Gekoppelt: ISDT MA331 · ${pairedCharger} – noch nicht dieser Drohne zugeordnet`
+                  : "Kein Ladegerät zugeordnet."}
+            </ThemedText>
+          </View>
+          {chargerMac ? (
+            <>
+              <Pressable
+                testID="drone-charger-open"
+                onPress={() => (navigation as any).navigate("ChargerTab", { screen: "ChargerLive" })}
+                style={({ pressed }) => [styles.batteryAddButton, { backgroundColor: theme.primary + "15" }, pressed && { opacity: 0.7 }]}
+                hitSlop={8}
+              >
+                <Feather name="activity" size={16} color={theme.primary} />
+                <ThemedText style={[styles.batteryAddText, { color: theme.primary }]}>Öffnen</ThemedText>
+              </Pressable>
+              <Pressable
+                testID="drone-charger-remove"
+                onPress={removeCharger}
+                style={({ pressed }) => [styles.batteryAddButton, { backgroundColor: theme.statusNoGo + "15", marginLeft: Spacing.xs }, pressed && { opacity: 0.7 }]}
+                hitSlop={8}
+              >
+                <Feather name="trash-2" size={16} color={theme.statusNoGo} />
+                <ThemedText style={[styles.batteryAddText, { color: theme.statusNoGo }]}>Entfernen</ThemedText>
+              </Pressable>
+            </>
+          ) : (
+            <Pressable
+              testID="drone-charger-add"
+              onPress={addCharger}
+              style={({ pressed }) => [styles.batteryAddButton, { backgroundColor: theme.primary + "15" }, pressed && { opacity: 0.7 }]}
+              hitSlop={8}
+            >
+              <Feather name={pairedCharger ? "link" : "bluetooth"} size={16} color={theme.primary} />
+              <ThemedText style={[styles.batteryAddText, { color: theme.primary }]}>
+                {pairedCharger ? "Zuordnen" : "Hinzufügen"}
+              </ThemedText>
+            </Pressable>
+          )}
+        </View>
       </Card>
 
       <ThemedText style={[styles.sectionLabel, { color: theme.textSecondary, marginTop: Spacing.lg }]}>DROHNEN-STATUS</ThemedText>
@@ -1021,15 +1221,17 @@ export default function DroneSetupScreen() {
         );
       })()}
 
-      <View style={styles.buttonRow}>
-        <Button
-          title={isEditing ? "Speichern" : "Drohne anlegen"}
-          onPress={handleSave}
-          disabled={saving}
-          loading={saving}
-          style={{ flex: 1 }}
-        />
-      </View>
+      {!wide ? (
+        <View style={styles.buttonRow}>
+          <Button
+            title={isEditing ? "Speichern" : "Drohne anlegen"}
+            onPress={handleSave}
+            disabled={saving}
+            loading={saving}
+            style={{ flex: 1 }}
+          />
+        </View>
+      ) : null}
 
       <Modal
         visible={batteryEditor.visible}
@@ -1121,7 +1323,7 @@ export default function DroneSetupScreen() {
     <ThemedView
       style={[
         styles.container,
-        { paddingTop: headerHeight + Spacing.lg, paddingBottom: insets.bottom },
+        { paddingTop: headerHeight + Spacing.sm, paddingBottom: insets.bottom },
       ]}
     >
       {step === "select" && renderSelectStep()}
@@ -1178,6 +1380,19 @@ const styles = StyleSheet.create({
   presetList: {
     flex: 1,
   },
+  presetCell: { flex: 1 / 2, paddingHorizontal: Spacing.xs / 2 },
+  selectTopRow: { flexDirection: "row", alignItems: "center", gap: Spacing.sm, marginBottom: Spacing.sm },
+  searchInputCompact: { flex: 1, marginBottom: 0, height: 44 },
+  manualButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.xs,
+    height: 44,
+    paddingHorizontal: Spacing.md,
+    borderRadius: BorderRadius.sm,
+    borderWidth: 1,
+    borderStyle: "dashed",
+  },
   presetImage: { width: 48, height: 48, alignItems: "center", justifyContent: "center", marginRight: Spacing.md },
   detailsHeader: { flexDirection: "row", alignItems: "center", gap: Spacing.lg },
   detailsImage: { width: 92, height: 92, borderRadius: 16, alignItems: "center", justifyContent: "center", overflow: "hidden" },
@@ -1185,8 +1400,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    padding: Spacing.lg,
-    marginBottom: Spacing.sm,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    marginBottom: Spacing.xs,
   },
   presetInfo: {
     flex: 1,
@@ -1205,18 +1421,36 @@ const styles = StyleSheet.create({
   sectionLabel: {
     ...Typography.caption,
     fontWeight: "600",
-    marginBottom: Spacing.sm,
-    marginTop: Spacing.lg,
+    marginBottom: Spacing.xs,
+    marginTop: Spacing.md,
   },
+  sectionLabelFirst: { marginTop: 0 },
+  chargerCard: { marginTop: Spacing.md, padding: Spacing.md },
+  detailsWide: { flex: 1, flexDirection: "row", gap: Spacing.md, paddingLeft: Spacing.lg },
+  scrollContentWide: { paddingLeft: 0 },
+  sidePanel: {
+    width: 270,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    padding: Spacing.md,
+    marginBottom: Spacing.md,
+    gap: Spacing.xs,
+  },
+  sideImage: { height: 200, borderRadius: BorderRadius.md, alignItems: "center", justifyContent: "center", overflow: "hidden", marginBottom: Spacing.xs },
+  sideName: { fontSize: 20, fontWeight: "800", lineHeight: 24 },
+  sideSub: { fontSize: 13 },
+  sideChips: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: Spacing.xs },
+  sideChip: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 },
+  sideChipText: { fontSize: 12, fontWeight: "700" },
   subsectionLabel: {
     fontSize: 15,
     fontWeight: "700",
     marginBottom: 4,
   },
   input: {
-    height: Spacing.inputHeight,
+    height: 42,
     borderRadius: BorderRadius.sm,
-    paddingHorizontal: Spacing.lg,
+    paddingHorizontal: Spacing.md,
     ...Typography.body,
   },
   row: {

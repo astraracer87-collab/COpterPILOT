@@ -563,6 +563,8 @@ export interface DroneProfile {
    * im ND-Filter Finder. Leer/undef = kein eigener Bestand definiert.
    */
   ownedNdFilters?: string[];
+  /** Zugeordnetes Ladegerät (Bluetooth-Adresse des ISDT MA331) */
+  chargerMac?: string;
   compliance: DroneCompliance;
   limits: WeatherLimits;
   createdAt: string;
