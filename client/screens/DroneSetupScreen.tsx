@@ -472,12 +472,12 @@ export default function DroneSetupScreen() {
   const renderSidePanel = () => (
     <View style={[styles.sidePanel, { backgroundColor: theme.backgroundDefault, borderColor: theme.border }]} testID="drone-side-panel">
       <View style={[styles.sideImage, { backgroundColor: theme.backgroundSecondary }]}>
-        <DroneImage manufacturer={manufacturer} model={model} size={200} iconColor={theme.primary} iconSize={72} />
+        <DroneImage manufacturer={manufacturer} model={model} size={150} iconColor={theme.primary} iconSize={64} />
       </View>
       <ThemedText style={styles.sideName} numberOfLines={2}>
         {name.trim() || (isEditing ? "Drohne bearbeiten" : "Neue Drohne")}
       </ThemedText>
-      {manufacturer || model ? (
+      {(manufacturer || model) && [manufacturer, model].filter(Boolean).join(" ") !== name.trim() ? (
         <ThemedText style={[styles.sideSub, { color: theme.textSecondary }]} numberOfLines={1}>
           {[manufacturer, model].filter(Boolean).join(" ")}
         </ThemedText>
@@ -496,7 +496,6 @@ export default function DroneSetupScreen() {
             </View>
           ))}
       </View>
-      <View style={{ flex: 1 }} />
       <Button
         title={isEditing ? "Speichern" : "Drohne anlegen"}
         onPress={handleSave}
@@ -1455,8 +1454,9 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.md,
     gap: Spacing.xs,
   },
-  sideImage: { height: 200, borderRadius: BorderRadius.md, alignItems: "center", justifyContent: "center", overflow: "hidden", marginBottom: Spacing.xs },
-  sideName: { fontSize: 20, fontWeight: "800", lineHeight: 24 },
+  // Bild füllt den freien Platz; Name, Chips und Speichern bleiben immer sichtbar
+  sideImage: { flex: 1, minHeight: 80, borderRadius: BorderRadius.md, alignItems: "center", justifyContent: "center", overflow: "hidden", marginBottom: Spacing.xs },
+  sideName: { fontSize: 18, fontWeight: "800", lineHeight: 22 },
   sideSub: { fontSize: 13 },
   sideChips: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: Spacing.xs },
   sideChip: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 },
