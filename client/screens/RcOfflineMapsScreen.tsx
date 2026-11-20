@@ -864,7 +864,7 @@ export default function OfflineMapsScreen() {
                       ))}
                       {st?.obstacles ? (
                         <ThemedText style={styles.small}>
-                          Hindernisse: {st.obstacles.done} von {st.obstacles.total} Gebieten
+                          Hindernisse (Umgebung): {st.obstacles.done} von {st.obstacles.total} Gebieten
                         </ThemedText>
                       ) : null}
                     </View>
@@ -904,8 +904,8 @@ export default function OfflineMapsScreen() {
         })}
 
         <ThemedText style={[styles.small, styles.intro, { color: theme.textSecondary, marginTop: Spacing.lg }]}>
-          Hinweis: Hindernisse werden schonend nacheinander geladen und brauchen für ein großes Land eine Weile. Die App
-          sollte dabei geöffnet bleiben. Außerhalb gespeicherter Länder lädt die Karte Hindernisse bei Bedarf aus dem Internet.
+          Hinweis: Vorab gespeichert werden die Hindernisse rund um deinen Standort (ca. 150–200 km). Alles, was du auf
+          Radar, Karte oder in der Planung ansiehst, wird automatisch dazu gespeichert und ist danach auch offline da.
         </ThemedText>
       </KeyboardAwareScrollViewCompat>
     </ThemedView>

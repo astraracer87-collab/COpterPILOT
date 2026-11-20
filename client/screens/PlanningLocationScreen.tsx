@@ -1,4 +1,5 @@
 import { openLink } from "@/lib/webBrowser";
+import { prefetchObstaclesAround } from "@/lib/obstacles";
 import { useKeyboardInset } from "@/hooks/useKeyboardInset";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import React, { useState, useRef, useMemo, useEffect, useCallback } from "react";
@@ -707,6 +708,8 @@ export default function PlanningLocationScreen() {
     }
 
     setDetectingCountry(true);
+    // Hindernisse rund um den geplanten Standort leise vorab speichern (auch für offline vor Ort)
+    prefetchObstaclesAround(selectedLocation.latitude, selectedLocation.longitude).catch(() => {});
 
     let detectedCountryIso = await reverseGeocodeCountry(
       selectedLocation.latitude,

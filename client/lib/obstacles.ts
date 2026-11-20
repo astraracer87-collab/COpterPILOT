@@ -288,7 +288,7 @@ async function slot<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-function overpass(query: string, timeoutMs = 100000): Promise<any> {
+function overpass(query: string, timeoutMs = 45000): Promise<any> {
   return slot(() => overpassDirect(query, timeoutMs));
 }
 

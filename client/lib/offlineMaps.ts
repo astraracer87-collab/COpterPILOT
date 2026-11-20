@@ -33,6 +33,8 @@ import { getGeozoneSource } from "@/lib/geozoneSources/registry";
 import { deleteTileStore, downloadTileStore, getTilePartMeta, loadTileStoreMeta } from "@/lib/geozoneTiles/tileStore";
 import { isTileStoreIso, type TileStorePart } from "@/lib/geozoneTiles/tileStoreCore";
 import { OBSTACLE_TILE_ZOOM, deleteObstacleTiles, hasObstacleTile, loadObstacleTile, tilesForBounds } from "@/lib/obstacles";
+import { tilesAround } from "@/lib/obstacleTileCache";
+import { loadLastKnownPosition } from "@/lib/mapFallbackCenter";
 import { revalidateGeozoneSources } from "@/lib/geozoneSources/revalidate";
 import type { OfflineSyncCountryResult, OfflineSyncProgress } from "@/lib/countryUsageData";
 import { USAGE_ALIASES, USAGE_LABEL_OVERRIDES, usageIsoOf } from "@/lib/countryUsage";
@@ -378,7 +380,8 @@ export function estimateSize(c: CountryOfflineConfig): SizeEstimate {
       }
     }
   }
-  if (c.obstacles && bounds) obstaclesMB = (tilesForBounds(...bounds).length * LAND_SHARE * OBSTACLE_KB_PER_TILE) / 1024;
+  // Nur die Umgebung (5×5 Kacheln) wird vorab gespeichert
+  if (c.obstacles && bounds) obstaclesMB = (Math.min(tilesForBounds(...bounds).length, (2 * OBSTACLE_AREA_RADIUS_TILES + 1) ** 2) * OBSTACLE_KB_PER_TILE) / 1024;
   return { mapMB, satMB, geoMB, wohnMB, esInfraMB, esEnpMB, obstaclesMB, totalMB: mapMB + satMB + geoMB + obstaclesMB };
 }
 
@@ -916,9 +919,8 @@ async function runCountryDownload(
 
   // Hindernisse: Kachel für Kachel, schonend für die OSM-Server
   if (c.obstacles && !baseOnly && !shouldStop()) {
-    const bounds = countryOfflineBounds(c.iso);
-    if (bounds) {
-      const tiles = tilesForBounds(...bounds, OBSTACLE_TILE_ZOOM);
+    const tiles = await offlineObstacleTiles(c.iso);
+    if (tiles.length > 0) {
       let done = 0;
       onObstacles(0, tiles.length);
       let activityId: string | null = null;
@@ -938,7 +940,6 @@ async function runCountryDownload(
             }
             await loadObstacleTile(t.x, t.y, { force: true, track: false });
             summary.updated = true;
-            await new Promise((r) => setTimeout(r, 1200));
           }
           done++;
           if (activityId) progressDownload(activityId, { doneItems: done });
@@ -1101,10 +1102,24 @@ export async function deleteCountry(iso: string): Promise<void> {
   await saveOfflineConfigs(list);
 }
 
-export async function obstacleTilesStored(iso: string): Promise<{ done: number; total: number }> {
+/**
+ * Hindernis-Vorabladen für ein Offline-Land: nicht mehr das ganze Land (über
+ * die öffentlichen Overpass-Server dauert das Tage), sondern nur die Umgebung
+ * der letzten Position (5×5 Kacheln, ca. 150–200 km), nächste zuerst. Alles
+ * andere wird gespeichert, sobald es auf Radar/Karte/Planung angezeigt wird.
+ */
+export const OBSTACLE_AREA_RADIUS_TILES = 2;
+export async function offlineObstacleTiles(iso: string): Promise<{ x: number; y: number }[]> {
   const bounds = countryOfflineBounds(iso);
-  if (!bounds) return { done: 0, total: 0 };
-  const tiles = tilesForBounds(...bounds, OBSTACLE_TILE_ZOOM);
+  if (!bounds) return [];
+  const p = await loadLastKnownPosition().catch(() => null);
+  if (!p) return [];
+  const inCountry = new Set(tilesForBounds(...bounds, OBSTACLE_TILE_ZOOM).map((t) => `${t.x}_${t.y}`));
+  return tilesAround(p.latitude, p.longitude, OBSTACLE_AREA_RADIUS_TILES).filter((t) => inCountry.has(`${t.x}_${t.y}`));
+}
+
+export async function obstacleTilesStored(iso: string): Promise<{ done: number; total: number }> {
+  const tiles = await offlineObstacleTiles(iso);
   let done = 0;
   for (const t of tiles) if (await hasObstacleTile(t.x, t.y)) done++;
   return { done, total: tiles.length };
