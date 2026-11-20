@@ -7,7 +7,7 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { View, StyleSheet, Pressable, Platform } from "react-native";
+import { View, StyleSheet, Pressable, Platform, useWindowDimensions } from "react-native";
 import MapView, { Polyline, Marker, Circle, UrlTile, PROVIDER_DEFAULT } from "@/components/maps";
 import { Feather } from "@expo/vector-icons";
 import { ThemedText } from "@/components/ThemedText";
@@ -83,10 +83,28 @@ function deltaForRadiusKm(radiusKm: number, latitude: number): { latitudeDelta: 
  * Über die Ref kann ein PNG-Snapshot (z. B. fürs Protokoll-PDF) erzeugt werden.
  */
 const DjiTracksMap = forwardRef<DjiTracksMapHandle, Props>(function DjiTracksMap(
-  { tracks, height = 280, marker, radiusCircle, initialGeozonesOn = false, onReady },
+  { tracks: rawTracks, height: heightProp, marker, radiusCircle, initialGeozonesOn = false, onReady },
   ref,
 ) {
   const { theme } = useTheme();
+  // Ohne feste Höhe: groß (gut 60 % der Bildschirmhöhe), damit man den Flug erkennt
+  const { height: winH } = useWindowDimensions();
+  const height = heightProp ?? Math.max(280, Math.round(winH * 0.62));
+  // Anzeige: höchstens ~800 Punkte je Flug (Logs haben bis 10 Punkte/s) –
+  // sonst wird die Karte beim Verschieben/Zoomen zäh
+  const tracks = useMemo(
+    () =>
+      rawTracks.map((t) => {
+        const n = t.coords.length;
+        if (n <= 800) return t;
+        const step = n / 800;
+        const out = [];
+        for (let i = 0; i < 800; i++) out.push(t.coords[Math.floor(i * step)]);
+        out.push(t.coords[n - 1]);
+        return { ...t, coords: out };
+      }),
+    [rawTracks],
+  );
   const mapRef = useRef<MapView>(null);
   const [geozonesOn, setGeozonesOn] = useState(initialGeozonesOn);
   const [mapStyle, setMapStyle] = useMapBasemapStyle();

@@ -384,7 +384,7 @@ export default function DjiBulkImportScreen() {
 
         {previewTracks.length > 0 ? (
           <View style={styles.preview}>
-            <DjiTracksMap tracks={previewTracks} height={180} />
+            <DjiTracksMap tracks={previewTracks} />
           </View>
         ) : null}
 
