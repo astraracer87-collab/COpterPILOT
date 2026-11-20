@@ -1,4 +1,5 @@
 import type { CheckResult, FlightVerdict } from "../../shared/checks/types";
+import { setSoraLayersAllowed } from "../../shared/geozoneCategories";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Api from "./api";
 import { isLoggedInSync, waitForAuthReady } from "./auth";
@@ -2940,6 +2941,8 @@ export async function getPilotProfile(opts?: { force?: boolean }): Promise<Pilot
   return dedupe("pilotProfile", async () => {
     const result = await getPilotProfileFresh();
     writeCache("pilotProfile", result);
+    // SORA-Bodenrisiko (CH) nur mit STS-Lizenz auf der Karte
+    setSoraLayersAllowed(!!result.licenseSTS);
     return result;
   });
 }
@@ -2965,6 +2968,7 @@ async function getPilotProfileFresh(): Promise<PilotProfile> {
 
 export async function savePilotProfile(profile: PilotProfile): Promise<void> {
   invalidateCache("pilotProfile");
+  setSoraLayersAllowed(!!profile.licenseSTS);
   await waitForAuthReady();
   if (useServer()) {
     await Api.apiSaveProfile(profile);
