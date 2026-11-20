@@ -465,20 +465,32 @@ export async function initDflightAccessFlag(): Promise<void> {
 export async function setDflightCredentials(
   username: string,
   password: string,
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; saved?: boolean; error?: string }> {
   const u = String(username ?? "").trim();
   const p = String(password ?? "");
   if (!u || !p) return { ok: false, error: "Bitte Benutzername und Passwort eingeben" };
-  try {
-    const token = await dflightLogin(u, p);
+  const store = async () => {
     const ss = secureStore();
     await ss.setItemAsync(DFLIGHT_USERNAME_KEY, u);
     await ss.setItemAsync(DFLIGHT_PASSWORD_KEY, p);
+  };
+  try {
+    const token = await dflightLogin(u, p);
+    await store();
     currentToken = token;
     setCountryAccessAvailable("IT", true);
-    return { ok: true };
+    return { ok: true, saved: true };
   } catch (e: any) {
-    return { ok: false, error: e?.message ? String(e.message) : "d-flight-Anmeldung fehlgeschlagen" };
+    const error = e?.message ? String(e.message) : "d-flight-Anmeldung fehlgeschlagen";
+    // Netz-/Serverproblem: Zugangsdaten trotzdem behalten, Anmeldung später automatisch
+    // nachholen. Nur bei falschen Zugangsdaten nichts speichern.
+    if (e instanceof DflightAuthError && e.kind === "credentials") return { ok: false, error };
+    try {
+      await store();
+      return { ok: false, saved: true, error };
+    } catch {
+      return { ok: false, error };
+    }
   }
 }
 

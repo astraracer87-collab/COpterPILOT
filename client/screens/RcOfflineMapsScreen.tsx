@@ -185,6 +185,11 @@ export default function OfflineMapsScreen() {
       setDfUserInput("");
       setDfPassInput("");
       setDfMsg("Anmeldung erfolgreich – die italienischen Geozonen werden beim nächsten Laden abgerufen.");
+    } else if (r.saved) {
+      setDflightUser(dfUserInput.trim().toLowerCase());
+      setDfUserInput("");
+      setDfPassInput("");
+      setDfMsg(`Zugangsdaten gespeichert, Anmeldung noch nicht möglich – die App versucht es beim nächsten Laden erneut. (${r.error ?? "unbekannter Fehler"})`);
     } else {
       setDfMsg(r.error ?? "Anmeldung bei d-flight fehlgeschlagen.");
     }
@@ -450,7 +455,7 @@ export default function OfflineMapsScreen() {
           {dflightUser ? (
             <View style={[styles.row, { marginTop: Spacing.md }]}>
               <Feather name="check-circle" size={18} color="#1B8A2A" />
-              <ThemedText style={[styles.rowLabel, { flex: 1 }]} numberOfLines={1}>Angemeldet als {dflightUser}</ThemedText>
+              <ThemedText style={[styles.rowLabel, { flex: 1 }]} numberOfLines={1}>Zugang gespeichert: {dflightUser}</ThemedText>
               <Pressable
                 onPress={async () => { await clearDflightCredentials(); setDflightUser(null); setDfMsg(null); }}
                 style={[styles.btn, { backgroundColor: "rgba(255,59,48,0.12)" }]}
