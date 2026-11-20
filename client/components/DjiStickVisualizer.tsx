@@ -26,11 +26,14 @@ interface PadProps {
   ys: number[];
   title: string;
   caption: string;
+  size?: number;
+  /** Wiedergabe: Spur kräftiger (nur die letzten Sekunden) */
+  live?: boolean;
 }
 
-function StickPad({ xs, ys, title, caption }: PadProps) {
+function StickPad({ xs, ys, title, caption, size: sizeProp, live }: PadProps) {
   const { theme } = useTheme();
-  const size = PAD_SIZE;
+  const size = sizeProp ?? PAD_SIZE;
   const half = size / 2;
   const reach = half - MARGIN;
 
@@ -68,11 +71,11 @@ function StickPad({ xs, ys, title, caption }: PadProps) {
             points={points}
             fill="none"
             stroke={theme.primary}
-            strokeWidth={1.2}
-            strokeOpacity={0.45}
+            strokeWidth={live ? 2 : 1.2}
+            strokeOpacity={live ? 0.7 : 0.45}
           />
         ) : null}
-        <Circle cx={lastX} cy={lastY} r={4.5} fill={theme.primary} />
+        <Circle cx={lastX} cy={lastY} r={live ? 6 : 4.5} fill={theme.primary} />
       </Svg>
       <ThemedText style={[styles.padCaption, { color: theme.textSecondary }]}>{caption}</ThemedText>
     </View>
@@ -123,6 +126,41 @@ export function DjiStickVisualizer({ records }: { records: DjiLogRecord[] }) {
       <ThemedText style={[styles.summary, { color: theme.textSecondary }]}>
         {`Max. Ausschlag: Gas ${maxAbsPct(data.ly)}% · Gier ${maxAbsPct(data.lx)}% · Nick ${maxAbsPct(data.ry)}% · Roll ${maxAbsPct(data.rx)}%`}
       </ThemedText>
+    </View>
+  );
+}
+
+/**
+ * Sticks während der Flugwiedergabe: aktuelle Stellung zum Zeitpunkt `t`
+ * plus Spur der letzten ~2 Sekunden.
+ */
+export function DjiLiveSticks({ records, t, size = 110 }: { records: DjiLogRecord[]; t: number; size?: number }) {
+  const data = useMemo(() => {
+    // Records mit Stickdaten bis zum Zeitpunkt t (Records sind zeitlich sortiert)
+    const lx: number[] = [];
+    const ly: number[] = [];
+    const rx: number[] = [];
+    const ry: number[] = [];
+    let end = 0;
+    while (end < records.length && (records[end].t ?? 0) <= t) end++;
+    const from = Math.max(0, end - 25);
+    for (let i = from; i < end; i++) {
+      const r = records[i];
+      if (r.rudder !== undefined || r.throttle !== undefined) {
+        lx.push(r.rudder ?? 0);
+        ly.push(r.throttle ?? 0);
+      }
+      if (r.aileron !== undefined || r.elevator !== undefined) {
+        rx.push(r.aileron ?? 0);
+        ry.push(r.elevator ?? 0);
+      }
+    }
+    return { lx, ly, rx, ry };
+  }, [records, t]);
+  return (
+    <View style={styles.row}>
+      <StickPad xs={data.lx} ys={data.ly} title="Links" caption="Gas / Gier" size={size} live />
+      <StickPad xs={data.rx} ys={data.ry} title="Rechts" caption="Nick / Roll" size={size} live />
     </View>
   );
 }

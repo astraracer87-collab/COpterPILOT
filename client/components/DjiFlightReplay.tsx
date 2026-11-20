@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { DjiLiveSticks, hasStickData } from "@/components/DjiStickVisualizer";
 import { View, StyleSheet, Pressable, Platform } from "react-native";
 import Slider from "@react-native-community/slider";
 import { Feather } from "@expo/vector-icons";
@@ -68,6 +69,7 @@ export function DjiFlightReplay({ records }: { records: DjiLogRecord[] }) {
     [records],
   );
   const len = frames.length;
+  const withSticks = useMemo(() => hasStickData(records), [records]);
 
   const [idx, setIdx] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -107,15 +109,23 @@ export function DjiFlightReplay({ records }: { records: DjiLogRecord[] }) {
     return 0;
   }, [cur, prev]);
 
-  const mapTracks = useMemo(
-    () => [
-      {
-        coords: frames.map((f) => ({ latitude: f.lat!, longitude: f.lon! })),
-        color: TRACK_COLOR,
-      },
-    ],
+  const allCoords = useMemo(
+    () => frames.map((f) => ({ latitude: f.lat!, longitude: f.lon! })),
     [frames],
   );
+  // Ganze Route blass, der geflogene Teil baut sich beim Abspielen kräftig auf
+  const mapTracks = useMemo(() => [{ coords: allCoords, color: TRACK_COLOR + "40" }], [allCoords]);
+  const progressCoords = useMemo(() => {
+    const end = Math.min(Math.max(0, idx), allCoords.length - 1) + 1;
+    // für flüssiges Zeichnen höchstens ~600 Punkte
+    const part = allCoords.slice(0, end);
+    if (part.length <= 600) return part;
+    const step = part.length / 600;
+    const out = [];
+    for (let i = 0; i < 600; i++) out.push(part[Math.floor(i * step)]);
+    out.push(part[part.length - 1]);
+    return out;
+  }, [allCoords, idx]);
 
   if (len < 2 || !cur) return null;
 
@@ -134,11 +144,14 @@ export function DjiFlightReplay({ records }: { records: DjiLogRecord[] }) {
     <View>
       <DjiTracksMap
         tracks={mapTracks}
+        progressCoords={progressCoords}
+        progressColor={TRACK_COLOR}
         marker={{ latitude: cur.lat!, longitude: cur.lon!, heading, color: TRACK_COLOR }}
       />
 
       <View style={styles.body}>
         <DjiAttitudeIndicator pitch={cur.pitch} roll={cur.roll} yaw={cur.yaw} size={150} />
+        {withSticks ? <DjiLiveSticks records={records} t={cur.t ?? 0} /> : null}
         <View style={styles.stats}>
           <StatCell label="Zeit" value={fmt(cur.t)} />
           <StatCell label="Höhe" value={cur.heightM != null ? `${Math.round(cur.heightM)} m` : "–"} />

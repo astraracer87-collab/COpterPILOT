@@ -34,6 +34,9 @@ interface Props {
   height?: number;
   // Auf Web ohne native Karte ungenutzt — Signatur-Parität mit der nativen Variante.
   marker?: DjiMapMarker;
+  /** Flugwiedergabe: geflogener Teil (nur nativ) */
+  progressCoords?: { latitude: number; longitude: number }[];
+  progressColor?: string;
   radiusCircle?: DjiRadiusCircle;
   initialGeozonesOn?: boolean;
   onReady?: () => void;

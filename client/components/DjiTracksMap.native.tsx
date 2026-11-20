@@ -61,6 +61,9 @@ interface Props {
   height?: number;
   /** Bewegter Drohnen-Pfeil für die Flugwiedergabe (Daumenkino). */
   marker?: DjiMapMarker;
+  /** Flugwiedergabe: bereits geflogener Teil (wird kräftig über die blasse Route gezeichnet) */
+  progressCoords?: { latitude: number; longitude: number }[];
+  progressColor?: string;
   /** Optionaler Radius-Kreis (z. B. geplantes Fluggebiet). */
   radiusCircle?: DjiRadiusCircle;
   /** Geozonen-Overlay direkt eingeblendet starten (z. B. für Protokoll-Snapshots). */
@@ -83,7 +86,7 @@ function deltaForRadiusKm(radiusKm: number, latitude: number): { latitudeDelta: 
  * Über die Ref kann ein PNG-Snapshot (z. B. fürs Protokoll-PDF) erzeugt werden.
  */
 const DjiTracksMap = forwardRef<DjiTracksMapHandle, Props>(function DjiTracksMap(
-  { tracks: rawTracks, height: heightProp, marker, radiusCircle, initialGeozonesOn = false, onReady },
+  { tracks: rawTracks, height: heightProp, marker, progressCoords, progressColor, radiusCircle, initialGeozonesOn = false, onReady },
   ref,
 ) {
   const { theme } = useTheme();
@@ -306,6 +309,15 @@ const DjiTracksMap = forwardRef<DjiTracksMapHandle, Props>(function DjiTracksMap
             />
           ) : null,
         )}
+        {progressCoords && progressCoords.length >= 2 ? (
+          <Polyline
+            key="progress"
+            coordinates={progressCoords}
+            strokeColor={progressColor ?? theme.primary}
+            strokeWidth={5}
+            zIndex={4}
+          />
+        ) : null}
         {start ? <Marker coordinate={start} title="Start" pinColor="#34C759" /> : null}
         {end ? <Marker coordinate={end} title="Ende" pinColor="#FF3B30" /> : null}
         {marker ? (
