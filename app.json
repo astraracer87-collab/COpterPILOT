@@ -32,7 +32,8 @@
         "BLUETOOTH",
         "BLUETOOTH_ADMIN",
         "BLUETOOTH_SCAN",
-        "BLUETOOTH_CONNECT"
+        "BLUETOOTH_CONNECT",
+        "QUERY_ALL_PACKAGES"
       ],
       "versionCode": 3,
       "blockedPermissions": [

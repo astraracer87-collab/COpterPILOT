@@ -135,6 +135,16 @@ interface RcKeysNative {
   setCaptureMode(enabled: boolean): void;
   setListening(enabled: boolean): void;
   getDeviceInfo(): Promise<RcDeviceInfo>;
+  listDjiPackages?(): Promise<RcPackageInfo[]>;
+  exportApk?(packageName: string): Promise<string>;
+}
+
+export interface RcPackageInfo {
+  packageName: string;
+  label: string;
+  system: boolean;
+  size: number;
+  splits: number;
 }
 
 export const RC_KEY_EVENT = "rcKey";
@@ -384,4 +394,22 @@ export function rcAxisDevices(info: RcDeviceInfo | null): RcInputDevice[] {
       d.axes.length > 0 &&
       d.sourceNames.some((s) => s === "JOYSTICK" || s === "GAMEPAD" || s === "ROTARY_ENCODER" || s === "TRACKBALL"),
   );
+}
+
+/** Diagnose: DJI-Pakete auf dem Gerät (leer ohne natives Modul) */
+export async function listRcDjiPackages(): Promise<RcPackageInfo[]> {
+  const mod = (NativeModules as { RcKeys?: RcKeysNative }).RcKeys;
+  if (Platform.OS !== "android" || !mod?.listDjiPackages) return [];
+  try {
+    return await mod.listDjiPackages();
+  } catch {
+    return [];
+  }
+}
+
+/** Diagnose: App-Datei eines Pakets in den Download-Ordner kopieren → Pfad */
+export async function exportRcApk(packageName: string): Promise<string> {
+  const mod = (NativeModules as { RcKeys?: RcKeysNative }).RcKeys;
+  if (Platform.OS !== "android" || !mod?.exportApk) throw new Error("In dieser App-Version nicht verfügbar");
+  return mod.exportApk(packageName);
 }

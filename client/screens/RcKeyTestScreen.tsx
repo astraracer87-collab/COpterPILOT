@@ -26,6 +26,9 @@ import {
   formatAxes,
   formatRcDeviceInfo,
   formatRcLogLine,
+  listRcDjiPackages,
+  exportRcApk,
+  type RcPackageInfo,
   formatRcTime,
   getRcDeviceInfo,
   isRcKeysAvailable,
@@ -73,6 +76,23 @@ export default function RcKeyTestScreen() {
   // Fokus-Test: bewegt die Fernsteuerung den Fokus (Bedienungshilfe) statt Tasten zu senden?
   const [focusLog, setFocusLog] = useState<string[]>([]);
   const [focusedBox, setFocusedBox] = useState<string | null>(null);
+  // Diagnose: DJI-Systemteile auflisten und App-Datei exportieren (zur Analyse)
+  const [djiPkgs, setDjiPkgs] = useState<RcPackageInfo[] | null>(null);
+  const [exporting, setExporting] = useState<string | null>(null);
+  const loadDjiPkgs = useCallback(() => {
+    void listRcDjiPackages().then(setDjiPkgs);
+  }, []);
+  const doExport = useCallback(async (pkg: string) => {
+    setExporting(pkg);
+    try {
+      const path = await exportRcApk(pkg);
+      Alert.alert("Exportiert", `Gespeichert unter ${path}. Bitte per USB auf den PC kopieren und in Google Drive hochladen.`);
+    } catch (e) {
+      Alert.alert("Export nicht möglich", String((e as Error)?.message ?? e));
+    } finally {
+      setExporting(null);
+    }
+  }, []);
   const noteFocus = useCallback((text: string) => {
     const t = new Date().toLocaleTimeString("de-DE");
     setFocusLog((prev) => [`${t} ${text}`, ...prev].slice(0, 60));
@@ -353,6 +373,36 @@ export default function RcKeyTestScreen() {
             {l}
           </ThemedText>
         ))}
+      </Card>
+      <Card style={styles.infoCard}>
+        <ThemedText style={styles.sectionTitle}>DJI-Systemteile (Analyse)</ThemedText>
+        <ThemedText style={[styles.small, { color: theme.textSecondary }]}>
+          Listet die DJI-Apps und -Dienste auf dem Gerät. „Exportieren“ kopiert die App-Datei nach Download/CopterPilot –
+          damit lässt sich herausfinden, wie DJI die Sticks an andere Apps weitergibt.
+        </ThemedText>
+        {djiPkgs == null ? (
+          <Button title="DJI-Systemteile auflisten" variant="secondary" onPress={loadDjiPkgs} testID="rc-dji-list" />
+        ) : djiPkgs.length === 0 ? (
+          <ThemedText style={[styles.small, { color: theme.textSecondary }]}>Keine gefunden (oder in dieser App-Version nicht verfügbar).</ThemedText>
+        ) : (
+          djiPkgs.map((p) => (
+            <View key={p.packageName} style={{ flexDirection: "row", alignItems: "center", gap: Spacing.sm, marginTop: 4 }}>
+              <View style={{ flex: 1 }}>
+                <ThemedText style={{ fontWeight: "700" }} numberOfLines={1}>{p.label}</ThemedText>
+                <ThemedText style={[styles.mono, { color: theme.textSecondary }]} numberOfLines={1}>
+                  {p.packageName} · {p.system ? "System" : "installiert"} · {(p.size / 1048576).toFixed(1)} MB{p.splits ? ` · +${p.splits} Teile` : ""}
+                </ThemedText>
+              </View>
+              <Button
+                title={exporting === p.packageName ? "…" : "Exportieren"}
+                variant="secondary"
+                disabled={exporting != null}
+                onPress={() => void doExport(p.packageName)}
+                testID={`rc-dji-export-${p.packageName}`}
+              />
+            </View>
+          ))
+        )}
       </Card>
       <Card style={styles.infoCard}>
         <ThemedText style={styles.sectionTitle}>Gerät</ThemedText>

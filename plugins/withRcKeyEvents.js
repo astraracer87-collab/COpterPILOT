@@ -257,6 +257,67 @@ class RcKeysModule(private val reactContext: ReactApplicationContext) :
   @ReactMethod
   fun removeListeners(count: Double) {}
 
+  /**
+   * Diagnose: installierte Pakete mit „dji“ im Namen bzw. Bedienungshilfen
+   * (Name, Bezeichnung, System-App, Größe der App-Datei).
+   */
+  @ReactMethod
+  fun listDjiPackages(promise: Promise) {
+    try {
+      val pm = reactContext.packageManager
+      val arr = Arguments.createArray()
+      @Suppress("DEPRECATION")
+      val apps = pm.getInstalledApplications(0)
+      for (ai in apps.sortedBy { it.packageName }) {
+        val name = ai.packageName
+        val label = try { pm.getApplicationLabel(ai).toString() } catch (ignored: Throwable) { name }
+        if (!name.lowercase().contains("dji") && !label.lowercase().contains("dji")) continue
+        val m = Arguments.createMap()
+        m.putString("packageName", name)
+        m.putString("label", label)
+        m.putBoolean("system", (ai.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0)
+        m.putDouble("size", try { File(ai.sourceDir).length().toDouble() } catch (ignored: Throwable) { 0.0 })
+        m.putInt("splits", ai.splitSourceDirs?.size ?: 0)
+        arr.pushMap(m)
+      }
+      promise.resolve(arr)
+    } catch (t: Throwable) {
+      promise.reject("E_RC_PACKAGES", t.message, t)
+    }
+  }
+
+  /** Diagnose: App-Datei (base.apk) eines Pakets nach Download/CopterPilot kopieren. */
+  @ReactMethod
+  fun exportApk(packageName: String, promise: Promise) {
+    Thread {
+      try {
+        val ai = reactContext.packageManager.getApplicationInfo(packageName, 0)
+        val src = File(ai.sourceDir)
+        val fileName = packageName + ".apk"
+        if (Build.VERSION.SDK_INT >= 29) {
+          val values = android.content.ContentValues().apply {
+            put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+            put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "application/octet-stream")
+            put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, "Download/CopterPilot")
+          }
+          val resolver = reactContext.contentResolver
+          val uri = resolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+            ?: throw IllegalStateException("Download-Ordner nicht beschreibbar")
+          resolver.openOutputStream(uri).use { out ->
+            src.inputStream().use { inp -> inp.copyTo(out!!) }
+          }
+        } else {
+          val dir = File(android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS), "CopterPilot")
+          dir.mkdirs()
+          src.copyTo(File(dir, fileName), overwrite = true)
+        }
+        promise.resolve("Download/CopterPilot/" + fileName)
+      } catch (t: Throwable) {
+        promise.reject("E_RC_EXPORT", t.message, t)
+      }
+    }.start()
+  }
+
   @ReactMethod
   fun getDeviceInfo(promise: Promise) {
     try {
