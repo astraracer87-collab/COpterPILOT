@@ -490,7 +490,7 @@ export default function PlanningAreaOverviewScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   body: { flex: 1 },
-  chips: { position: "absolute", top: 0, flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 10, zIndex: 20 },
+  chips: { position: "absolute", top: 0, flexDirection: "row", flexWrap: "wrap", justifyContent: "flex-end", gap: 6, marginTop: 10, zIndex: 20 },
   chip: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14, maxWidth: 360 },
   chipText: { color: "#FFFFFF", fontSize: 12, fontWeight: "700" },
   footer: { position: "absolute", zIndex: 140 },

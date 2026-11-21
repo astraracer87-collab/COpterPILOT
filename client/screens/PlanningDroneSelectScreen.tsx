@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from "react";
 import { DroneImage } from "@/components/DroneImage";
-import { View, StyleSheet, FlatList, Pressable, ActivityIndicator } from "react-native";
+import { View, StyleSheet, FlatList, Pressable, ActivityIndicator, useWindowDimensions } from "react-native";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useHeaderHeight } from "@react-navigation/elements";
@@ -36,6 +36,10 @@ export default function PlanningDroneSelectScreen() {
   const { theme } = useTheme();
   const headerHeight = useHeaderHeight();
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  // Große Kacheln: 3 nebeneinander im Querformat, 2 auf schmalen Geräten
+  const numColumns = width >= 720 ? 3 : 2;
+  const tileWidth = (width - Spacing.lg * 2 - Spacing.md * (numColumns - 1)) / numColumns;
   const [drones, setDrones] = useState<DroneProfile[]>([]);
   const [pilotProfile, setPilotProfile] = useState<PilotProfile | null>(null);
   const [detectingCountry, setDetectingCountry] = useState(false);
@@ -96,40 +100,26 @@ export default function PlanningDroneSelectScreen() {
     ({ item, index }: { item: DroneProfile; index: number }) => {
       const status = getComplianceStatus(item, pilotProfile || undefined);
       return (
-        <Animated.View entering={FadeInDown.delay(index * 50).duration(300)}>
+        <Animated.View entering={FadeInDown.delay(Math.min(index, 4) * 25).duration(180)} style={{ width: tileWidth }}>
           <Pressable
             onPress={() => handleSelectDrone(item)}
             style={({ pressed }) => pressed && styles.pressed}
           >
-            <Card style={styles.card}>
-              <View style={[styles.droneIconContainer, { backgroundColor: theme.backgroundSecondary }]}>
-                <DroneImage manufacturer={item.manufacturer} model={item.model} size={52} iconColor={theme.primary} />
+            <Card style={styles.tile}>
+              <View style={[styles.tileImageWrap, { backgroundColor: theme.backgroundSecondary }]}>
+                <DroneImage manufacturer={item.manufacturer} model={item.model} size={Math.min(130, tileWidth - 48)} iconColor={theme.primary} iconSize={56} />
                 <View style={[styles.statusDot, { backgroundColor: getStatusColor(status) }]} />
               </View>
-              <View style={styles.droneInfo}>
-                <ThemedText style={styles.droneName}>{item.name}</ThemedText>
-                <View style={styles.droneDetails}>
-                  <View style={[styles.classBadge, { backgroundColor: theme.backgroundSecondary }]}>
-                    <ThemedText style={[styles.classText, { color: theme.primary }]}>
-                      {item.classMark}
-                    </ThemedText>
-                  </View>
-                  {item.manufacturer && item.model ? (
-                    <ThemedText style={[styles.modelText, { color: theme.textSecondary }]}>
-                      {item.manufacturer} {item.model}
-                    </ThemedText>
-                  ) : null}
-                </View>
-              </View>
-              <View style={styles.rightContent}>
-                <Feather name="chevron-right" size={20} color={theme.textTertiary} />
+              <ThemedText style={styles.tileName} numberOfLines={2}>{item.name}</ThemedText>
+              <View style={[styles.classBadge, { backgroundColor: theme.backgroundSecondary, marginTop: Spacing.xs }]}>
+                <ThemedText style={[styles.classText, { color: theme.primary }]}>{item.classMark}</ThemedText>
               </View>
             </Card>
           </Pressable>
         </Animated.View>
       );
     },
-    [navigation, theme]
+    [navigation, theme, pilotProfile, tileWidth]
   );
 
   if (detectingCountry) {
@@ -147,8 +137,11 @@ export default function PlanningDroneSelectScreen() {
     <ThemedView style={styles.container}>
       <FlatList
         data={drones}
+        key={`cols-${numColumns}`}
+        numColumns={numColumns}
         keyExtractor={(item) => item.id}
         renderItem={renderItem}
+        columnWrapperStyle={{ gap: Spacing.md }}
         contentContainerStyle={[
           styles.listContent,
           {
@@ -185,6 +178,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.lg,
     gap: Spacing.md,
   },
+  // Kachel-Statuspunkt sitzt oben rechts im Bild
+
   header: {
     marginBottom: Spacing.lg,
   },
@@ -199,6 +194,24 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     padding: Spacing.lg,
+  },
+  tile: {
+    alignItems: "center",
+    padding: Spacing.md,
+  },
+  tileImageWrap: {
+    width: "100%",
+    aspectRatio: 1,
+    borderRadius: 14,
+    justifyContent: "center",
+    alignItems: "center",
+    position: "relative",
+    marginBottom: Spacing.sm,
+  },
+  tileName: {
+    ...Typography.body,
+    fontWeight: "700",
+    textAlign: "center",
   },
   droneIconContainer: {
     width: 56,
@@ -240,12 +253,12 @@ const styles = StyleSheet.create({
     gap: Spacing.md,
   },
   statusDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
     position: "absolute",
-    bottom: -2,
-    right: -2,
+    top: 8,
+    right: 8,
     borderWidth: 2,
     borderColor: "#1A1A2E",
   },

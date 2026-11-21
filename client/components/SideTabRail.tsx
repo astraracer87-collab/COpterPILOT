@@ -144,7 +144,7 @@ export const railStyles = StyleSheet.create({
   },
   tab: {
     width: 38,
-    height: 90,
+    height: 116,
     borderTopLeftRadius: 10,
     borderBottomLeftRadius: 10,
     alignItems: "center",
@@ -156,15 +156,15 @@ export const railStyles = StyleSheet.create({
     }),
   },
   tabRotateWrap: {
-    width: 86,
+    width: 112,
     transform: [{ rotate: "90deg" }],
     alignItems: "center",
     justifyContent: "center",
   },
   tabLabel: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: "800",
-    letterSpacing: 0.5,
+    letterSpacing: 0.3,
     textAlign: "center",
   },
 });
