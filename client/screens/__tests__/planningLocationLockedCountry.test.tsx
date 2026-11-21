@@ -217,10 +217,11 @@ describe("PlanningLocationScreen: gesperrtes Land blockiert handleContinue", () 
       byTestId(tree, "button-confirm-location").props.onPress();
     });
 
-    // Regulärer Weiter-Pfad: zuerst die Gebietsübersicht, deren „Weiter“ zu Datum & Zeit führt.
+    // Entschlackter Ablauf: direkt zu Datum & Zeit (Geozonen-Prüfung folgt
+    // danach einmalig in PlanningRestrictions; keine separate Vorschau mehr).
     expect(mockNavigate).toHaveBeenCalledWith(
-      "PlanningAreaOverview",
-      expect.objectContaining({ droneId: "drone-1", next: "datetime" }),
+      "PlanningDateTime",
+      expect.objectContaining({ droneId: "drone-1" }),
     );
     // Kein "nicht freigeschaltet"-Sperr-Alert.
     const lockedAlert = (Alert.alert as jest.Mock).mock.calls.find((c) =>

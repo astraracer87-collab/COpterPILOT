@@ -759,9 +759,15 @@ export default function PlanningLocationScreen() {
       crossCheckEnabled,
     });
 
-    // Zuerst die Gebietsübersicht (Geozonen/NOTAMs/Hindernisse/Hinweise im
-    // Umkreis); deren „Weiter“ führt zum hier bestimmten Ziel.
-    navigation.navigate("PlanningAreaOverview", { ...baseParams, next: target });
+    // Neuer, entschlackter Ablauf: Ort → (ggf. Karten-Gegenprüfung) → Datum &
+    // Zeit → Geozonen-/Einschränkungsprüfung (einmal, in PlanningRestrictions).
+    // Die frühere reine Vorschau „Umgebung prüfen“ (PlanningAreaOverview) liegt
+    // nicht mehr im linearen Pfad – so wird nicht mehrfach auf Geozonen geprüft.
+    if (target === "crosscheck") {
+      navigation.navigate("PlanningCrossCheck", { ...baseParams });
+    } else {
+      navigation.navigate("PlanningDateTime", { ...baseParams });
+    }
   };
 
   const renderSearchDropdown = () => {
