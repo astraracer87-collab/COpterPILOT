@@ -25,6 +25,7 @@ import {
   type DjiBulkResult,
   groupDjiAnalyses,
   assignDjiLog,
+  mergeRelatedDjiLogEntries,
   isLikelyTestStart,
   type DjiAnalyzeResult,
   dronesCompatible,
@@ -424,6 +425,8 @@ export default function DjiBulkImportScreen() {
         await new Promise((r) => setTimeout(r, 0));
       }
       setAssignedTo((prev) => ({ ...prev, ...newAssigned }));
+      // Zusammengehörige Flüge (gleiche Drohne, zeitnah) zusammenführen.
+      await mergeRelatedDjiLogEntries().catch(() => 0);
       setEntries(await getLogbook());
       refreshDjiLogNewHint().catch(() => {});
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);

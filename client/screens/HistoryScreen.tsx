@@ -1,5 +1,5 @@
 import React, { useCallback, useState, useMemo, useSyncExternalStore } from "react";
-import { removeDuplicateDjiLogEntries } from "@/lib/djiLog";
+import { removeDuplicateDjiLogEntries, mergeRelatedDjiLogEntries } from "@/lib/djiLog";
 import { View, StyleSheet, FlatList, RefreshControl, Pressable, Alert, ScrollView, Image, GestureResponderEvent } from "react-native";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -772,8 +772,10 @@ export default function HistoryScreen() {
 
   const loadData = useCallback(async () => {
     try {
-      // doppelt importierte DJI-Flüge vor der Anzeige entfernen
+      // doppelt importierte DJI-Flüge vor der Anzeige entfernen …
       await removeDuplicateDjiLogEntries().catch(() => 0);
+      // … und zusammengehörige Flüge (gleiche Drohne, zeitnah) zusammenführen.
+      await mergeRelatedDjiLogEntries().catch(() => 0);
       const [logbook, briefings] = await Promise.all([
         getLogbook(),
         getBriefings(),

@@ -20,6 +20,7 @@ import type {
   DjiBulkResult,
   DjiLogMeta,
 } from "./djiLogCore";
+import { sameAircraft } from "./djiLogCore";
 import {
   analyzeDjiLogSource,
   type DjiAnalyzePhase,
@@ -346,6 +347,53 @@ export async function removeDuplicateDjiLogEntries(): Promise<number> {
     }
   }
   return removed;
+}
+
+/**
+ * Führt bereits vorhandene, zusammengehörige DJI-Log-Einträge nachträglich
+ * zusammen: gleiche Drohne (bevorzugt Seriennummer, sonst Name) und zeitlich
+ * nah beieinander (Standard 3 h) werden zu EINEM Logbuch-Eintrag verschmolzen.
+ * Der früheste Eintrag bleibt, die Protokolle der anderen wandern hinein, die
+ * anderen Einträge werden gelöscht. Rückgabe: Anzahl verschmolzener Einträge.
+ */
+export async function mergeRelatedDjiLogEntries(maxHours = 3): Promise<number> {
+  const maxMs = maxHours * 3600 * 1000;
+  const all = await getLogbook();
+  type Row = { entry: LogbookEntry; sn?: string; name?: string; startTs: number };
+  const rows: Row[] = [];
+  for (const e of all) {
+    const fromLog = typeof e.sessionId === "string" && e.sessionId.startsWith("dji-log:");
+    const logs = getEntryDjiLogs(e);
+    if (!fromLog || logs.length === 0) continue;
+    const startTs = Math.min(...logs.map((l) => l.startTs ?? Infinity));
+    if (!Number.isFinite(startTs)) continue;
+    rows.push({ entry: e, sn: logs[0].aircraftSn, name: logs[0].droneName ?? e.droneName, startTs });
+  }
+  rows.sort((a, b) => a.startTs - b.startTs);
+
+  const keepers: Row[] = [];
+  let merged = 0;
+  for (const row of rows) {
+    const target = keepers.find(
+      (k) => sameAircraft(k.name, k.sn, row.name, row.sn) && Math.abs(k.startTs - row.startTs) <= maxMs,
+    );
+    if (!target) {
+      keepers.push(row);
+      continue;
+    }
+    // Alle Protokolle des jüngeren Eintrags in den Keeper übernehmen, dann löschen.
+    try {
+      for (const l of getEntryDjiLogs(row.entry)) {
+        await attachDjiLogToEntry(target.entry.id, l);
+      }
+      await deleteLogbookEntry(row.entry.id);
+      merged++;
+      if (!target.sn && row.sn) target.sn = row.sn;
+    } catch {
+      // Eintrag überspringen, Rest weiterführen
+    }
+  }
+  return merged;
 }
 
 export async function assignDjiLog(params: {
