@@ -2173,32 +2173,15 @@ export default function TrafficMapView({
       ) : null}
       {/* Bedien-Knöpfe (Standort, Einstellungen, VLOS/Drohne) IMMER sichtbar –
           unabhängig von Windrose/Wetter und davon, ob GPS-Koordinaten vorliegen.
-          Sitzt links; bei eingeblendeter Windrose darunter, sonst oben. */}
+          Unten links in der Ecke: VLOS-Knopf unten, die beiden Kreise darüber
+          gleichmäßig auf die Breite des VLOS-Elements verteilt. */}
       {(onCenterGps || onSettingsPress || dronePill) ? (
         <View
           pointerEvents="box-none"
-          style={{ position: "absolute", left: 10, top: topInset + (wind ? 150 : 12), zIndex: 60, alignItems: "center", gap: 6 }}
+          style={{ position: "absolute", left: 10, bottom: (bottomPadding || 0) + 16, zIndex: 60, alignItems: "stretch", gap: 6 }}
         >
-          {dronePill ? (
-            <Pressable
-              testID="radar-drone-pill"
-              onPress={dronePill.onPress}
-              accessibilityRole="button"
-              accessibilityLabel={`Drohne wählen, ${dronePill.label}`}
-              style={{
-                flexDirection: "row", alignItems: "center", gap: 6,
-                height: 36, paddingLeft: 4, paddingRight: 10, borderRadius: 18,
-                borderWidth: 2, borderColor: "#0A84FF",
-                backgroundColor: isDark ? "rgba(30,40,60,0.88)" : "rgba(255,255,255,0.92)",
-                ...(Platform.OS === "ios" ? { shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 4 } : { elevation: 4 }),
-              }}
-            >
-              <DroneImage manufacturer={dronePill.manufacturer} model={dronePill.model} size={28} iconColor="#0A84FF" iconSize={20} />
-              <Text style={{ fontSize: 12, fontWeight: "700", color: "#0A84FF" }} numberOfLines={1}>{dronePill.label}</Text>
-            </Pressable>
-          ) : null}
           {(onCenterGps || onSettingsPress) ? (
-            <View style={{ flexDirection: "row", gap: 8 }}>
+            <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
               {onCenterGps ? (
                 <Pressable
                   onPress={onCenterGps}
@@ -2228,6 +2211,24 @@ export default function TrafficMapView({
                 </Pressable>
               ) : null}
             </View>
+          ) : null}
+          {dronePill ? (
+            <Pressable
+              testID="radar-drone-pill"
+              onPress={dronePill.onPress}
+              accessibilityRole="button"
+              accessibilityLabel={`Drohne wählen, ${dronePill.label}`}
+              style={{
+                flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-start",
+                height: 36, paddingLeft: 4, paddingRight: 10, borderRadius: 18,
+                borderWidth: 2, borderColor: "#0A84FF",
+                backgroundColor: isDark ? "rgba(30,40,60,0.88)" : "rgba(255,255,255,0.92)",
+                ...(Platform.OS === "ios" ? { shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 4 } : { elevation: 4 }),
+              }}
+            >
+              <DroneImage manufacturer={dronePill.manufacturer} model={dronePill.model} size={28} iconColor="#0A84FF" iconSize={20} />
+              <Text style={{ fontSize: 12, fontWeight: "700", color: "#0A84FF" }} numberOfLines={1}>{dronePill.label}</Text>
+            </Pressable>
           ) : null}
         </View>
       ) : null}

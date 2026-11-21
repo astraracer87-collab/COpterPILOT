@@ -1,5 +1,6 @@
-import React, { useContext, useState } from "react";
+import React, { useContext, useState, useEffect } from "react";
 import { getLogbookOrigin } from "@/lib/logbookOrigin";
+import * as Haptics from "@/lib/noHaptics";
 import { View, Pressable, StyleSheet, useWindowDimensions, type LayoutChangeEvent } from "react-native";
 import {
   BottomTabBarHeightCallbackContext,
@@ -62,6 +63,12 @@ export function MainTabBar({ state, descriptors, navigation, insets }: BottomTab
   const landscape = width > height;
   const onHeightChange = useContext(BottomTabBarHeightCallbackContext);
   const barHeight = getMainTabBarHeight(landscape, insets.bottom);
+  // Sofort-Feedback: angetippten Tab gleich hervorheben, bevor die (ggf.
+  // schwere) Zielseite gemountet ist – sonst wirkt es, als hinge die App.
+  const [pendingKey, setPendingKey] = useState<string | null>(null);
+  useEffect(() => {
+    setPendingKey(null);
+  }, [state.index]);
 
   const handleLayout = (e: LayoutChangeEvent) => {
     onHeightChange?.(e.nativeEvent.layout.height);
@@ -87,14 +94,20 @@ export function MainTabBar({ state, descriptors, navigation, insets }: BottomTab
         if (HIDDEN_TAB_ROUTES[route.name]) return [];
         const { options } = descriptors[route.key];
         const currentName = state.routes[state.index]?.name;
-        const focused = state.index === index || hiddenTabHighlight(currentName) === route.name;
+        const focused =
+          state.index === index ||
+          hiddenTabHighlight(currentName) === route.name ||
+          pendingKey === route.key;
         const color = focused ? theme.primary : theme.textTertiary;
         const labelOption = options.tabBarLabel;
         const title = typeof labelOption === "string" ? labelOption : options.title ?? route.name;
 
         const onPress = () => {
           const event = navigation.emit({ type: "tabPress", target: route.key, canPreventDefault: true });
-          if (!focused && !event.defaultPrevented) {
+          const isActive = state.index === index;
+          if (!isActive && !event.defaultPrevented) {
+            Haptics.selectionAsync(); // direktes Feedback beim Antippen
+            setPendingKey(route.key); // Tab sofort hervorheben
             navigation.navigate(route.name, route.params);
           }
         };

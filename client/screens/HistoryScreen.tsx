@@ -11,6 +11,8 @@ import * as Haptics from "@/lib/noHaptics";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { Card } from "@/components/Card";
+import MiniTrackSketch from "@/components/MiniTrackSketch";
+import { getEntryDjiLogs } from "@/lib/storage";
 import StatusBadge from "@/components/StatusBadge";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, Typography, BorderRadius } from "@/constants/theme";
@@ -643,6 +645,24 @@ function LogbookCard({ item, index, onDelete }: { item: LogbookDisplayItem; inde
     );
   }
 
+  // Vorschau-Route für die Mini-Karte: tatsächlicher GPS-Track oder DJI-Log-Track
+  const previewTracks = React.useMemo(() => {
+    if (!entry) return [];
+    const out: { coords: { latitude: number; longitude: number }[]; color: string }[] = [];
+    const gps = entry.gpsTrack;
+    if (gps && gps.length >= 2) {
+      out.push({ coords: gps.map((p) => ({ latitude: p.lat, longitude: p.lon })), color: "#0A84FF" });
+    } else {
+      for (const l of getEntryDjiLogs(entry)) {
+        const t = (l as any).track as { lat: number; lon: number }[] | undefined;
+        if (t && t.length >= 2) {
+          out.push({ coords: t.filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lon)).map((p) => ({ latitude: p.lat, longitude: p.lon })), color: "#0A84FF" });
+        }
+      }
+    }
+    return out.filter((t) => t.coords.length >= 2);
+  }, [entry]);
+
   return (
     <Animated.View entering={FadeInDown.delay(index * 50).duration(300)}>
       <Card style={styles.card}>
@@ -725,6 +745,10 @@ function LogbookCard({ item, index, onDelete }: { item: LogbookDisplayItem; inde
                 style={[styles.cardThumb, { borderColor: theme.border }]}
                 resizeMode="cover"
               />
+            ) : previewTracks.length > 0 ? (
+              <View style={[styles.cardThumb, { borderWidth: 0, backgroundColor: "transparent", overflow: "hidden" }]}>
+                <MiniTrackSketch tracks={previewTracks} height={60} />
+              </View>
             ) : null}
           </View>
         </Pressable>

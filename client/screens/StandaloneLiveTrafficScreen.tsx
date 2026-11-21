@@ -446,25 +446,35 @@ export default function StandaloneLiveTrafficScreen() {
     getSelectedDrone().then(applyDrone).catch(() => {});
   }, [detectedCountryIso, applyDrone]);
 
-  // Gewählte Drohne neu laden, wenn man aus Einstellungen/Drohnen zurückkommt
+  // Gewählte Drohne neu laden, wenn man aus Einstellungen/Drohnen zurückkommt;
+  // Drohnenliste gleich vorladen, damit die Auswahl sofort gefüllt ist.
   useFocusEffect(
     useCallback(() => {
       getSelectedDrone().then(applyDrone).catch(() => {});
+      getDrones().then((list) => setDroneChoices(sortDronesByName(list))).catch(() => {});
     }, [applyDrone]),
   );
 
   const openDronePicker = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    // Sofort öffnen; die Liste wird im Hintergrund nachgeladen (kein Warten).
+    setShowDronePicker(true);
     getDrones().then((list) => {
       setDroneChoices(sortDronesByName(list));
-      setShowDronePicker(true);
     }).catch(() => {});
   }, []);
 
   const chooseDrone = useCallback((d: DroneProfile) => {
+    // Direktes Feedback (Haptik) und sofort schließen; die Drohne wird erst
+    // nach dem Schließen angewendet, damit das Fenster nicht ~3 s hängt, während
+    // die Radarkarte mit dem neuen VLOS-Kreis neu rendert.
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setRadarDrone(d); // sofortige optische Markierung der Auswahl
     setShowDronePicker(false);
-    applyDrone(d);
-    setSelectedDroneId(d.id).catch(() => {});
+    requestAnimationFrame(() => {
+      applyDrone(d);
+      setSelectedDroneId(d.id).catch(() => {});
+    });
   }, [applyDrone]);
 
   useFocusEffect(
@@ -1456,17 +1466,29 @@ export default function StandaloneLiveTrafficScreen() {
           </View>
           <Modal visible={showDronePicker} transparent animationType="fade" onRequestClose={() => setShowDronePicker(false)}>
             <Pressable style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.45)", alignItems: "center", justifyContent: "center", padding: 16 }} onPress={() => setShowDronePicker(false)}>
-              <Pressable onPress={() => {}} style={{ width: "100%", maxWidth: 560, maxHeight: "90%", borderRadius: 16, padding: 14, backgroundColor: theme.backgroundDefault }}>
-                <Text style={{ fontSize: 16, fontWeight: "700", color: theme.text, marginBottom: 2 }}>Drohne für das Radar</Text>
-                <Text style={{ fontSize: 12, color: theme.textSecondary, marginBottom: 10 }}>
-                  Der blaue Kreis zeigt die Sichtflug-Reichweite (VLOS) der Drohne. In diesem Umkreis werden die Geozonen geprüft.
-                </Text>
+              <Pressable onPress={() => {}} style={{ width: "100%", maxWidth: 680, maxHeight: "90%", borderRadius: 16, padding: 14, backgroundColor: theme.backgroundDefault }}>
+                <View style={{ flexDirection: "row", alignItems: "flex-start" }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 16, fontWeight: "700", color: theme.text, marginBottom: 2 }}>Drohne für das Radar</Text>
+                    <Text style={{ fontSize: 12, color: theme.textSecondary, marginBottom: 10 }}>
+                      Der blaue Kreis zeigt die Sichtflug-Reichweite (VLOS) der Drohne. In diesem Umkreis werden die Geozonen geprüft.
+                    </Text>
+                  </View>
+                  <Pressable
+                    testID="radar-drone-picker-close"
+                    onPress={() => setShowDronePicker(false)}
+                    hitSlop={10}
+                    style={{ width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.06)", marginLeft: 8 }}
+                  >
+                    <Feather name="x" size={18} color={theme.textSecondary} />
+                  </Pressable>
+                </View>
                 {droneChoices.length === 0 ? (
                   <Text style={{ fontSize: 13, color: theme.textSecondary, paddingVertical: 12 }}>
-                    Noch keine Drohne angelegt. Unter Einstellungen → Drohnen kannst du eine einrichten.
+                    Drohnen werden geladen … (oder noch keine angelegt – unter Einstellungen → Drohnen).
                   </Text>
                 ) : (
-                  <ScrollView contentContainerStyle={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ flexDirection: "row", gap: 10, paddingVertical: 4 }}>
                     {droneChoices.map((d) => {
                       const active = d.id === radarDrone?.id;
                       const vm = Math.round(vlosKmForDrone(d) * 1000);
@@ -1476,13 +1498,13 @@ export default function StandaloneLiveTrafficScreen() {
                           testID={`radar-drone-${d.id}`}
                           onPress={() => chooseDrone(d)}
                           style={{
-                            width: "31.5%", alignItems: "center", padding: 8, borderRadius: 12,
+                            width: 128, alignItems: "center", padding: 10, borderRadius: 14,
                             borderWidth: 2, borderColor: active ? "#0A84FF" : theme.border,
                             backgroundColor: active ? "rgba(10,132,255,0.12)" : "transparent",
                           }}
                         >
-                          <DroneImage manufacturer={d.manufacturer} model={d.model} size={64} iconColor={theme.textSecondary} iconSize={40} />
-                          <Text style={{ fontSize: 13, fontWeight: "600", color: theme.text, marginTop: 4 }} numberOfLines={1}>{d.name}</Text>
+                          <DroneImage manufacturer={d.manufacturer} model={d.model} size={88} iconColor={theme.textSecondary} iconSize={52} />
+                          <Text style={{ fontSize: 13, fontWeight: "600", color: theme.text, marginTop: 6 }} numberOfLines={1}>{d.name}</Text>
                           <Text style={{ fontSize: 11, color: "#0A84FF", fontWeight: "700" }}>VLOS {vm} m</Text>
                         </Pressable>
                       );
