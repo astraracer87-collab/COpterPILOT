@@ -18,6 +18,7 @@ import FpvSelectScreen from "@/screens/FpvSelectScreen";
 import PreCheckOverviewScreen from "@/screens/PreCheckOverviewScreen";
 import StandaloneLiveTrafficScreen from "@/screens/StandaloneLiveTrafficScreen";
 import { useScreenOptions } from "@/hooks/useScreenOptions";
+import { compactHeader } from "@/components/CompactStackHeader";
 import type { WeatherLimits, BatteryUsage } from "@/lib/storage";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
@@ -121,7 +122,7 @@ export default function FlightCheckNavigator() {
   return (
     <Stack.Navigator 
       key={`${sessionId}-${initialRoute}`}
-      screenOptions={screenOptions}
+      screenOptions={{ ...screenOptions, header: compactHeader }}
       initialRouteName={initialRoute}
     >
       <Stack.Screen

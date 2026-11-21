@@ -69,11 +69,11 @@ export default function ChargerStackNavigator() {
   const screenOptions = useScreenOptions({ transparent: false });
   useChargerTabLifecycle();
   return (
-    <Stack.Navigator screenOptions={screenOptions}>
+    <Stack.Navigator screenOptions={{ ...screenOptions, header: compactHeader }}>
       <Stack.Screen
         name="ChargerLive"
         component={ChargerLiveScreen}
-        options={{ header: compactHeader, headerTitle: "Ladegerät (ISDT MA331)" }}
+        options={{ headerTitle: "Ladegerät (ISDT MA331)" }}
       />
       <Stack.Screen
         name="ChargerBatteries"

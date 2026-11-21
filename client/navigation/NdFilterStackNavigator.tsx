@@ -26,11 +26,11 @@ const Stack = createNativeStackNavigator<NdFilterStackParamList>();
 export default function NdFilterStackNavigator() {
   const screenOptions = useScreenOptions();
   return (
-    <Stack.Navigator screenOptions={screenOptions}>
+    <Stack.Navigator screenOptions={{ ...screenOptions, header: compactHeader }}>
       <Stack.Screen
         name="NdFilterFinder"
         component={NdFilterFinderScreen}
-        options={{ header: compactHeader, headerTitle: "ND-Filter Finder" }}
+        options={{ headerTitle: "ND-Filter Finder" }}
       />
       <Stack.Screen
         name="DroneCinematic"

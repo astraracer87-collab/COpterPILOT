@@ -334,9 +334,9 @@ export default function SettingsScreen() {
       />
       <SettingsRow
         testID="settings-row-expiry"
-        icon={icon("clock")}
-        title="Ablaufende Dokumente"
-        subtitle="Fristen im Blick behalten"
+        icon={icon("folder")}
+        title="Dokumente"
+        subtitle="Alle Dokumente, Fristen im Blick"
         onPress={() => navigation.navigate("ExpiryOverview")}
       />
       <SettingsRow

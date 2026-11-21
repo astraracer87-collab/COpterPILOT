@@ -37,12 +37,11 @@ export default function HistoryStackNavigator() {
   const screenOptions = useScreenOptions();
 
   return (
-    <Stack.Navigator screenOptions={screenOptions}>
+    <Stack.Navigator screenOptions={{ ...screenOptions, header: compactHeader }}>
       <Stack.Screen
         name="History"
         component={HistoryScreen}
         options={({ navigation }) => ({
-          header: compactHeader,
           headerTitle: "Logbuch",
           // Logbuch steht nicht in der Tab-Leiste: zurück dorthin, wo es geöffnet wurde
           headerLeft: (props) => (

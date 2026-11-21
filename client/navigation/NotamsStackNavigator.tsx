@@ -2,6 +2,7 @@ import React from "react";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import NotamsScreen from "@/screens/NotamsScreen";
 import { useScreenOptions } from "@/hooks/useScreenOptions";
+import { compactHeader } from "@/components/CompactStackHeader";
 
 export type NotamsStackParamList = {
   Notams: { latitude?: number; longitude?: number; locationName?: string } | undefined;
@@ -13,7 +14,7 @@ export default function NotamsStackNavigator() {
   const screenOptions = useScreenOptions();
 
   return (
-    <Stack.Navigator screenOptions={screenOptions}>
+    <Stack.Navigator screenOptions={{ ...screenOptions, header: compactHeader }}>
       <Stack.Screen
         name="Notams"
         component={NotamsScreen}

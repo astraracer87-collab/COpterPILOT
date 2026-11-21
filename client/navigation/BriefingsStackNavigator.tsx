@@ -6,6 +6,7 @@ import DipulMapScreen from "@/screens/DipulMapScreen";
 import LocationMapScreen from "@/screens/LocationMapScreen";
 import BrightSkyWeatherScreen from "@/screens/BrightSkyWeatherScreen";
 import { useScreenOptions } from "@/hooks/useScreenOptions";
+import { compactHeader } from "@/components/CompactStackHeader";
 import { Pressable, Text } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { setLogbookOrigin } from "@/lib/logbookOrigin";
@@ -24,7 +25,7 @@ export default function BriefingsStackNavigator() {
   const screenOptions = useScreenOptions();
 
   return (
-    <Stack.Navigator screenOptions={screenOptions}>
+    <Stack.Navigator screenOptions={{ ...screenOptions, header: compactHeader }}>
       <Stack.Screen
         name="Briefings"
         component={BriefingsScreen}

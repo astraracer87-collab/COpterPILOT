@@ -2,6 +2,7 @@ import React, { useEffect } from "react";
 import { Pressable, Text, StyleSheet } from "react-native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { useScreenOptions } from "@/hooks/useScreenOptions";
+import { compactHeader } from "@/components/CompactStackHeader";
 import { setFlightPlanningMode } from "@/lib/flightPlanningMode";
 import { decidePlanningBackAction } from "@/lib/manualRestrictionFlow";
 import { WeatherSnapshot, WeatherLimits } from "@/lib/storage";
@@ -318,7 +319,7 @@ export default function FlightPlanningNavigator() {
   }, []);
 
   return (
-    <Stack.Navigator screenOptions={screenOptions}>
+    <Stack.Navigator screenOptions={{ ...screenOptions, header: compactHeader }}>
       <Stack.Screen
         name="PlanningDroneSelect"
         component={PlanningDroneSelectScreen}

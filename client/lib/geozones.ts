@@ -1824,12 +1824,23 @@ export async function queryGeozonesInAreaWithCoverage(
   const withTimeout = <T,>(promise: Promise<T>, ms: number): Promise<T | typeof NEIGHBOR_TIMEOUT> =>
     Promise.race([promise, new Promise<typeof NEIGHBOR_TIMEOUT>((resolve) => setTimeout(() => resolve(NEIGHBOR_TIMEOUT), ms))]);
 
-  const primaryResult = disabled.has(primary) ? [] : tag(primary, await queryGeozonesForCountry(lat, lon, radiusKm, primary, onDipulSourceStatus, reporterFor(primary)).catch((e) => {
-    if (e instanceof DipulWfsAccessError) throw e;
-    console.warn(`[Geozones] Primary query failed for ${primary}:`, e?.message || e);
-    reporterFor(primary)({ status: "error", note: String(e?.message || e) });
-    return [] as GeozoneFeatureInfo[];
-  }));
+  // Auch die Hauptabfrage mit Timeout absichern, damit der Reiter („Geozonen …“)
+  // nicht endlos lädt, wenn eine WMS/dipul-Quelle sehr langsam antwortet.
+  const primaryRaw = disabled.has(primary)
+    ? ([] as GeozoneFeatureInfo[])
+    : await withTimeout(
+        queryGeozonesForCountry(lat, lon, radiusKm, primary, onDipulSourceStatus, reporterFor(primary)).catch((e) => {
+          if (e instanceof DipulWfsAccessError) throw e;
+          console.warn(`[Geozones] Primary query failed for ${primary}:`, e?.message || e);
+          reporterFor(primary)({ status: "error", note: String(e?.message || e) });
+          return [] as GeozoneFeatureInfo[];
+        }),
+        12000,
+      );
+  const primaryResult =
+    primaryRaw === NEIGHBOR_TIMEOUT
+      ? (reporterFor(primary)({ status: "error", note: "Zeitüberschreitung" }), [] as GeozoneFeatureInfo[])
+      : tag(primary, primaryRaw);
 
   let neighborResults: GeozoneFeatureInfo[] = [];
   const activeNeighbors = neighbors.filter((iso) => !disabled.has(iso));

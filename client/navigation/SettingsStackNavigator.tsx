@@ -72,12 +72,13 @@ export default function SettingsStackNavigator() {
   const screenOptions = useScreenOptions();
 
   return (
-    <Stack.Navigator screenOptions={screenOptions}>
+    // Kompakte Kopfzeile (wie NOTAMs/Einstellungen) als Standard für den ganzen
+    // Einstellungs-Stack – spart im Querformat der Fernsteuerung Höhe.
+    <Stack.Navigator screenOptions={{ ...screenOptions, header: compactHeader }}>
       <Stack.Screen
         name="Settings"
         component={SettingsScreen}
         options={{
-          header: compactHeader,
           headerTitle: "Einstellungen",
         }}
       />
@@ -126,7 +127,6 @@ export default function SettingsStackNavigator() {
         component={DroneSetupScreen}
         options={{
           headerTitle: "Drohne einrichten",
-          header: compactHeader,
         }}
       />
       <Stack.Screen
@@ -267,7 +267,7 @@ export default function SettingsStackNavigator() {
         name="ExpiryOverview"
         component={ExpiryOverviewScreen}
         options={{
-          headerTitle: "Ablaufende Dokumente",
+          headerTitle: "Dokumente",
         }}
       />
     </Stack.Navigator>

@@ -5,6 +5,7 @@ import MainTabNavigator from "@/navigation/MainTabNavigator";
 import FlightCheckNavigator from "@/navigation/FlightCheckNavigator";
 import FlightPlanningNavigator, { type FlightPlanningParamList } from "@/navigation/FlightPlanningNavigator";
 import { useScreenOptions } from "@/hooks/useScreenOptions";
+import { compactHeader } from "@/components/CompactStackHeader";
 import WebPageScreen from "@/screens/WebPageScreen";
 
 export type RootStackParamList = {
@@ -20,7 +21,7 @@ export default function RootStackNavigator() {
   const screenOptions = useScreenOptions();
 
   return (
-    <Stack.Navigator screenOptions={screenOptions}>
+    <Stack.Navigator screenOptions={{ ...screenOptions, header: compactHeader }}>
       <Stack.Screen
         name="Main"
         component={MainTabNavigator}

@@ -105,6 +105,163 @@ function classify(daysUntil: number | null): ExpiryStatus {
   return "ok";
 }
 
+// ─────────────────────── Dokumenten-Übersicht ───────────────────────────────
+
+import type { DocumentRef } from "./documents";
+
+/** Kategorien der Dokumenten-Übersicht in den Einstellungen. */
+export type DocCategory = "licenses" | "drones" | "insurance" | "permits";
+
+export const DOC_CATEGORY_LABEL: Record<DocCategory, string> = {
+  licenses: "Lizenzen & Nachweise",
+  drones: "Drohnen-Registrierungen",
+  insurance: "Versicherung",
+  permits: "Genehmigungen",
+};
+
+export const DOC_CATEGORY_ORDER: DocCategory[] = [
+  "licenses",
+  "drones",
+  "insurance",
+  "permits",
+];
+
+export interface DocEntry {
+  id: string;
+  category: DocCategory;
+  label: string;
+  subtitle?: string;
+  /** Hinterlegte Datei (PDF/Bild), falls vorhanden – dann direkt öffenbar. */
+  doc?: DocumentRef | null;
+  /** Kann ablaufen? (für die Rubrik „Läuft bald ab“). */
+  canExpire: boolean;
+  rawDate?: string;
+  expiresAt?: Date | null;
+  status?: ExpiryStatus;
+  /** Ziel zum Ansehen/Bearbeiten, wenn keine Datei hinterlegt ist. */
+  nav?: { screen: string; params?: Record<string, unknown> };
+}
+
+/**
+ * Alle in der App bekannten Dokumente, kategorisiert: Lizenzen/Nachweise,
+ * Drohnen-Registrierungen (AlphaTango/D-Flight), Versicherung, Genehmigungen
+ * (§ 21h-Allgemeinverfügungen). Jedes Dokument kann – wenn als Datei hinterlegt
+ * – direkt geöffnet werden; sonst führt es zur passenden Eingabestelle.
+ */
+export async function collectDocuments(): Promise<DocEntry[]> {
+  const [drones, pilot] = await Promise.all([
+    getDrones({ includeArchived: false }).catch(() => [] as DroneProfile[]),
+    getPilotProfile().catch(() => null as PilotProfile | null),
+  ]);
+  const now = new Date();
+  const out: DocEntry[] = [];
+  const statusFor = (raw?: string) => {
+    const exp = parseExpiryDate(raw);
+    const days = exp ? daysBetween(now, exp) : null;
+    return { exp, status: classify(days) };
+  };
+
+  if (pilot) {
+    const pushLicense = (
+      key: "licenseA1A3" | "licenseA2" | "licenseSTS",
+      label: string,
+      details?: { expirationDate?: string; identificationNumber?: string },
+    ) => {
+      if (!pilot[key]) return;
+      if (key === "licenseA1A3" && pilot.licenseA2) return; // A2 deckt A1/A3 (DE)
+      const { exp, status } = statusFor(details?.expirationDate);
+      out.push({
+        id: `lic:${key}`,
+        category: "licenses",
+        label,
+        subtitle: details?.identificationNumber ? `ID ${details.identificationNumber}` : undefined,
+        canExpire: true,
+        rawDate: details?.expirationDate,
+        expiresAt: exp,
+        status,
+        nav: { screen: "PilotLicenseCard" },
+      });
+    };
+    const a2Country = (pilot.licenseA2Details?.country || "DE").toUpperCase();
+    if (!(pilot.licenseA2 && a2Country === "DE")) {
+      pushLicense("licenseA1A3", "Kompetenznachweis A1/A3", pilot.licenseA1A3Details);
+    }
+    pushLicense("licenseA2", "Fernpiloten-Zeugnis A2", pilot.licenseA2Details);
+    pushLicense("licenseSTS", "STS-Theorieprüfung", pilot.licenseSTSDetails);
+
+    // Versicherung
+    if (pilot.insuranceActive || pilot.insuranceDocument || pilot.insuranceExpirationDate) {
+      const { exp, status } = statusFor(pilot.insuranceExpirationDate);
+      out.push({
+        id: "insurance",
+        category: "insurance",
+        label: "Haftpflichtversicherung",
+        subtitle: pilot.insuranceActive ? "aktiv" : undefined,
+        doc: pilot.insuranceDocument ?? null,
+        canExpire: true,
+        rawDate: pilot.insuranceExpirationDate,
+        expiresAt: exp,
+        status,
+        nav: { screen: "PilotProfile" },
+      });
+    }
+
+    // Genehmigungen (§ 21h-Allgemeinverfügungen), eine pro Bundesland
+    const seenAv = new Set<string>();
+    for (const e of pilot.allgemeinverfuegung || []) {
+      if (!e || typeof e.bundesland !== "string") continue;
+      const bl = e.bundesland.trim();
+      if (!bl || seenAv.has(bl)) continue;
+      seenAv.add(bl);
+      const { exp, status } = statusFor(e.expirationDate);
+      out.push({
+        id: `av:${bl}`,
+        category: "permits",
+        label: `Allgemeinverfügung – ${bl}`,
+        subtitle: "§ 21h LuftVO",
+        doc: e.document ?? null,
+        canExpire: !!e.expirationDate,
+        rawDate: e.expirationDate,
+        expiresAt: exp,
+        status: e.expirationDate ? status : "ok",
+        nav: { screen: "PilotProfile" },
+      });
+    }
+  }
+
+  // Drohnen-Registrierungen (AlphaTango FR, D-Flight IT)
+  for (const d of drones) {
+    if (d.alphaTangoId || d.alphaTangoDocument) {
+      const { exp, status } = statusFor(d.alphaTangoExpirationDate);
+      out.push({
+        id: `drone:${d.id}:alphaTango`,
+        category: "drones",
+        label: `AlphaTango – ${d.name}`,
+        subtitle: d.alphaTangoId ? `Nr. ${d.alphaTangoId}` : "Registrierung Frankreich",
+        doc: d.alphaTangoDocument ?? null,
+        canExpire: true,
+        rawDate: d.alphaTangoExpirationDate,
+        expiresAt: exp,
+        status,
+        nav: { screen: "DroneSetup", params: { droneId: d.id } },
+      });
+    }
+    if (d.dflightDocument) {
+      out.push({
+        id: `drone:${d.id}:dflight`,
+        category: "drones",
+        label: `D-Flight – ${d.name}`,
+        subtitle: "Registrierung Italien",
+        doc: d.dflightDocument,
+        canExpire: false,
+        nav: { screen: "DroneSetup", params: { droneId: d.id } },
+      });
+    }
+  }
+
+  return out;
+}
+
 // ───────────────────────────── Sammeln ──────────────────────────────────────
 
 export async function collectExpiryItems(): Promise<ExpiryItem[]> {
