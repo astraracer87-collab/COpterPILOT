@@ -104,7 +104,9 @@ export default function ExpiryOverviewScreen() {
   }
 
   const expiring = docs
-    .filter((d) => d.canExpire && d.status && d.status !== "ok")
+    // „Läuft bald ab“ nur für echte Fristen – nicht für Dokumente ohne Datum
+    // (Status „missing“ = kein Ablaufdatum hinterlegt).
+    .filter((d) => d.canExpire && d.status && d.status !== "ok" && d.status !== "missing")
     .sort((a, b) => {
       const o = EXPIRING_ORDER[a.status!] - EXPIRING_ORDER[b.status!];
       if (o !== 0) return o;

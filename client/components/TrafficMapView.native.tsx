@@ -2169,12 +2169,22 @@ export default function TrafficMapView({
         />
       ) : null}
       {wind ? (
-        <WindCompass wind={wind} deviceHeading={deviceHeading} topInset={topInset} weatherAlerts={weatherAlerts}>
+        <WindCompass wind={wind} deviceHeading={deviceHeading} topInset={topInset} weatherAlerts={weatherAlerts} />
+      ) : null}
+      {/* Bedien-Knöpfe (Standort, Einstellungen, VLOS/Drohne) IMMER sichtbar –
+          unabhängig von Windrose/Wetter und davon, ob GPS-Koordinaten vorliegen.
+          Sitzt links; bei eingeblendeter Windrose darunter, sonst oben. */}
+      {(onCenterGps || onSettingsPress || dronePill) ? (
+        <View
+          pointerEvents="box-none"
+          style={{ position: "absolute", left: 10, top: topInset + (wind ? 150 : 12), zIndex: 60, alignItems: "flex-start", gap: 6 }}
+        >
           {(onCenterGps || onSettingsPress) ? (
-            <View style={{ flexDirection: "row", gap: 8, marginTop: 6 }}>
+            <View style={{ flexDirection: "row", gap: 8 }}>
               {onCenterGps ? (
                 <Pressable
                   onPress={onCenterGps}
+                  testID="radar-center-gps"
                   style={{
                     width: 36, height: 36, borderRadius: 18,
                     backgroundColor: isDark ? "rgba(30,40,60,0.88)" : "rgba(255,255,255,0.92)",
@@ -2188,6 +2198,7 @@ export default function TrafficMapView({
               {onSettingsPress ? (
                 <Pressable
                   onPress={onSettingsPress}
+                  testID="radar-map-settings"
                   style={{
                     width: 36, height: 36, borderRadius: 18,
                     backgroundColor: settingsActive ? "#007AFF" : isDark ? "rgba(30,40,60,0.88)" : "rgba(255,255,255,0.92)",
@@ -2207,7 +2218,7 @@ export default function TrafficMapView({
               accessibilityRole="button"
               accessibilityLabel={`Drohne wählen, ${dronePill.label}`}
               style={{
-                flexDirection: "row", alignItems: "center", gap: 6, marginTop: 6,
+                flexDirection: "row", alignItems: "center", gap: 6,
                 height: 36, paddingLeft: 4, paddingRight: 10, borderRadius: 18,
                 borderWidth: 2, borderColor: "#0A84FF",
                 backgroundColor: isDark ? "rgba(30,40,60,0.88)" : "rgba(255,255,255,0.92)",
@@ -2218,7 +2229,7 @@ export default function TrafficMapView({
               <Text style={{ fontSize: 12, fontWeight: "700", color: "#0A84FF" }} numberOfLines={1}>{dronePill.label}</Text>
             </Pressable>
           ) : null}
-        </WindCompass>
+        </View>
       ) : null}
       {ctrLegendRelevant ? (
         <View style={[ctrLegendStyles.container, { top: topInset + 16 }]} pointerEvents="box-none">
