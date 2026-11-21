@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { computeMatches, type EntryMatch } from "@/lib/djiLogMatch";
-import { View, StyleSheet, ScrollView, Pressable, Alert, ActivityIndicator } from "react-native";
+import { View, StyleSheet, ScrollView, Pressable, Alert, ActivityIndicator, Modal } from "react-native";
 import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useHeaderHeight } from "@react-navigation/elements";
@@ -32,7 +32,9 @@ import {
   type DjiBulkError,
   type DjiBulkProgress,
 } from "@/lib/djiLog";
-import { getLogbook, type LogbookEntry } from "@/lib/storage";
+import { getLogbook, getDrones, updateDrone, type LogbookEntry, type DroneProfile } from "@/lib/storage";
+import { findDroneForLog } from "@/lib/djiBatteryLink";
+import { DroneImage } from "@/components/DroneImage";
 import { reverseGeocodePlace } from "@/lib/countryMaps";
 import { type DjiMapTrack } from "@/components/DjiTracksMap";
 import MiniTrackSketch from "@/components/MiniTrackSketch";
@@ -142,6 +144,8 @@ export default function DjiBulkImportScreen() {
   const [skippedKnown, setSkippedKnown] = useState(0);
   const [showFolderHelp, setShowFolderHelp] = useState(false);
   const [placeNames, setPlaceNames] = useState<Record<string, string>>({});
+  const [drones, setDrones] = useState<DroneProfile[]>([]);
+  const [dronePickerGroup, setDronePickerGroup] = useState<string | null>(null);
   const requestedPlaces = React.useRef<Set<string>>(new Set());
 
   useEffect(() => {
@@ -151,6 +155,11 @@ export default function DjiBulkImportScreen() {
       } catch {
         // ignore — offline / no entries
       }
+      try {
+        setDrones(await getDrones({ includeArchived: true }));
+      } catch {
+        // ignore
+      }
     })();
     getSavedDjiLogFolder().then(setFolderUri).catch(() => {});
     // gleicher Ordner wie in den Einstellungen (dort geändert → hier mitziehen)
@@ -158,6 +167,61 @@ export default function DjiBulkImportScreen() {
   }, []);
 
   const groups = useMemo(() => groupDjiAnalyses(results, { maxKm: 2, maxHours: 3 }), [results]);
+
+  // Automatische Drohnen-Erkennung je Gruppe über die Seriennummer (sonst Name)
+  const detectedDroneByGroup = useMemo(() => {
+    const map: Record<string, DroneProfile | null> = {};
+    for (const g of groups) {
+      const meta = g.items[0]?.meta;
+      map[g.id] = meta ? findDroneForLog(drones, meta) : null;
+    }
+    return map;
+  }, [groups, drones]);
+
+  // Seriennummer automatisch lernen: passt ein Log eindeutig über den Namen zu
+  // einer Drohne, die noch keine Seriennummer hat, wird sie aus dem Log
+  // übernommen – ab dann matchen alle Flüge dieses Fluggeräts per Seriennummer.
+  const autoLearnedRef = React.useRef<Set<string>>(new Set());
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      let changed = false;
+      for (const g of groups) {
+        const det = detectedDroneByGroup[g.id];
+        const sn = g.items[0]?.meta.aircraftSn;
+        if (det && sn && !det.serialNumber && !autoLearnedRef.current.has(det.id)) {
+          autoLearnedRef.current.add(det.id);
+          try {
+            await updateDrone(det.id, { serialNumber: sn });
+            changed = true;
+          } catch {
+            // ignore
+          }
+        }
+      }
+      if (changed && !cancelled) {
+        try { setDrones(await getDrones({ includeArchived: true })); } catch { /* ignore */ }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [groups, detectedDroneByGroup]);
+
+  // Drohne manuell zuordnen: lernt die Seriennummer aus dem Log, damit ab jetzt
+  // alle Flüge dieses Fluggeräts automatisch dieser Drohne zugeordnet werden.
+  const assignDroneToGroup = useCallback(async (groupId: string, drone: DroneProfile) => {
+    setDronePickerGroup(null);
+    const g = groups.find((x) => x.id === groupId);
+    const sn = g?.items[0]?.meta.aircraftSn;
+    try {
+      if (sn && sn !== drone.serialNumber) {
+        await updateDrone(drone.id, { serialNumber: sn });
+      }
+      setDrones(await getDrones({ includeArchived: true }));
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (e) {
+      Alert.alert("Fehler", e instanceof Error ? e.message : "Drohne konnte nicht zugeordnet werden.");
+    }
+  }, [groups]);
 
   const matchesByGroup = useMemo(() => {
     const map: Record<string, EntryMatch[]> = {};
@@ -371,6 +435,48 @@ export default function DjiBulkImportScreen() {
             {group.droneName || "Unbekanntes Fluggerät"}
           </ThemedText>
         </View>
+        {(() => {
+          const det = detectedDroneByGroup[group.id];
+          const sn = group.items[0]?.meta.aircraftSn;
+          if (det) {
+            return (
+              <Pressable
+                testID={`group-drone-detected-${index}`}
+                onPress={() => setDronePickerGroup(group.id)}
+                style={[styles.detectedDrone, { borderColor: theme.statusGo }]}
+              >
+                <DroneImage manufacturer={det.manufacturer} model={det.model} size={26} iconColor={theme.statusGo} iconSize={18} />
+                <View style={{ flex: 1 }}>
+                  <ThemedText style={[styles.detectedText, { color: theme.statusGo }]} numberOfLines={1}>
+                    Erkannt: {det.name}
+                  </ThemedText>
+                  <ThemedText style={[styles.detectedSub, { color: theme.textTertiary }]} numberOfLines={1}>
+                    {det.serialNumber && sn && det.serialNumber === sn ? "über Seriennummer" : "über Modellname · tippen zum Ändern"}
+                  </ThemedText>
+                </View>
+                <Feather name="edit-2" size={13} color={theme.textTertiary} />
+              </Pressable>
+            );
+          }
+          return (
+            <Pressable
+              testID={`group-drone-assign-${index}`}
+              onPress={() => setDronePickerGroup(group.id)}
+              style={[styles.detectedDrone, { borderColor: theme.border }]}
+            >
+              <Feather name="help-circle" size={18} color={theme.textTertiary} />
+              <View style={{ flex: 1 }}>
+                <ThemedText style={[styles.detectedText, { color: theme.text }]} numberOfLines={1}>
+                  Keiner Drohne zugeordnet
+                </ThemedText>
+                <ThemedText style={[styles.detectedSub, { color: theme.textTertiary }]} numberOfLines={1}>
+                  {sn ? "Drohne zuordnen – Seriennummer wird gelernt" : "Drohne zuordnen"}
+                </ThemedText>
+              </View>
+              <Feather name="plus-circle" size={16} color={theme.primary} />
+            </Pressable>
+          );
+        })()}
         <ThemedText style={[styles.meta, { color: theme.textSecondary }]}>
           {fmtDateTime(displayTs)}
         </ThemedText>
@@ -696,6 +802,41 @@ export default function DjiBulkImportScreen() {
           <DjiLogHelp />
         </View>
       </ScrollView>
+      <Modal visible={dronePickerGroup != null} transparent animationType="fade" onRequestClose={() => setDronePickerGroup(null)}>
+        <Pressable style={styles.modalBackdrop} onPress={() => setDronePickerGroup(null)}>
+          <Pressable onPress={() => {}} style={[styles.modalCard, { backgroundColor: theme.backgroundDefault }]}>
+            <ThemedText style={[styles.modalTitle, { color: theme.text }]}>Drohne zuordnen</ThemedText>
+            <ThemedText style={[styles.modalHint, { color: theme.textSecondary }]}>
+              Die Seriennummer aus dem Log wird der gewählten Drohne gemerkt. Künftige Flüge
+              dieses Fluggeräts werden dann automatisch zugeordnet.
+            </ThemedText>
+            <ScrollView style={{ maxHeight: 320 }}>
+              {drones.filter((d) => !d.archivedAt).map((d) => (
+                <Pressable
+                  key={d.id}
+                  testID={`drone-pick-${d.id}`}
+                  onPress={() => dronePickerGroup && assignDroneToGroup(dronePickerGroup, d)}
+                  style={[styles.dronePickRow, { borderColor: theme.border }]}
+                >
+                  <DroneImage manufacturer={d.manufacturer} model={d.model} size={40} iconColor={theme.textSecondary} iconSize={26} />
+                  <View style={{ flex: 1 }}>
+                    <ThemedText style={{ fontSize: 14, fontWeight: "600", color: theme.text }} numberOfLines={1}>{d.name}</ThemedText>
+                    {d.serialNumber ? (
+                      <ThemedText style={{ fontSize: 11, color: theme.textTertiary }} numberOfLines={1}>SN {d.serialNumber}</ThemedText>
+                    ) : null}
+                  </View>
+                  <Feather name="chevron-right" size={18} color={theme.textTertiary} />
+                </Pressable>
+              ))}
+              {drones.filter((d) => !d.archivedAt).length === 0 ? (
+                <ThemedText style={{ fontSize: 13, color: theme.textSecondary, paddingVertical: 10 }}>
+                  Noch keine Drohne angelegt. Lege unter Einstellungen → Drohnen eine an.
+                </ThemedText>
+              ) : null}
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </ThemedView>
   );
 }
@@ -780,6 +921,14 @@ const styles = StyleSheet.create({
     ...Typography.body,
     fontWeight: "700",
   },
+  modalBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.45)", alignItems: "center", justifyContent: "center", padding: 20 },
+  modalCard: { width: "100%", maxWidth: 480, borderRadius: 16, padding: 16 },
+  modalTitle: { fontSize: 16, fontWeight: "700" },
+  modalHint: { fontSize: 12, marginTop: 4, marginBottom: 10, lineHeight: 17 },
+  dronePickRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8, paddingHorizontal: 6, borderBottomWidth: StyleSheet.hairlineWidth },
+  detectedDrone: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 6, paddingVertical: 6, paddingHorizontal: 8, borderWidth: 1, borderRadius: 10 },
+  detectedText: { fontSize: 13, fontWeight: "600" },
+  detectedSub: { fontSize: 11, marginTop: 1 },
   droneRow: {
     flexDirection: "row",
     alignItems: "center",
