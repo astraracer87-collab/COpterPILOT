@@ -2,7 +2,11 @@ name: APK bauen (DJI RC)
 
 on:
   push:
-    branches: ['**']
+    # Nur Zweige, die auch eine APK veröffentlichen (siehe Release-Schritt).
+    # Andere Zweige (Recherche/Doku/Experimente) bauen keine APK → spart
+    # Actions-Minuten. Bei Bedarf hier weitere Zweige ergänzen oder den Build
+    # manuell über „Run workflow“ (workflow_dispatch) starten.
+    branches: ['claude/magical-fermat-e6sh33', 'main']
     # Reine Doku-Änderungen bauen keine APK
     paths-ignore: ['docs/**', '**/*.md']
   workflow_dispatch:
@@ -77,15 +81,9 @@ jobs:
       - name: APK umbenennen
         run: cp android/app/build/outputs/apk/release/app-release.apk COpterPilot-RC.apk
 
-      # Artefakt-Upload ist nur ein Nebenprodukt; er darf den Build NICHT scheitern
-      # lassen (z. B. bei erschöpftem Actions-Speicher-Kontingent). Das eigentliche
-      # Ausliefern geschieht über das „latest“-Release weiter unten.
-      - uses: actions/upload-artifact@v4
-        continue-on-error: true
-        with:
-          name: COpterPilot-RC
-          path: COpterPilot-RC.apk
-          retention-days: 3
+      # Kein separater Artefakt-Upload mehr: Die APK wird ohnehin als „latest“-
+      # Release veröffentlicht (siehe nächster Schritt). Das spart den doppelten
+      # Actions-Speicher (~82 MB pro Build) und das Speicher-Kontingent komplett.
 
       - name: Als Release "latest" veröffentlichen
         # Nur der Entwicklungszweig der App veröffentlicht – andere Zweige (z. B. Recherche/Doku)
