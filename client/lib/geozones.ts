@@ -1182,13 +1182,66 @@ const dipulLayerStore: DipulFeatureStore = {
 /**
  * Gespeicherte DE-Listen (auch aus älteren App-Versionen, die noch keine
  * Flächen kannten) mit Geometrie nachrüsten. Wirft nie.
+ * `skipNetwork`: nur Sitzungs-Cache/gespeicherte WFS-Layer nutzen (Sofort-
+ * anzeige, offline bzw. Rückfall nach Zeitüberschreitung) – kein Netzabruf.
  */
-export async function reenrichDipulTempRestrictions<R extends DipulTempRestrictionsResult>(data: R): Promise<R> {
+export async function reenrichDipulTempRestrictions<R extends DipulTempRestrictionsResult>(
+  data: R,
+  opts: { skipNetwork?: boolean } = {},
+): Promise<R> {
   try {
-    return await enrichDipulTempGeometry(data, { store: dipulLayerStore });
+    return await enrichDipulTempGeometry(data, { store: dipulLayerStore, skipNetwork: opts.skipNetwork });
   } catch {
     return data;
   }
+}
+
+/**
+ * Höchstens so lange auf die Live-Abfrage (geoapi + WFS-Rückfall) warten,
+ * wenn ein gespeicherter Stand vorliegt; sonst summieren sich Token-, geoapi-
+ * und WFS-Timeouts auf über zwei Minuten (RC Pro 2 an hängendem Link).
+ */
+export const TEMP_RESTRICTIONS_MAX_WAIT_MS = 20000;
+
+const LIVE_TIMED_OUT = Symbol("liveTimedOut");
+
+/**
+ * Offline-first-Muster für die dipul-Listen: offline sofort der gespeicherte
+ * Stand; online live, aber nach TEMP_RESTRICTIONS_MAX_WAIT_MS der gespeicherte
+ * Stand (der Live-Abruf läuft weiter und aktualisiert den Cache). Ohne
+ * gespeicherten Stand wird auf den Live-Abruf gewartet (bzw. sein Fehler geworfen).
+ */
+async function liveOrCachedTempRestrictions<T>(
+  live: () => Promise<T>,
+  fromCache: () => Promise<T | null>,
+): Promise<T> {
+  if (isOfflineNow()) {
+    const cached = await fromCache().catch(() => null);
+    if (cached) return cached;
+    return live();
+  }
+  const p = live();
+  let r: T | typeof LIVE_TIMED_OUT;
+  try {
+    r = await new Promise<T | typeof LIVE_TIMED_OUT>((resolve, reject) => {
+      const timer = setTimeout(() => resolve(LIVE_TIMED_OUT), TEMP_RESTRICTIONS_MAX_WAIT_MS);
+      p.then(
+        (v) => { clearTimeout(timer); resolve(v); },
+        (e) => { clearTimeout(timer); reject(e); },
+      );
+    });
+  } catch (err) {
+    const cached = await fromCache().catch(() => null);
+    if (cached) return cached;
+    throw err;
+  }
+  if (r !== LIVE_TIMED_OUT) return r;
+  const cached = await fromCache().catch(() => null);
+  if (cached) {
+    p.catch(() => {});
+    return cached;
+  }
+  return p;
 }
 
 /**
@@ -1219,24 +1272,29 @@ function mergeMilLowFlight(
 
 export async function fetchAllTempRestrictions(): Promise<DipulTempRestrictionsResult> {
   const { getAllMilLowFlightRestrictions } = await import("@/lib/milLowFlight");
-  try {
-    const data = await fetchDipulGeoapi(10.4515, 51.1657, 600000);
-    setCache("dipul_all", data).catch(() => {});
-    return mergeMilLowFlight(data, getAllMilLowFlightRestrictions());
-  } catch (err) {
-    console.warn("[dipul geoapi] nicht erreichbar:", err instanceof Error ? err.message : err);
-    const fromWfs = await fetchTempRestrictionsFromWfs().catch(() => null);
-    if (fromWfs) {
-      setCache("dipul_all", fromWfs).catch(() => {});
-      return mergeMilLowFlight(fromWfs, getAllMilLowFlightRestrictions());
-    }
-    const cached = await getCached<DipulTempRestrictionsResult>("dipul_all");
-    if (cached) {
-      const data = await reenrichDipulTempRestrictions(cachedTempRestrictions(cached.data, cached.ts));
+  return liveOrCachedTempRestrictions(
+    async () => {
+      try {
+        const data = await fetchDipulGeoapi(10.4515, 51.1657, 600000);
+        setCache("dipul_all", data).catch(() => {});
+        return mergeMilLowFlight(data, getAllMilLowFlightRestrictions());
+      } catch (err) {
+        console.warn("[dipul geoapi] nicht erreichbar:", err instanceof Error ? err.message : err);
+        const fromWfs = await fetchTempRestrictionsFromWfs().catch(() => null);
+        if (fromWfs) {
+          setCache("dipul_all", fromWfs).catch(() => {});
+          return mergeMilLowFlight(fromWfs, getAllMilLowFlightRestrictions());
+        }
+        throw err;
+      }
+    },
+    async () => {
+      const cached = await getCached<DipulTempRestrictionsResult>("dipul_all");
+      if (!cached) return null;
+      const data = await reenrichDipulTempRestrictions(cachedTempRestrictions(cached.data, cached.ts), { skipNetwork: true });
       return { ...mergeMilLowFlight(data, getAllMilLowFlightRestrictions()), offline: { fetchedAt: cached.ts, cached: true } };
-    }
-    throw err;
-  }
+    },
+  );
 }
 
 export async function fetchNearbyTempRestrictions(lat: number, lon: number, radiusKm: number): Promise<DipulTempRestrictionsResult> {
@@ -1244,18 +1302,19 @@ export async function fetchNearbyTempRestrictions(lat: number, lon: number, radi
   const radiusM = Math.max(radiusKm * 1000, 5000);
   const ck = makeCacheKey("dipul_nearby", lat, lon);
   const milExtra = getNearbyMilLowFlightRestrictions(lat, lon, Math.max(radiusKm, 5));
-  try {
-    const data = await fetchDipulGeoapi(lon, lat, radiusM);
-    setCache(ck, data).catch(() => {});
-    return mergeMilLowFlight(data, milExtra);
-  } catch (err) {
-    const cached = await getCached<DipulTempRestrictionsResult>(ck);
-    if (cached) {
-      const data = await reenrichDipulTempRestrictions(cachedTempRestrictions(cached.data, cached.ts));
+  return liveOrCachedTempRestrictions(
+    async () => {
+      const data = await fetchDipulGeoapi(lon, lat, radiusM);
+      setCache(ck, data).catch(() => {});
+      return mergeMilLowFlight(data, milExtra);
+    },
+    async () => {
+      const cached = await getCached<DipulTempRestrictionsResult>(ck);
+      if (!cached) return null;
+      const data = await reenrichDipulTempRestrictions(cachedTempRestrictions(cached.data, cached.ts), { skipNetwork: true });
       return { ...mergeMilLowFlight(data, milExtra), offline: { fetchedAt: cached.ts, cached: true } };
-    }
-    throw err;
-  }
+    },
+  );
 }
 
 /**
@@ -1269,15 +1328,18 @@ export async function fetchNearbyTempRestrictions(lat: number, lon: number, radi
 export async function fetchNearbyTempRestrictionsRaw(lat: number, lon: number, radiusKm: number): Promise<DipulTempRestrictionsResult> {
   const radiusM = Math.max(radiusKm * 1000, 5000);
   const ck = makeCacheKey("dipul_nearby", lat, lon);
-  try {
-    const data = await fetchDipulGeoapi(lon, lat, radiusM);
-    setCache(ck, data).catch(() => {});
-    return data;
-  } catch (err) {
-    const cached = await getCached<DipulTempRestrictionsResult>(ck);
-    if (cached) return reenrichDipulTempRestrictions(cachedTempRestrictions(cached.data, cached.ts));
-    throw err;
-  }
+  return liveOrCachedTempRestrictions(
+    async () => {
+      const data = await fetchDipulGeoapi(lon, lat, radiusM);
+      setCache(ck, data).catch(() => {});
+      return data;
+    },
+    async () => {
+      const cached = await getCached<DipulTempRestrictionsResult>(ck);
+      if (!cached) return null;
+      return reenrichDipulTempRestrictions(cachedTempRestrictions(cached.data, cached.ts), { skipNetwork: true });
+    },
+  );
 }
 
 export const EDR_LAYER_LABEL = "Flugbeschränkungsgebiete (ED-R)";
@@ -1583,6 +1645,11 @@ async function queryGeozonesForCountry(
   // stale. Ohne Meldung gilt die Quelle als "ok" (bzw. "error", wenn die
   // Funktion wirft).
   report?: (s: { status: GeozoneSourceStatus; fetchedAt?: number; note?: string; truncated?: boolean }) => void,
+  // Offline-first: erhält die lokal gespeicherten Zonen (Kachelspeicher), sobald
+  // sie vorliegen – noch bevor Online-Ergänzungen (WMS, Wohngrundstücke live)
+  // abgewartet werden. Läuft die Gesamtabfrage in den Zeitdeckel, nutzt der
+  // Aufrufer diese statt alles zu verwerfen.
+  onLocalZones?: (zones: GeozoneFeatureInfo[]) => void,
 ): Promise<GeozoneFeatureInfo[]> {
   const config = getCountryGeozoneConfig(iso);
   const ed269 = (vIso: string) =>
@@ -1595,6 +1662,7 @@ async function queryGeozonesForCountry(
   if (hasTiledGeozones(config.iso)) {
     const tiled = await queryTiledGeozones(config.iso, bboxAround(lat, lon, radiusKm));
     if (tiled) {
+      onLocalZones?.(tiled);
       if (config.iso === "ES") {
         // abwählbare Teile (Infrastruktur/Naturschutz) online ergänzen bzw. offline melden
         const r = await esSupplementMissingParts({ zones: tiled, ...storedDataReport("ES") }, bboxAround(lat, lon, radiusKm));
@@ -1770,6 +1838,9 @@ export async function queryGeozonesInArea(
   return r.zones;
 }
 
+export const GEOZONE_LOCAL_ONLY_TIMEOUT_NOTE =
+  "Zeitüberschreitung bei der Online-Ergänzung – nur lokal gespeicherte Zonen";
+
 /**
  * Wie queryGeozonesInArea, liefert aber zusätzlich, für welche Länder die
  * Abfrage tatsächlich Daten hatte (Review-Fix 4). Ein Abruffehler, ein
@@ -1824,12 +1895,30 @@ export async function queryGeozonesInAreaWithCoverage(
   const withTimeout = <T,>(promise: Promise<T>, ms: number): Promise<T | typeof NEIGHBOR_TIMEOUT> =>
     Promise.race([promise, new Promise<typeof NEIGHBOR_TIMEOUT>((resolve) => setTimeout(() => resolve(NEIGHBOR_TIMEOUT), ms))]);
 
+  // Lokal gespeicherte Zonen je Land (Kachelspeicher), sobald bekannt.
+  const localZones = new Map<string, GeozoneFeatureInfo[]>();
+  const localSink = (iso: string) => (zones: GeozoneFeatureInfo[]) => {
+    localZones.set(iso, zones);
+  };
+  // Zeitdeckel überschritten: lokal gespeicherte Zonen behalten (Abdeckung
+  // „partial“, da Online-Ergänzungen fehlen); ohne lokale Zonen wie bisher
+  // Fehler „Zeitüberschreitung“ ohne Zonen.
+  const onTimeout = (iso: string): GeozoneFeatureInfo[] => {
+    const local = localZones.get(iso);
+    if (local) {
+      reporterFor(iso)({ status: "partial", note: GEOZONE_LOCAL_ONLY_TIMEOUT_NOTE });
+      return tag(iso, local);
+    }
+    reporterFor(iso)({ status: "error", note: "Zeitüberschreitung" });
+    return [];
+  };
+
   // Auch die Hauptabfrage mit Timeout absichern, damit der Reiter („Geozonen …“)
   // nicht endlos lädt, wenn eine WMS/dipul-Quelle sehr langsam antwortet.
   const primaryRaw = disabled.has(primary)
     ? ([] as GeozoneFeatureInfo[])
     : await withTimeout(
-        queryGeozonesForCountry(lat, lon, radiusKm, primary, onDipulSourceStatus, reporterFor(primary)).catch((e) => {
+        queryGeozonesForCountry(lat, lon, radiusKm, primary, onDipulSourceStatus, reporterFor(primary), localSink(primary)).catch((e) => {
           if (e instanceof DipulWfsAccessError) throw e;
           console.warn(`[Geozones] Primary query failed for ${primary}:`, e?.message || e);
           reporterFor(primary)({ status: "error", note: String(e?.message || e) });
@@ -1839,7 +1928,7 @@ export async function queryGeozonesInAreaWithCoverage(
       );
   const primaryResult =
     primaryRaw === NEIGHBOR_TIMEOUT
-      ? (reporterFor(primary)({ status: "error", note: "Zeitüberschreitung" }), [] as GeozoneFeatureInfo[])
+      ? onTimeout(primary)
       : tag(primary, primaryRaw);
 
   let neighborResults: GeozoneFeatureInfo[] = [];
@@ -1848,17 +1937,14 @@ export async function queryGeozonesInAreaWithCoverage(
     const settled = await Promise.allSettled(
       activeNeighbors.map(async (iso) => {
         const res = await withTimeout(
-          queryGeozonesForCountry(lat, lon, radiusKm, iso, onDipulSourceStatus, reporterFor(iso)).catch((e) => {
+          queryGeozonesForCountry(lat, lon, radiusKm, iso, onDipulSourceStatus, reporterFor(iso), localSink(iso)).catch((e) => {
             console.warn(`[Geozones] Neighbor query failed for ${iso}:`, e?.message || e);
             reporterFor(iso)({ status: "error", note: String(e?.message || e) });
             return [] as GeozoneFeatureInfo[];
           }),
           8000,
         );
-        if (res === NEIGHBOR_TIMEOUT) {
-          reporterFor(iso)({ status: "error", note: "Zeitüberschreitung" });
-          return [] as GeozoneFeatureInfo[];
-        }
+        if (res === NEIGHBOR_TIMEOUT) return onTimeout(iso);
         return tag(iso, res);
       }),
     );

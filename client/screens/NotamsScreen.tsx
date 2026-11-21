@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   View,
   StyleSheet,
@@ -1226,6 +1226,10 @@ export default function NotamsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | undefined>();
+  // Offline-first: liegt bereits eine (gespeicherte) Liste vor, wird im
+  // Hintergrund aktualisiert – ohne Vollbild-Spinner und ohne die Liste bei
+  // einem Fehler durch eine Fehlermeldung zu ersetzen.
+  const hasDipulDataRef = useRef(false);
   const [viewMode, setViewMode] = useState<"liste" | "karte">("karte");
   const [mapFocusLat, setMapFocusLat] = useState<number | undefined>();
   const [mapFocusLon, setMapFocusLon] = useState<number | undefined>();
@@ -1316,14 +1320,15 @@ export default function NotamsScreen() {
   }), []);
 
   const loadRestrictions = useCallback(async () => {
-    setLoading(true);
+    if (!hasDipulDataRef.current) setLoading(true);
     setError(undefined);
     try {
       const data = await fetchAllTempRestrictions();
+      hasDipulDataRef.current = true;
       setResult(data);
       setCache("dipul_restrictions", data).catch(() => {});
     } catch {
-      setError("Fehler beim Laden der temporären Beschränkungen");
+      if (!hasDipulDataRef.current) setError("Fehler beim Laden der temporären Beschränkungen");
     } finally {
       setLoading(false);
     }
@@ -1335,7 +1340,7 @@ export default function NotamsScreen() {
         setLuTsaZones(parsed);
         setCache("lu_tsa_zones", raw).catch(() => {});
       } catch {
-        setLuTsaZones([]);
+        // Offline/Zeitüberschreitung: zuletzt angezeigte (gespeicherte) LU-Liste behalten
       }
     })();
   }, [parseLuRaw]);
@@ -1348,10 +1353,12 @@ export default function NotamsScreen() {
       ]);
       if (cachedDipul) {
         const cachedData = cachedDipul.data;
+        hasDipulDataRef.current = true;
         setResult(cachedData);
         // Gespeicherte Liste (ggf. aus älterer App-Version ohne Flächen) nachrüsten –
-        // nur übernehmen, solange noch keine frische Liste angekommen ist.
-        reenrichDipulTempRestrictions(cachedData)
+        // nur übernehmen, solange noch keine frische Liste angekommen ist. Ohne
+        // Netzabruf (gespeicherte WFS-Layer); die Live-Liste folgt im Hintergrund.
+        reenrichDipulTempRestrictions(cachedData, { skipNetwork: true })
           .then((enriched) => {
             if (enriched !== cachedData) setResult((prev) => (prev === cachedData ? enriched : prev));
           })

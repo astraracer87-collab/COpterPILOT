@@ -29,6 +29,9 @@ const AT_LAT = "47.8";
 const AT_LON = "13.04";
 
 // --- Berechtigung pro Test umschaltbar -------------------------------------
+// obstacles.ts prüft vor Overpass-Abfragen den Offline-Status (NetInfo); das
+// native NetInfo-Modul fehlt unter Jest → Status hier fest „online“.
+jest.mock("@/lib/network", () => ({ isOfflineNow: () => false }));
 let mockEntitlement: CountryEntitlementView | null = null;
 jest.mock("@/lib/auth", () => ({
   useAuth: () => ({ entitlement: mockEntitlement }),

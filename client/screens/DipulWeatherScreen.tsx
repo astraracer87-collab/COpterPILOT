@@ -12,6 +12,7 @@ import { useTheme } from "@/hooks/useTheme";
 import { DataSource } from "@/lib/dataSource";
 import { Spacing, Typography } from "@/constants/theme";
 import { fetchWeather, WeatherData } from "@/lib/weather";
+import { withTimeout } from "@/lib/fetchWithTimeout";
 import { fetchKpIndex, KpIndexData, getKpLabel } from "@/lib/kpindex";
 import MapPicker from "@/components/MapPicker";
 
@@ -50,6 +51,19 @@ export default function DipulWeatherScreen() {
     }
   };
 
+  // Ortsname ist optional: offline / ohne Google-Dienste schlägt das
+  // Reverse-Geocoding fehl – das darf das Wetter nie blockieren.
+  const resolveLocationNameInBackground = (lat: number, lon: number) => {
+    setLocationName(`${lat.toFixed(4)}, ${lon.toFixed(4)}`);
+    Location.reverseGeocodeAsync({ latitude: lat, longitude: lon })
+      .then(([address]) => {
+        if (address && (address.city || address.region || address.country)) {
+          setLocationName(`${address.city || address.region || ""}, ${address.country || ""}`);
+        }
+      })
+      .catch(() => undefined);
+  };
+
   const requestLocationAndFetchWeather = async () => {
     setLoading(true);
     setError(null);
@@ -64,23 +78,26 @@ export default function DipulWeatherScreen() {
         return;
       }
 
-      const loc = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-      });
+      // GPS max. 8 s, danach letzte bekannte Position (max. 3 s).
+      const loc =
+        (await withTimeout(
+          Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }).catch(() => null),
+          8000,
+          null,
+        )) ??
+        (await withTimeout(Location.getLastKnownPositionAsync().catch(() => null), 3000, null));
+
+      if (!loc) {
+        setError("Standort konnte nicht ermittelt werden (kein GPS-Fix). Bitte erneut versuchen oder einen Ort auf der Karte wählen.");
+        return;
+      }
 
       setLocation({
         latitude: loc.coords.latitude,
         longitude: loc.coords.longitude,
       });
 
-      const [address] = await Location.reverseGeocodeAsync({
-        latitude: loc.coords.latitude,
-        longitude: loc.coords.longitude,
-      });
-
-      if (address) {
-        setLocationName(`${address.city || address.region || ""}, ${address.country || ""}`);
-      }
+      resolveLocationNameInBackground(loc.coords.latitude, loc.coords.longitude);
 
       const [weatherData] = await Promise.all([
         fetchWeather(loc.coords.latitude, loc.coords.longitude),
@@ -112,15 +129,7 @@ export default function DipulWeatherScreen() {
     setLoading(true);
     setError(null);
     try {
-      const [address] = await Location.reverseGeocodeAsync({
-        latitude: lat,
-        longitude: lon,
-      });
-      if (address) {
-        setLocationName(`${address.city || address.region || ""}, ${address.country || ""}`);
-      } else {
-        setLocationName(`${lat.toFixed(4)}, ${lon.toFixed(4)}`);
-      }
+      resolveLocationNameInBackground(lat, lon);
       setLocation({ latitude: lat, longitude: lon });
       const [weatherData] = await Promise.all([
         fetchWeather(lat, lon),

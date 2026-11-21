@@ -1,7 +1,8 @@
 import { describe, it, afterEach, mock } from "node:test";
 import assert from "node:assert/strict";
 
-import { fetchWithTimeout } from "../fetchWithTimeout";
+import { fetchWithTimeout, withTimeout } from "../fetchWithTimeout";
+import { fetchBrightSkyWeather, fetchCurrentWind } from "../brightsky";
 import { fetchWeather } from "../weather";
 import { fetchKpIndex } from "../kpindex";
 
@@ -52,6 +53,32 @@ describe("fetchWithTimeout", () => {
     globalThis.fetch = (async () => ({ ok: true, status: 200 })) as any;
     const r = await fetchWithTimeout("https://example.invalid/x");
     assert.equal(r.status, 200);
+  });
+});
+
+describe("withTimeout", () => {
+  it("liefert nach Ablauf den Rückfallwert, sonst das Ergebnis", async () => {
+    assert.equal(await withTimeout(new Promise<number>(() => {}), 10, "fallback"), "fallback");
+    assert.equal(await withTimeout(Promise.resolve(1), 1000, "fallback"), 1);
+    await assert.rejects(withTimeout(Promise.reject(new Error("x")), 1000, null), /x/);
+  });
+});
+
+describe("BrightSky: hängender Dienst blockiert nicht", () => {
+  it("fetchBrightSkyWeather wirft nach dem Timeout eine klare Meldung", async () => {
+    mock.timers.enable({ apis: ["setTimeout"] });
+    globalThis.fetch = hangingFetch as any;
+    const p = fetchBrightSkyWeather(52.52, 13.4, "2026-11-15");
+    mock.timers.tick(10000);
+    await assert.rejects(p, /Zeitüberschreitung/);
+  });
+
+  it("fetchCurrentWind liefert nach dem Timeout null", async () => {
+    mock.timers.enable({ apis: ["setTimeout"] });
+    globalThis.fetch = hangingFetch as any;
+    const p = fetchCurrentWind(52.52, 13.4);
+    mock.timers.tick(10000);
+    assert.equal(await p, null);
   });
 });
 

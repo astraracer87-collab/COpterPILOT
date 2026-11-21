@@ -16,6 +16,7 @@ import { useTheme } from "@/hooks/useTheme";
 import { Spacing, Typography } from "@/constants/theme";
 import { getDrones, DroneProfile, getComplianceStatus, getPilotProfile, PilotProfile } from "@/lib/storage";
 import { getCountryMapConfig, detectCountryFromCoordinates, reverseGeocodeCountry } from "@/lib/countryMaps";
+import { withTimeout } from "@/lib/fetchWithTimeout";
 import type { FlightPlanningParamList } from "@/navigation/FlightPlanningNavigator";
 
 const ISO_ALIASES: Record<string, string> = {
@@ -62,19 +63,28 @@ export default function PlanningDroneSelectScreen() {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status === "granted") {
-        const location = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
-        });
-        latitude = location.coords.latitude;
-        longitude = location.coords.longitude;
+        // GPS-Kaltstart kann lange dauern → max. 8 s warten, dann letzte
+        // bekannte Position (max. 3 s) bzw. Standard (Berlin).
+        const location =
+          (await withTimeout(
+            Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }).catch(() => null),
+            8000,
+            null,
+          )) ??
+          (await withTimeout(Location.getLastKnownPositionAsync().catch(() => null), 3000, null));
+        if (location) {
+          latitude = location.coords.latitude;
+          longitude = location.coords.longitude;
+        }
       }
     } catch (error) {
     }
     
-    detectedCountryIso = await reverseGeocodeCountry(latitude, longitude);
-    
+    // Offline-first: lokale Ländererkennung sofort; Netz (mit Timeout) nur,
+    // wenn sie nichts liefert.
+    detectedCountryIso = detectCountryFromCoordinates(latitude, longitude);
     if (!detectedCountryIso) {
-      detectedCountryIso = detectCountryFromCoordinates(latitude, longitude);
+      detectedCountryIso = await reverseGeocodeCountry(latitude, longitude);
     }
     
     setDetectingCountry(false);

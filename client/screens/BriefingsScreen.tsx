@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import { View, StyleSheet, FlatList, Pressable, RefreshControl, Alert } from "react-native";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -770,7 +770,26 @@ export default function BriefingsScreen() {
     return combined;
   }, [activeItems, expiredItems, trashedItems, expiredCollapsed, trashCollapsed]);
 
+  // Auto-Cleanup alter Briefings: einmal pro Mount, im Hintergrund nach dem
+  // ersten Rendern — nicht im blockierenden Fokus-Ladepfad. Fehlgeschlagene
+  // Löschungen werden in diesem Mount nicht erneut versucht.
+  const autoCleanupStartedRef = useRef(false);
+  const runAutoCleanup = useCallback((ids: string[]) => {
+    if (autoCleanupStartedRef.current || ids.length === 0) return;
+    autoCleanupStartedRef.current = true;
+    setTimeout(() => {
+      void (async () => {
+        for (const id of ids) {
+          try { await deleteFlightSession(id); } catch (e) {
+            console.warn("[Briefings] Auto-Cleanup fehlgeschlagen:", id, e);
+          }
+        }
+      })();
+    }, 0);
+  }, []);
+
   const loadData = useCallback(async () => {
+    const autoDeleteIds: string[] = [];
     try {
       const sessions = await getActiveSessions();
       const now = Date.now();
@@ -783,7 +802,8 @@ export default function BriefingsScreen() {
         // Auto-Cleanup: Briefings älter als 4 Wochen werden entfernt
         const createdMs = new Date(session.createdAt).getTime();
         if (!isNaN(createdMs) && createdMs < autoDeleteCutoff) {
-          try { await deleteFlightSession(session.id); } catch {}
+          // Nur ausblenden; gelöscht wird im Hintergrund (runAutoCleanup).
+          autoDeleteIds.push(session.id);
           continue;
         }
 
@@ -890,8 +910,9 @@ export default function BriefingsScreen() {
       console.error("Failed to load data:", error);
     } finally {
       setLoading(false);
+      runAutoCleanup(autoDeleteIds);
     }
-  }, []);
+  }, [runAutoCleanup]);
 
   useFocusEffect(
     useCallback(() => {

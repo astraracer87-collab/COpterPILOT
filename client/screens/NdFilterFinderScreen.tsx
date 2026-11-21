@@ -41,6 +41,7 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { getCinematicSettingsForModel } from "@/lib/droneCinematicSettings";
 import type { NdFilterStackParamList } from "@/navigation/NdFilterStackNavigator";
 import { InfoDialog } from "@/components/InfoDialog";
+import { fetchWithTimeout, withTimeout } from "@/lib/fetchWithTimeout";
 
 type RouteParams = RouteProp<NdFilterStackParamList, "NdFilterFinder">;
 type NavigationProp = NativeStackNavigationProp<NdFilterStackParamList>;
@@ -220,7 +221,11 @@ export default function NdFilterFinderScreen() {
           const Loc = await import("@/lib/location");
           const perm = await Loc.requestForegroundPermissionsAsync();
           if (perm.status === "granted") {
-            const pos = await Loc.getCurrentPositionAsync({ accuracy: Loc.Accuracy.Balanced });
+            // GPS max. 8 s, dann letzte bekannte Position (max. 3 s)
+            const pos =
+              (await withTimeout(Loc.getCurrentPositionAsync({ accuracy: Loc.Accuracy.Balanced }).catch(() => null), 8000, null)) ??
+              (await withTimeout(Loc.getLastKnownPositionAsync().catch(() => null), 3000, null));
+            if (!pos) throw new Error("Kein GPS-Fix. Bitte Standort manuell setzen oder erneut versuchen.");
             lat = pos.coords.latitude;
             lon = pos.coords.longitude;
             setAutoLat(lat);
@@ -235,8 +240,10 @@ export default function NdFilterFinderScreen() {
       if (cloud == null) {
         try {
           const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=cloud_cover,precipitation`;
-          const res = await fetch(url);
-          const json = await res.json();
+          // Timeout, damit der Rückfall (Bewölkung 50 %) greift und autoLoading endet
+          const res = await fetchWithTimeout(url, {}, 8000);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const json = await withTimeout(res.json(), 5000, null);
           cloud = json?.current?.cloud_cover ?? 50;
           rain = json?.current?.precipitation ?? 0;
           setAutoCloud(cloud);

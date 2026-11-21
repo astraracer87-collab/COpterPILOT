@@ -24,7 +24,7 @@ import {
   type DjiAnalyzeResult,
 } from "@/lib/djiLog";
 import type { DjiAnalyzePhase } from "@/lib/djiLogAnalyzer";
-import { getLogbook, type LogbookEntry } from "@/lib/storage";
+import { getLogbookLite, type LogbookEntry } from "@/lib/storage";
 import { FeatureLockCard, useFeatureAccess } from "@/components/FeatureGate";
 import type { HistoryStackParamList } from "@/navigation/HistoryStackNavigator";
 
@@ -102,7 +102,7 @@ export default function DjiAnalyzeScreen() {
   useEffect(() => {
     (async () => {
       try {
-        const list = await getLogbook();
+        const list = await getLogbookLite();
         setEntries(list);
       } catch {
         // ignore — offline / no entries

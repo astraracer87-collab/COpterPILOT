@@ -60,6 +60,29 @@ async function readAll(def: CollectionDef): Promise<Item[]> {
   }
 }
 
+/**
+ * Strikt lesen (für Schreibpfade): fehlender Schlüssel → [], aber Lese-/Parse-
+ * Fehler oder ein Nicht-Array werfen — sonst würde POST/PUT/DELETE die
+ * gespeicherten Nutzerdaten mit einer leeren Liste überschreiben.
+ */
+async function readAllStrict(def: CollectionDef): Promise<Item[]> {
+  let raw: string | null;
+  try {
+    raw = await AsyncStorage.getItem(def.storageKey);
+  } catch {
+    throw new LocalRouteError(500, "Lokale Daten konnten nicht gelesen werden");
+  }
+  if (!raw) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new LocalRouteError(500, "Lokale Daten sind beschädigt");
+  }
+  if (!Array.isArray(parsed)) throw new LocalRouteError(500, "Lokale Daten sind beschädigt");
+  return parsed as Item[];
+}
+
 async function writeAll(def: CollectionDef, items: Item[]): Promise<void> {
   // Nutzerdaten: bei vollem Speicher Caches leeren und einmal neu versuchen.
   await setItemResilient(AsyncStorage, def.storageKey, JSON.stringify(items), async () => {
@@ -101,14 +124,19 @@ export async function handleLocalCollection(
   if (!m) throw new LocalRouteError(404, "Unbekannte lokale Route");
   const { def, id } = m;
   const verb = method.toUpperCase();
-  const items = await readAll(def);
 
   if (verb === "GET") {
+    const items = await readAll(def);
     if (!id) return items;
     const found = items.find((i) => i.id === id);
     if (!found) throw new LocalRouteError(404, "Eintrag nicht gefunden");
     return found;
   }
+
+  // Schreibpfade: strikt lesen (Abbruch statt Datenverlust bei Lesefehler).
+  const isWrite = (verb === "POST" && !id) || ((verb === "PUT" || verb === "PATCH" || verb === "DELETE") && !!id);
+  if (!isWrite) throw new LocalRouteError(405, "Methode nicht unterstützt");
+  const items = await readAllStrict(def);
 
   if (verb === "POST" && !id) {
     const now = new Date().toISOString();

@@ -25,7 +25,7 @@ import {
   type DjiBulkResult,
   groupDjiAnalyses,
   assignDjiLog,
-  mergeRelatedDjiLogEntries,
+  tidyDjiLogEntries,
   isLikelyTestStart,
   type DjiAnalyzeResult,
   dronesCompatible,
@@ -33,7 +33,7 @@ import {
   type DjiBulkError,
   type DjiBulkProgress,
 } from "@/lib/djiLog";
-import { getLogbook, getDrones, updateDrone, type LogbookEntry, type DroneProfile } from "@/lib/storage";
+import { getLogbookLite, getDrones, updateDrone, type LogbookEntry, type DroneProfile } from "@/lib/storage";
 import { findDroneForLog } from "@/lib/djiBatteryLink";
 import { DroneImage } from "@/components/DroneImage";
 import { reverseGeocodePlace } from "@/lib/countryMaps";
@@ -43,6 +43,7 @@ import { DjiLogHelp } from "@/components/DjiLogHelp";
 import type { HistoryStackParamList } from "@/navigation/HistoryStackNavigator";
 
 const PREVIEW_TRACK_COLORS = ["#0A84FF", "#FF9F0A", "#30D158", "#BF5AF2", "#FF375F"];
+const NO_TRACKS: DjiMapTrack[] = [];
 
 type NavigationProp = NativeStackNavigationProp<HistoryStackParamList>;
 
@@ -153,7 +154,7 @@ export default function DjiBulkImportScreen() {
   useEffect(() => {
     (async () => {
       try {
-        setEntries(await getLogbook());
+        setEntries(await getLogbookLite());
       } catch {
         // ignore — offline / no entries
       }
@@ -230,6 +231,27 @@ export default function DjiBulkImportScreen() {
     for (const g of groups) map[g.id] = computeMatches(g, entries);
     return map;
   }, [groups, entries]);
+
+  // Vorschau-Routen je Gruppe nur neu bauen, wenn sich die Gruppen ändern
+  // (stabile Referenz → MiniTrackSketch-memo greift bei jedem Re-Render).
+  const previewTracksByGroup = useMemo(() => {
+    const map: Record<string, DjiMapTrack[]> = {};
+    for (const g of groups) {
+      map[g.id] = g.items
+        .map((it, i) => {
+          const pts = it.track && it.track.length > 0 ? it.track : it.meta.track ?? [];
+          return {
+            coords: pts
+              .filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lon))
+              .map((p) => ({ latitude: p.lat, longitude: p.lon })),
+            color: PREVIEW_TRACK_COLORS[i % PREVIEW_TRACK_COLORS.length],
+            label: it.meta.fileName,
+          };
+        })
+        .filter((t) => t.coords.length >= 2);
+    }
+    return map;
+  }, [groups]);
 
   // Ortsnamen per Reverse-Geocoding nachladen (einmal pro Gruppe).
   useEffect(() => {
@@ -379,7 +401,7 @@ export default function DjiBulkImportScreen() {
           await assignDjiLog({ meta: group.items[i].meta, target: "existing", entryId });
         }
         setAssignedTo((prev) => ({ ...prev, [group.id]: entryId! }));
-        setEntries(await getLogbook());
+        setEntries(await getLogbookLite());
         refreshDjiLogNewHint().catch(() => {}); // Logbuch-Hinweis „neue Logs“ nachziehen
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       } catch (e) {
@@ -426,8 +448,8 @@ export default function DjiBulkImportScreen() {
       }
       setAssignedTo((prev) => ({ ...prev, ...newAssigned }));
       // Zusammengehörige Flüge (gleiche Drohne, zeitnah) zusammenführen.
-      await mergeRelatedDjiLogEntries().catch(() => 0);
-      setEntries(await getLogbook());
+      await tidyDjiLogEntries();
+      setEntries(await getLogbookLite());
       refreshDjiLogNewHint().catch(() => {});
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } finally {
@@ -453,18 +475,7 @@ export default function DjiBulkImportScreen() {
     const placeName = placeNames[group.id];
     const displayTs = groupDisplayTs(group);
 
-    const previewTracks: DjiMapTrack[] = group.items
-      .map((it, i) => {
-        const pts = it.track && it.track.length > 0 ? it.track : it.meta.track ?? [];
-        return {
-          coords: pts
-            .filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lon))
-            .map((p) => ({ latitude: p.lat, longitude: p.lon })),
-          color: PREVIEW_TRACK_COLORS[i % PREVIEW_TRACK_COLORS.length],
-          label: it.meta.fileName,
-        };
-      })
-      .filter((t) => t.coords.length >= 2);
+    const previewTracks = previewTracksByGroup[group.id] ?? NO_TRACKS;
 
     return (
       <Card key={group.id} style={styles.section} testID={`group-dji-bulk-${index}`}>

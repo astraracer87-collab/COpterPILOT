@@ -19,7 +19,7 @@ import {
   getBriefings,
   getDrones,
   getFlightSessions,
-  getLogbook,
+  getLogbookLite,
   getPilotProfile,
 } from "@/lib/storage";
 import { countLocalCollection } from "@/lib/localCollections";
@@ -75,7 +75,7 @@ async function loadLocalSummary(): Promise<SummaryGroup[]> {
     await Promise.all([
       getPilotProfile().catch(() => null),
       getDrones({ includeArchived: true }).catch(() => []),
-      getLogbook().catch(() => []),
+      getLogbookLite().catch(() => []),
       getFlightSessions().catch(() => []),
       getBriefings().catch(() => []),
       countLocalCollection("/api/user-glossary"),

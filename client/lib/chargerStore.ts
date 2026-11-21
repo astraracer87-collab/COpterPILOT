@@ -133,7 +133,7 @@ const sessionPath = (id: string) =>
   `${dir()}sessions/${id.replace(/[^A-Za-z0-9._-]/g, "_")}.json`;
 
 let queue: Promise<unknown> = Promise.resolve();
-function serial<T>(fn: () => Promise<T>): Promise<T> {
+function serialQueue<T>(fn: () => Promise<T>): Promise<T> {
   const next = queue.then(fn, fn);
   queue = next.catch(() => {});
   return next;
@@ -147,6 +147,20 @@ async function readJson<T>(path: string, fallback: T): Promise<T> {
   } catch {
     return fallback;
   }
+}
+
+/**
+ * Strikt lesen (für Schreibpfade): fehlende Datei → fallback, aber Lese- oder
+ * Parse-Fehler (bzw. falscher Typ) werfen. So wird ein vorhandener, gerade
+ * nicht lesbarer Index nie aus einer leeren Liste neu geschrieben (sonst wäre
+ * die komplette Lade-Historie weg).
+ */
+async function readJsonArrayStrict<T>(path: string): Promise<T[]> {
+  const t = await fs().readText(path);
+  if (t == null) return [];
+  const v = JSON.parse(t) as unknown;
+  if (!Array.isArray(v)) throw new Error(`chargerStore: ${path} ist keine Liste`);
+  return v as T[];
 }
 
 async function writeJson(path: string, value: unknown): Promise<void> {
@@ -199,9 +213,9 @@ export function toIndexEntry(s: ChargeSession): SessionIndexEntry {
 
 // ── Ladevorgänge ───────────────────────────────────────────────────────────
 export function saveChargeSession(s: ChargeSession): Promise<void> {
-  return serial(async () => {
+  return serialQueue(async () => {
     await writeJson(sessionPath(s.id), s);
-    const idx = await readJson<SessionIndexEntry[]>(indexPath(), []);
+    const idx = await readJsonArrayStrict<SessionIndexEntry>(indexPath());
     const entry = toIndexEntry(s);
     const i = idx.findIndex((e) => e.id === s.id);
     if (i >= 0) idx[i] = entry;
@@ -236,8 +250,8 @@ export async function getChargeSession(
  * Ladevorgängen ergänzen (Zellspannungen am Ende, größte Spreizung).
  */
 export function backfillCellData(ids: string[]): Promise<SessionIndexEntry[]> {
-  return serial(async () => {
-    const idx = await readJson<SessionIndexEntry[]>(indexPath(), []);
+  return serialQueue(async () => {
+    const idx = await readJsonArrayStrict<SessionIndexEntry>(indexPath());
     const want = new Set(ids);
     let changed = false;
     for (let i = 0; i < idx.length; i++) {
@@ -254,11 +268,11 @@ export function backfillCellData(ids: string[]): Promise<SessionIndexEntry[]> {
 }
 
 export function deleteChargeSession(id: string): Promise<void> {
-  return serial(async () => {
+  return serialQueue(async () => {
     await fs()
       .remove(sessionPath(id))
       .catch(() => {});
-    const idx = await readJson<SessionIndexEntry[]>(indexPath(), []);
+    const idx = await readJsonArrayStrict<SessionIndexEntry>(indexPath());
     await writeJson(
       indexPath(),
       idx.filter((e) => e.id !== id),
@@ -300,7 +314,7 @@ export async function getBatteryLinks(): Promise<BatteryLink[]> {
 }
 
 export function saveBatteryLinks(links: BatteryLink[]): Promise<void> {
-  return serial(() => writeJson(linksPath(), links));
+  return serialQueue(() => writeJson(linksPath(), links));
 }
 
 /** Vorgänge nachträglich einem Akku zuordnen (z. B. nach „Welcher Akku ist das?“) */
@@ -308,8 +322,8 @@ export function assignSessionsToBattery(
   sessionIds: string[],
   ref: { droneId?: string; batteryId: string; label: string } | undefined,
 ): Promise<void> {
-  return serial(async () => {
-    const idx = await readJson<SessionIndexEntry[]>(indexPath(), []);
+  return serialQueue(async () => {
+    const idx = await readJsonArrayStrict<SessionIndexEntry>(indexPath());
     for (const id of sessionIds) {
       const s = await readJson<ChargeSession | null>(sessionPath(id), null);
       if (!s) continue;
@@ -357,12 +371,16 @@ export async function setDjiSerialForBattery(
   serial: string,
 ): Promise<boolean> {
   const key = batteryKey({ droneId, batteryId });
-  const links = await getBatteryLinks();
-  const i = links.findIndex((l) => l.key === key);
-  if (i < 0) return false;
-  links[i] = { ...links[i], djiSerial: serial.trim() };
-  await saveBatteryLinks(links);
-  return true;
+  // Lesen + Schreiben in derselben Queue-Stufe (kein Lost-Update zwischen
+  // getBatteryLinks und saveBatteryLinks) und strikt (nie aus [] überschreiben).
+  return serialQueue(async () => {
+    const links = await readJsonArrayStrict<BatteryLink>(linksPath());
+    const i = links.findIndex((l) => l.key === key);
+    if (i < 0) return false;
+    links[i] = { ...links[i], djiSerial: serial.trim() };
+    await writeJson(linksPath(), links);
+    return true;
+  });
 }
 
 // ── Kopplung ───────────────────────────────────────────────────────────────

@@ -24,6 +24,7 @@ jest.mock("expo-file-system/legacy", () => ({
 const mockLogbook: { djiLogs: { fileName: string; status: string }[] }[] = [];
 jest.mock("@/lib/storage", () => ({
   getLogbook: jest.fn(async () => mockLogbook),
+  getLogbookLite: jest.fn(async () => mockLogbook),
   getEntryDjiLogs: (e: { djiLogs?: unknown[] }) => e.djiLogs ?? [],
 }));
 

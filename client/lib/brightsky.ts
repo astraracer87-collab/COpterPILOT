@@ -1,3 +1,9 @@
+import { fetchWithTimeout } from "./fetchWithTimeout";
+
+// BrightSky (DWD) darf nie unbegrenzt hängen – sonst kommt der Open-Meteo-
+// Rückfall bzw. die Fehlermeldung im Screen nie zum Zug.
+export const BRIGHTSKY_TIMEOUT_MS = 10000;
+
 export interface BrightSkyHourly {
   timestamp: string;
   temperature: number | null;
@@ -41,7 +47,7 @@ export async function fetchCurrentWind(lat: number, lon: number): Promise<Curren
     const date = now.toISOString().split("T")[0];
     const currentHour = now.getHours();
     const url = `https://api.brightsky.dev/weather?lat=${lat}&lon=${lon}&date=${date}T00:00:00&tz=Europe/Berlin`;
-    const res = await fetch(url);
+    const res = await fetchWithTimeout(url, {}, BRIGHTSKY_TIMEOUT_MS);
     if (!res.ok) return null;
     const data = await res.json();
     const w: BrightSkyHourly[] = data.weather;
@@ -76,7 +82,15 @@ export async function fetchBrightSkyWeather(
   const targetDate = date || today;
   const url = `https://api.brightsky.dev/weather?lat=${lat}&lon=${lon}&date=${targetDate}T00:00:00&tz=Europe/Berlin`;
 
-  const res = await fetch(url);
+  let res: Response;
+  try {
+    res = await fetchWithTimeout(url, {}, BRIGHTSKY_TIMEOUT_MS);
+  } catch (e) {
+    if ((e as any)?.name === "AbortError") {
+      throw new Error("BrightSky antwortet nicht (Zeitüberschreitung)");
+    }
+    throw new Error("BrightSky API nicht erreichbar (offline?)");
+  }
   if (!res.ok) {
     throw new Error("BrightSky API nicht erreichbar");
   }

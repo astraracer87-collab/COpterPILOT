@@ -17,6 +17,7 @@ import {
   getChargeSession,
   getChargerBackgroundMode,
   getChargerLinkForBattery,
+  deleteChargeSession,
   listChargeSessions,
   loadActiveSessions,
   saveBatteryLinks,
@@ -278,6 +279,34 @@ describe("chargerStore", () => {
       (await getChargerLinkForBattery("d", "b"))?.djiSerial,
       "3QJ1234",
     );
+  });
+  it("unlesbarer Index wird beim Schreiben nicht aus [] überschrieben (Historie bleibt)", async () => {
+    const idxPath = "file:///docs/charger/index.json";
+    fs.files.set(idxPath, "{kaputt");
+    const s = {
+      id: "s9", chargerId: "M", slot: 0, status: "done" as const, startedAt: 1, startedMidway: false,
+      startPercent: 20, endPercent: 90, startMah: 1, endMah: 2, chargedMah: 1, maxTempC: 30,
+      maxCurrentA: 3, maxPowerW: 40, endCellsMv: [], endCellDeltaMv: null, cyclesStart: 1, cyclesEnd: 1,
+      productionDate: "2024-05-13", warnings: [], gaps: 0, lastSeenAt: 2, series: [],
+    };
+    await assert.rejects(saveChargeSession(s));
+    await assert.rejects(deleteChargeSession("x"));
+    assert.equal(fs.files.get(idxPath), "{kaputt");
+    // Lesepfad bleibt tolerant
+    assert.deepEqual(await listChargeSessions(), []);
+  });
+
+  it("setDjiSerialForBattery liest in der Warteschlange (kein Lost-Update)", async () => {
+    await saveBatteryLinks([{ key: "d/b", label: "B" } as never]);
+    const [ok] = await Promise.all([
+      setDjiSerialForBattery("d", "b", " SN1 "),
+      saveBatteryLinks([{ key: "d/b", label: "B2" } as never]),
+    ]);
+    assert.equal(ok, true);
+    const links = await getBatteryLinks();
+    assert.equal(links.length, 1);
+    // Reihenfolge der Queue: erst Seriennummer, dann das spätere Speichern
+    assert.equal(links[0].label, "B2");
   });
 });
 

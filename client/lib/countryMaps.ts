@@ -18,7 +18,12 @@ import {
   getCountryMapConfig,
   getMapConfigOrFallback,
 } from "../../shared/countryMaps";
+import { fetchWithTimeout } from "./fetchWithTimeout";
 import type { CountryMapConfig } from "../../shared/countryMaps";
+
+// Nominatim-Reverse-Geocoding darf nie unbegrenzt hängen (RN-Android-fetch hat
+// keinen Default-Timeout; RC Pro 2 oft offline / hängender Link).
+export const REVERSE_GEOCODE_TIMEOUT_MS = 6000;
 
 export { detectCountryFromCoordinates, getCountryBoundingBox, hasOwnMap, OWN_MAP_DATA_COUNTRIES };
 export type { BoundingBox, CountryBoundingBox };
@@ -115,13 +120,14 @@ export interface CountryCenter {
 
 export async function reverseGeocodeCountry(lat: number, lon: number): Promise<string | null> {
   try {
-    const response = await fetch(
+    const response = await fetchWithTimeout(
       `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=3&accept-language=en`,
       {
         headers: {
           "User-Agent": "DronePreFlightApp/1.0",
         },
-      }
+      },
+      REVERSE_GEOCODE_TIMEOUT_MS,
     );
     
     if (!response.ok) {
@@ -147,13 +153,14 @@ export async function reverseGeocodeCountry(lat: number, lon: number): Promise<s
 
 export async function reverseGeocodePlace(lat: number, lon: number): Promise<string | null> {
   try {
-    const response = await fetch(
+    const response = await fetchWithTimeout(
       `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=14&accept-language=de`,
       {
         headers: {
           "User-Agent": "DronePreFlightApp/1.0",
         },
       },
+      REVERSE_GEOCODE_TIMEOUT_MS,
     );
     if (!response.ok) return null;
     const data = await response.json();

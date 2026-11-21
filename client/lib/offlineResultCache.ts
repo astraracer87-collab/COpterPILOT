@@ -233,7 +233,21 @@ export interface CachedFetchOptions<T> {
   accept?: (data: T) => boolean;
   /** Gespeicherte Daten älter als das nicht liefern (Standard 24 h). */
   maxAgeMs?: number;
+  /**
+   * Höchstens so lange (ms) auf den Live-Abruf warten, wenn ein gespeicherter
+   * Stand vorliegt; danach wird dieser geliefert (cached: true), der Live-Abruf
+   * läuft im Hintergrund weiter und aktualisiert den Speicher. Ohne
+   * gespeicherten Stand wird weiter auf den Live-Abruf gewartet.
+   * Standard OFFLINE_LIVE_CAP_MS; 0 = ohne Deckel.
+   */
+  liveCapMs?: number;
 }
+
+/**
+ * Hängender Link (RC Pro 2, Funkloch mit „verbunden“-Status): nach dieser Zeit
+ * lieber den gespeicherten Stand zeigen als weiter auf das Netz zu warten.
+ */
+export const OFFLINE_LIVE_CAP_MS = 15000;
 
 /**
  * Online: abrufen und das Ergebnis speichern. Offline bzw. bei Fehler: den
@@ -249,22 +263,72 @@ export async function fetchWithOfflineCache<T>(
   const now = opts.now ?? (() => Date.now());
   const offline = (opts.isOffline ?? defaultOffline)();
   let error: unknown = new Error("Gerät offline");
+  const maxAge = opts.maxAgeMs ?? OFFLINE_DATA_MAX_AGE_MS;
+  const readStored = async (): Promise<CachedFetchResult<T> | null> => {
+    const stored = await getOfflineResult<T>(kind, key);
+    if (stored && now() - stored.fetchedAt < maxAge) {
+      return { data: stored.data, fetchedAt: stored.fetchedAt, cached: true };
+    }
+    return null;
+  };
   if (!offline) {
-    try {
+    const live = (async (): Promise<CachedFetchResult<T>> => {
       const data = await fetcher();
       const at = now();
       if (!opts.accept || opts.accept(data)) await putOfflineResult(kind, key, data, at).catch(() => {});
       return { data, fetchedAt: at, cached: false };
+    })();
+    const cap = opts.liveCapMs ?? OFFLINE_LIVE_CAP_MS;
+    try {
+      return cap > 0 && Number.isFinite(cap) ? await raceLiveWithStored(live, cap, readStored) : await live;
     } catch (e) {
       error = e;
     }
   }
-  const stored = await getOfflineResult<T>(kind, key);
-  const maxAge = opts.maxAgeMs ?? OFFLINE_DATA_MAX_AGE_MS;
-  if (stored && now() - stored.fetchedAt < maxAge) {
-    return { data: stored.data, fetchedAt: stored.fetchedAt, cached: true };
-  }
+  const stored = await readStored();
+  if (stored) return stored;
   throw error;
+}
+
+/**
+ * Wartet auf `live`; ist es nach `capMs` noch offen und liefert `readStored`
+ * einen Stand, gewinnt dieser. Sonst wird weiter auf `live` gewartet.
+ */
+function raceLiveWithStored<T>(
+  live: Promise<CachedFetchResult<T>>,
+  capMs: number,
+  readStored: () => Promise<CachedFetchResult<T> | null>,
+): Promise<CachedFetchResult<T>> {
+  return new Promise<CachedFetchResult<T>>((resolve, reject) => {
+    let done = false;
+    const timer = setTimeout(() => {
+      if (done) return;
+      readStored().then(
+        (stored) => {
+          if (done || !stored) return;
+          done = true;
+          // Späte Live-Ablehnung nicht als „unhandled rejection“ melden.
+          live.catch(() => {});
+          resolve(stored);
+        },
+        () => undefined,
+      );
+    }, capMs);
+    live.then(
+      (v) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (e) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        reject(e);
+      },
+    );
+  });
 }
 
 /** Nur für Tests: Speicher ersetzen (null = keiner, undefined = Standard) und leeren. */

@@ -1,7 +1,7 @@
 import { openLink } from "@/lib/webBrowser";
 import React, { useState, useEffect, useCallback, useRef, useMemo, useLayoutEffect } from "react";
-import { View, StyleSheet, ScrollView, Pressable, Alert, Dimensions, Linking } from "react-native";
-import { useNavigation, useRoute } from "@react-navigation/native";
+import { View, StyleSheet, ScrollView, Pressable, Alert, Dimensions, Linking, AppState } from "react-native";
+import { useNavigation, useRoute, useIsFocused } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RouteProp } from "@react-navigation/native";
 import { useHeaderHeight } from "@react-navigation/elements";
@@ -267,29 +267,42 @@ export default function FlightCheckScreen() {
     fetchSessionGeozoneData();
   }, [sessionId, radarLat, radarLon]);
 
+  const isFocused = useIsFocused();
   useEffect(() => {
-    if (!allRequiredChecked || radarLat == null || radarLon == null) return;
+    // Nur solange der Screen fokussiert und die App im Vordergrund ist pollen.
+    if (!isFocused || !allRequiredChecked || radarLat == null || radarLon == null) return;
 
+    let cancelled = false;
+    let inFlight = false;
     const doFetch = async () => {
+      // In-flight-Guard: langsame Antworten (RC-Netz) nicht stapeln.
+      if (inFlight || cancelled) return;
+      if (AppState.currentState != null && AppState.currentState !== "active") return;
+      inFlight = true;
       try {
         const radarSettings = await loadRadarSettings();
         const radiusKm = radarSettings.radiusKm;
         const result = await fetchNearbyAircraft(radarLat, radarLon, radiusKm);
+        if (cancelled) return;
         const { trails } = updateTrails(result.states, result.trails, radarLat, radarLon, radiusKm);
         // Stale-but-recently-seen Aircraft sind bereits im Server-Response
         // enthalten (maxAgeSec) und mit isStale=true markiert.
         setAircraft(result.states);
         setSourceStatus(result.sourceStatus);
         setTrailsState(trails);
-      } catch {}
+      } catch {} finally {
+        inFlight = false;
+      }
     };
 
     doFetch();
     fetchInterval.current = setInterval(doFetch, 2000);
     return () => {
+      cancelled = true;
       if (fetchInterval.current) clearInterval(fetchInterval.current);
+      fetchInterval.current = null;
     };
-  }, [allRequiredChecked, radarLat, radarLon]);
+  }, [allRequiredChecked, radarLat, radarLon, isFocused]);
 
   useEffect(() => {
     if (!allRequiredChecked || radarLat == null || radarLon == null) return;

@@ -10,7 +10,7 @@
 import * as FileSystem from "expo-file-system/legacy";
 import { Platform } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { getEntryDjiLogs, getLogbook, type LogbookEntry } from "./storage";
+import { getEntryDjiLogs, getLogbookLite, type LogbookEntry } from "./storage";
 import {
   DJI_LOG_AUTO_CHECK_STORAGE_KEY,
   DJI_LOG_AUTO_IMPORT_STORAGE_KEY,
@@ -92,10 +92,10 @@ export async function chooseDjiLogFolder(
 // Zugriff prüfen / zählen
 // ---------------------------------------------------------------------------
 
-/** Dateinamen aller schon ausgewerteten (im Logbuch hinterlegten) Protokolle. */
+/** Dateinamen aller schon ausgewerteten (im Logbuch hinterlegten) Protokolle (leichte Liste, keine Blob-Dateien). */
 export async function knownDjiLogNames(): Promise<Set<string>> {
   const known = new Set<string>();
-  for (const e of await getLogbook().catch(() => [] as LogbookEntry[])) {
+  for (const e of await getLogbookLite().catch(() => [] as LogbookEntry[])) {
     for (const l of getEntryDjiLogs(e)) if (l.status === "parsed") known.add(l.fileName.toLowerCase());
   }
   return known;

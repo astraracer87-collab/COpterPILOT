@@ -16,6 +16,7 @@ import { useTheme } from "@/hooks/useTheme";
 import { Spacing, Typography, BorderRadius } from "@/constants/theme";
 import { getDrones, DroneProfile, setSelectedDroneId, getComplianceStatus, getSettings, getPilotProfile, PilotProfile, Settings } from "@/lib/storage";
 import { getCountryMapConfig, detectCountryFromCoordinates, reverseGeocodeCountry } from "@/lib/countryMaps";
+import { withTimeout } from "@/lib/fetchWithTimeout";
 import type { FlightCheckParamList } from "@/navigation/FlightCheckNavigator";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
@@ -85,22 +86,28 @@ export default function DroneSelectScreen() {
     try {
       const { status: permStatus } = await Location.requestForegroundPermissionsAsync();
       if (permStatus === "granted") {
-        try {
-          const location = await Location.getCurrentPositionAsync({
-            accuracy: Location.Accuracy.Balanced,
-          });
+        // GPS-Kaltstart kann lange dauern → max. 8 s warten, dann letzte
+        // bekannte Position (max. 3 s) bzw. Standard (Berlin).
+        const location =
+          (await withTimeout(
+            Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }).catch(() => null),
+            8000,
+            null,
+          )) ??
+          (await withTimeout(Location.getLastKnownPositionAsync().catch(() => null), 3000, null));
+        if (location) {
           latitude = location.coords.latitude;
           longitude = location.coords.longitude;
-        } catch (locError) {
         }
       }
     } catch (error) {
     }
     
-    let detectedCountryIso = await reverseGeocodeCountry(latitude, longitude);
-    
+    // Offline-first: lokale Ländererkennung sofort; Netz (mit Timeout) nur,
+    // wenn sie nichts liefert.
+    let detectedCountryIso = detectCountryFromCoordinates(latitude, longitude);
     if (!detectedCountryIso) {
-      detectedCountryIso = detectCountryFromCoordinates(latitude, longitude);
+      detectedCountryIso = await reverseGeocodeCountry(latitude, longitude);
     }
     
     setGettingLocation(false);

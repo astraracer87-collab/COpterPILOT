@@ -1,5 +1,6 @@
 import React, { useCallback, useState, useMemo, useSyncExternalStore, useEffect, useRef } from "react";
-import { removeDuplicateDjiLogEntries, mergeRelatedDjiLogEntries } from "@/lib/djiLog";
+import { tidyDjiLogEntries } from "@/lib/djiLog";
+import { entryPreviewTracks } from "@/lib/logbookLite";
 import { View, StyleSheet, FlatList, RefreshControl, Pressable, Alert, ScrollView, Image, GestureResponderEvent } from "react-native";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -12,11 +13,10 @@ import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { Card } from "@/components/Card";
 import MiniTrackSketch from "@/components/MiniTrackSketch";
-import { getEntryDjiLogs } from "@/lib/storage";
 import StatusBadge from "@/components/StatusBadge";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, Typography, BorderRadius } from "@/constants/theme";
-import { getLogbook, LogbookEntry, getBriefings, Briefing, getDrone, deleteLogbookEntry, deleteBriefing } from "@/lib/storage";
+import { getLogbookLite, LogbookEntry, getBriefings, Briefing, getDrone, deleteLogbookEntry, deleteBriefing } from "@/lib/storage";
 import { getCheckItemLabel } from "@/lib/checklists";
 import { exportLogbookPdf, exportSingleEntryPdf, exportFlightProtocolPdf } from "@/lib/pdfExport";
 import { useAuth } from "@/lib/auth";
@@ -649,16 +649,9 @@ function LogbookCard({ item, index, onDelete }: { item: LogbookDisplayItem; inde
   const previewTracks = React.useMemo(() => {
     if (!entry) return [];
     const out: { coords: { latitude: number; longitude: number }[]; color: string }[] = [];
-    const gps = entry.gpsTrack;
-    if (gps && gps.length >= 2) {
-      out.push({ coords: gps.map((p) => ({ latitude: p.lat, longitude: p.lon })), color: "#0A84FF" });
-    } else {
-      for (const l of getEntryDjiLogs(entry)) {
-        const t = (l as any).track as { lat: number; lon: number }[] | undefined;
-        if (t && t.length >= 2) {
-          out.push({ coords: t.filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lon)).map((p) => ({ latitude: p.lat, longitude: p.lon })), color: "#0A84FF" });
-        }
-      }
+    // Leichte Liste: ausgedünnte Vorschau-Route (≤ 60 Punkte) statt der vollen Tracks
+    for (const seg of entryPreviewTracks(entry)) {
+      out.push({ coords: seg.map((p) => ({ latitude: p.lat, longitude: p.lon })), color: "#0A84FF" });
     }
     return out.filter((t) => t.coords.length >= 2);
   }, [entry]);
@@ -776,7 +769,7 @@ export default function HistoryScreen() {
       // Flüge zusammenführen) läuft getrennt im Hintergrund (siehe Effekt unten),
       // damit die Liste nicht blockiert/„Laden…“ hängen bleibt.
       const [logbook, briefings] = await Promise.all([
-        getLogbook(),
+        getLogbookLite(),
         getBriefings(),
       ]);
       
@@ -840,9 +833,7 @@ export default function HistoryScreen() {
     if (maintenanceDone.current) return;
     maintenanceDone.current = true;
     (async () => {
-      let changed = 0;
-      changed += await removeDuplicateDjiLogEntries().catch(() => 0);
-      changed += await mergeRelatedDjiLogEntries().catch(() => 0);
+      const changed = await tidyDjiLogEntries();
       if (changed > 0) loadData();
     })();
   }, [loadData]);

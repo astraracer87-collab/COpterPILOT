@@ -53,21 +53,49 @@ function stickStr(v: number | undefined): string {
   return Math.round(v * 100).toString();
 }
 
-const COLLAPSED_ROWS = 12;
+export const COLLAPSED_ROWS = 12;
+/** Pro Tipp zusätzlich gerenderte Zeilen (bis ~900 × 16 Zellen auf einmal sprengen die RC). */
+export const ROWS_PER_PAGE = 100;
+
+const RecordRow = React.memo(function RecordRow({
+  r,
+  odd,
+  borderColor,
+  stripeColor,
+}: {
+  r: DjiLogRecord;
+  odd: boolean;
+  borderColor: string;
+  stripeColor: string;
+}) {
+  return (
+    <View
+      style={[
+        styles.dataRow,
+        { borderColor, backgroundColor: odd ? stripeColor : "transparent" },
+      ]}
+    >
+      {COLUMNS.map((c) => (
+        <ThemedText key={c.key} style={[styles.dataCell, { width: c.width }]} numberOfLines={1}>
+          {c.fmt(r)}
+        </ThemedText>
+      ))}
+    </View>
+  );
+});
 
 /**
  * Tabellarische Detailauswertung eines DJI-Logs (à la phantomhelp.com).
  * Horizontal scrollbar; standardmäßig auf wenige Zeilen reduziert, per Tipp
- * vollständig ausklappbar.
+ * seitenweise (ROWS_PER_PAGE) erweiterbar.
  */
 export function DjiRecordsTable({ records }: { records: DjiLogRecord[] }) {
   const { theme } = useTheme();
-  const [expanded, setExpanded] = useState(false);
+  const [visible, setVisible] = useState(COLLAPSED_ROWS);
 
-  const rows = useMemo(
-    () => (expanded ? records : records.slice(0, COLLAPSED_ROWS)),
-    [records, expanded],
-  );
+  const rows = useMemo(() => (records ?? []).slice(0, visible), [records, visible]);
+  const total = records?.length ?? 0;
+  const remaining = Math.max(0, total - visible);
 
   if (!records || records.length === 0) {
     return (
@@ -93,41 +121,39 @@ export function DjiRecordsTable({ records }: { records: DjiLogRecord[] }) {
             ))}
           </View>
           {rows.map((r, i) => (
-            <View
+            <RecordRow
               key={`${r.t}-${i}`}
-              style={[
-                styles.dataRow,
-                {
-                  borderColor: theme.border,
-                  backgroundColor: i % 2 === 0 ? "transparent" : theme.backgroundSecondary,
-                },
-              ]}
-            >
-              {COLUMNS.map((c) => (
-                <ThemedText
-                  key={c.key}
-                  style={[styles.dataCell, { width: c.width }]}
-                  numberOfLines={1}
-                >
-                  {c.fmt(r)}
-                </ThemedText>
-              ))}
-            </View>
+              r={r}
+              odd={i % 2 === 1}
+              borderColor={theme.border}
+              stripeColor={theme.backgroundSecondary}
+            />
           ))}
         </View>
       </ScrollView>
-      {records.length > COLLAPSED_ROWS ? (
-        <Pressable
-          testID="button-dji-table-toggle"
-          onPress={() => setExpanded((v) => !v)}
-          style={({ pressed }) => [styles.toggle, pressed && { opacity: 0.6 }]}
-        >
-          <ThemedText style={[styles.toggleText, { color: theme.primary }]}>
-            {expanded
-              ? "Weniger anzeigen"
-              : `Alle ${records.length} Datensätze anzeigen`}
-          </ThemedText>
-        </Pressable>
+      {total > COLLAPSED_ROWS ? (
+        <View style={styles.toggleRow}>
+          {remaining > 0 ? (
+            <Pressable
+              testID="button-dji-table-toggle"
+              onPress={() => setVisible((v) => Math.min(total, v + ROWS_PER_PAGE))}
+              style={({ pressed }) => [styles.toggle, pressed && { opacity: 0.6 }]}
+            >
+              <ThemedText style={[styles.toggleText, { color: theme.primary }]}>
+                {`${Math.min(ROWS_PER_PAGE, remaining)} weitere anzeigen (${rows.length} von ${total})`}
+              </ThemedText>
+            </Pressable>
+          ) : null}
+          {visible > COLLAPSED_ROWS ? (
+            <Pressable
+              testID="button-dji-table-collapse"
+              onPress={() => setVisible(COLLAPSED_ROWS)}
+              style={({ pressed }) => [styles.toggle, pressed && { opacity: 0.6 }]}
+            >
+              <ThemedText style={[styles.toggleText, { color: theme.primary }]}>Weniger anzeigen</ThemedText>
+            </Pressable>
+          ) : null}
+        </View>
       ) : null}
     </View>
   );
@@ -158,6 +184,12 @@ const styles = StyleSheet.create({
   dataCell: {
     ...Typography.caption,
     paddingHorizontal: 4,
+  },
+  toggleRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    columnGap: Spacing.lg,
   },
   toggle: {
     paddingVertical: Spacing.sm,

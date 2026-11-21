@@ -347,6 +347,45 @@ describe("DE tile store", () => {
     assert.ok((await queryTiledGeozones("DE", bboxAround(48.13, 11.56, 5), { includeTemp: false }))!.length > 0);
   });
 
+  it("offline-first: hängender Live-Abruf der temporären Zonen blockiert die lokalen Zonen nicht", async () => {
+    await downloadTileStore("DE", {});
+    // temp.json einmal online speichern
+    assert.ok((await queryTiledGeozones("DE", bboxAround(48.13, 11.56, 2)))!.some((z) => z.name === "Christkindlmarkt"));
+    // Neuer Prozess-Zustand, online, aber der temporäre Layer hängt (nur Abort beendet ihn)
+    let tempAborted = false;
+    let released = false;
+    const pending: (() => void)[] = [];
+    const hangingTemp = (async (input: any, init?: RequestInit) => {
+      if (!released && String(input).includes("temporaere_betriebseinschraenkungen")) {
+        return new Promise((res, rej) => {
+          pending.push(() => res(fakeFetch(input, init)));
+          init?.signal?.addEventListener("abort", () => {
+            tempAborted = true;
+            const e = new Error("aborted");
+            e.name = "AbortError";
+            rej(e);
+          });
+        });
+      }
+      return fakeFetch(input, init);
+    }) as typeof fetch;
+    __setTileStoreEnvForTests({ fs: createNodeTileFs(dir, hangingTemp), isOffline: () => false, isWifi: async () => true, fetch: hangingTemp, retryDelaysMs: [1, 1, 1] });
+    await loadTileStoreMeta();
+    const t0 = Date.now();
+    const zones = (await queryTiledGeozones("DE", bboxAround(48.13, 11.56, 5), { tempMaxWaitMs: 50 }))!;
+    assert.ok(Date.now() - t0 < 5000, "nicht auf den 20-s-Timeout gewartet");
+    const names = zones.map((z) => z.name).sort();
+    // lokale Zonen + gespeicherter Stand der temporären Zonen
+    assert.ok(names.includes("CTR 1"));
+    assert.ok(names.includes("Christkindlmarkt"));
+    assert.equal(tempAborted, false, "Live-Abruf läuft im Hintergrund weiter");
+    // Hintergrund-Abruf beenden (sonst hält sein 20-s-Timer den Testprozess)
+    released = true;
+    for (const r of pending) r();
+    await new Promise((r) => setTimeout(r, 20));
+    __setTileStoreEnvForTests({ fs: createNodeTileFs(dir, fakeFetch), isOffline: () => false, isWifi: async () => true, fetch: fakeFetch, retryDelaysMs: [1, 1, 1] });
+  });
+
   it("is due for refresh after 28 days", async () => {
     await downloadTileStore("DE", {});
     assert.equal(await tileStoreRefreshDue("DE"), false);

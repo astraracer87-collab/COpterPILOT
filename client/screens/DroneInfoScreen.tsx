@@ -19,7 +19,7 @@ import { useTheme } from "@/hooks/useTheme";
 import { Spacing, Typography, Colors } from "@/constants/theme";
 import {
   getDrone,
-  getLogbook,
+  getLogbookLite,
   DroneProfile,
   LogbookEntry,
 } from "@/lib/storage";
@@ -72,12 +72,29 @@ export default function DroneInfoScreen() {
   const [drone, setDrone] = useState<DroneProfile | null>(null);
   const [logbook, setLogbook] = useState<LogbookEntry[]>([]);
   const [previewDoc, setPreviewDoc] = useState<{ doc: DocumentRef; label: string } | null>(null);
+  const [loadState, setLoadState] = useState<"loading" | "ready" | "notFound" | "error">("loading");
 
   const load = useCallback(async () => {
-    if (!droneId) return;
-    const [d, entries] = await Promise.all([getDrone(droneId), getLogbook()]);
+    if (!droneId) {
+      setLoadState("notFound");
+      return;
+    }
+    let d: DroneProfile | null;
+    try {
+      d = await getDrone(droneId);
+    } catch {
+      setLoadState((s) => (s === "ready" ? s : "error"));
+      return;
+    }
     setDrone(d);
-    setLogbook(entries);
+    setLoadState(d ? "ready" : "notFound");
+    if (!d) return;
+    // Logbuch nur für Zähler/Akku-Statistik → leichte Liste; Fehler blockieren die Anzeige nicht.
+    try {
+      setLogbook(await getLogbookLite());
+    } catch {
+      setLogbook([]);
+    }
   }, [droneId]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
@@ -110,10 +127,38 @@ export default function DroneInfoScreen() {
   };
 
   if (!drone) {
+    const message =
+      loadState === "notFound"
+        ? "Drohne nicht gefunden. Sie wurde möglicherweise gelöscht."
+        : loadState === "error"
+          ? "Drohne konnte nicht geladen werden."
+          : "Drohne wird geladen…";
     return (
       <ThemedView style={styles.container}>
-        <View style={{ paddingTop: headerHeight + Spacing.xl, alignItems: "center" }}>
-          <ThemedText style={{ color: theme.textSecondary }}>Drohne wird geladen…</ThemedText>
+        <View style={{ paddingTop: headerHeight + Spacing.xl, alignItems: "center", paddingHorizontal: Spacing.lg }}>
+          <ThemedText style={{ color: theme.textSecondary, textAlign: "center" }} testID="text-drone-info-state">
+            {message}
+          </ThemedText>
+          {loadState === "error" ? (
+            <Pressable
+              onPress={() => {
+                setLoadState("loading");
+                load();
+              }}
+              style={{ marginTop: Spacing.md, padding: Spacing.sm }}
+              testID="button-drone-info-retry"
+            >
+              <ThemedText style={{ color: theme.primary, fontWeight: "600" }}>Erneut versuchen</ThemedText>
+            </Pressable>
+          ) : loadState === "notFound" ? (
+            <Pressable
+              onPress={() => navigation.goBack()}
+              style={{ marginTop: Spacing.md, padding: Spacing.sm }}
+              testID="button-drone-info-back"
+            >
+              <ThemedText style={{ color: theme.primary, fontWeight: "600" }}>Zurück</ThemedText>
+            </Pressable>
+          ) : null}
         </View>
       </ThemedView>
     );

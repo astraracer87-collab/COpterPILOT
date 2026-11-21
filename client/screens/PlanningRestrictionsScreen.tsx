@@ -73,6 +73,9 @@ import {
 type RouteParams = RouteProp<FlightPlanningParamList, "PlanningRestrictions">;
 type NavigationProp = NativeStackNavigationProp<FlightPlanningParamList, "PlanningRestrictions">;
 
+/** Max. Wartezeit auf temporäre Beschränkungen, bevor „Weiter“ (mit Warnung) freigegeben wird. */
+const TEMP_RESTRICTIONS_WAIT_CAP_MS = 15000;
+
 export default function PlanningRestrictionsScreen() {
   const route = useRoute<RouteParams>();
   const navigation = useNavigation<NavigationProp>();
@@ -156,6 +159,10 @@ export default function PlanningRestrictionsScreen() {
   const [climbAnswers, setClimbAnswers] = useState<Map<string, "yes" | "no">>(new Map());
   const [tempRestrictions, setTempRestrictions] = useState<GeozoneFeatureInfo[]>([]);
   const [dipulTempRestrictions, setDipulTempRestrictions] = useState<DipulTempRestrictionsResult>({ active: [], upcoming: [] });
+  // Status der (DE-)Abfrage temporärer Beschränkungen, die NACH den Zonen
+  // nachgeladen wird: Zonen erscheinen sofort, „Weiter“ bleibt bis zum Ergebnis
+  // gesperrt — höchstens TEMP_RESTRICTIONS_WAIT_CAP_MS, danach mit Warnung frei.
+  const [tempStatus, setTempStatus] = useState<"idle" | "loading" | "timeout" | "failed" | "ok">("idle");
   const [dipulSourceStatus, setDipulSourceStatus] = useState<DipulGeozoneSourceStatus | null>(null);
   // Abdeckungslücken der Geozonen-Abfrage (Länder ohne verwertbare Daten).
   const [coverageGaps, setCoverageGaps] = useState<GeozoneSourceCoverage[]>([]);
@@ -203,9 +210,11 @@ export default function PlanningRestrictionsScreen() {
 
   useEffect(() => {
     let cancelled = false;
+    let tempCapTimer: ReturnType<typeof setTimeout> | null = null;
     const version = revalidation.dataVersion;
     const fetchGeozones = async () => {
       setLoading(true);
+      setTempStatus("idle");
       setError(false);
       setDipulSourceStatus(null);
       setCoverageGaps([]);
@@ -254,12 +263,24 @@ export default function PlanningRestrictionsScreen() {
           // Live AUP/UUP/NOTAM activation status for mil low-flight areas.
           // We need a wider radius than the planning radius so activations of
           // any nearby TFG (which are large) are still picked up.
-          try {
-            const dipul = await fetchNearbyTempRestrictionsRaw(latitude, longitude, Math.max(localRadiusKm || 1, 50));
-            if (!cancelled) setDipulTempRestrictions(dipul);
-          } catch {
-            if (!cancelled) setDipulTempRestrictions({ active: [], upcoming: [] });
-          }
+          // Nicht mehr blockierend awaiten: Zonen sofort anzeigen, temporäre
+          // Beschränkungen im Hintergrund nachladen (Fehlerverhalten unverändert).
+          setTempStatus("loading");
+          tempCapTimer = setTimeout(() => {
+            if (!cancelled) setTempStatus((st) => (st === "loading" ? "timeout" : st));
+          }, TEMP_RESTRICTIONS_WAIT_CAP_MS);
+          fetchNearbyTempRestrictionsRaw(latitude, longitude, Math.max(localRadiusKm || 1, 50))
+            .then((dipul) => {
+              if (cancelled) return;
+              setDipulTempRestrictions(dipul);
+              setTempStatus("ok");
+            })
+            .catch(() => {
+              if (cancelled) return;
+              setDipulTempRestrictions({ active: [], upcoming: [] });
+              setTempStatus("failed");
+            })
+            .finally(() => { if (tempCapTimer) { clearTimeout(tempCapTimer); tempCapTimer = null; } });
         }
       } catch {
         if (!cancelled) setError(true);
@@ -271,7 +292,11 @@ export default function PlanningRestrictionsScreen() {
       }
     };
     const timer = setTimeout(() => { fetchGeozones(); }, 300);
-    return () => { cancelled = true; clearTimeout(timer); };
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+      if (tempCapTimer) clearTimeout(tempCapTimer);
+    };
   }, [latitude, longitude, localRadiusKm, countryIso, revalidation.dataVersion]);
 
   // Höhen-Filter: vektorbasierte ED-269-Zonen (AT/BE/DK) mit Untergrenze über der
@@ -513,7 +538,11 @@ export default function PlanningRestrictionsScreen() {
   const hasMilLowFlightWarning =
     milRouteAreaIds.size > 0 && (milActive || milLowFlightHotHits.length > 0);
 
-  const canContinue = !loading;
+  // Sicher: solange temporäre Beschränkungen noch laden, bleibt „Weiter“
+  // gesperrt — aber höchstens TEMP_RESTRICTIONS_WAIT_CAP_MS (RC-Netz kann
+  // hängen). Danach ist Weiter mit deutlicher Warnung erlaubt.
+  const tempWaiting = tempStatus === "loading";
+  const canContinue = !loading && !tempWaiting;
 
   // Bestätigungsdialog nur für Zonen, deren Policy eine Bestätigung verlangt
   // (Verbot, Sperrgebiet, Genehmigungspflicht) bzw. für Temporär-/Militär-/
@@ -2545,11 +2574,21 @@ export default function PlanningRestrictionsScreen() {
       </KeyboardAwareScrollViewCompat>
 
       <View style={[styles.footer, { paddingBottom: insets.bottom + Spacing.lg, backgroundColor: theme.backgroundDefault }]}>
+        {!loading && tempWaiting ? (
+          <ThemedText testID="temp-restrictions-loading-hint" style={{ color: theme.textSecondary, fontSize: 13, marginBottom: Spacing.sm, textAlign: "center" }}>
+            Temporäre Beschränkungen werden geprüft …
+          </ThemedText>
+        ) : null}
+        {!loading && (tempStatus === "timeout" || tempStatus === "failed") ? (
+          <ThemedText testID="temp-restrictions-unchecked-warning" style={{ color: theme.statusCaution, fontSize: 13, fontWeight: "600", marginBottom: Spacing.sm, textAlign: "center" }}>
+            Achtung: temporäre Beschränkungen nicht geprüft{tempStatus === "timeout" ? " (Abfrage dauert zu lange)" : " (Abfrage fehlgeschlagen)"} – Aktivierung von Tiefflug-/Sperrgebieten selbst prüfen.
+          </ThemedText>
+        ) : null}
         <Button
           title="Weiter zu den Flugdetails"
           onPress={handleContinue}
           disabled={!canContinue}
-          loading={loading}
+          loading={loading || tempWaiting}
         />
       </View>
     </ThemedView>

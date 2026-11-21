@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   View,
   StyleSheet,
@@ -185,9 +185,9 @@ export default function PreCheckOverviewScreen() {
   const snapshotTakenRef = useRef(false);
 
   useEffect(() => {
-    getPilotProfile().then(setPilotProfile);
+    getPilotProfile().then(setPilotProfile).catch(() => {});
     if (droneId) {
-      getDrone(droneId).then((d) => { if (d) { setLimits(d.limits); setDrone(d); } });
+      getDrone(droneId).then((d) => { if (d) { setLimits(d.limits); setDrone(d); } }).catch(() => {});
     }
     if (sessionId) {
       getFlightSession(sessionId).then((s) => {
@@ -207,6 +207,11 @@ export default function PreCheckOverviewScreen() {
           snapshotTakenRef.current = true;
           setHasMapSnapshot(true);
         }
+      }).catch((e) => {
+        // Session nicht lesbar: mit Standardradius weiter, damit Geozonen/NOTAMs
+        // trotzdem geladen werden (sonst bleiben die Spinner für immer stehen).
+        console.warn("[PreCheck] getFlightSession fehlgeschlagen:", e);
+        setPlanningRadiusKm((prev) => prev ?? 1);
       });
     } else {
       setPlanningRadiusKm(1);
@@ -489,6 +494,32 @@ export default function PreCheckOverviewScreen() {
 
   const loading = geozoneLoading || notamLoading;
 
+  // Polygon-Glättung ist teuer (RC: wenig RAM/CPU) — nur neu berechnen, wenn
+  // sich die Daten ändern, nicht bei jedem Render (Checkbox, Verdict-Watch …).
+  type LL = { latitude: number; longitude: number };
+  const toLL = (ring: [number, number][]): LL[] => ring.map(([lat, lon]) => ({ latitude: lat, longitude: lon }));
+  const smoothGroups = (zone: Parameters<typeof ringGroupsForZone>[0]) =>
+    ringGroupsForZone(zone).map((group) => {
+      const [outer, ...holes] = smoothRingGroup(group);
+      if (!outer || outer.length < 3) return null;
+      return { outer: toLL(outer), holes: holes.map(toLL) };
+    });
+  const smoothedNotamShapes = useMemo(
+    () => [...notams.active, ...notams.upcoming].map((r) => ({
+      r,
+      shapes: (r.polygonRings && r.polygonRings.length > 0) || (r.polygonGroups && r.polygonGroups.length > 0)
+        ? smoothGroups(r)
+        : null,
+    })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [notams],
+  );
+  const smoothedGeozoneShapes = useMemo(
+    () => allGeozones.map((gz) => ({ gz, shapes: smoothGroups(gz) })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [allGeozones],
+  );
+
   // Teil A: Urteil aus Zonen, Abdeckung und NOTAMs – für den Hinweis bei
   // geänderten Daten (nie stilles Kippen nach einer Hintergrund-Aktualisierung).
   const buildPreCheckChecks = () => [
@@ -502,8 +533,10 @@ export default function PreCheckOverviewScreen() {
     }),
     ...notamChecks({
       context: "precheck",
-      failed: notamError,
-      count: notamError ? null : notams.active.length,
+      // Noch laufende NOTAM-Abfrage (Weiter ist dann erlaubt) wird wie eine
+      // fehlgeschlagene behandelt: Status unbekannt, nie stilles "keine NOTAMs".
+      failed: notamError || notamLoading,
+      count: notamError || notamLoading ? null : notams.active.length,
       source: "DIPUL temporäre Beschränkungen",
       offlineFetchedAt: notams.offline?.cached ? notams.offline.fetchedAt : null,
     }),
@@ -759,7 +792,7 @@ export default function PreCheckOverviewScreen() {
                   tileSize={256}
                 />
               ) : null)}
-              {[...notams.active, ...notams.upcoming].map((r) => {
+              {smoothedNotamShapes.map(({ r, shapes }) => {
                 const isActive = r.status === "active";
                 const isEDR = r.name.startsWith("ED-R");
                 const fillColor = isActive
@@ -768,15 +801,14 @@ export default function PreCheckOverviewScreen() {
                 const strokeColor = isActive
                   ? (isEDR ? "rgba(255,59,48,1)" : "rgba(255,149,0,0.9)")
                   : "rgba(88,86,214,0.6)";
-                if ((r.polygonRings && r.polygonRings.length > 0) || (r.polygonGroups && r.polygonGroups.length > 0)) {
-                  return ringGroupsForZone(r).map((group, ri) => {
-                    const [outer, ...holes] = smoothRingGroup(group);
-                    if (!outer || outer.length < 3) return null;
+                if (shapes) {
+                  return shapes.map((shape, ri) => {
+                    if (!shape) return null;
                     return (
                       <Polygon
                         key={`${r.id}-poly-${ri}`}
-                        coordinates={outer.map(([lat, lon]) => ({ latitude: lat, longitude: lon }))}
-                        holes={holes.map((h) => h.map(([lat, lon]) => ({ latitude: lat, longitude: lon })))}
+                        coordinates={shape.outer}
+                        holes={shape.holes}
                         fillColor={fillColor}
                         strokeColor={strokeColor}
                         strokeWidth={2}
@@ -798,22 +830,20 @@ export default function PreCheckOverviewScreen() {
                 }
                 return null;
               })}
-              {allGeozones.flatMap((gz, gi) => {
-                const groups = ringGroupsForZone(gz);
-                if (groups.length === 0) return [];
+              {smoothedGeozoneShapes.flatMap(({ gz, shapes }, gi) => {
+                if (shapes.length === 0) return [];
                 // Zeitgesteuerte Zonen, die jetzt UND zur geplanten Zeit inaktiv
                 // sind, abgeschwächt zeichnen (gleicher Kontext wie die Liste).
                 const inactiveInTime = !isZoneRelevantInTime(gz);
                 const fill = inactiveInTime ? "rgba(142,142,147,0.06)" : (gz.fillColor ?? zonePolicy(gz).fill);
                 const stroke = inactiveInTime ? "rgba(142,142,147,0.6)" : (gz.strokeColor ?? zonePolicy(gz).stroke);
-                return groups.map((group, ri) => {
-                  const [outer, ...holes] = smoothRingGroup(group);
-                  if (!outer || outer.length < 3) return null;
+                return shapes.map((shape, ri) => {
+                  if (!shape) return null;
                   return (
                     <Polygon
                       key={`gz-${gz.featureId ?? gz.name}-${gi}-${ri}`}
-                      coordinates={outer.map(([lat, lon]) => ({ latitude: lat, longitude: lon }))}
-                      holes={holes.map((h) => h.map(([lat, lon]) => ({ latitude: lat, longitude: lon })))}
+                      coordinates={shape.outer}
+                      holes={shape.holes}
                       fillColor={fill}
                       strokeColor={stroke}
                       strokeWidth={2}
@@ -1259,10 +1289,15 @@ export default function PreCheckOverviewScreen() {
       </ScrollView>
 
       <View style={[styles.footer, { paddingBottom: insets.bottom + Spacing.lg, backgroundColor: theme.backgroundDefault }]}>
+        {notamLoading && !geozoneLoading ? (
+          <ThemedText style={{ color: theme.statusCaution, fontSize: 13, marginBottom: Spacing.sm, textAlign: "center" }}>
+            NOTAM-Abfrage läuft noch – beim Weitergehen wird der NOTAM-Status als „nicht geprüft“ übernommen.
+          </ThemedText>
+        ) : null}
         <Button
           title="Weiter zum Wetter-Check"
           onPress={handleContinue}
-          disabled={!canContinue || loading}
+          disabled={!canContinue || geozoneLoading}
         />
       </View>
     </ThemedView>

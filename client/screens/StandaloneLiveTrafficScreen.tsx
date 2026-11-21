@@ -60,7 +60,7 @@ import { detectCountryFromCoordinates } from "../../shared/countryDetection";
 import { GEOZONE_LAYERS, GEOZONE_REGULATORY_INFO, GeozoneRegulatoryInfo, GeozoneContact, getContactsForZone, loadGeozoneSettings, saveGeozoneSettings, getActiveLayerNames, MAP_STYLES, MapStyleOption, loadMapStyle, saveMapStyle, loadRadarSettings, saveRadarSettings, queryGeozonesInArea, GeozoneFeatureInfo, separateTempRestrictions, TEMP_RESTRICTION_LAYER_LABEL, buildDipulLink, fetchNearbyTempRestrictionsRaw, DipulTempRestriction, getCountryGeozoneLayers, fetchLuTsaAsNotams } from "@/lib/geozones";
 import { GEOZONE_CATEGORIES, COMBINED_COUNTRY_TOGGLES } from "../../shared/geozoneCategories";
 import { getActiveOrUpcomingNearbyMilLowFlight } from "@/lib/milLowFlight";
-import { useFocusEffect } from "@react-navigation/native";
+import { useFocusEffect, useIsFocused } from "@react-navigation/native";
 import { getSettings, saveSettings, getSelectedDrone, getDrones, setSelectedDroneId, type DroneProfile, getDroneMaxAltitudeM, getPilotProfile, PilotProfile, de21hRule, isDe21hZoneAvEligible, isErlaubnisExpired, Bundesland } from "@/lib/storage";
 import { detectBundeslandFromCoordinates } from "@/lib/countryMaps";
 import { computeGeozoneTabSeverity, GeozoneTabSeverity, assessGeozoneForRadar, isGeozoneActiveForRadar } from "@/lib/geozoneSeverity";
@@ -161,6 +161,11 @@ export default function StandaloneLiveTrafficScreen() {
   const refreshInterval = useRef<ReturnType<typeof setInterval> | null>(null);
   const isLoadingAircraft = useRef(false);
   const appActiveRef = useRef(true);
+  // Der Tab bleibt gemountet, wenn ein anderer Tab aktiv ist — Polling-Intervalle
+  // laufen daher nur, solange dieser Screen fokussiert ist.
+  const isFocused = useIsFocused();
+  const focusedRef = useRef(isFocused);
+  focusedRef.current = isFocused;
   const [trails, setTrails] = useState<AircraftTrail[]>([]);
   const [sourceStatus, setSourceStatus] = useState<Record<DataSource, "ok" | "error" | "timeout">>({ opensky: "ok", adsbfi: "ok", adsbone: "ok", airplaneslive: "ok", adsblol: "ok", ogn: "ok", fr24: "ok" });
   const [wind, setWind] = useState<WindData | null>(null);
@@ -526,7 +531,7 @@ export default function StandaloneLiveTrafficScreen() {
 
 
   useEffect(() => {
-    if (!isRecording() || Platform.OS === "web") return;
+    if (!isFocused || !isRecording() || Platform.OS === "web") return;
     const captureMap = async () => {
       try {
         if (mapContainerRef.current && viewMode === "map") {
@@ -542,10 +547,10 @@ export default function StandaloneLiveTrafficScreen() {
     const interval = setInterval(captureMap, 60000);
     captureMap();
     return () => clearInterval(interval);
-  }, [viewMode]);
+  }, [viewMode, isFocused]);
 
   useEffect(() => {
-    if (latitude == null || longitude == null) return;
+    if (!isFocused || latitude == null || longitude == null) return;
     let cancelled = false;
     const loadWind = async () => {
       if (!appActiveRef.current) return;
@@ -557,7 +562,7 @@ export default function StandaloneLiveTrafficScreen() {
     loadWind();
     const iv = setInterval(loadWind, 300000);
     return () => { cancelled = true; clearInterval(iv); };
-  }, [latitude, longitude]);
+  }, [latitude, longitude, isFocused]);
 
   // Ersatz-Mittelpunkt ohne Standort (letzte Position → erstes aktives Land → DE).
   const [lastKnownPos, setLastKnownPos] = useState<StoredPosition | null>(() => peekLastKnownPosition());
@@ -675,9 +680,11 @@ export default function StandaloneLiveTrafficScreen() {
   const loadAircraft = useCallback(async () => {
     const latitude = trafficLat;
     const longitude = trafficLon;
-    if (latitude == null || longitude == null) return;
+    // Ohne Position kein Abruf möglich — Spinner trotzdem beenden, sonst bleibt
+    // er (z. B. nach manuellem Refresh) dauerhaft stehen.
+    if (latitude == null || longitude == null) { setLoading(false); return; }
     if (isLoadingAircraft.current) return;
-    if (!appActiveRef.current) return;
+    if (!appActiveRef.current || !focusedRef.current) return;
     isLoadingAircraft.current = true;
     try {
       setError(null);
@@ -710,20 +717,22 @@ export default function StandaloneLiveTrafficScreen() {
   }, [trafficLat, trafficLon, radiusKm, updateTrails]);
 
   useEffect(() => {
-    if (trafficLat == null || trafficLon == null) return;
+    if (!isFocused) return;
+    if (trafficLat == null || trafficLon == null) { setLoading(false); return; }
     loadAircraft();
     refreshInterval.current = setInterval(loadAircraft, 2000);
     return () => {
       if (refreshInterval.current) clearInterval(refreshInterval.current);
+      refreshInterval.current = null;
     };
-  }, [loadAircraft, trafficLat, trafficLon]);
+  }, [loadAircraft, trafficLat, trafficLon, isFocused]);
 
   const loadAircraftRef = useRef(loadAircraft);
   loadAircraftRef.current = loadAircraft;
   useEffect(() => {
     const sub = AppState.addEventListener("change", (next) => {
       appActiveRef.current = next === "active";
-      if (next === "active") {
+      if (next === "active" && focusedRef.current) {
         clearTrails();
         setAircraft([]);
         setTrails([]);
@@ -743,7 +752,7 @@ export default function StandaloneLiveTrafficScreen() {
   const stableAlertLon = longitude != null ? Math.round(longitude * 1000) / 1000 : null;
 
   useEffect(() => {
-    if (latitude == null || longitude == null) return;
+    if (!isFocused || latitude == null || longitude == null) return;
     const qLat = latitude;
     const qLon = longitude;
     let cancelled = false;
@@ -777,7 +786,7 @@ export default function StandaloneLiveTrafficScreen() {
     checkAlerts();
     const iv = setInterval(checkAlerts, 120000);
     return () => { cancelled = true; clearInterval(iv); };
-  }, [stableAlertLat, stableAlertLon, raRadiusKm, vlosKm, detectedCountryIso, geozoneReval.dataVersion]);
+  }, [stableAlertLat, stableAlertLon, raRadiusKm, vlosKm, detectedCountryIso, geozoneReval.dataVersion, isFocused]);
 
   const openSidePanel = useCallback(async (panel: "geozone" | "notam" | "wetter" | "radar") => {
     if (sidePanel === panel) { setSidePanel(null); return; }

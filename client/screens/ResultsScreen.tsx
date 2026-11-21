@@ -194,15 +194,20 @@ export default function ResultsScreen() {
     
     setSaving(true);
     try {
-      const weatherSnapshot = {
-        temperature: weatherData.forecasts[0].temperature,
-        windSpeed: weatherData.forecasts[0].windSpeed,
-        windGust: weatherData.forecasts[0].windGust,
-        rain: weatherData.forecasts[0].rain,
-        cloudCover: weatherData.forecasts[0].cloudCover,
-        humidity: weatherData.forecasts[0].humidity,
-        kpIndex: kpIndex,
-      };
+      // Ohne Vorhersage (offline/Fehler) trotzdem speichern können — dann ohne
+      // Wetter-Snapshot statt mit erfundenen Nullwerten.
+      const f0 = weatherData?.forecasts?.[0];
+      const weatherSnapshot = f0
+        ? {
+            temperature: f0.temperature,
+            windSpeed: f0.windSpeed,
+            windGust: f0.windGust,
+            rain: f0.rain,
+            cloudCover: f0.cloudCover,
+            humidity: f0.humidity,
+            kpIndex: kpIndex,
+          }
+        : undefined;
       
       if (sessionId) {
         const existingSession = await getFlightSession(sessionId);

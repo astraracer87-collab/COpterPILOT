@@ -5,9 +5,10 @@ import {
   createLogbookEntry,
   getDrones,
   getLogbookEntry,
-  getLogbook,
+  getLogbookLite,
+  getLogbookEntryDjiLogsStrict,
   getEntryDjiLogs,
-  deleteLogbookEntry,
+  deleteLogbookEntryIf,
   updateDrone,
   updateLogbookEntry,
   sortDjiLogs,
@@ -15,6 +16,14 @@ import {
   type DroneProfile,
   type LogbookEntry,
 } from "./storage";
+import {
+  DJI_MERGE_MAX_GAP_MS,
+  hasUserEnteredData,
+  isDjiImportEntry,
+  mergedKeeperPatch,
+  planDjiLogMerges,
+  sameDjiLog,
+} from "./logbookLite";
 import type {
   DjiAnalyzeResult,
   DjiBulkError,
@@ -303,24 +312,9 @@ async function linkDroneAndBattery(
   return { meta: linked, drone: link.updatedDrone ?? drone };
 }
 
-/**
- * Ordnet eine Auswertung einem Flug zu: bestehender Eintrag (Log anhängen)
- * oder neuer Eintrag. Verknüpft dabei Drohne (Seriennummer) und Akku.
- */
-/** Gleiches Protokoll? Dateiname, sonst gleicher Startzeitpunkt (± 2 s) derselben Drohne. */
-export function sameDjiLog(a: Pick<DjiLogMeta, "fileName" | "startTs" | "aircraftSn">, b: Pick<DjiLogMeta, "fileName" | "startTs" | "aircraftSn">): boolean {
-  const fa = (a.fileName || "").toLowerCase();
-  const fb = (b.fileName || "").toLowerCase();
-  if (fa && fa === fb) return true;
-  if (a.startTs != null && b.startTs != null && Math.abs(a.startTs - b.startTs) <= 2000) {
-    const sa = (a.aircraftSn || "").toUpperCase();
-    const sb = (b.aircraftSn || "").toUpperCase();
-    return !sa || !sb || sa === sb;
-  }
-  return false;
-}
+export { sameDjiLog, hasUserEnteredData, planDjiLogMerges } from "./logbookLite";
 
-/** Logbuch-Eintrag, der dieses Protokoll schon enthält (oder null). */
+/** Logbuch-Eintrag, der dieses Protokoll schon enthält (oder null). Leichte Einträge genügen. */
 export function findEntryWithDjiLog(entries: readonly LogbookEntry[], meta: DjiLogMeta): LogbookEntry | null {
   for (const e of entries) {
     if (getEntryDjiLogs(e).some((l) => sameDjiLog(l, meta))) return e;
@@ -328,21 +322,27 @@ export function findEntryWithDjiLog(entries: readonly LogbookEntry[], meta: DjiL
   return null;
 }
 
+/** Löschen nur, wenn der gespeicherte Eintrag (noch) keine Nutzerdaten trägt. */
+const deletableImport = (raw: LogbookEntry) => isDjiImportEntry(raw) && !hasUserEnteredData(raw);
+
 /**
  * Doppelt importierte Flüge entfernen: ein aus einem DJI-Protokoll angelegter
- * Eintrag, dessen Protokolle alle schon in einem älteren Eintrag stecken.
+ * Eintrag, dessen Protokolle alle schon in einem älteren Eintrag stecken – nur,
+ * wenn er keine vom Nutzer ergänzten Daten trägt (siehe hasUserEnteredData).
  * Rückgabe: Anzahl gelöschter Einträge.
  */
 export async function removeDuplicateDjiLogEntries(): Promise<number> {
-  const entries = [...(await getLogbook())].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
+  const entries = [...(await getLogbookLite())].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
   const kept: LogbookEntry[] = [];
   let removed = 0;
   for (const e of entries) {
     const logs = getEntryDjiLogs(e);
-    const fromLog = typeof e.sessionId === "string" && e.sessionId.startsWith("dji-log:");
-    const dup = fromLog && logs.length > 0 && logs.every((l) => kept.some((k) => getEntryDjiLogs(k).some((kl) => sameDjiLog(kl, l))));
-    if (dup) {
-      await deleteLogbookEntry(e.id);
+    const dup =
+      isDjiImportEntry(e) &&
+      !hasUserEnteredData(e) &&
+      logs.length > 0 &&
+      logs.every((l) => kept.some((k) => getEntryDjiLogs(k).some((kl) => sameDjiLog(kl, l))));
+    if (dup && (await deleteLogbookEntryIf(e.id, deletableImport).catch(() => false))) {
       removed++;
     } else {
       kept.push(e);
@@ -352,65 +352,72 @@ export async function removeDuplicateDjiLogEntries(): Promise<number> {
 }
 
 /**
- * Führt bereits vorhandene, zusammengehörige DJI-Log-Einträge nachträglich
- * zusammen: gleiche Drohne (bevorzugt Seriennummer, sonst Name) und zeitlich
- * nah beieinander (Standard 3 h) werden zu EINEM Logbuch-Eintrag verschmolzen.
- * Der früheste Eintrag bleibt, die Protokolle der anderen wandern hinein, die
- * anderen Einträge werden gelöscht. Rückgabe: Anzahl verschmolzener Einträge.
+ * Führt getrennt importierte Flüge einer Akku-Tausch-Serie nachträglich zu
+ * EINEM Logbuch-Eintrag zusammen (auch Altbestand). Sicher:
+ *  - nur DJI-Import-Einträge desselben Fluggeräts,
+ *  - Landung des einen → Start des nächsten ≤ maxGapMinutes (Standard 20),
+ *  - aufgelöst werden nur Einträge OHNE Nutzerdaten (hasUserEnteredData); trägt
+ *    einer der Serie Nutzerdaten, bleibt er der Ziel-Eintrag.
+ * Die vollständigen Protokolle werden strikt gelesen (nicht lesbar → Serie
+ * übersprungen); Start/Landung/Dauer (Summe)/Höhe des Ziel-Eintrags werden neu
+ * berechnet. Rückgabe: Anzahl aufgelöster Einträge.
  */
-export async function mergeRelatedDjiLogEntries(maxHours = 3): Promise<number> {
-  const maxMs = maxHours * 3600 * 1000;
-  const all = await getLogbook();
-  type Row = { entry: LogbookEntry; sn?: string; name?: string; startTs: number };
-  const rows: Row[] = [];
-  for (const e of all) {
-    const fromLog = typeof e.sessionId === "string" && e.sessionId.startsWith("dji-log:");
-    const logs = getEntryDjiLogs(e);
-    if (!fromLog || logs.length === 0) continue;
-    const startTs = Math.min(...logs.map((l) => l.startTs ?? Infinity));
-    if (!Number.isFinite(startTs)) continue;
-    rows.push({ entry: e, sn: logs[0].aircraftSn, name: logs[0].droneName ?? e.droneName, startTs });
-  }
-  rows.sort((a, b) => a.startTs - b.startTs);
-
-  // 1) Cluster bilden (gleiches Fluggerät + zeitnah) – nur in-memory, keine I/O.
-  type Cluster = { keeper: Row; extras: Row[] };
-  const clusters: Cluster[] = [];
-  for (const row of rows) {
-    const c = clusters.find(
-      (x) => sameAircraft(x.keeper.name, x.keeper.sn, row.name, row.sn) &&
-        Math.abs(x.keeper.startTs - row.startTs) <= maxMs,
-    );
-    if (c) {
-      c.extras.push(row);
-      if (!c.keeper.sn && row.sn) c.keeper.sn = row.sn;
-    } else {
-      clusters.push({ keeper: row, extras: [] });
-    }
-  }
-
-  // 2) Nur Cluster mit Extras zusammenführen: ein Schreibvorgang je Keeper
-  //    (alle Protokolle auf einmal), dann die anderen Einträge löschen.
+export async function mergeRelatedDjiLogEntries(maxGapMinutes = DJI_MERGE_MAX_GAP_MS / 60000): Promise<number> {
+  const all = await getLogbookLite();
+  const byId = new Map(all.map((e) => [e.id, e]));
+  const plans = planDjiLogMerges(all, getEntryDjiLogs, maxGapMinutes * 60 * 1000);
   let merged = 0;
-  for (const { keeper, extras } of clusters) {
-    if (extras.length === 0) continue;
+  for (const plan of plans) {
     try {
+      const keeper = byId.get(plan.keeperId);
+      const extras = plan.extraIds.map((id) => byId.get(id)).filter((x): x is LogbookEntry => !!x);
+      if (!keeper || extras.length !== plan.extraIds.length) continue;
+      const keeperLogs = await getLogbookEntryDjiLogsStrict(keeper.id);
+      if (!keeperLogs) continue;
       const byPath = new Map<string, DjiLogMeta>();
-      const addAll = (e: LogbookEntry) => {
-        for (const l of getEntryDjiLogs(e)) byPath.set(l.objectPath ?? l.fileName ?? String(Math.random()), l);
-      };
-      addAll(keeper.entry);
-      for (const ex of extras) addAll(ex.entry);
-      await updateLogbookEntry(keeper.entry.id, { djiLogs: sortDjiLogs([...byPath.values()]), djiLog: undefined });
+      const add = (l: DjiLogMeta) => byPath.set(l.objectPath || l.fileName || `${l.startTs}`, l);
+      keeperLogs.forEach(add);
+      let complete = true;
       for (const ex of extras) {
-        await deleteLogbookEntry(ex.entry.id);
-        merged++;
+        const logs = await getLogbookEntryDjiLogsStrict(ex.id);
+        if (!logs) {
+          complete = false;
+          break;
+        }
+        logs.forEach(add);
+      }
+      if (!complete) continue;
+      const logs = sortDjiLogs([...byPath.values()]);
+      await updateLogbookEntry(keeper.id, mergedKeeperPatch(keeper, extras, logs));
+      for (const ex of extras) {
+        // erneut unter Sperre prüfen: inzwischen ergänzte Nutzerdaten → behalten
+        if (await deleteLogbookEntryIf(ex.id, deletableImport)) merged++;
       }
     } catch {
-      // Cluster überspringen, Rest weiterführen
+      // Serie überspringen (z. B. Protokoll-Datei nicht lesbar), Rest weiterführen
     }
   }
   return merged;
+}
+
+let tidyRunning: Promise<number> | null = null;
+
+/**
+ * Hintergrund-Pflege der importierten Flüge: Doppelte entfernen, Akku-Tausch-
+ * Serien zusammenführen. Parallele Aufrufe (Logbuch-Ansicht, Auto-Import)
+ * teilen sich einen Lauf. Wirft nie; Rückgabe: Anzahl geänderter Einträge.
+ */
+export function tidyDjiLogEntries(): Promise<number> {
+  if (tidyRunning) return tidyRunning;
+  tidyRunning = (async () => {
+    let changed = 0;
+    changed += await removeDuplicateDjiLogEntries().catch(() => 0);
+    changed += await mergeRelatedDjiLogEntries().catch(() => 0);
+    return changed;
+  })().finally(() => {
+    tidyRunning = null;
+  });
+  return tidyRunning;
 }
 
 export async function assignDjiLog(params: {
@@ -420,11 +427,12 @@ export async function assignDjiLog(params: {
 }): Promise<LogbookEntry> {
   const { meta, target, entryId } = params;
   // Ein Flug nur einmal: steckt das Protokoll schon in einem Eintrag, diesen nehmen
-  const already = findEntryWithDjiLog(await getLogbook().catch(() => [] as LogbookEntry[]), meta);
+  const lite = await getLogbookLite().catch(() => [] as LogbookEntry[]);
+  const already = findEntryWithDjiLog(lite, meta);
   if (already && (target === "new" || already.id === entryId)) return already;
   if (target === "existing") {
     if (!entryId) throw new Error("Kein Flug ausgewählt.");
-    const entry = await getLogbookEntry(entryId);
+    const entry = lite.find((e) => e.id === entryId) ?? null;
     if (!entry) throw new Error("Der Flug wurde nicht gefunden.");
     const { meta: linked } = await linkDroneAndBattery(
       meta,
@@ -448,5 +456,8 @@ export async function pickAndUploadDjiLog(
 ): Promise<LogbookEntry | null> {
   const res = await pickAndAnalyzeDjiLog(onPhase);
   if (!res) return null;
-  return assignDjiLog({ meta: res.meta, target: "existing", entryId });
+  const assigned = await assignDjiLog({ meta: res.meta, target: "existing", entryId });
+  // war das Protokoll schon zugeordnet, liefert assignDjiLog den leichten
+  // Listeneintrag → für die Detailansicht vollständig laden
+  return (await getLogbookEntry(assigned.id)) ?? assigned;
 }

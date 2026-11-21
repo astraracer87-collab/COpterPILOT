@@ -15,7 +15,7 @@ import { Card } from "@/components/Card";
 import { Button } from "@/components/Button";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, Typography } from "@/constants/theme";
-import { getDroneHistory, addDroneHistoryEntry, deleteDroneHistoryEntry, getDrone, getFlightCountForDrone, getLogbook, DroneHistoryEntry, LogbookEntry } from "@/lib/storage";
+import { getDroneHistory, addDroneHistoryEntry, deleteDroneHistoryEntry, getDrone, getFlightCountForDrone, getLogbookLite, DroneHistoryEntry, LogbookEntry } from "@/lib/storage";
 import type { SettingsStackParamList } from "@/navigation/SettingsStackNavigator";
 
 type NavProp = NativeStackNavigationProp<SettingsStackParamList>;
@@ -72,7 +72,7 @@ export default function DroneHistoryScreen() {
         getDroneHistory(droneId),
         getDrone(droneId),
         getFlightCountForDrone(droneId),
-        getLogbook(),
+        getLogbookLite(),
       ]);
       setEntries(history);
       setFlights(allLogbook.filter((e) => e.droneId === droneId));

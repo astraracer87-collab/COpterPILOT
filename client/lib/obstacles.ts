@@ -288,12 +288,34 @@ async function slot<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-function overpass(query: string, timeoutMs = 45000): Promise<any> {
-  return slot(() => overpassDirect(query, timeoutMs));
+// Je Anfrage/Endpunkt. Vorher 45–60 s × 3 Endpunkte × Warteschlange (2 parallel):
+// an einem hängenden Link (RC Pro 2) blockierte eine Kachel minutenlang.
+export const OVERPASS_REQUEST_TIMEOUT_MS = 20000;
+
+function offlineNow(): boolean {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    return !!require("./network").isOfflineNow();
+  } catch {
+    return false;
+  }
+}
+
+class OverpassOfflineError extends Error {
+  constructor() {
+    super("Gerät offline – Overpass nicht abgefragt");
+    this.name = "OverpassOfflineError";
+  }
+}
+
+function overpass(query: string, timeoutMs = OVERPASS_REQUEST_TIMEOUT_MS): Promise<any> {
+  // Offline gar nicht erst anstellen (gespeicherte Kacheln liefert der Cache)
+  if (offlineNow()) return Promise.reject(new OverpassOfflineError());
+  return slot(() => (offlineNow() ? Promise.reject(new OverpassOfflineError()) : overpassDirect(query, timeoutMs)));
 }
 
 /** Gemeinsamer Overpass-Zugang (Endpunkt-Wechsel, max. 2 parallel) für andere OSM-Abfragen. */
-export function overpassRequest(query: string, timeoutMs = 60000): Promise<any> {
+export function overpassRequest(query: string, timeoutMs = OVERPASS_REQUEST_TIMEOUT_MS): Promise<any> {
   return overpass(query, timeoutMs);
 }
 
@@ -319,6 +341,8 @@ async function overpassDirect(query: string, timeoutMs: number): Promise<any> {
     } catch (e) {
       clearTimeout(timer);
       lastErr = e;
+      // Inzwischen offline: keine weiteren Endpunkte durchprobieren
+      if (offlineNow()) break;
     }
   }
   throw lastErr ?? new Error("Overpass nicht erreichbar");

@@ -174,6 +174,14 @@ describe("dipul temporäre Beschränkungen – Geometrie-Join", () => {
     const res = await enrichDipulTempGeometry(oldCache, { fetchImpl: offline, store, timeoutMs: 50 });
     assert.equal(res.active.filter((r) => !hasDipulGeometry(r)).length, 0);
     assert.deepEqual(res.offline, oldCache.offline);
+    // 3) skipNetwork (offline bzw. Rückfall nach Zeitüberschreitung): kein
+    //    Netzabruf, gespeicherter Stand genügt.
+    clearDipulTempGeometryCache();
+    let netCalls = 0;
+    const never = (async () => { netCalls++; return new Promise(() => {}); }) as unknown as typeof fetch;
+    const res3 = await enrichDipulTempGeometry(oldCache, { fetchImpl: never, store, skipNetwork: true });
+    assert.equal(netCalls, 0);
+    assert.equal(res3.active.filter((r) => !hasDipulGeometry(r)).length, 0);
   });
 
   it("zweiter Versuch, wenn der erste WFS-Abruf scheitert", async () => {

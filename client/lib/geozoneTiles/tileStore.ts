@@ -73,6 +73,7 @@ import { __resetEsServicesForTests, resolveEsLayers, withEsLayer, type EsFetchJs
 import { arcgisPage } from "../../../shared/geozoneKit/arcgis";
 import { dedupeZones, dipulLayerOfId, zoneFromStored } from "./tileZones";
 import { setCountryAccessAvailable } from "../../../shared/countryDetection";
+import { withTimeout } from "../fetchWithTimeout";
 import { zoneEndedLongAgo } from "../../../shared/ed269Restriction";
 import { TEMPORARY_ZONES_MAX_AGE_MS } from "../../../shared/geozoneSourceMeta";
 import { loadLargePacksOnMobile, mayDownloadLargePack } from "../geozoneSources/largePackSetting";
@@ -391,7 +392,23 @@ export interface TiledQueryOptions {
   stats?: { truncated?: boolean; total?: number };
   /** DE: temporäre Beschränkungen mitliefern (Standard: ja) */
   includeTemp?: boolean;
+  /**
+   * Höchstens so lange (ms) auf den Live-Abruf der temporären Zonen warten;
+   * danach gilt der gespeicherte Stand (temp.json), der Live-Abruf läuft im
+   * Hintergrund weiter (onDeTempChange meldet neue Daten).
+   * Standard TEMP_QUERY_MAX_WAIT_MS.
+   */
+  tempMaxWaitMs?: number;
 }
+
+/**
+ * Offline-first: Die lokal gespeicherten Zonen dürfen nie auf das Netz warten.
+ * Temporäre Zonen (DE dipul, ES NOTAM) werden höchstens so lange live
+ * abgewartet, dann gilt der gespeicherte Stand.
+ */
+export const TEMP_QUERY_MAX_WAIT_MS = 7000;
+/** Kartentipp (Punktabfrage): noch kürzer warten. */
+export const TEMP_POINT_QUERY_MAX_WAIT_MS = 3000;
 
 /**
  * Zonen eines Landes im Ausschnitt aus dem Offline-Bestand. null, wenn kein
@@ -418,14 +435,20 @@ async function queryTiledGeozonesInner(
   if (!base) return null;
   const layerSet = iso === "DE" && opts.layers && opts.layers.length > 0 ? new Set(opts.layers) : null;
   const filter = layerSet ? (id: string) => layerSet.has(dipulLayerOfId(id)) : undefined;
+  const tempWait = opts.tempMaxWaitMs ?? TEMP_QUERY_MAX_WAIT_MS;
+  // Temporäre Zonen parallel zum lokalen Lesen anstoßen (gedeckelt, s. o.)
+  const wantDeTemp = iso === "DE" && opts.includeTemp !== false && (!layerSet || layerSet.has(DIPUL_TEMP_LAYER));
+  const wantEsTemp = iso === "ES" && opts.includeTemp !== false;
+  const deTempP = wantDeTemp ? getDeTempZones(bbox, tempWait).catch(() => [] as GeozoneFeatureInfo[]) : null;
+  const esTempP = wantEsTemp ? getEsTempZones(bbox, tempWait).catch(() => [] as GeozoneFeatureInfo[]) : null;
   const zones: GeozoneFeatureInfo[] = [];
   zones.push(...(await readZones(iso, "base", base, await queryIndexYielding(base, bbox, { filter, limit: opts.limit, stats: opts.stats }))));
   if (iso === "DE" && (!layerSet || layerSet.has(DIPUL_WOHN_LAYER))) {
     const wohn = await getLoadedIndex(iso, "wohn");
     if (wohn) zones.push(...(await readZones(iso, "wohn", wohn, await queryIndexYielding(wohn, bbox, { limit: opts.limit, stats: opts.stats }))));
   }
-  if (iso === "DE" && opts.includeTemp !== false && (!layerSet || layerSet.has(DIPUL_TEMP_LAYER))) {
-    zones.push(...(await getDeTempZones(bbox)));
+  if (deTempP) {
+    zones.push(...(await deTempP));
   }
   if (iso === "ES") {
     // abwählbare Teile (Infrastruktur, Naturschutz), sofern gespeichert
@@ -435,8 +458,8 @@ async function queryTiledGeozonesInner(
     }
     // NOTAM für UAS: online live (≤ 10 min), offline letzter Stand; statische
     // Aktivierungen an den festen Sperrgebieten anzeigen
-    if (opts.includeTemp !== false) {
-      zones.push(...(await getEsTempZones(bbox)));
+    if (esTempP) {
+      zones.push(...(await esTempP));
       return dedupeZones(annotateEsStaticActivations(zones, esTempCache?.features ?? [], new Date(getEnv().now())));
     }
   }
@@ -465,7 +488,11 @@ export async function queryTiledGeozonesAtPoint(
   lon: number,
   opts: TiledQueryOptions = {},
 ): Promise<GeozoneFeatureInfo[] | null> {
-  const zones = await queryTiledGeozones(iso, bboxAround(lat, lon, 0.01), { ...opts, limit: undefined });
+  const zones = await queryTiledGeozones(iso, bboxAround(lat, lon, 0.01), {
+    tempMaxWaitMs: TEMP_POINT_QUERY_MAX_WAIT_MS,
+    ...opts,
+    limit: undefined,
+  });
   return zones ? zones.filter((z) => zoneContainsPoint(z, lat, lon)) : null;
 }
 
@@ -516,11 +543,15 @@ export function getDeTempStatus(): { fetchedAt: number | null } {
   return { fetchedAt: tempFetchedAt };
 }
 
+const TIMED_OUT = Symbol("timedOut");
+
 /**
  * Temporäre DE-Zonen: online höchstens DE_TEMP_CACHE_MS alt (`force`: sofort
  * neu laden), offline bzw. bei Fehler der zuletzt gespeicherte Stand (temp.json).
+ * `maxWaitMs`: höchstens so lange auf den Live-Abruf warten, dann der
+ * gespeicherte Stand (der Abruf läuft im Hintergrund weiter).
  */
-export async function getDeTempFeatures(opts: { force?: boolean } = {}): Promise<any[]> {
+export async function getDeTempFeatures(opts: { force?: boolean; maxWaitMs?: number } = {}): Promise<any[]> {
   const env = getEnv();
   const now = Date.now();
   if (!opts.force && tempCache && now - tempCache.at < DE_TEMP_CACHE_MS) return tempCache.features;
@@ -546,8 +577,10 @@ export async function getDeTempFeatures(opts: { force?: boolean } = {}): Promise
         tempInFlight = null;
       });
     }
-    const live = await tempInFlight;
-    if (live.length > 0 || (tempCache && tempFetchedAt != null && tempFetchedAt >= now)) return tempCache?.features ?? live;
+    const live = opts.maxWaitMs != null ? await withTimeout(tempInFlight, opts.maxWaitMs, TIMED_OUT) : await tempInFlight;
+    if (live !== TIMED_OUT && (live.length > 0 || (tempCache && tempFetchedAt != null && tempFetchedAt >= now))) return tempCache?.features ?? live;
+    // Zeitdeckel überschritten: bereits geladenen Stand (auch älter) behalten
+    if (live === TIMED_OUT && tempCache) return tempCache.features;
   }
   const fs = env.fs;
   if (!fs) return tempCache?.features ?? [];
@@ -556,6 +589,8 @@ export async function getDeTempFeatures(opts: { force?: boolean } = {}): Promise
     const parsed = raw ? JSON.parse(raw) : null;
     const features = Array.isArray(parsed?.features) ? parsed.features : [];
     const fetchedAt = typeof parsed?.fetchedAt === "number" ? parsed.fetchedAt : null;
+    // Ein inzwischen (im Hintergrund) eingetroffener neuerer Live-Stand gewinnt.
+    if (fetchedAt != null && tempCache && tempFetchedAt != null && tempFetchedAt > fetchedAt) return tempCache.features;
     // offline: nicht dauerhaft cachen, damit online sofort wieder live geladen wird
     if (fetchedAt != null) setTempFeatures(features, fetchedAt, now - DE_TEMP_CACHE_MS + 60_000);
     else tempCache = { at: now - DE_TEMP_CACHE_MS + 60_000, features };
@@ -565,8 +600,8 @@ export async function getDeTempFeatures(opts: { force?: boolean } = {}): Promise
   }
 }
 
-async function getDeTempZones(bbox: LngLatBBox): Promise<GeozoneFeatureInfo[]> {
-  const feats = await getDeTempFeatures();
+async function getDeTempZones(bbox: LngLatBBox, maxWaitMs?: number): Promise<GeozoneFeatureInfo[]> {
+  const feats = await getDeTempFeatures({ maxWaitMs });
   const now = Date.now();
   const out: GeozoneFeatureInfo[] = [];
   for (const f of feats) {
@@ -656,7 +691,7 @@ async function fetchEsNotamFeatures(): Promise<any[] | null> {
  * ES-NOTAM-Features: online höchstens TEMPORARY_ZONES_MAX_AGE_MS alt (`force`:
  * sofort neu laden), offline bzw. bei Fehler der zuletzt gespeicherte Stand.
  */
-export async function getEsTempFeatures(opts: { force?: boolean } = {}): Promise<any[]> {
+export async function getEsTempFeatures(opts: { force?: boolean; maxWaitMs?: number } = {}): Promise<any[]> {
   const env = getEnv();
   const now = Date.now();
   if (!opts.force && esTempCache && now - esTempCache.at < TEMPORARY_ZONES_MAX_AGE_MS) return esTempCache.features;
@@ -681,8 +716,11 @@ export async function getEsTempFeatures(opts: { force?: boolean } = {}): Promise
         esTempInFlight = null;
       });
     }
-    const live = await esTempInFlight;
-    if (live) return live;
+    const live = opts.maxWaitMs != null ? await withTimeout(esTempInFlight, opts.maxWaitMs, TIMED_OUT) : await esTempInFlight;
+    if (live === TIMED_OUT) {
+      // Zeitdeckel überschritten: bereits geladenen Stand (auch älter) behalten
+      if (esTempCache) return esTempCache.features;
+    } else if (live) return live;
   }
   const fs = env.fs;
   if (!fs) return esTempCache?.features ?? [];
@@ -691,6 +729,7 @@ export async function getEsTempFeatures(opts: { force?: boolean } = {}): Promise
     const parsed = raw ? JSON.parse(raw) : null;
     const features = Array.isArray(parsed?.features) ? parsed.features : [];
     const fetchedAt = typeof parsed?.fetchedAt === "number" ? parsed.fetchedAt : null;
+    if (fetchedAt != null && esTempCache && esTempFetchedAt != null && esTempFetchedAt > fetchedAt) return esTempCache.features;
     if (fetchedAt != null) setEsTempFeatures(features, fetchedAt, now - TEMPORARY_ZONES_MAX_AGE_MS + 60_000);
     return features;
   } catch {
@@ -736,8 +775,8 @@ export async function withEsNotamActivations(zones: GeozoneFeatureInfo[]): Promi
   return annotateEsStaticActivations(zones, feats);
 }
 
-async function getEsTempZones(bbox: LngLatBBox): Promise<GeozoneFeatureInfo[]> {
-  const feats = await getEsTempFeatures();
+async function getEsTempZones(bbox: LngLatBBox, maxWaitMs?: number): Promise<GeozoneFeatureInfo[]> {
+  const feats = await getEsTempFeatures({ maxWaitMs });
   const now = getEnv().now();
   const out: GeozoneFeatureInfo[] = [];
   for (const f of feats) {

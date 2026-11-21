@@ -2,7 +2,7 @@
 // Läuft beim App-Start und wenn die App wieder in den Vordergrund kommt
 // (höchstens alle 5 min). Android erlaubt für SAF-Ordner keine echte
 // Hintergrund-Überwachung.
-import { analyzeDjiLogFiles, assignDjiLog, listDjiLogsInFolder, removeDuplicateDjiLogEntries } from "./djiLog";
+import { analyzeDjiLogFiles, assignDjiLog, listDjiLogsInFolder, tidyDjiLogEntries } from "./djiLog";
 import { groupDjiAnalyses } from "./djiLogCore";
 import {
   getDjiLogAutoImport,
@@ -13,7 +13,7 @@ import {
   setDjiLogAutoImported,
 } from "./djiLogFolder";
 import { computeMatches } from "./djiLogMatch";
-import { getLogbook } from "./storage";
+import { getLogbookLite } from "./storage";
 
 const MIN_INTERVAL_MS = 5 * 60 * 1000;
 let running: Promise<DjiAutoImportResult | null> | null = null;
@@ -40,8 +40,9 @@ export function runDjiLogAutoImport(opts: { force?: boolean } = {}): Promise<Dji
 }
 
 async function doImport(): Promise<DjiAutoImportResult | null> {
-  // früher doppelt importierte Flüge aufräumen
-  await removeDuplicateDjiLogEntries().catch(() => 0);
+  // Bestand pflegen (läuft bei jedem App-Start): doppelt importierte Flüge
+  // entfernen, getrennt importierte Akku-Tausch-Serien zusammenführen.
+  await tidyDjiLogEntries();
   if (!isFolderImportSupported() || !(await getDjiLogAutoImport())) return null;
   const uri = await getDjiLogFolder();
   if (!uri) return null;
@@ -58,7 +59,7 @@ async function doImport(): Promise<DjiAutoImportResult | null> {
   for (const e of analysis.errors) failedNames.add(e.fileName.toLowerCase());
   const result: DjiAutoImportResult = { attached: 0, created: 0, failed: analysis.errors.length };
   if (analysis.results.length > 0) {
-    let entries = await getLogbook();
+    let entries = await getLogbookLite();
     for (const group of groupDjiAnalyses(analysis.results, { maxKm: 2, maxHours: 3 })) {
       try {
         // Nur eine eindeutige, starke Übereinstimmung (gleiche Drohne, ≤ 1 h, ≤ 500 m) anhängen
@@ -76,14 +77,18 @@ async function doImport(): Promise<DjiAutoImportResult | null> {
           await assignDjiLog({ meta: item.meta, target: "existing", entryId });
           result.attached += 1;
         }
-        entries = await getLogbook();
+        entries = await getLogbookLite();
       } catch {
         result.failed += group.items.length;
       }
     }
   }
   const total = result.attached + result.created;
-  if (total > 0) setDjiLogAutoImported(total);
+  if (total > 0) {
+    // neu angelegte Einträge derselben Serie zusammenführen
+    await tidyDjiLogEntries();
+    setDjiLogAutoImported(total);
+  }
   await refreshDjiLogNewHint().catch(() => null);
   return result;
 }

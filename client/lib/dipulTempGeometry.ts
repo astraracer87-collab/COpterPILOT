@@ -266,6 +266,17 @@ async function fetchLayerFeatures(layer: string, fetchImpl: typeof fetch, timeou
 const LAYER_TTL_MS = 5 * 60 * 1000;
 const layerCache = new Map<string, { ts: number; features: any[] }>();
 
+export interface DipulLayerLoadOptions {
+  fetchImpl?: typeof fetch;
+  timeoutMs?: number;
+  store?: DipulFeatureStore;
+  /**
+   * Kein Netzabruf (offline bzw. Rückfall nach Zeitüberschreitung): nur der
+   * Sitzungs-Cache (auch abgelaufen) und der gespeicherte Stand (`store`).
+   */
+  skipNetwork?: boolean;
+}
+
 /**
  * Lädt einen dipul-WFS-Layer (Sitzungs-Cache 5 min). Schlägt der Abruf fehl,
  * wird – falls vorhanden – der zuletzt gespeicherte Stand aus `store` genutzt.
@@ -273,11 +284,13 @@ const layerCache = new Map<string, { ts: number; features: any[] }>();
  */
 export async function loadDipulLayer(
   layer: string,
-  opts: { fetchImpl?: typeof fetch; timeoutMs?: number; store?: DipulFeatureStore } = {},
+  opts: DipulLayerLoadOptions = {},
 ): Promise<DipulLayerResult> {
   const hit = layerCache.get(layer);
-  if (hit && Date.now() - hit.ts < LAYER_TTL_MS) return { features: hit.features, source: "memory" };
-  const { features, error } = await fetchLayerFeatures(layer, opts.fetchImpl ?? fetch, opts.timeoutMs ?? 20000);
+  if (hit && (opts.skipNetwork || Date.now() - hit.ts < LAYER_TTL_MS)) return { features: hit.features, source: "memory" };
+  const { features, error } = opts.skipNetwork
+    ? { features: null, error: "offline bzw. Zeitüberschreitung – nur gespeicherter Stand" }
+    : await fetchLayerFeatures(layer, opts.fetchImpl ?? fetch, opts.timeoutMs ?? 20000);
   if (features && features.length > 0) {
     layerCache.set(layer, { ts: Date.now(), features });
     opts.store?.save(layer, features).catch(() => {});
@@ -315,7 +328,7 @@ const isEdr = (r: DipulGeometryTarget) => /^\s*ED-R\b/i.test(r.name);
  */
 export async function enrichDipulTempGeometry<T extends DipulGeometryTarget, R extends { active: T[]; upcoming: T[] }>(
   result: R,
-  opts: { fetchImpl?: typeof fetch; timeoutMs?: number; store?: DipulFeatureStore } = {},
+  opts: DipulLayerLoadOptions = {},
 ): Promise<R> {
   const all = (r: { active: T[]; upcoming: T[] }) => [...r.active, ...r.upcoming];
   if (all(result).every(hasDipulGeometry)) return result;

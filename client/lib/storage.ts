@@ -14,10 +14,21 @@ import {
   collectBlobGarbage,
   externalizeBlobs,
   hasInlineBlobs,
+  hydrateBlobFields,
   hydrateBlobs,
   hydrateBlobsOne,
+  isBlobRef,
   type BlobSpec,
 } from "./userBlobs";
+import {
+  djiLogsAreBlob,
+  isLiteDjiLog,
+  markLiteDjiLog,
+  summarizeDjiLog,
+  computeTrackPreview,
+  toLiteLogbookEntry,
+  withDerivedLogbookFields,
+} from "./logbookLite";
 
 function useServer(): boolean {
   return isLoggedInSync();
@@ -390,7 +401,13 @@ async function setUserItem(key: string, value: string): Promise<void> {
 
 async function saveLocalData<T>(key: string, data: T): Promise<void> {
   const spec = BLOB_SPECS[key];
-  const toStore = spec && Array.isArray(data) ? await externalizeBlobs(spec, data) : data;
+  // Logbuch: Listenfelder (DJI-Log-Zusammenfassung, Vorschau-Route) pflegen,
+  // solange die Quelldaten noch inline vorliegen – Listen lesen dann keine Dateien.
+  const prepared =
+    key === LOGBOOK_KEY && Array.isArray(data)
+      ? (data as unknown as LogbookEntry[]).map(withDerivedLogbookFields)
+      : data;
+  const toStore = spec && Array.isArray(prepared) ? await externalizeBlobs(spec, prepared) : prepared;
   await setUserItem(key, JSON.stringify(toStore));
 }
 
@@ -937,6 +954,13 @@ export interface LogbookEntry {
   djiLog?: DjiLogMeta;
   /** Mehrere DJI-Logs pro Flug (Akku-Tausch), chronologisch sortiert. */
   djiLogs?: DjiLogMeta[];
+  /**
+   * Intern (beim Speichern gepflegt): DJI-Log-Metadaten ohne Track/Detailzeilen/
+   * Meldungen, damit Listen die ausgelagerte Log-Datei nicht lesen müssen.
+   */
+  djiLogsSummary?: DjiLogMeta[];
+  /** Intern (beim Speichern gepflegt): ausgedünnte Route (≤ 60 Punkte) für Vorschaubilder in Listen. */
+  trackPreview?: GpsTrackPoint[][];
   /** Base64-PNG-Snapshot des geplanten Fluggebiets — übernommen aus FlightSession beim Logbuch-Eintrag. */
   mapSnapshotBase64?: string;
   /** Base64-PNG-Snapshot der Karte mit Geozonen-Overlay + tatsächlicher Flugroute (in der Detailansicht erfasst). */
@@ -974,11 +998,12 @@ export function getEntryDjiLogs(entry: {
   return sortDjiLogs(list);
 }
 
-/** Chronologische Sortierung: erster Track-ts, sonst uploadedAt/parsedAt. */
+/** Chronologische Sortierung: erster Track-ts, sonst startTs, sonst uploadedAt/parsedAt. */
 export function sortDjiLogs(logs: DjiLogMeta[]): DjiLogMeta[] {
   const key = (l: DjiLogMeta): number => {
     const ts = l.track?.find((p) => typeof p.ts === "number")?.ts;
     if (typeof ts === "number") return ts;
+    if (typeof l.startTs === "number" && Number.isFinite(l.startTs)) return l.startTs;
     const u = l.uploadedAt ? Date.parse(l.uploadedAt) : NaN;
     if (!isNaN(u)) return u;
     const p = l.parsedAt ? Date.parse(l.parsedAt) : NaN;
@@ -1305,17 +1330,20 @@ export async function saveDrone(drone: Omit<DroneProfile, "id" | "createdAt" | "
       return optimistic;
     }
   }
-  const drones = (await getLocalDataForWrite<DroneProfile[]>(DRONES_KEY)) || [];
-  const now = new Date().toISOString();
-  const newDrone: DroneProfile = {
-    ...drone,
-    id: generateId(),
-    createdAt: now,
-    updatedAt: now,
-  };
-  drones.unshift(newDrone);
-  await saveLocalData(DRONES_KEY, drones);
-  return newDrone;
+  // strikt lesen + unter Sperre: ein nicht lesbarer Wert wird nie überschrieben
+  return withKeyLock(DRONES_KEY, async () => {
+    const drones = (await getLocalDataForWrite<DroneProfile[]>(DRONES_KEY)) || [];
+    const now = new Date().toISOString();
+    const newDrone: DroneProfile = {
+      ...drone,
+      id: generateId(),
+      createdAt: now,
+      updatedAt: now,
+    };
+    drones.unshift(newDrone);
+    await saveLocalData(DRONES_KEY, drones);
+    return newDrone;
+  });
 }
 
 export async function updateDrone(id: string, updates: Partial<DroneProfile>): Promise<void> {
@@ -1336,12 +1364,14 @@ export async function updateDrone(id: string, updates: Partial<DroneProfile>): P
       return;
     }
   }
-  const drones = (await getLocalDataForWrite<DroneProfile[]>(DRONES_KEY)) || [];
-  const index = drones.findIndex((d) => d.id === id);
-  if (index !== -1) {
-    drones[index] = { ...drones[index], ...updates, updatedAt: new Date().toISOString() };
-    await saveLocalData(DRONES_KEY, drones);
-  }
+  await withKeyLock(DRONES_KEY, async () => {
+    const drones = (await getLocalDataForWrite<DroneProfile[]>(DRONES_KEY)) || [];
+    const index = drones.findIndex((d) => d.id === id);
+    if (index !== -1) {
+      drones[index] = { ...drones[index], ...updates, updatedAt: new Date().toISOString() };
+      await saveLocalData(DRONES_KEY, drones);
+    }
+  });
 }
 
 export async function deleteDrone(id: string): Promise<void> {
@@ -1372,9 +1402,10 @@ export async function deleteDrone(id: string): Promise<void> {
       }
     }
   } else {
-    const drones = (await getLocalDataForWrite<DroneProfile[]>(DRONES_KEY)) || [];
-    const filtered = drones.filter((d) => d.id !== id);
-    await saveLocalData(DRONES_KEY, filtered);
+    await withKeyLock(DRONES_KEY, async () => {
+      const drones = (await getLocalDataForWrite<DroneProfile[]>(DRONES_KEY)) || [];
+      await saveLocalData(DRONES_KEY, drones.filter((d) => d.id !== id));
+    });
   }
   const selectedId = await getSelectedDroneId();
   if (selectedId === id) {
@@ -1781,28 +1812,97 @@ export async function getLogbook(): Promise<LogbookEntry[]> {
       );
     }
   }
-  const entries = await hydrateBlobs(LOGBOOK_BLOB_SPEC, (await getLocalData<LogbookEntry[]>(LOGBOOK_KEY)) || []);
-  return entries.sort(
-    (a, b) => new Date(b.flightDate).getTime() - new Date(a.flightDate).getTime(),
-  );
+  // Vollständig (alle Dateien aller Einträge) – nur für Export o. Ä.; Listen: getLogbookLite().
+  const entries = await hydrateBlobs(LOGBOOK_BLOB_SPEC, await readLogbookRaw());
+  return entries.sort(byFlightDateDesc);
 }
 
+const byFlightDateDesc = (a: LogbookEntry, b: LogbookEntry) =>
+  new Date(b.flightDate).getTime() - new Date(a.flightDate).getTime();
+
+/** Rohe, gespeicherte Liste (Blob-Felder als Verweis), neueste zuerst. */
+async function readLogbookRaw(): Promise<LogbookEntry[]> {
+  const entries = (await getLocalData<LogbookEntry[]>(LOGBOOK_KEY)) || [];
+  return Array.isArray(entries) ? entries.sort(byFlightDateDesc) : [];
+}
+
+const DJI_LOG_FIELDS = [["djiLogs"], ["djiLog"]] as const;
+
+/**
+ * Leichte Logbuch-Liste für Listen/Zähler/Filter: liest KEINE ausgelagerten
+ * Dateien. Karten-Snapshots (als Datei) und GPS-Tracks (als Datei) fehlen,
+ * DJI-Logs sind nur Metadaten (ohne track/records/messages), für Vorschauen
+ * gibt es `trackPreview`. Nicht zum Zurückschreiben ganzer Einträge gedacht;
+ * Einzelansicht/Bearbeitung: getLogbookEntry().
+ */
+export async function getLogbookLite(): Promise<LogbookEntry[]> {
+  const raw = useServer() ? await getLogbook() : await readLogbookRaw();
+  const out: LogbookEntry[] = [];
+  for (const r of raw) {
+    const { entry, needsDjiHydration } = toLiteLogbookEntry(r);
+    if (needsDjiHydration) {
+      // Altbestand ohne gespeicherte Zusammenfassung: nur die DJI-Logs dieses
+      // Eintrags lesen (die Wartung beim App-Start trägt sie dauerhaft nach).
+      try {
+        const h = await hydrateBlobFields(LOGBOOK_BLOB_SPEC, { id: r.id, djiLogs: r.djiLogs, djiLog: r.djiLog }, DJI_LOG_FIELDS);
+        const full = getEntryDjiLogs(h as Pick<LogbookEntry, "djiLogs" | "djiLog">);
+        if (full.length > 0) entry.djiLogs = full.map((l) => markLiteDjiLog(summarizeDjiLog(l)));
+        if (!entry.trackPreview && !isBlobRef(r.gpsTrack)) {
+          const preview = computeTrackPreview(r.gpsTrack, full);
+          if (preview) entry.trackPreview = preview;
+        }
+      } catch {
+        // Eintrag ohne DJI-Metadaten anzeigen
+      }
+    }
+    out.push(entry);
+  }
+  return out;
+}
+
+/** Einzelner Eintrag, vollständig (alle ausgelagerten Felder) – nur dieser wird hydriert. */
 export async function getLogbookEntry(id: string): Promise<LogbookEntry | null> {
-  const entries = await getLogbook();
-  return entries.find((e) => e.id === id) || null;
+  if (useServer()) {
+    const entries = await getLogbook();
+    return entries.find((e) => e.id === id) || null;
+  }
+  const found = (await readLogbookRaw()).find((e) => e.id === id);
+  return found ? hydrateBlobsOne(LOGBOOK_BLOB_SPEC, found) : null;
+}
+
+/**
+ * Vollständige DJI-Logs (mit Track/Detailzeilen) EINES Eintrags für
+ * Read-Modify-Write. Wirft, wenn die ausgelagerte Datei vorhanden, aber nicht
+ * lesbar ist – dann darf nichts überschrieben werden. null: Eintrag fehlt.
+ */
+export async function getLogbookEntryDjiLogsStrict(id: string): Promise<DjiLogMeta[] | null> {
+  if (useServer()) {
+    const e = await getLogbookEntry(id);
+    return e ? getEntryDjiLogs(e) : null;
+  }
+  const raw = (await getLocalDataForWrite<LogbookEntry[]>(LOGBOOK_KEY)) || [];
+  const found = raw.find((e) => e.id === id);
+  if (!found) return null;
+  const h = await hydrateBlobFields(LOGBOOK_BLOB_SPEC, found, DJI_LOG_FIELDS, { strict: true });
+  const logs = getEntryDjiLogs(h);
+  if (logs.some((l) => !l || typeof l !== "object")) {
+    throw new Error("DJI-Flugprotokolle des Eintrags sind beschädigt.");
+  }
+  return logs;
 }
 
 /**
  * Flughistorie eines einzelnen Akkus: alle Logbuch-Einträge der angegebenen
  * Drohne, in denen dieser Akku verwendet wurde (Pre-Check oder Debriefing).
- * Neueste zuerst sortiert.
+ * Neueste zuerst sortiert. Leichte Einträge (nur DJI-Metadaten, siehe
+ * getLogbookLite) – die Detailansicht lädt den Eintrag selbst vollständig.
  */
 export async function getBatteryFlightHistory(
   droneId: string,
   batteryId: string,
   batterySerial?: string,
 ): Promise<LogbookEntry[]> {
-  const entries = await getLogbook();
+  const entries = await getLogbookLite();
   return entries.filter((e) => {
     // DJI-Logs verweisen über batteryId/batterySn auf den Akku (auch wenn der
     // Eintrag keiner oder einer anderen Drohne zugeordnet ist).
@@ -1818,16 +1918,24 @@ export async function getBatteryFlightHistory(
 /**
  * DJI-Log an einen bestehenden Logbuch-Eintrag hängen (Akku-Tausch: mehrere
  * Logs je Flug). Ein Log mit gleicher Kennung (objectPath) wird ersetzt; das
- * Legacy-Einzelfeld djiLog wird dabei in djiLogs übernommen.
+ * Legacy-Einzelfeld djiLog wird dabei in djiLogs übernommen. Sind die
+ * vorhandenen Logs ausgelagert, aber nicht lesbar, wird abgebrochen (Fehler),
+ * statt sie durch das neue Log allein zu ersetzen.
  */
 export async function attachDjiLogToEntry(
   entryId: string,
   meta: DjiLogMeta,
 ): Promise<LogbookEntry | null> {
-  // hydriert lesen (djiLogs kann als Datei ausgelagert sein)
-  const current = await getLogbookEntry(entryId);
-  if (!current) return null;
-  const others = getEntryDjiLogs(current).filter((l) => l.objectPath !== meta.objectPath);
+  let existing: DjiLogMeta[] | null;
+  try {
+    existing = await getLogbookEntryDjiLogsStrict(entryId);
+  } catch {
+    throw new Error(
+      "Die vorhandenen Flugprotokolle dieses Flugs konnten nicht gelesen werden. Das neue Protokoll wurde nicht angehängt, damit nichts verloren geht.",
+    );
+  }
+  if (!existing) return null;
+  const others = existing.filter((l) => l.objectPath !== meta.objectPath);
   await updateLogbookEntry(entryId, { djiLogs: sortDjiLogs([...others, meta]), djiLog: undefined });
   return getLogbookEntry(entryId);
 }
@@ -1843,6 +1951,7 @@ export async function createLogbookEntry(
     id: generateId(),
     createdAt: new Date().toISOString(),
   };
+  assertNoLiteDjiLogs(newEntry);
   return mutateLocalList<LogbookEntry, LogbookEntry>(LOGBOOK_KEY, (entries) => {
     entries.unshift(newEntry);
     return { list: entries, result: newEntry };
@@ -1857,11 +1966,42 @@ export async function updateLogbookEntry(
     await Api.apiUpdateLogbookEntry(id, updates);
     return;
   }
+  assertNoLiteDjiLogs(updates);
   await mutateLocalList<LogbookEntry, void>(LOGBOOK_KEY, (entries) => {
     const index = entries.findIndex((e) => e.id === id);
     if (index === -1) return { list: null, result: undefined };
     entries[index] = { ...entries[index], ...updates };
     return { list: entries, result: undefined };
+  });
+}
+
+/** Leichte DJI-Log-Zusammenfassungen (getLogbookLite) dürfen nie die vollständigen Logs ersetzen. */
+function assertNoLiteDjiLogs(updates: Partial<LogbookEntry>): void {
+  const logs = [...(Array.isArray(updates.djiLogs) ? updates.djiLogs : []), ...(updates.djiLog ? [updates.djiLog] : [])];
+  if (logs.some(isLiteDjiLog)) {
+    throw new Error("Interner Fehler: unvollständige Flugprotokolle (Listenansicht) werden nicht gespeichert.");
+  }
+}
+
+/**
+ * Eintrag nur löschen, wenn `keep` für den aktuell gespeicherten (rohen)
+ * Eintrag false liefert – geprüft unter Sperre, direkt vor dem Löschen.
+ * Rückgabe: gelöscht?
+ */
+export async function deleteLogbookEntryIf(
+  id: string,
+  canDelete: (raw: LogbookEntry) => boolean,
+): Promise<boolean> {
+  if (useServer()) {
+    const e = await getLogbookEntry(id);
+    if (!e || !canDelete(e)) return false;
+    await Api.apiDeleteLogbookEntry(id);
+    return true;
+  }
+  return mutateLocalList<LogbookEntry, boolean>(LOGBOOK_KEY, (entries) => {
+    const e = entries.find((x) => x.id === id);
+    if (!e || !canDelete(e)) return { list: null, result: false };
+    return { list: entries.filter((x) => x.id !== id), result: true };
   });
 }
 
@@ -2057,8 +2197,12 @@ export async function addDroneHistoryEntry(
 export async function getLogbookEntryBySessionId(
   sessionId: string,
 ): Promise<LogbookEntry | null> {
-  const entries = await getLogbook();
-  return entries.find((e) => e.sessionId === sessionId) || null;
+  if (useServer()) {
+    const entries = await getLogbook();
+    return entries.find((e) => e.sessionId === sessionId) || null;
+  }
+  const found = (await readLogbookRaw()).find((e) => e.sessionId === sessionId);
+  return found ? hydrateBlobsOne(LOGBOOK_BLOB_SPEC, found) : null;
 }
 
 export async function deleteDroneHistoryEntry(droneId: string, entryId: string): Promise<void> {
@@ -2975,7 +3119,19 @@ export async function savePilotProfile(profile: PilotProfile): Promise<void> {
     await AsyncStorage.removeItem(PILOT_PROFILE_KEY);
     return;
   }
-  await saveLocalData(PILOT_PROFILE_KEY, profile);
+  await withKeyLock(PILOT_PROFILE_KEY, async () => {
+    // Strikt prüfen, ob der bisherige Wert lesbar ist: schlug das Lesen fehl
+    // (z. B. zu groß fürs Android-CursorWindow), hat getPilotProfile() nur die
+    // Standardwerte geliefert – Speichern würde das echte Profil überschreiben.
+    try {
+      await getLocalDataForWrite<PilotProfile>(PILOT_PROFILE_KEY);
+    } catch {
+      throw new Error(
+        "Das gespeicherte Pilotenprofil konnte nicht gelesen werden und wird nicht überschrieben.",
+      );
+    }
+    await saveLocalData(PILOT_PROFILE_KEY, profile);
+  });
 }
 
 /**
@@ -3072,6 +3228,64 @@ async function compactBlobList(key: string, spec: BlobSpec): Promise<void> {
   }
 }
 
+/**
+ * Altbestand: Einträge, deren DJI-Logs/GPS-Track schon als Datei ausgelagert
+ * sind, haben noch keine djiLogsSummary/trackPreview → einmalig nachtragen,
+ * damit getLogbookLite() danach keine Dateien mehr liest. Dateien werden
+ * außerhalb der Sperre gelesen; übernommen wird nur, wenn der Verweis
+ * unverändert ist.
+ */
+async function backfillLogbookListFields(): Promise<void> {
+  if (useServer()) return;
+  try {
+    const raw = (await getLocalDataForWrite<LogbookEntry[]>(LOGBOOK_KEY)) || [];
+    if (!Array.isArray(raw)) return;
+    type Derived = { djiRef: unknown; gpsRef: unknown; summary?: DjiLogMeta[]; preview?: GpsTrackPoint[][] };
+    const derived = new Map<string, Derived>();
+    for (const e of raw) {
+      const needSummary = djiLogsAreBlob(e) && !(e.djiLogsSummary && e.djiLogsSummary.length > 0);
+      const needPreview = !e.trackPreview && (isBlobRef(e.gpsTrack) || (!Array.isArray(e.gpsTrack) && djiLogsAreBlob(e)));
+      if (!needSummary && !needPreview) continue;
+      try {
+        const h = await hydrateBlobFields(
+          LOGBOOK_BLOB_SPEC,
+          { id: e.id, djiLogs: e.djiLogs, djiLog: e.djiLog, gpsTrack: e.gpsTrack },
+          [...DJI_LOG_FIELDS, ["gpsTrack"]],
+          { strict: true },
+        );
+        const logs = getEntryDjiLogs(h);
+        derived.set(e.id, {
+          djiRef: e.djiLogs ?? e.djiLog,
+          gpsRef: e.gpsTrack,
+          summary: needSummary && logs.length > 0 ? logs.map(summarizeDjiLog) : undefined,
+          preview: needPreview ? computeTrackPreview(h.gpsTrack, logs) : undefined,
+        });
+      } catch {
+        // Datei nicht lesbar → Eintrag auslassen (die Liste liest dann wie bisher)
+      }
+    }
+    if (derived.size === 0) return;
+    await mutateLocalList<LogbookEntry, void>(LOGBOOK_KEY, (entries) => {
+      let changed = false;
+      for (const e of entries) {
+        const d = derived.get(e.id);
+        if (!d || (e.djiLogs ?? e.djiLog) !== d.djiRef || e.gpsTrack !== d.gpsRef) continue;
+        if (d.summary && !e.djiLogsSummary) {
+          e.djiLogsSummary = d.summary;
+          changed = true;
+        }
+        if (d.preview && !e.trackPreview) {
+          e.trackPreview = d.preview;
+          changed = true;
+        }
+      }
+      return { list: changed ? entries : null, result: undefined };
+    });
+  } catch (e) {
+    console.warn("[storage] Logbuch-Listenfelder nicht nachgetragen:", (e as Error)?.message);
+  }
+}
+
 let maintenancePromise: Promise<void> | null = null;
 
 /**
@@ -3093,6 +3307,7 @@ export function runStorageMaintenance(): Promise<void> {
     await pruneFileCache(DATA_CACHE_PREFIX, 2 * DATA_CACHE_MAX_AGE_MS).catch(() => 0);
     await compactBlobList(FLIGHT_SESSIONS_KEY, SESSION_BLOB_SPEC);
     await compactBlobList(LOGBOOK_KEY, LOGBOOK_BLOB_SPEC);
+    await backfillLogbookListFields();
   })();
   return maintenancePromise;
 }

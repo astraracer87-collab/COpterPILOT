@@ -1,7 +1,7 @@
 import { openLink } from "@/lib/webBrowser";
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { View, StyleSheet, FlatList, Pressable, ActivityIndicator, ScrollView, Platform, Modal, Text, AppState, Linking, Alert } from "react-native";
-import { useRoute } from "@react-navigation/native";
+import { useRoute, useIsFocused } from "@react-navigation/native";
 import type { RouteProp } from "@react-navigation/native";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -84,6 +84,10 @@ export default function PlanningLiveTrafficScreen() {
   const [viewMode, setViewMode] = useState<"map" | "list">(Platform.OS === "web" ? "list" : "map");
   const refreshInterval = useRef<ReturnType<typeof setInterval> | null>(null);
   const isLoadingAircraft = useRef(false);
+  // Polling nur solange fokussiert (Screen bleibt im Stack gemountet).
+  const isFocused = useIsFocused();
+  const focusedRef = useRef(isFocused);
+  focusedRef.current = isFocused;
   const [trails, setTrails] = useState<AircraftTrail[]>([]);
   const [sourceStatus, setSourceStatus] = useState<Record<DataSource, "ok" | "error" | "timeout">>({ opensky: "ok", adsbfi: "ok", adsbone: "ok", airplaneslive: "ok", adsblol: "ok", ogn: "ok", fr24: "ok" });
   const [wind, setWind] = useState<WindData | null>(null);
@@ -111,6 +115,7 @@ export default function PlanningLiveTrafficScreen() {
   const { updateTrails, clearTrails } = useAircraftTrails();
 
   useEffect(() => {
+    if (!isFocused) return;
     let cancelled = false;
     const loadWind = async () => {
       const w = await fetchDipulWind(latitude, longitude);
@@ -119,10 +124,12 @@ export default function PlanningLiveTrafficScreen() {
     loadWind();
     const iv = setInterval(loadWind, 300000);
     return () => { cancelled = true; clearInterval(iv); };
-  }, [latitude, longitude]);
+  }, [latitude, longitude, isFocused]);
 
   const loadAircraft = useCallback(async () => {
+    if (latitude == null || longitude == null) { setLoading(false); return; }
     if (isLoadingAircraft.current) return;
+    if (!focusedRef.current) return;
     isLoadingAircraft.current = true;
     try {
       setError(null);
@@ -142,18 +149,20 @@ export default function PlanningLiveTrafficScreen() {
   }, [latitude, longitude, radiusKm, updateTrails]);
 
   useEffect(() => {
+    if (!isFocused) return;
     loadAircraft();
     refreshInterval.current = setInterval(loadAircraft, 2000);
     return () => {
       if (refreshInterval.current) clearInterval(refreshInterval.current);
+      refreshInterval.current = null;
     };
-  }, [loadAircraft]);
+  }, [loadAircraft, isFocused]);
 
   const loadAircraftRef = useRef(loadAircraft);
   loadAircraftRef.current = loadAircraft;
   useEffect(() => {
     const sub = AppState.addEventListener("change", (next) => {
-      if (next === "active") {
+      if (next === "active" && focusedRef.current) {
         clearTrails();
         setAircraft([]);
         setTrails([]);

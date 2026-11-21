@@ -3,6 +3,9 @@
  * Overpass-Kachel geladen (kein fetch), weder einzeln noch für einen
  * Kartenausschnitt; aktive Länder laden wie bisher.
  */
+// obstacles.ts prüft vor Overpass-Abfragen den Offline-Status (NetInfo); das
+// native NetInfo-Modul fehlt unter Jest → Status hier fest „online“.
+jest.mock("@/lib/network", () => ({ isOfflineNow: () => false }));
 jest.mock("expo-file-system/legacy", () => ({
   documentDirectory: "file:///doc/",
   getInfoAsync: jest.fn(async () => ({ exists: false })),

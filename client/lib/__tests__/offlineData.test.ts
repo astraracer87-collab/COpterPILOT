@@ -117,6 +117,27 @@ describe("Offline-Speicher (offlineResultCache)", () => {
     assert.equal((await getOfflineResult<{ v: number }>("weather", "k"))?.data.v, 1);
   });
 
+  it("hängender Live-Abruf: nach liveCapMs gespeicherter Stand; ohne Stand wird weiter gewartet", async () => {
+    const now = () => NOW;
+    await fetchWithOfflineCache("weather", "cap", async () => ({ v: 1 }), { isOffline: () => false, now });
+    let release!: (v: { v: number }) => void;
+    const hanging = new Promise<{ v: number }>((r) => { release = r; });
+    const capped = await fetchWithOfflineCache("weather", "cap", () => hanging, { isOffline: () => false, now, liveCapMs: 20 });
+    assert.deepEqual(capped, { data: { v: 1 }, fetchedAt: NOW, cached: true });
+    // Live-Abruf kommt später doch an → Speicher wird aktualisiert
+    release({ v: 2 });
+    await new Promise((r) => setTimeout(r, 10));
+    assert.equal((await getOfflineResult<{ v: number }>("weather", "cap"))?.data.v, 2);
+    // ohne gespeicherten Stand: auf den (langsamen) Live-Abruf warten
+    const slow = await fetchWithOfflineCache(
+      "weather",
+      "cap-none",
+      () => new Promise<{ v: number }>((r) => setTimeout(() => r({ v: 3 }), 60)),
+      { isOffline: () => false, now, liveCapMs: 20 },
+    );
+    assert.deepEqual(slow, { data: { v: 3 }, fetchedAt: NOW, cached: false });
+  });
+
   it("LRU je Art: höchstens maxEntries; zuletzt benutzte bleiben", async () => {
     for (let i = 0; i < 22; i++) await putOfflineResult("weather", `p${i}`, { i }, NOW);
     assert.equal(await __offlineCacheCountForTests("weather"), 20);

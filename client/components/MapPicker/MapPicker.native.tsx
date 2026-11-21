@@ -979,15 +979,18 @@ const MapPicker = forwardRef<MapPickerRef, MapPickerProps>(
         try {
           const perm = await Location.getForegroundPermissionsAsync();
           if (cancelled || !perm.granted) return;
-          sub = await Location.watchPositionAsync(
+          const s = await Location.watchPositionAsync(
             { accuracy: Location.Accuracy.Balanced, distanceInterval: 25 },
-            (loc) => setDeviceLocation([loc.coords.latitude, loc.coords.longitude]),
+            (loc) => { if (!cancelled) setDeviceLocation([loc.coords.latitude, loc.coords.longitude]); },
           );
+          // Unmount während des await: Subscription sofort wieder freigeben.
+          if (cancelled) { s.remove(); return; }
+          sub = s;
         } catch {
           // Standort optional — bei Fehler einfach kein blauer Punkt.
         }
       })();
-      return () => { cancelled = true; if (sub) sub.remove(); };
+      return () => { cancelled = true; if (sub) { sub.remove(); sub = null; } };
     }, []);
 
     const onMessage = useCallback((e: any) => {

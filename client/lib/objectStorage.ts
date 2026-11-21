@@ -4,7 +4,7 @@ import type { DocumentRefJson } from "../../shared/schema";
 /**
  * Lokale Dokumentablage (Ersatz für den früheren Upload ins Object Storage).
  *
- * - Kleine Dateien (≤ INLINE_MAX_BYTES) werden base64-codiert direkt im
+ * - Kleine Dateien (≤ INLINE_MAX_BYTES = 16 KB) werden base64-codiert direkt im
  *   Dokument-Verweis gespeichert (`dataBase64`).
  * - Größere Dateien werden ins App-Dokumentenverzeichnis kopiert und über
  *   `objectPath = "local:documents/<datei>"` referenziert – AsyncStorage
@@ -14,7 +14,10 @@ import type { DocumentRefJson } from "../../shared/schema";
  */
 export const LOCAL_OBJECT_PREFIX = "local:";
 const LOCAL_DOCS_SUBDIR = "documents/";
-const INLINE_MAX_BYTES = 512 * 1024;
+// Bewusst klein: Inline-Dokumente landen im JSON von @preflight/pilot_profile
+// bzw. @preflight/drones. Mehrere große base64-Dokumente sprengen dort das
+// Android-CursorWindow (~2 MB pro Wert) → der Wert ist nicht mehr lesbar.
+export const INLINE_MAX_BYTES = 16 * 1024;
 
 export function isLocalObjectPath(p: string | undefined | null): p is string {
   return typeof p === "string" && p.startsWith(LOCAL_OBJECT_PREFIX);
@@ -65,12 +68,26 @@ export async function uploadDocumentToStorage(
     uploadedAt: new Date().toISOString(),
   };
 
-  if (size > 0 && size > INLINE_MAX_BYTES) {
+  // Ohne Dokumentenverzeichnis (Web) bleibt nur inline.
+  const canUseFiles = !!FileSystem.documentDirectory;
+  // Größe unbekannt → lieber als Datei (sicher für AsyncStorage).
+  if (canUseFiles && (size <= 0 || size > INLINE_MAX_BYTES)) {
     const dir = await ensureDocsDir();
     const safeName = fileName.replace(/[^A-Za-z0-9._-]/g, "_") || "dokument";
     const unique = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${safeName}`;
     await FileSystem.copyAsync({ from: uri, to: `${dir}${unique}` });
-    return { ...base, sizeBytes: size, objectPath: `${LOCAL_OBJECT_PREFIX}${LOCAL_DOCS_SUBDIR}${unique}` };
+    let storedSize = size;
+    if (!storedSize) {
+      try {
+        const info = await FileSystem.getInfoAsync(`${dir}${unique}`);
+        if (info.exists && typeof (info as { size?: number }).size === "number") {
+          storedSize = (info as { size: number }).size;
+        }
+      } catch {
+        // Größe bleibt unbekannt
+      }
+    }
+    return { ...base, sizeBytes: storedSize, objectPath: `${LOCAL_OBJECT_PREFIX}${LOCAL_DOCS_SUBDIR}${unique}` };
   }
 
   const dataBase64 = await FileSystem.readAsStringAsync(uri, {

@@ -2017,16 +2017,33 @@ export default function TrafficMapView({
 
   useEffect(() => {
     let sub: Location.LocationSubscription | null = null;
+    let cancelled = false;
+    // Kompass-Sensor liefert Updates mit Sensorrate. Nur weitergeben, wenn sich
+    // die Richtung um >= 3° geändert hat UND seit dem letzten Update >= 200 ms
+    // vergangen sind (max. ~5x/s) — sonst rendern große Screens dauerhaft neu.
+    let lastHeading: number | null = null;
+    let lastEmit = 0;
     (async () => {
       try {
-        sub = await Location.watchHeadingAsync((heading) => {
+        const s = await Location.watchHeadingAsync((heading) => {
+          if (cancelled) return;
           const h = heading.trueHeading >= 0 ? heading.trueHeading : heading.magHeading;
+          if (!isFinite(h)) return;
+          const now = Date.now();
+          if (lastHeading !== null) {
+            const diff = Math.abs(((h - lastHeading + 540) % 360) - 180);
+            if (diff < 3 || now - lastEmit < 200) return;
+          }
+          lastHeading = h;
+          lastEmit = now;
           setDeviceHeading(h);
           onHeadingChange?.(h);
         });
+        if (cancelled) { s.remove(); return; }
+        sub = s;
       } catch {}
     })();
-    return () => { if (sub) sub.remove(); };
+    return () => { cancelled = true; if (sub) { sub.remove(); sub = null; } };
   }, [onHeadingChange]);
 
   return (

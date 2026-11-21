@@ -13,6 +13,8 @@ import { Feather } from "@expo/vector-icons";
 import { useTheme } from "@/hooks/useTheme";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
+const PDF_FETCH_TIMEOUT_MS = 30000;
+
 const PDFJS = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174";
 
 export function looksLikePdf(url: string): boolean {
@@ -93,17 +95,27 @@ export default function WebPageScreen() {
     let cancelled = false;
     setPdfHtmlDoc(null);
     setPdfFailed(false);
+    // Timeout über Abruf UND Download des Inhalts – RN-fetch hat keinen
+    // Standard-Timeout; ohne ihn bliebe die Ansicht bei hängendem Link ewig leer.
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), PDF_FETCH_TIMEOUT_MS);
     (async () => {
       try {
-        const res = await fetch(pdfUrl);
+        const res = await fetch(pdfUrl, { signal: controller.signal });
         if (!res.ok) throw new Error(String(res.status));
         const b64 = toBase64(await res.arrayBuffer());
         if (!cancelled) setPdfHtmlDoc(pdfHtml(b64, theme.backgroundRoot));
       } catch {
         if (!cancelled) setPdfFailed(true);
+      } finally {
+        clearTimeout(timer);
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+      controller.abort();
+    };
   }, [pdfUrl, theme.backgroundRoot]);
 
   // Zurück (Pfeil oben oder Taste): erst innerhalb der Seite, dann zurück in die App

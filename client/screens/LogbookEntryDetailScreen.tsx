@@ -101,6 +101,10 @@ function formatTime(timeString?: string) {
   return date.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
 }
 
+function djiLogKey(log: DjiLogMeta, index: number): string {
+  return log.objectPath || `${log.fileName}-${index}`;
+}
+
 function formatDuration(minutes?: number) {
   if (!minutes) return null;
   if (minutes < 60) return `${minutes} min`;
@@ -122,9 +126,25 @@ export default function LogbookEntryDetailScreen() {
   const [batteryPickerFor, setBatteryPickerFor] = useState<string | null>(null);
   const [savingBattery, setSavingBattery] = useState(false);
   const [resolvedDocs, setResolvedDocs] = useState<ResolvedPilotDocument[]>([]);
+  /** Aufgeklapptes DJI-Log (undefined = Standard: bei genau einem Log dieses). */
+  const [expandedLogKey, setExpandedLogKey] = useState<string | null | undefined>(undefined);
 
+  // Bereits angezeigte Daten beim erneuten Fokussieren nicht durch einen
+  // Vollbild-Ladezustand ersetzen (nur der erste Ladevorgang zeigt „Laden…“).
+  const hasShownEntry = useRef(false);
   const load = useCallback(async () => {
-    setLoading(true);
+    if (!hasShownEntry.current) setLoading(true);
+    try {
+      await loadInner();
+    } catch (e) {
+      console.warn("[LogbookEntryDetail] Laden fehlgeschlagen:", (e as Error)?.message);
+    } finally {
+      setLoading(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [route.params.sessionId, route.params.logbookEntryId]);
+
+  const loadInner = async () => {
     let result: LogbookEntry | null = null;
     if (route.params.logbookEntryId) {
       result = await getLogbookEntry(route.params.logbookEntryId);
@@ -132,6 +152,7 @@ export default function LogbookEntryDetailScreen() {
       result = await getLogbookEntryBySessionId(route.params.sessionId);
     }
     setEntry(result);
+    hasShownEntry.current = !!result;
     if (result) {
       try {
         const pilot = await getPilotProfile();
@@ -157,8 +178,7 @@ export default function LogbookEntryDetailScreen() {
     } else {
       setBatteries([]);
     }
-    setLoading(false);
-  }, [route.params.sessionId, route.params.logbookEntryId]);
+  };
 
   const entryHasRoute = useCallback((e: LogbookEntry) => {
     const logs = getEntryDjiLogs(e);
@@ -598,6 +618,12 @@ export default function LogbookEntryDetailScreen() {
   const renderDjiLogCard = (log: DjiLogMeta, index: number) => {
     const color = DJI_TRACK_COLORS[index % DJI_TRACK_COLORS.length];
     const pickerOpen = batteryPickerFor === log.objectPath;
+    const logKey = djiLogKey(log, index);
+    // Schwere Teile (Wiedergabe mit nativer Karte, Knüppel, Tabelle, Meldungen)
+    // nur für das EINE aufgeklappte Log mounten – sonst OOM bei vielen Logs.
+    const expanded = expandedLogKey === undefined ? djiLogs.length === 1 : expandedLogKey === logKey;
+    const hasHeavy =
+      hasReplayData(log.records) || hasMessages(log.messages) || hasStickData(log.records) || (log.records?.length ?? 0) > 0;
     return (
       <View
         key={log.objectPath || `${log.fileName}-${index}`}
@@ -711,7 +737,24 @@ export default function LogbookEntryDetailScreen() {
           </View>
         ) : null}
 
-        {hasReplayData(log.records) ? (
+        {hasHeavy ? (
+          <Pressable
+            testID={`button-dji-expand-${index}`}
+            onPress={() => setExpandedLogKey(expanded ? null : logKey)}
+            style={({ pressed }) => [
+              styles.djiButton,
+              { backgroundColor: theme.backgroundSecondary, marginTop: Spacing.sm },
+              pressed && { opacity: 0.7 },
+            ]}
+          >
+            <Feather name={expanded ? "chevron-up" : "play-circle"} size={15} color={theme.primary} />
+            <ThemedText style={[styles.djiButtonText, { color: theme.primary }]} numberOfLines={1}>
+              {expanded ? "Wiedergabe & Details ausblenden" : "Wiedergabe & Details anzeigen"}
+            </ThemedText>
+          </Pressable>
+        ) : null}
+
+        {expanded && hasReplayData(log.records) ? (
           <View style={{ marginTop: Spacing.sm }}>
             <ThemedText style={[styles.djiSubLabel, { color: theme.textSecondary }]}>
               Flugwiedergabe
@@ -720,7 +763,7 @@ export default function LogbookEntryDetailScreen() {
           </View>
         ) : null}
 
-        {hasMessages(log.messages) ? (
+        {expanded && hasMessages(log.messages) ? (
           <View style={{ marginTop: Spacing.sm }}>
             <ThemedText style={[styles.djiSubLabel, { color: theme.textSecondary }]}>
               Meldungen der Fernsteuerung
@@ -729,7 +772,7 @@ export default function LogbookEntryDetailScreen() {
           </View>
         ) : null}
 
-        {hasStickData(log.records) ? (
+        {expanded && hasStickData(log.records) ? (
           <View style={{ marginTop: Spacing.sm }}>
             <ThemedText style={[styles.djiSubLabel, { color: theme.textSecondary }]}>
               Steuerknüppel-Eingaben
@@ -738,7 +781,7 @@ export default function LogbookEntryDetailScreen() {
           </View>
         ) : null}
 
-        {log.records && log.records.length > 0 ? (
+        {expanded && log.records && log.records.length > 0 ? (
           <View style={{ marginTop: Spacing.sm }}>
             <ThemedText style={[styles.djiSubLabel, { color: theme.textSecondary }]}>
               Detailauswertung

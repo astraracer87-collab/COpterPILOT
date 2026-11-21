@@ -21,6 +21,7 @@ import { useTheme } from "@/hooks/useTheme";
 import { Spacing, Typography, BorderRadius, Colors } from "@/constants/theme";
 import type { FlightPlanningParamList } from "@/navigation/FlightPlanningNavigator";
 import { getCountryCenter, getCountryMapConfig, reverseGeocodeCountry, detectCountryFromCoordinates, hasOwnMap, getMapConfigOrFallback, buildMapUrl } from "@/lib/countryMaps";
+import { fetchWithTimeout, withTimeout } from "@/lib/fetchWithTimeout";
 import { buildManualRestrictionParams, decideLocationContinueTarget } from "@/lib/manualRestrictionFlow";
 import { getFlightPlanningMode } from "@/lib/flightPlanningMode";
 import { getDrone, getSettings } from "@/lib/storage";
@@ -123,15 +124,31 @@ function parseGeozoneDetail(
   return { contacts, otherLines };
 }
 
+const NOMINATIM_SEARCH_TIMEOUT_MS = 10000;
+
 async function searchNominatim(query: string, signal?: AbortSignal): Promise<PoiResult[]> {
   // Nominatim direkt (kein Server-Proxy mehr); Nominatim verlangt einen User-Agent.
   const url =
     "https://nominatim.openstreetmap.org/search?format=json&limit=8&addressdetails=1&accept-language=de&q=" +
     encodeURIComponent(query);
-  const r = await fetch(url, {
-    signal,
-    headers: { "User-Agent": "COpterPilot-RC/1.0", Accept: "application/json" },
-  });
+  let r: Response;
+  try {
+    r = await fetchWithTimeout(
+      url,
+      {
+        signal,
+        headers: { "User-Agent": "COpterPilot-RC/1.0", Accept: "application/json" },
+      },
+      NOMINATIM_SEARCH_TIMEOUT_MS,
+    );
+  } catch (e) {
+    // Timeout (eigener Abort) von einem Abbruch durch den Aufrufer unterscheiden:
+    // nur letzterer bleibt ein AbortError (= still ignorieren).
+    if ((e as any)?.name === "AbortError" && !signal?.aborted) {
+      throw new Error("Zeitüberschreitung bei der Suche");
+    }
+    throw e;
+  }
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   const raw = await r.json();
   if (!Array.isArray(raw)) return [];
@@ -179,6 +196,7 @@ export default function PlanningLocationScreen() {
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [searchResults, setSearchResults] = useState<PoiResult[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
   const [showResults, setShowResults] = useState(false);
   const [loading, setLoading] = useState(false);
   const [manualLat, setManualLat] = useState("");
@@ -380,13 +398,21 @@ export default function PlanningLocationScreen() {
         }
         return;
       }
-      const location = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.High,
-      });
+      // Max. 8 s auf einen frischen Fix warten, dann letzte bekannte Position –
+      // sonst hängt der Lade-Zustand beim GPS-Kaltstart beliebig lange.
+      const location =
+        (await withTimeout(
+          Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High }).catch(() => null),
+          8000,
+          null,
+        )) ??
+        (await withTimeout(Location.getLastKnownPositionAsync().catch(() => null), 3000, null));
+      if (!location) throw new Error("Standort nicht verfügbar");
       const { latitude, longitude } = location.coords;
       setSelectedLocation({ latitude, longitude });
       animateToLocation(latitude, longitude);
-      await reverseGeocode(latitude, longitude);
+      // Ortsname nur optional (offline / ohne Google-Dienste) – nicht blockieren.
+      reverseGeocode(latitude, longitude);
       if (!silent) Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (error) {
       if (!silent) Alert.alert("Fehler", "Standort konnte nicht ermittelt werden.");
@@ -556,9 +582,11 @@ export default function PlanningLocationScreen() {
     if (q.length < 3) {
       setSearchResults([]);
       setSearchLoading(false);
+      setSearchError(null);
       return;
     }
     setSearchLoading(true);
+    setSearchError(null);
     const ctrl = new AbortController();
     const token = ++searchTokenRef.current;
     const timer = setTimeout(async () => {
@@ -572,6 +600,7 @@ export default function PlanningLocationScreen() {
         if ((e as any)?.name !== "AbortError" && token === searchTokenRef.current) {
           setSearchResults([]);
           setSearchLoading(false);
+          setSearchError("Suche fehlgeschlagen (offline oder Zeitüberschreitung)");
         }
       }
     }, 400);
@@ -588,6 +617,7 @@ export default function PlanningLocationScreen() {
     setShowResults(false);
     setSearchResults([]);
     setSearchLoading(false);
+    setSearchError(null);
     setSearchQuery(poi.name);
     selectLocation(poi.latitude, poi.longitude, poi.detail ? `${poi.name}, ${poi.detail.split(",")[0]}` : poi.name);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -711,13 +741,15 @@ export default function PlanningLocationScreen() {
     // Hindernisse rund um den geplanten Standort leise vorab speichern (auch für offline vor Ort)
     prefetchObstaclesAround(selectedLocation.latitude, selectedLocation.longitude).catch(() => {});
 
-    let detectedCountryIso = await reverseGeocodeCountry(
+    // Offline-first: lokale Ländererkennung sofort; Netz (mit Timeout) nur,
+    // wenn sie nichts liefert.
+    let detectedCountryIso = detectCountryFromCoordinates(
       selectedLocation.latitude,
       selectedLocation.longitude
     );
 
     if (!detectedCountryIso) {
-      detectedCountryIso = detectCountryFromCoordinates(
+      detectedCountryIso = await reverseGeocodeCountry(
         selectedLocation.latitude,
         selectedLocation.longitude
       );
@@ -773,13 +805,18 @@ export default function PlanningLocationScreen() {
   const renderSearchDropdown = () => {
     if (!showResults) return null;
     if (searchQuery.trim().length < 3) return null;
-    if (searchResults.length === 0 && !searchLoading) return null;
+    if (searchResults.length === 0 && !searchLoading && !searchError) return null;
     return (
       <View style={[styles.searchDropdown, { backgroundColor: theme.backgroundDefault, borderColor: theme.border }]}>
         {searchLoading ? (
           <View style={styles.searchLoadingRow}>
             <ActivityIndicator size="small" color={theme.primary} />
             <ThemedText style={[styles.searchLoadingText, { color: theme.textSecondary }]}>Suche läuft...</ThemedText>
+          </View>
+        ) : searchResults.length === 0 && searchError ? (
+          <View style={styles.searchLoadingRow}>
+            <Feather name="wifi-off" size={16} color={theme.textSecondary} />
+            <ThemedText style={[styles.searchLoadingText, { color: theme.textSecondary }]}>{searchError}</ThemedText>
           </View>
         ) : (
           <FlatList

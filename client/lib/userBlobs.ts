@@ -171,12 +171,35 @@ export async function hydrateBlobsOne<T>(
   item: T,
   fsArg?: SimpleFs | null,
 ): Promise<T> {
+  return hydrateBlobFields(spec, item, allFields(spec), { fs: fsArg });
+}
+
+/** Datei eines Verweises nicht lesbar/parsebar (nur bei strict). */
+export class BlobReadError extends Error {
+  constructor(public readonly field: string) {
+    super(`Ausgelagerte Daten (${field}) sind nicht lesbar.`);
+    this.name = "BlobReadError";
+  }
+}
+
+/**
+ * Nur die angegebenen Felder hydrieren (z. B. nur ["djiLogs"] für die
+ * Protokoll-Metadaten, ohne Karten-Snapshots zu lesen). strict: eine nicht
+ * lesbare Datei wirft BlobReadError statt das Feld entfallen zu lassen –
+ * für Read-Modify-Write, damit nie ein Verweis durch „leer“ ersetzt wird.
+ */
+export async function hydrateBlobFields<T>(
+  spec: BlobSpec,
+  item: T,
+  fields: readonly BlobFieldPath[],
+  opts: { strict?: boolean; fs?: SimpleFs | null } = {},
+): Promise<T> {
   if (!item || typeof item !== "object") return item;
   let next = item;
-  for (const field of allFields(spec)) {
+  for (const field of fields) {
     const value = getAt(next, field);
     if (!isBlobRef(value)) continue;
-    const fs = activeFs(fsArg);
+    const fs = activeFs(opts.fs);
     const content = fs ? await readRef(fs, value) : null;
     let restored: unknown = content ?? undefined;
     if (content != null && isJsonField(spec, field)) {
@@ -186,6 +209,7 @@ export async function hydrateBlobsOne<T>(
         restored = undefined;
       }
     }
+    if (restored === undefined && opts.strict) throw new BlobReadError(field.join("."));
     next = setAt(next, field, restored);
   }
   return next;

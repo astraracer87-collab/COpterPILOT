@@ -29,10 +29,16 @@ export default function BriefingDetailScreen() {
   const insets = useSafeAreaInsets();
   const tabBarHeight = useBottomTabBarHeight();
   const [briefing, setBriefing] = useState<Briefing | null>(null);
+  const [loadState, setLoadState] = useState<"loading" | "ready" | "notFound" | "error">("loading");
 
   const loadBriefing = useCallback(async () => {
-    const data = await getBriefing(route.params.briefingId);
-    setBriefing(data);
+    try {
+      const data = await getBriefing(route.params.briefingId);
+      setBriefing(data ?? null);
+      setLoadState(data ? "ready" : "notFound");
+    } catch {
+      setLoadState((prev) => (prev === "ready" ? prev : "error"));
+    }
   }, [route.params.briefingId]);
 
   useFocusEffect(
@@ -63,9 +69,13 @@ export default function BriefingDetailScreen() {
           text: "Löschen",
           style: "destructive",
           onPress: async () => {
-            await deleteBriefing(route.params.briefingId);
-            await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            navigation.goBack();
+            try {
+              await deleteBriefing(route.params.briefingId);
+              await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              navigation.goBack();
+            } catch {
+              Alert.alert("Fehler", "Das Briefing konnte nicht gelöscht werden.");
+            }
           },
         },
       ]
@@ -73,10 +83,22 @@ export default function BriefingDetailScreen() {
   };
 
   if (!briefing) {
+    const message =
+      loadState === "notFound"
+        ? "Briefing nicht gefunden. Es wurde möglicherweise gelöscht."
+        : loadState === "error"
+          ? "Briefing konnte nicht geladen werden."
+          : "Laden...";
     return (
       <ThemedView style={styles.container}>
         <View style={[styles.loadingContainer, { paddingTop: headerHeight }]}>
-          <ThemedText style={{ color: theme.textSecondary }}>Laden...</ThemedText>
+          <ThemedText style={{ color: theme.textSecondary, textAlign: "center" }}>{message}</ThemedText>
+          {loadState === "error" ? (
+            <Button title="Erneut versuchen" onPress={() => { setLoadState("loading"); loadBriefing(); }} style={{ marginTop: Spacing.lg }} />
+          ) : null}
+          {loadState === "notFound" ? (
+            <Button title="Zurück" onPress={() => navigation.goBack()} style={{ marginTop: Spacing.lg }} />
+          ) : null}
         </View>
       </ThemedView>
     );

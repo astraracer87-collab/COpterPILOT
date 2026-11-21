@@ -1,5 +1,5 @@
 import { openLink } from "@/lib/webBrowser";
-import React from "react";
+import React, { useMemo } from "react";
 import { ActivityIndicator, Alert, Linking, Pressable, StyleSheet, View } from "react-native";
 import MapView, { Marker, Polyline } from "@/components/maps";
 import { Feather } from "@expo/vector-icons";
@@ -110,6 +110,10 @@ function lineCoordinateParts(item: GermanEnergyInfrastructureItem): MapCoordinat
       .map(([longitude, latitude]) => ({ latitude, longitude })))
     .filter((line) => line.length > 1);
 }
+
+/** Max. native Punkt-Marker auf der Karte (RC Pro 2: wenig RAM) – die nächsten zuerst. */
+export const MAX_ENERGY_MAP_MARKERS = 150;
+
 export function GermanEnergyInfrastructurePanel({ countryIso, latitude, longitude, radiusKm }: Props) {
   const { theme } = useTheme();
   const searchRadiusKm = Math.min(5, Math.max(0.5, radiusKm));
@@ -128,6 +132,20 @@ export function GermanEnergyInfrastructurePanel({ countryIso, latitude, longitud
     ? find21hRuleForLayer("Windkraftanlagen") ?? find21hRuleForLayer("Stromleitungen")
     : null;
   const visibleItems = data?.features.slice(0, 10) ?? [];
+  // Karte: Leitungen vollständig, Punkt-Marker (Windräder, Masten) auf die
+  // nächsten MAX_ENERGY_MAP_MARKERS begrenzt – Tausende native Marker bringen
+  // die RC an die Speichergrenze.
+  const { mapFeatures, hiddenMarkerCount } = useMemo(() => {
+    const features = data?.features ?? [];
+    const lines = features.filter((f) => f.kind === "power_line");
+    const points = features
+      .filter((f) => f.kind !== "power_line" && pointCoordinate(f) != null)
+      .sort((a, b) => a.distanceMeters - b.distanceMeters);
+    return {
+      mapFeatures: [...lines, ...points.slice(0, MAX_ENERGY_MAP_MARKERS)],
+      hiddenMarkerCount: Math.max(0, points.length - MAX_ENERGY_MAP_MARKERS),
+    };
+  }, [data]);
   const foundCount =
     (data?.counts.windTurbines ?? 0) +
     (data?.counts.powerLines ?? 0) +
@@ -224,7 +242,7 @@ export function GermanEnergyInfrastructurePanel({ countryIso, latitude, longitud
                     title="Geplanter Startort"
                     pinColor="#2E9B5F"
                   />
-                  {data.features.map((item) => {
+                  {mapFeatures.map((item) => {
                     if (item.kind === "power_line") {
                       return lineCoordinateParts(item).map((coordinates, index) => (
                         <Polyline
@@ -250,6 +268,11 @@ export function GermanEnergyInfrastructurePanel({ countryIso, latitude, longitud
                   })}
                 </MapView>
               </View>
+              {hiddenMarkerCount > 0 ? (
+                <ThemedText style={[styles.muted, { color: theme.textSecondary }]}>
+                  Karte zeigt die nächsten {MAX_ENERGY_MAP_MARKERS} Anlagen-Punkte; {hiddenMarkerCount} weiter entfernte sind ausgeblendet.
+                </ThemedText>
+              ) : null}
               <View style={styles.items}>
                 {visibleItems.map((item) => {
                 const caution = item.distanceMeters < 100 || item.officialMatch !== "matched";

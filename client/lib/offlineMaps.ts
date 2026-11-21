@@ -288,6 +288,44 @@ async function saveLevels(l: Record<string, number>): Promise<void> {
   notify();
 }
 
+// Fortschritt und Zoomstufen sind je ein JSON-Wert für ALLE Länder. Lesen-
+// Ändern-Schreiben läuft deshalb über eine gemeinsame Warteschlange: ein
+// laufender Download schreibt nur seine eigenen Pakete in den frisch gelesenen
+// Stand (statt eines veralteten Gesamt-Schnappschusses) und kann so z. B. ein
+// parallel gelöschtes Land nicht wieder „auferstehen“ lassen.
+let metaQueue: Promise<unknown> = Promise.resolve();
+function withMetaLock<T>(fn: () => Promise<T>): Promise<T> {
+  const next = metaQueue.then(fn, fn);
+  metaQueue = next.catch(() => {});
+  return next;
+}
+
+/** Fortschritt/Zoomstufen atomar (in der Warteschlange) ändern. */
+async function mutateMeta(
+  fn: (progress: StoredProgress, levels: Record<string, number>) => void | Promise<void>,
+  opts: { levels?: boolean } = {},
+): Promise<void> {
+  await withMetaLock(async () => {
+    const progress = await loadProgress();
+    const levels = await loadLevels();
+    await fn(progress, levels);
+    await saveProgress(progress);
+    if (opts.levels) await saveLevels(levels);
+  });
+}
+
+// Lösch-Generation je Land: deleteCountry/deleteCountryExtras erhöhen sie. Ein
+// laufender Download, der mit einer älteren Generation gestartet ist, stoppt
+// und schreibt keinen Fortschritt mehr für dieses Land.
+const countryEpochs = new Map<string, number>();
+function countryEpoch(iso: string): number {
+  return countryEpochs.get(iso.toUpperCase()) ?? 0;
+}
+function bumpCountryEpoch(iso: string): void {
+  const k = iso.toUpperCase();
+  countryEpochs.set(k, (countryEpochs.get(k) ?? 0) + 1);
+}
+
 export async function getOfflineTileConfig(): Promise<{ root: string; levels: Record<string, number> }> {
   return { root: TILE_ROOT, levels: await loadLevels() };
 }
@@ -596,7 +634,27 @@ export interface PackProgress {
   error?: string;
 }
 
-type StoredProgress = Record<string, { done: number; total: number; bytes: number; maxZoom: number; template: string }>;
+type StoredPackEntry = {
+  /** Erfolgreich gespeicherte (bzw. vorhandene) Kacheln. */
+  done: number;
+  total: number;
+  bytes: number;
+  maxZoom: number;
+  template: string;
+  /**
+   * Bearbeitete Positionen im Kachel-Durchlauf (Erfolg ODER Fehler). Fehlt bei
+   * älteren Einträgen – dort galt done als Position.
+   */
+  cursor?: number;
+  /** Fehlgeschlagene Kacheln [z, x, y] – werden beim nächsten Fortsetzen erneut versucht. */
+  failed?: [number, number, number][];
+  /** Mehr Fehler als die Liste fasst: nach dem Durchlauf komplett neu prüfen. */
+  rescan?: boolean;
+};
+type StoredProgress = Record<string, StoredPackEntry>;
+
+/** Max. gemerkte fehlgeschlagene Kacheln je Paket (AsyncStorage-Größe). */
+const MAX_FAILED_TILES = 500;
 
 async function loadProgress(): Promise<StoredProgress> {
   try {
@@ -658,6 +716,10 @@ async function downloadTile(template: string, hash: string, z: number, x: number
   });
   if (res.status !== 200) {
     await FileSystem.deleteAsync(path, { idempotent: true }).catch(() => {});
+    // Vorübergehende Fehler (Rate-Limit, Serverfehler) als Fehlschlag melden,
+    // damit die Kachel später erneut versucht wird. Andere 4xx (z. B. 404 =
+    // keine Kachel vorhanden) gelten als endgültig beantwortet.
+    if (res.status === 429 || res.status >= 500) throw new Error(`HTTP ${res.status}`);
     return 0;
   }
   // Größe aus dem Header statt einer weiteren Dateiabfrage (weniger Last im JS-Thread)
@@ -744,6 +806,19 @@ async function runCountryDownload(
   opts: CountryDownloadOptions,
 ): Promise<CountryDownloadSummary> {
   const summary: CountryDownloadSummary = { pendingWifi: false, failed: false, updated: false };
+  // Land während des Downloads gelöscht → sofort aufhören, nichts mehr schreiben.
+  const startEpoch = countryEpoch(c.iso);
+  const alive = () => countryEpoch(c.iso) === startEpoch;
+  const outerShouldStop = shouldStop;
+  shouldStop = () => !alive() || outerShouldStop();
+  /** Eigene Paket-Einträge in den aktuellen Stand schreiben (nicht bei gelöschtem Land). */
+  const writePacks = async (entries: Record<string, StoredPackEntry>) => {
+    if (!alive()) return;
+    await mutateMeta((p) => {
+      if (!alive()) return;
+      for (const [k, v] of Object.entries(entries)) p[k] = { ...v, failed: v.failed ? [...v.failed] : undefined };
+    });
+  };
   const auto = opts.auto === true;
   const allowLarge = !auto || opts.allowLarge === true;
   const baseOnly = opts.baseOnly === true;
@@ -761,17 +836,16 @@ async function runCountryDownload(
   const wanted = new Set(plans.map((p) => p.key));
   if (vectorGeo) wanted.add(vectorGeoKey(c.iso));
   for (const part of storeParts) wanted.add(storeGeoKey(c.iso, part));
-  const progress = await loadProgress();
-  const levels = await loadLevels();
-
   // abgewählte Teile entfernen (nicht im Basis-Modus: dort wird nur ergänzt)
   if (!baseOnly) {
-    for (const key of Object.keys(progress)) {
-      if (key.startsWith(`${c.iso}:`) && !wanted.has(key)) await dropPack(progress, levels, key);
-    }
-    await saveProgress(progress);
-    await saveLevels(levels);
+    await mutateMeta(async (progress, levels) => {
+      for (const key of Object.keys(progress)) {
+        if (key.startsWith(`${c.iso}:`) && !wanted.has(key)) await dropPack(progress, levels, key);
+      }
+    }, { levels: true });
   }
+  // Lokaler Lese-Schnappschuss; geschrieben wird nur über writePacks.
+  const progress = await loadProgress();
 
   // Vektor-Geozonen (ED-269): ganze Landesdatei in den Gerätecache laden
   if (vectorGeo && !shouldStop()) {
@@ -793,7 +867,7 @@ async function runCountryDownload(
     }
     if (ok || (pending && progress[key])) {
       progress[key] = { done: 1, total: 1, bytes: 0, maxZoom: 0, template: VECTOR_TEMPLATE_PREFIX + c.iso };
-      await saveProgress(progress);
+      await writePacks({ [key]: progress[key] });
       onPack({ key, kind: "geo", percentage: 100, bytes: 0, state: "complete" });
     } else if (pending) {
       onPack({ key, kind: "geo", percentage: 0, bytes: 0, state: "inactive", error: "wartet auf WLAN" });
@@ -832,7 +906,7 @@ async function runCountryDownload(
         onPack({ key: storeGeoKey(c.iso, part), kind: "geo", percentage: 0, bytes: 0, state: "inactive", error: "wartet auf WLAN" });
       }
     } else {
-      const failed = await downloadStorePacks(c, storeParts, progress, onPack, shouldStop);
+      const failed = await downloadStorePacks(c, storeParts, progress, onPack, shouldStop, writePacks);
       if (failed) {
         summary.failed = true;
         return summary;
@@ -846,9 +920,11 @@ async function runCountryDownload(
     const hash = tileSourceHash(plan.template);
     let st = progress[plan.key];
     if (!st || st.maxZoom !== plan.maxZoom || st.template !== plan.template) {
-      st = { done: 0, total: await planTileCount(plan), bytes: st?.bytes ?? 0, maxZoom: plan.maxZoom, template: plan.template };
+      st = { done: 0, total: await planTileCount(plan), bytes: st?.bytes ?? 0, maxZoom: plan.maxZoom, template: plan.template, cursor: 0 };
       progress[plan.key] = st;
     }
+    // Ältere Einträge: done war zugleich die Position im Durchlauf.
+    if (st.cursor == null) st.cursor = st.done;
     if (st.total && st.done >= st.total) {
       onPack({ key: plan.key, kind: plan.kind, percentage: 100, bytes: st.bytes, state: "complete" });
       continue;
@@ -857,62 +933,123 @@ async function runCountryDownload(
       summary.pendingWifi = true;
       continue;
     }
+    // Durchlauf beendet, aber zu viele Fehler für die Liste: komplett neu
+    // prüfen (vorhandene Kacheln werden dabei nur per Dateiabfrage gezählt).
+    if (st.rescan && st.cursor >= st.total) {
+      st = { ...st, done: 0, cursor: 0, failed: [], rescan: false };
+      progress[plan.key] = st;
+    }
     // Karte darf die Kacheln ab sofort vom Gerät lesen
-    levels[hash] = Math.max(levels[hash] ?? 0, plan.maxZoom);
-    await saveLevels(levels);
+    if (!alive()) break;
+    await mutateMeta((_p, levels) => {
+      if (!alive()) return;
+      levels[hash] = Math.max(levels[hash] ?? 0, plan.maxZoom);
+    }, { levels: true });
 
+    const cur = st;
     // Download-Anzeige (app-weit)
     const activityId = beginDownload({
       id: `pack:${plan.key}`,
       iso: c.iso,
       labelDe: plan.kind === "map" ? "Karte" : plan.kind === "sat" ? "Luftbild" : "Geozonen-Kacheln",
       kind: plan.kind === "map" ? "map" : plan.kind === "sat" ? "satellite" : "geozones",
-      totalItems: st.total,
+      totalItems: cur.total,
     });
     const report = (state: PackProgress["state"], error?: string) => {
-      progressDownload(activityId, { doneItems: st.done, totalItems: st.total });
-      onPack({ key: plan.key, kind: plan.kind, percentage: st.total ? (st.done / st.total) * 100 : 100, bytes: st.bytes, state, error });
+      progressDownload(activityId, { doneItems: cur.done, totalItems: cur.total });
+      onPack({ key: plan.key, kind: plan.kind, percentage: cur.total ? Math.min(100, (cur.done / cur.total) * 100) : 100, bytes: cur.bytes, state, error });
     };
     report("active");
 
-    const it = planTiles(plan);
-    // bereits erledigte Kacheln überspringen
-    for (let i = 0; i < st.done; i++) {
-      if (it.next().done) break;
-      if ((i & 1023) === 0 && shouldYield()) await yieldToUi("offline-skip");
-    }
+    // Fehlgeschlagene Kacheln (frühere Durchläufe) einmal pro Start erneut
+    // versuchen, danach den Durchlauf an der gespeicherten Position fortsetzen.
+    const retryList = cur.failed ?? [];
+    cur.failed = [];
+    let retryIdx = 0;
+    const main = planTiles(plan);
+    const skip = Math.min(cur.cursor ?? 0, cur.total);
+    let skipped = false;
+    const skipDone = async () => {
+      if (skipped) return;
+      skipped = true;
+      for (let i = 0; i < skip; i++) {
+        if (main.next().done) break;
+        if ((i & 1023) === 0 && shouldYield()) await yieldToUi("offline-skip");
+      }
+    };
+    /** Nächste Kachel: erst die Wiederholungen, dann der Hauptdurchlauf. */
+    const nextTile = async (): Promise<{ tile: [number, number, number]; retry: boolean } | null> => {
+      if (retryIdx < retryList.length) return { tile: retryList[retryIdx++], retry: true };
+      // Durchlauf schon komplett bearbeitet: nicht den ganzen Plan überspringen.
+      if (skip >= cur.total) return null;
+      await skipDone();
+      const n = main.next();
+      return n.done ? null : { tile: n.value, retry: false };
+    };
+    const recordFailure = (tile: [number, number, number]) => {
+      const f = cur.failed ?? (cur.failed = []);
+      if (f.length < MAX_FAILED_TILES) f.push(tile);
+      else cur.rescan = true;
+    };
 
     let lastSave = Date.now();
     let failures = 0;
+    let aborted = false;
     const worker = async () => {
-      while (!shouldStop()) {
-        const next = it.next();
-        if (next.done) return;
-        const [z, x, y] = next.value;
+      while (!aborted && !shouldStop()) {
+        const next = await nextTile();
+        if (!next) return;
+        const [z, x, y] = next.tile;
+        let ok = false;
         try {
-          st.bytes += await downloadTile(plan.template, hash, z, x, y);
+          cur.bytes += await downloadTile(plan.template, hash, z, x, y);
+          ok = true;
           failures = 0;
         } catch {
           failures++;
-          if (failures > 30) throw new Error("Zu viele Fehler – Internetverbindung prüfen");
         }
-        st.done++;
+        // Fehlschläge NICHT als erledigt zählen (sonst 100 % mit Lücken).
+        if (ok) cur.done++;
+        else recordFailure(next.tile);
+        if (!next.retry) cur.cursor = (cur.cursor ?? 0) + 1;
+        if (!ok && failures > 30) {
+          aborted = true;
+          throw new Error("Zu viele Fehler – Internetverbindung prüfen");
+        }
         // Bedienung hat Vorrang: zwischendurch den JS-Thread freigeben
         if (shouldYield()) await yieldToUi("offline-tiles");
         if (Date.now() - lastSave > 1500) {
           lastSave = Date.now();
-          await saveProgress(progress);
+          await writePacks({ [plan.key]: cur });
           report("active");
         }
       }
     };
+    // Noch nicht erneut versuchte Wiederholungen nicht verlieren (Stopp/Fehler).
+    const keepUnretried = () => {
+      for (let i = retryIdx; i < retryList.length; i++) recordFailure(retryList[i]);
+      retryIdx = retryList.length;
+    };
     try {
-      await Promise.all(Array.from({ length: PARALLEL }, worker));
-      await saveProgress(progress);
-      report(st.done >= st.total ? "complete" : "inactive");
+      const results = await Promise.allSettled(Array.from({ length: PARALLEL }, worker));
+      aborted = true;
+      keepUnretried();
+      const rejected = results.find((r) => r.status === "rejected") as PromiseRejectedResult | undefined;
+      if (rejected) throw rejected.reason;
+      await writePacks({ [plan.key]: cur });
+      if (cur.done >= cur.total) {
+        report("complete");
+      } else if ((cur.cursor ?? 0) >= cur.total && !shouldStop()) {
+        // Durchlauf fertig, aber Kacheln fehlgeschlagen: beim nächsten Laden erneut
+        const missing = cur.total - cur.done;
+        report("error", `${missing} Kachel${missing === 1 ? "" : "n"} fehlgeschlagen – erneut laden`);
+        summary.failed = true;
+      } else {
+        report("inactive");
+      }
       summary.updated = true;
     } catch (e: any) {
-      await saveProgress(progress);
+      await writePacks({ [plan.key]: cur });
       report("error", e?.message);
       summary.failed = true;
       return summary;
@@ -1009,7 +1146,9 @@ async function downloadStorePacks(
   progress: StoredProgress,
   onPack: (p: PackProgress) => void,
   shouldStop: () => boolean,
+  writePacks: (entries: Record<string, StoredPackEntry>) => Promise<void>,
 ): Promise<boolean> {
+  const touched: Record<string, StoredPackEntry> = {};
   const results = await downloadTileStore(c.iso, {
     wohn: parts.includes("wohn"),
     parts: parts.filter((p) => p !== "base"),
@@ -1018,6 +1157,7 @@ async function downloadStorePacks(
       const key = storeGeoKey(c.iso, p.part);
       const total = Math.max(1, p.total);
       progress[key] = { done: p.state === "complete" ? total : p.done, total, bytes: p.bytes, maxZoom: 0, template: `${STORE_TEMPLATE_PREFIX}${c.iso}:${p.part}` };
+      touched[key] = progress[key];
       onPack({
         key,
         kind: "geo",
@@ -1028,7 +1168,7 @@ async function downloadStorePacks(
       });
     },
   });
-  await saveProgress(progress);
+  await writePacks(touched);
   return results.some((r) => r.state === "error");
 }
 
@@ -1057,14 +1197,14 @@ export function baseConfig(iso: string): CountryOfflineConfig {
  * Basis-Geozonen (ED-269-Landesdatei, Kachelspeicher „base“) bleiben.
  */
 export async function deleteCountryExtras(iso: string): Promise<void> {
-  const progress = await loadProgress();
-  const levels = await loadLevels();
+  // Laufenden Download dieses Landes stoppen (schreibt danach nichts mehr).
+  bumpCountryEpoch(iso);
   const keep = new Set([vectorGeoKey(iso), storeGeoKey(iso, "base")]);
-  for (const key of Object.keys(progress)) {
-    if (key.startsWith(`${iso}:`) && !keep.has(key)) await dropPack(progress, levels, key);
-  }
-  await saveProgress(progress);
-  await saveLevels(levels);
+  await mutateMeta(async (progress, levels) => {
+    for (const key of Object.keys(progress)) {
+      if (key.startsWith(`${iso}:`) && !keep.has(key)) await dropPack(progress, levels, key);
+    }
+  }, { levels: true });
   if (isTileStoreIso(iso)) {
     for (const part of ["wohn", "infra", "enp"] as TileStorePart[]) {
       if (getTilePartMeta(iso, part)) await deleteTileStore(iso, part).catch(() => {});
@@ -1091,13 +1231,13 @@ export async function pauseCountryDownload(_iso: string): Promise<void> {
 }
 
 export async function deleteCountry(iso: string): Promise<void> {
-  const progress = await loadProgress();
-  const levels = await loadLevels();
-  for (const key of Object.keys(progress)) {
-    if (key.startsWith(`${iso}:`)) await dropPack(progress, levels, key);
-  }
-  await saveProgress(progress);
-  await saveLevels(levels);
+  // Laufenden Download dieses Landes stoppen (schreibt danach nichts mehr).
+  bumpCountryEpoch(iso);
+  await mutateMeta(async (progress, levels) => {
+    for (const key of Object.keys(progress)) {
+      if (key.startsWith(`${iso}:`)) await dropPack(progress, levels, key);
+    }
+  }, { levels: true });
   if (isTileStoreIso(iso)) await deleteTileStore(iso).catch(() => {});
 
   const list = (await loadOfflineConfigs()).filter((x) => x.iso !== iso);

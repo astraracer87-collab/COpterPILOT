@@ -17,7 +17,7 @@ import { ThemedText } from "@/components/ThemedText";
 import { Card } from "@/components/Card";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, Typography, BorderRadius } from "@/constants/theme";
-import { getDrones, getLogbook } from "@/lib/storage";
+import { getDrones, getLogbookLite } from "@/lib/storage";
 import {
   computeBatteryStats,
   formatTrend,
@@ -92,7 +92,7 @@ export default function BatteryStatsScreen() {
         try {
           const [drones, entries] = await Promise.all([
             getDrones({ includeArchived: true }),
-            getLogbook(),
+            getLogbookLite(),
           ]);
           if (!cancelled) setStats(computeBatteryStats(drones, entries));
         } catch {
