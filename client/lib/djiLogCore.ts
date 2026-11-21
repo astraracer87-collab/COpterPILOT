@@ -148,6 +148,7 @@ export interface DjiAnalysisGroup {
   startLat?: number;
   startLon?: number;
   droneName?: string; // Fluggerät der Gruppe (alle Logs derselben Drohne)
+  aircraftSn?: string; // Seriennummer des Fluggeräts (für zuverlässige Gruppierung)
 }
 
 /**
@@ -186,6 +187,23 @@ function haversineKm(aLat: number, aLon: number, bLat: number, bLon: number): nu
 }
 
 /** Startort (erster gültiger GPS-Punkt) + Startzeit (absolutes ts) einer Auswertung. */
+/** Seriennummer normalisieren (Groß/klein, Sonderzeichen egal). */
+function normSn(s?: string): string {
+  return (s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+/**
+ * Gleiches Fluggerät? Bevorzugt über die Seriennummer (zuverlässig, auch bei
+ * noch unbekannten Modellen wie „DJI 139“). Hat eine Seite keine Seriennummer,
+ * entscheidet der Modellname.
+ */
+export function sameAircraft(aName?: string, aSn?: string, bName?: string, bSn?: string): boolean {
+  const sa = normSn(aSn);
+  const sb = normSn(bSn);
+  if (sa && sb) return sa === sb;
+  return dronesCompatible(aName, bName);
+}
+
 export function startInfoOf(r: DjiAnalyzeResult): {
   lat?: number;
   lon?: number;
@@ -215,38 +233,46 @@ export function groupDjiAnalyses(
 
   for (const { r, info } of withInfo) {
     let placed = false;
-    if (info.lat != null && info.lon != null) {
-      for (const g of groups) {
-        if (g.startLat == null || g.startLon == null) continue;
-        const distOk = haversineKm(g.startLat, g.startLon, info.lat, info.lon) <= maxKm;
-        // Regel: gleicher Ort UND gleiche Zeit. Fehlt einer der Zeitstempel,
-        // kann die Zeit-Nähe nicht belegt werden → nicht zusammenfassen.
-        const timeOk =
-          g.startTs != null && info.ts != null
-            ? Math.abs(g.startTs - info.ts) <= maxMs
-            : false;
-        // Regel: nur dieselbe Drohne zusammenfassen. Logs von z. B. Neo 2 und
-        // Air 3 S am selben Ort/Zeitpunkt bleiben getrennte Flüge.
-        const droneOk = dronesCompatible(g.droneName, r.meta.droneName);
-        if (distOk && timeOk && droneOk) {
-          g.items.push(r);
-          if (info.ts != null && (g.startTs == null || info.ts < g.startTs)) {
-            g.startTs = info.ts;
-          }
-          if (!g.droneName && r.meta.droneName) g.droneName = r.meta.droneName;
-          placed = true;
-          break;
-        }
-      }
+    const sn = r.meta.aircraftSn;
+    for (const g of groups) {
+      // Regel: nur dieselbe Drohne zusammenfassen – bevorzugt über die
+      // Seriennummer (zuverlässig, auch bei unbekannten Modellen), sonst Name.
+      const droneOk = sameAircraft(g.droneName, g.aircraftSn, r.meta.droneName, sn);
+      if (!droneOk) continue;
+      // Zeit-Nähe: beide Startzeiten vorhanden und ≤ Fenster auseinander.
+      const timeOk =
+        g.startTs != null && info.ts != null ? Math.abs(g.startTs - info.ts) <= maxMs : false;
+      if (!timeOk) continue;
+      // Ort: Bei gesicherter gleicher Seriennummer (dasselbe Fluggerät) reicht
+      // die Zeit-Nähe – aufeinanderfolgende Flüge/Akkuwechsel gehören zusammen,
+      // auch wenn der Startpunkt etwas abweicht. Ohne Seriennummer bleibt die
+      // zusätzliche Ortsnähe als Sicherung.
+      const haveBothSn = !!normSn(sn) && !!normSn(g.aircraftSn);
+      const distOk =
+        haveBothSn ||
+        (g.startLat != null &&
+          g.startLon != null &&
+          info.lat != null &&
+          info.lon != null &&
+          haversineKm(g.startLat, g.startLon, info.lat, info.lon) <= maxKm);
+      if (!distOk) continue;
+      g.items.push(r);
+      if (info.ts != null && (g.startTs == null || info.ts < g.startTs)) g.startTs = info.ts;
+      if (g.startLat == null && info.lat != null) { g.startLat = info.lat; g.startLon = info.lon; }
+      if (!g.droneName && r.meta.droneName) g.droneName = r.meta.droneName;
+      if (!g.aircraftSn && sn) g.aircraftSn = sn;
+      placed = true;
+      break;
     }
     if (!placed) {
       groups.push({
-        id: `g-${groups.length}-${normalizeDroneName(r.meta.droneName) || "drone"}-${info.ts ?? "nots"}`,
+        id: `g-${groups.length}-${normSn(sn) || normalizeDroneName(r.meta.droneName) || "drone"}-${info.ts ?? "nots"}`,
         items: [r],
         startTs: info.ts,
         startLat: info.lat,
         startLon: info.lon,
         droneName: r.meta.droneName,
+        aircraftSn: sn,
       });
     }
   }

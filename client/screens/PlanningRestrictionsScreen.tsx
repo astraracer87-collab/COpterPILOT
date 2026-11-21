@@ -1,5 +1,7 @@
 import { openLink } from "@/lib/webBrowser";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
+import MapPicker from "@/components/MapPicker";
+import { circleRegion } from "@/lib/areaOverview";
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { InfrastructureFlightGuidance } from "@/components/InfrastructureFlightGuidance";
 import { View, StyleSheet, TextInput, Pressable, ActivityIndicator, ScrollView, Linking, Alert, Platform } from "react-native";
@@ -985,6 +987,20 @@ export default function PlanningRestrictionsScreen() {
         <ThemedText style={[styles.subtitle, { color: theme.textSecondary }]}>
           Automatische Prüfung der Geozonen für deinen Standort
         </ThemedText>
+        {latitude != null && longitude != null ? (
+          <View style={styles.mapWrap}>
+            <MapPicker
+              initialRegion={circleRegion({ lat: latitude, lon: longitude }, Math.max(localRadiusKm * 1000, 1000), 2.4)}
+              selectedLocation={{ latitude, longitude }}
+              locationName={locationName}
+              radiusMeters={localRadiusKm * 1000}
+              allCountriesGeozones
+              showCtrBands
+              mapStyleSwitcherVariant="compact"
+              style={styles.map}
+            />
+          </View>
+        ) : null}
         <GeozoneDataChangedBanner change={verdictWatch.change} onDismiss={verdictWatch.dismiss} />
         {countryIso === "DE" ? (
           <View style={styles.dipulSourceInfo}>
@@ -2541,6 +2557,8 @@ export default function PlanningRestrictionsScreen() {
 }
 
 const styles = StyleSheet.create({
+  mapWrap: { height: 220, borderRadius: 12, overflow: "hidden", marginBottom: Spacing.md, marginTop: Spacing.sm },
+  map: { flex: 1 },
   container: {
     flex: 1,
   },
