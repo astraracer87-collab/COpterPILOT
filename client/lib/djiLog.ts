@@ -9,6 +9,8 @@ import {
   getEntryDjiLogs,
   deleteLogbookEntry,
   updateDrone,
+  updateLogbookEntry,
+  sortDjiLogs,
   attachDjiLogToEntry,
   type DroneProfile,
   type LogbookEntry,
@@ -371,26 +373,41 @@ export async function mergeRelatedDjiLogEntries(maxHours = 3): Promise<number> {
   }
   rows.sort((a, b) => a.startTs - b.startTs);
 
-  const keepers: Row[] = [];
-  let merged = 0;
+  // 1) Cluster bilden (gleiches Fluggerät + zeitnah) – nur in-memory, keine I/O.
+  type Cluster = { keeper: Row; extras: Row[] };
+  const clusters: Cluster[] = [];
   for (const row of rows) {
-    const target = keepers.find(
-      (k) => sameAircraft(k.name, k.sn, row.name, row.sn) && Math.abs(k.startTs - row.startTs) <= maxMs,
+    const c = clusters.find(
+      (x) => sameAircraft(x.keeper.name, x.keeper.sn, row.name, row.sn) &&
+        Math.abs(x.keeper.startTs - row.startTs) <= maxMs,
     );
-    if (!target) {
-      keepers.push(row);
-      continue;
+    if (c) {
+      c.extras.push(row);
+      if (!c.keeper.sn && row.sn) c.keeper.sn = row.sn;
+    } else {
+      clusters.push({ keeper: row, extras: [] });
     }
-    // Alle Protokolle des jüngeren Eintrags in den Keeper übernehmen, dann löschen.
+  }
+
+  // 2) Nur Cluster mit Extras zusammenführen: ein Schreibvorgang je Keeper
+  //    (alle Protokolle auf einmal), dann die anderen Einträge löschen.
+  let merged = 0;
+  for (const { keeper, extras } of clusters) {
+    if (extras.length === 0) continue;
     try {
-      for (const l of getEntryDjiLogs(row.entry)) {
-        await attachDjiLogToEntry(target.entry.id, l);
+      const byPath = new Map<string, DjiLogMeta>();
+      const addAll = (e: LogbookEntry) => {
+        for (const l of getEntryDjiLogs(e)) byPath.set(l.objectPath ?? l.fileName ?? String(Math.random()), l);
+      };
+      addAll(keeper.entry);
+      for (const ex of extras) addAll(ex.entry);
+      await updateLogbookEntry(keeper.entry.id, { djiLogs: sortDjiLogs([...byPath.values()]), djiLog: undefined });
+      for (const ex of extras) {
+        await deleteLogbookEntry(ex.entry.id);
+        merged++;
       }
-      await deleteLogbookEntry(row.entry.id);
-      merged++;
-      if (!target.sn && row.sn) target.sn = row.sn;
     } catch {
-      // Eintrag überspringen, Rest weiterführen
+      // Cluster überspringen, Rest weiterführen
     }
   }
   return merged;

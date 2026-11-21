@@ -1,4 +1,4 @@
-import React, { useCallback, useState, useMemo, useSyncExternalStore } from "react";
+import React, { useCallback, useState, useMemo, useSyncExternalStore, useEffect, useRef } from "react";
 import { removeDuplicateDjiLogEntries, mergeRelatedDjiLogEntries } from "@/lib/djiLog";
 import { View, StyleSheet, FlatList, RefreshControl, Pressable, Alert, ScrollView, Image, GestureResponderEvent } from "react-native";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
@@ -772,10 +772,9 @@ export default function HistoryScreen() {
 
   const loadData = useCallback(async () => {
     try {
-      // doppelt importierte DJI-Flüge vor der Anzeige entfernen …
-      await removeDuplicateDjiLogEntries().catch(() => 0);
-      // … und zusammengehörige Flüge (gleiche Drohne, zeitnah) zusammenführen.
-      await mergeRelatedDjiLogEntries().catch(() => 0);
+      // Logbuch SOFORT anzeigen – die Pflege (Doppelte entfernen, zusammengehörige
+      // Flüge zusammenführen) läuft getrennt im Hintergrund (siehe Effekt unten),
+      // damit die Liste nicht blockiert/„Laden…“ hängen bleibt.
       const [logbook, briefings] = await Promise.all([
         getLogbook(),
         getBriefings(),
@@ -832,6 +831,21 @@ export default function HistoryScreen() {
       loadData();
     }, [loadData])
   );
+
+  // Einmalige Hintergrund-Pflege: doppelte DJI-Flüge entfernen und zusammen-
+  // gehörige Flüge zusammenführen. Läuft NACH der ersten Anzeige und blockiert
+  // die Liste nicht; danach wird einmal neu geladen. Nur einmal pro Mount.
+  const maintenanceDone = useRef(false);
+  useEffect(() => {
+    if (maintenanceDone.current) return;
+    maintenanceDone.current = true;
+    (async () => {
+      let changed = 0;
+      changed += await removeDuplicateDjiLogEntries().catch(() => 0);
+      changed += await mergeRelatedDjiLogEntries().catch(() => 0);
+      if (changed > 0) loadData();
+    })();
+  }, [loadData]);
 
   // Stille Prüfung beim App-Start (Einstellungen → DJI-Flugprotokolle – Speicherort)
   useSyncExternalStore(subscribeDjiLogNewHint, getDjiLogNewHintVersion, getDjiLogNewHintVersion);
