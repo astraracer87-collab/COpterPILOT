@@ -140,6 +140,7 @@ export default function DjiBulkImportScreen() {
   const [selection, setSelection] = useState<Record<string, Selection>>({});
   const [assignedTo, setAssignedTo] = useState<Record<string, string>>({});
   const [busyGroup, setBusyGroup] = useState<string | null>(null);
+  const [assigningAll, setAssigningAll] = useState<{ done: number; total: number } | null>(null);
   const [folderUri, setFolderUri] = useState<string | null>(null);
   const [skippedKnown, setSkippedKnown] = useState(0);
   const [showFolderHelp, setShowFolderHelp] = useState(false);
@@ -388,6 +389,48 @@ export default function DjiBulkImportScreen() {
     },
     [selection],
   );
+
+  // Alle Gruppen auf einen Schlag zuordnen: pro Flug ein neuer Eintrag, außer es
+  // gibt einen eindeutigen (starken) Treffer zu einem bestehenden Flug – dann
+  // dorthin. Drohne/Akku werden wie gehabt automatisch verknüpft. Keine 40 Klicks.
+  const assignAllGroups = useCallback(async () => {
+    const todo = groups.filter((g) => !assignedTo[g.id]);
+    if (todo.length === 0) return;
+    setAssigningAll({ done: 0, total: todo.length });
+    let done = 0;
+    const newAssigned: Record<string, string> = {};
+    try {
+      for (const group of todo) {
+        try {
+          const strong = (matchesByGroup[group.id] ?? []).find((m) => m.isStrong);
+          let entryId: string;
+          if (strong) {
+            const e = await assignDjiLog({ meta: group.items[0].meta, target: "existing", entryId: strong.entry.id });
+            entryId = e.id;
+          } else {
+            const created = await assignDjiLog({ meta: group.items[0].meta, target: "new" });
+            entryId = created.id;
+          }
+          for (let i = 1; i < group.items.length; i++) {
+            await assignDjiLog({ meta: group.items[i].meta, target: "existing", entryId });
+          }
+          newAssigned[group.id] = entryId;
+        } catch {
+          // einzelne Gruppe überspringen, Rest weiterführen
+        }
+        done += 1;
+        setAssigningAll({ done, total: todo.length });
+        // UI kurz atmen lassen (Fortschritt sichtbar, kein Einfrieren)
+        await new Promise((r) => setTimeout(r, 0));
+      }
+      setAssignedTo((prev) => ({ ...prev, ...newAssigned }));
+      setEntries(await getLogbook());
+      refreshDjiLogNewHint().catch(() => {});
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } finally {
+      setAssigningAll(null);
+    }
+  }, [groups, assignedTo, matchesByGroup]);
 
   const setGroupSelection = (groupId: string, sel: Selection) => {
     setSelection((prev) => ({ ...prev, [groupId]: sel }));
@@ -788,6 +831,39 @@ export default function DjiBulkImportScreen() {
           </Card>
         ) : null}
 
+        {(() => {
+          const open = groups.filter((g) => !assignedTo[g.id]).length;
+          if (open < 2) return null;
+          return (
+            <Pressable
+              testID="button-assign-all"
+              disabled={!!assigningAll}
+              onPress={assignAllGroups}
+              style={({ pressed }) => [
+                styles.assignAllButton,
+                { backgroundColor: theme.primary },
+                (pressed || !!assigningAll) && { opacity: 0.7 },
+              ]}
+            >
+              {assigningAll ? (
+                <>
+                  <ActivityIndicator color="#fff" size="small" />
+                  <ThemedText style={styles.assignAllText}>
+                    {`Importiere … ${assigningAll.done}/${assigningAll.total}`}
+                  </ThemedText>
+                </>
+              ) : (
+                <>
+                  <Feather name="layers" size={16} color="#fff" />
+                  <ThemedText style={styles.assignAllText}>
+                    {`Alle ${open} Flüge auf einmal importieren`}
+                  </ThemedText>
+                </>
+              )}
+            </Pressable>
+          );
+        })()}
+
         {groups.map((g, i) => renderGroup(g, i))}
 
         {!analyzing && results.length === 0 ? (
@@ -921,6 +997,8 @@ const styles = StyleSheet.create({
     ...Typography.body,
     fontWeight: "700",
   },
+  assignAllButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: "#007AFF", paddingVertical: 14, borderRadius: 12, marginBottom: Spacing.md },
+  assignAllText: { color: "#fff", fontSize: 15, fontWeight: "700" },
   modalBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.45)", alignItems: "center", justifyContent: "center", padding: 20 },
   modalCard: { width: "100%", maxWidth: 480, borderRadius: 16, padding: 16 },
   modalTitle: { fontSize: 16, fontWeight: "700" },
