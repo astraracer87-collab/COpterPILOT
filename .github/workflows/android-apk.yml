@@ -77,10 +77,15 @@ jobs:
       - name: APK umbenennen
         run: cp android/app/build/outputs/apk/release/app-release.apk COpterPilot-RC.apk
 
+      # Artefakt-Upload ist nur ein Nebenprodukt; er darf den Build NICHT scheitern
+      # lassen (z. B. bei erschöpftem Actions-Speicher-Kontingent). Das eigentliche
+      # Ausliefern geschieht über das „latest“-Release weiter unten.
       - uses: actions/upload-artifact@v4
+        continue-on-error: true
         with:
           name: COpterPilot-RC
           path: COpterPilot-RC.apk
+          retention-days: 3
 
       - name: Als Release "latest" veröffentlichen
         # Nur der Entwicklungszweig der App veröffentlicht – andere Zweige (z. B. Recherche/Doku)
