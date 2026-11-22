@@ -13,7 +13,7 @@
  * schreiben die Ergebnisse.
  */
 import type { DjiLogMeta } from "./djiLogCore";
-import { dronesCompatible, normalizeDroneName } from "./djiLogCore";
+import { canonicalDroneName, dronesCompatible, normalizeDroneName } from "./djiLogCore";
 
 /** Minimal benötigte Formen (strukturell kompatibel zu storage.ts). */
 export interface LinkBattery {
@@ -387,7 +387,7 @@ export function computeBatteryStats(
             key,
             name: `Akku …${ns.slice(-4)}`,
             serialNumber: log.batterySn,
-            droneName: log.droneName,
+            droneName: canonicalDroneName(log.droneName),
             flightCount: 0,
             trend: [],
           });

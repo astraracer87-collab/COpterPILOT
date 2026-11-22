@@ -69,3 +69,12 @@ describe("normalizeCycleCount", () => {
     assert.equal(res.updatedDrone?.batteries?.[0].cycleCount, 3);
   });
 });
+
+describe("DJI-Produktcode 139", () => {
+  it("wird als DJI Mini 5 Pro geführt", async () => {
+    const { canonicalDroneName, dronesCompatible } = await import("../djiLogCore");
+    assert.equal(canonicalDroneName("DJI 139"), "DJI Mini 5 Pro");
+    assert.equal(canonicalDroneName("DJI Neo 2"), "DJI Neo 2");
+    assert.equal(dronesCompatible("DJI 139", "Mini 5 Pro"), true);
+  });
+});

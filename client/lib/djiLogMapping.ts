@@ -1,3 +1,4 @@
+import { canonicalDroneName } from "./djiLogCore";
 /**
  * Abbildung der Worker-Ausgabe (Kennzahlen + kompakte Zeilen) auf die
  * bestehenden Datenstrukturen der App: DjiLogMeta / DjiAnalyzeResult, wie sie
@@ -59,7 +60,10 @@ export function prettyDroneName(
   details: Pick<DjiLogDetailsInfo, "productType" | "aircraftName">,
 ): string | undefined {
   const pt = details.productType;
-  const fromLog = details.aircraftName?.trim();
+  // Bekannter numerischer Produktcode (z. B. 139 = Mini 5 Pro) hat Vorrang
+  const coded = canonicalDroneName(pt ?? undefined);
+  if (pt && coded && coded !== pt) return coded;
+  const fromLog = canonicalDroneName(details.aircraftName?.trim());
   // Produkttyp nur verwenden, wenn er wie ein Modellname aussieht (enthält
   // Buchstaben). Rein numerische/unbekannte Typen (z. B. "139" einer noch nicht
   // gelisteten Mini 5 Pro) sagen nichts – dann lieber den Namen aus dem Log.

@@ -161,8 +161,23 @@ export interface DjiAnalysisGroup {
  * a-z0-9, und der Hersteller-Präfix "dji" wird entfernt — so wird "DJI Neo 2"
  * zu "neo2" und ist mit "Neo 2" vergleichbar.
  */
+/**
+ * Numerische DJI-Produktcodes, die der Log-Parser noch nicht als Namen kennt
+ * („DJI 139“) → Modellname. 139 = DJI Mini 5 Pro.
+ */
+export const DJI_PRODUCT_CODE_NAMES: Record<string, string> = {
+  "139": "DJI Mini 5 Pro",
+};
+
+/** „DJI 139“ / „139“ → „DJI Mini 5 Pro“; alle anderen Namen unverändert. */
+export function canonicalDroneName(name?: string): string | undefined {
+  if (!name) return name;
+  const m = /^\s*(?:DJI\s*)?(\d{2,4})\s*$/i.exec(name);
+  return m && DJI_PRODUCT_CODE_NAMES[m[1]] ? DJI_PRODUCT_CODE_NAMES[m[1]] : name;
+}
+
 export function normalizeDroneName(name?: string): string {
-  const n = (name ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const n = (canonicalDroneName(name) ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
   return n.replace(/^dji/, "");
 }
 
