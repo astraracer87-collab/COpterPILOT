@@ -125,9 +125,13 @@ export function DroneCard({
         <View style={styles.droneInfo}>
           <View style={styles.nameRow}>
             <ThemedText style={styles.droneName}>{drone.name}</ThemedText>
+            {isSelected ? (
+              <Feather name="check-circle" size={16} color={theme.primary} accessibilityLabel="Standard-Drohne" />
+            ) : null}
             {hasActiveBriefing ? (
-              <View style={[styles.selectedBadge, { backgroundColor: theme.statusCaution }]}>
-                <ThemedText style={styles.selectedText}>Aktiv</ThemedText>
+              <View style={[styles.selectedBadge, { backgroundColor: theme.statusCaution, flexDirection: "row", alignItems: "center", gap: 4 }]}>
+                <Feather name="clipboard" size={11} color="#FFF" />
+                <ThemedText style={styles.selectedText}>Briefing offen</ThemedText>
               </View>
             ) : null}
           </View>

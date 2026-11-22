@@ -443,7 +443,7 @@ export default function SettingsScreen() {
               hitSlop={10}
               accessibilityRole="radio"
               accessibilityState={{ selected: isSelected }}
-              accessibilityLabel={`${drone.name} als aktive Drohne wählen`}
+              accessibilityLabel={`${drone.name} als Standard-Drohne wählen`}
               testID={`settings-drone-select-${drone.id}`}
             >
               <View style={{ flexDirection: "row", alignItems: "center", gap: Spacing.sm }}>
@@ -453,8 +453,8 @@ export default function SettingsScreen() {
             </Pressable>
           }
           title={drone.name}
-          value={activeDroneIds.has(drone.id) ? "Aktiv" : undefined}
-          subtitle={`${drone.classMark} · ${drone.mtomGrams} g · ${count} ${count === 1 ? "Flug" : "Flüge"}${isSelected ? " · ausgewählt" : ""}`}
+          value={activeDroneIds.has(drone.id) ? "Briefing offen" : undefined}
+          subtitle={`${drone.classMark} · ${drone.mtomGrams} g · ${count} ${count === 1 ? "Flug" : "Flüge"}${isSelected ? " · Standard" : ""}`}
           onPress={() => navigation.navigate("DroneSetup", { droneId: drone.id })}
         />,
       );
