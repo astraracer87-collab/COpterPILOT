@@ -184,6 +184,17 @@ export default function StandaloneLiveTrafficScreen() {
   const [showAllGeozones, setShowAllGeozones] = useState(false);
   const [maxReachableAltitudeM, setMaxReachableAltitudeM] = useState(120);
   const [detectedCountryIso, setDetectedCountryIso] = useState<string | undefined>(overrideCountry);
+  const detectedCountryIsoRef = useRef(detectedCountryIso);
+  detectedCountryIsoRef.current = detectedCountryIso;
+  // Land eines per Langdruck gesetzten Punkts (überschreibt das Vorzugsland)
+  const longPressCountryRef = useRef<string | null>(null);
+  const restorePreferredCountry = useCallback(() => {
+    if (!longPressCountryRef.current) return;
+    longPressCountryRef.current = null;
+    getSettings()
+      .then((st) => setDetectedCountryIso((st.preferredCountryIso || "DE").toUpperCase()))
+      .catch(() => setDetectedCountryIso("DE"));
+  }, []);
   // Hintergrund-Überwachung: Verkehr, Geozonen, NOTAM laufen weiter, wenn
   // die App in den Hintergrund geht (z. B. DJI Fly im Vordergrund).
   useRadarBackgroundMonitor({
@@ -422,19 +433,21 @@ export default function StandaloneLiveTrafficScreen() {
       let active = true;
       (async () => {
         try {
+          // Per Langdruck gewählter Punkt: dessen Land behalten
+          if (longPressCountryRef.current) return;
           const s = await getSettings();
           const iso = (s.preferredCountryIso || "DE").toUpperCase();
-          if (active && iso !== detectedCountryIso) {
+          if (active && iso !== detectedCountryIsoRef.current) {
             setDetectedCountryIso(iso);
             setSidePanelGeozones([]);
             setSidePanelTempRestrictions([]);
           }
         } catch {
-          if (active && detectedCountryIso !== "DE") setDetectedCountryIso("DE");
+          if (active && !longPressCountryRef.current && detectedCountryIsoRef.current !== "DE") setDetectedCountryIso("DE");
         }
       })();
       return () => { active = false; };
-    }, [detectedCountryIso])
+    }, [])
   );
 
   useEffect(() => {
@@ -861,6 +874,12 @@ export default function StandaloneLiveTrafficScreen() {
       setCustomLat(lat);
       setCustomLon(lon);
       setIsCustomLocation(true);
+      // Prüfungen (Ebenen, LU-TSA, Gebietsdaten) im Land des gewählten Punkts
+      const pressIso = detectCountryFromCoordinates(lat, lon);
+      if (pressIso) {
+        longPressCountryRef.current = pressIso;
+        setDetectedCountryIso(pressIso);
+      }
       try {
         const [geo] = await Location.reverseGeocodeAsync({ latitude: lat, longitude: lon });
         if (geo) {
@@ -894,6 +913,7 @@ export default function StandaloneLiveTrafficScreen() {
     setSidePanelDipulRestrictions([]);
     setSidePanelNotams([]);
     setIsCustomLocation(false);
+    restorePreferredCountry();
     try {
       const [geo] = await Location.reverseGeocodeAsync({ latitude: lat, longitude: lon });
       if (geo) {
@@ -918,6 +938,7 @@ export default function StandaloneLiveTrafficScreen() {
       setLocationError(null);
       if (isCustomLocation) {
         setIsCustomLocation(false);
+        restorePreferredCountry();
         setAircraft([]);
         setTrails([]);
       }

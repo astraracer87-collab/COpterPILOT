@@ -448,7 +448,9 @@ async function fetchBelgianDroneguideWfs(): Promise<GeoFeature[]> {
       typeNames: "geo_zone_fast",
       srsName: "EPSG:4326",
       outputFormat: "application/json",
-      cql_filter: "type_code<>'TIME_ZONE'",
+      // NOTAM-Einträge von geo_zone_fast tragen keine Gültigkeit und sind fast
+      // alle abgelaufen; aktive NOTAMs kommen mit applicability aus der skeyes-Live-API.
+      cql_filter: "type_code NOT IN ('TIME_ZONE','NOTAM')",
       count: String(pageSize),
       startIndex: String(startIndex),
     });

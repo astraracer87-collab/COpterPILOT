@@ -705,6 +705,10 @@ export function normalizeDroneguideWfsFeatures(features: BelgianGeoFeature[]): B
     const p = feature?.properties || {};
     const type = String(p.type_code ?? "").toUpperCase();
     if (!feature.geometry || !["Polygon", "MultiPolygon"].includes(feature.geometry.type)) continue;
+    // geo_zone_fast führt NOTAMs ohne Start/Ende (auch längst abgelaufene, z. B.
+    // G2219/26 Tour de Luxembourg 16.–20.09.2026 als 25-NM-Kreis über ganz LU).
+    // Ohne Gültigkeit nicht anzeigen – aktive NOTAMs liefert die skeyes-Live-API.
+    if (type === "NOTAM") continue;
     const id = String(p.unique_identifier ?? feature.id ?? "").trim();
     if (!id) continue;
     const shaped: BelgianGeoFeature = {
