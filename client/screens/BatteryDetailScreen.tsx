@@ -1,3 +1,4 @@
+import { peekChargerFeatureEnabled } from "@/lib/chargerFeature";
 import React, { useEffect, useMemo, useState } from "react";
 import { View, StyleSheet, ScrollView, Pressable, ActivityIndicator, Alert } from "react-native";
 import { useNavigation, useRoute } from "@react-navigation/native";
@@ -336,6 +337,7 @@ export default function BatteryDetailScreen() {
           </Card>
         ) : null}
 
+        {peekChargerFeatureEnabled() ? (
         <Pressable
           testID="battery-open-charge-history"
           onPress={() =>
@@ -360,6 +362,7 @@ export default function BatteryDetailScreen() {
           </View>
           <Feather name="chevron-right" size={20} color={theme.textSecondary} />
         </Pressable>
+        ) : null}
 
         <View style={styles.section}>
           <ThemedText style={styles.sectionTitle}>Flughistorie</ThemedText>

@@ -1,3 +1,4 @@
+import { peekChargerFeatureEnabled } from "@/lib/chargerFeature";
 import { batteryNumberOf, batteryDisplayName, compareBatteries, BATTERY_NUMBER_MAX, takenBatteryNumbers } from "@/lib/djiBatteryLink";
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { DroneImage, ManufacturerBadge } from "@/components/DroneImage";
@@ -983,6 +984,7 @@ export default function DroneSetupScreen() {
         )}
       </Card>
 
+{peekChargerFeatureEnabled() ? (
       <Card style={styles.chargerCard} testID="drone-charger-card">
         <View style={styles.batteryHeaderRow}>
           <Feather name="battery-charging" size={18} color={theme.primary} />
@@ -1034,6 +1036,7 @@ export default function DroneSetupScreen() {
           )}
         </View>
       </Card>
+      ) : null}
 
       <ThemedText style={[styles.sectionLabel, { color: theme.textSecondary, marginTop: Spacing.lg }]}>DROHNEN-STATUS</ThemedText>
 

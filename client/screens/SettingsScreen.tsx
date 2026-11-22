@@ -1,7 +1,8 @@
+import { loadChargerFeatureEnabled, peekChargerFeatureEnabled, setChargerFeatureEnabled } from "@/lib/chargerFeature";
 import Constants from "expo-constants";
 import { setLogbookOrigin } from "@/lib/logbookOrigin";
 import { DroneImage } from "@/components/DroneImage";
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   View,
   StyleSheet,
@@ -11,6 +12,7 @@ import {
   SectionList,
   Platform,
   useWindowDimensions,
+  Switch,
   type StyleProp,
   type ViewStyle,
 } from "react-native";
@@ -173,6 +175,20 @@ export default function SettingsScreen() {
   const [countryPickerOpen, setCountryPickerOpen] = useState(false);
   const [drones, setDrones] = useState<DroneProfile[]>([]);
   const [selectedDroneId, setSelectedDroneIdState] = useState<string | null>(null);
+  const [chargerOwned, setChargerOwned] = useState(peekChargerFeatureEnabled());
+  useEffect(() => {
+    loadChargerFeatureEnabled().then(setChargerOwned).catch(() => {});
+  }, []);
+  const toggleChargerOwned = useCallback((on: boolean) => {
+    setChargerOwned(on);
+    void setChargerFeatureEnabled(on);
+    if (!on) {
+      // kein Ladegerät: Verbindung trennen und Hintergrund-Loggen beenden
+      void import("@/lib/charger/chargerControllerNative")
+        .then(({ chargerController }) => Promise.all([chargerController.stopBackground(), chargerController.disconnect()]))
+        .catch(() => {});
+    }
+  }, []);
   const [pilot, setPilot] = useState<PilotProfile | null>(null);
   const [flightCounts, setFlightCounts] = useState<Record<string, number>>({});
   const [activeDroneIds, setActiveDroneIds] = useState<Set<string>>(new Set());
@@ -411,10 +427,20 @@ export default function SettingsScreen() {
       key="charger"
       testID="settings-row-charger"
       icon={icon("battery-charging")}
-      title="Ladegerät-Einstellungen"
-      subtitle="ISDT MA331 · Hintergrund-Loggen, Kopplung"
-      onPress={() =>
-        (navigation as unknown as { navigate(r: string, p: unknown): void }).navigate("ChargerTab", { screen: "ChargerSettings", initial: false })
+      title="Ladegerät ISDT MA331"
+      subtitle={chargerOwned ? "Vorhanden · Akkus-Reiter, Hintergrund-Loggen, Kopplung" : "Nicht vorhanden · Akkus-Reiter ausgeblendet"}
+      accessory={
+        <Switch
+          value={chargerOwned}
+          onValueChange={toggleChargerOwned}
+          testID="switch-charger-owned"
+        />
+      }
+      onPress={
+        chargerOwned
+          ? () =>
+              (navigation as unknown as { navigate(r: string, p: unknown): void }).navigate("ChargerTab", { screen: "ChargerSettings", initial: false })
+          : undefined
       }
     />,
   ];

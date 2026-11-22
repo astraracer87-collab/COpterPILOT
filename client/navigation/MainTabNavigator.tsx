@@ -24,6 +24,7 @@ import { Colors, Spacing, Typography } from "@/constants/theme";
 import { getDrones } from "@/lib/storage";
 import { RadarTabIcon, RadarTabLabel } from "@/components/RadarTabIcon";
 import { subscribeActiveNotamCount } from "@/lib/notamAlertStore";
+import { loadChargerFeatureEnabled, peekChargerFeatureEnabled, subscribeChargerFeature } from "@/lib/chargerFeature";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { setFlightPlanningMode } from "@/lib/flightPlanningMode";
 import { MainTabBar, getMainTabBarHeight, withContentAboveTabBar } from "@/navigation/MainTabBar";
@@ -330,6 +331,17 @@ export default function MainTabNavigator() {
   const { width, height } = useWindowDimensions();
   const landscape = width > height;
   const [activeTab, setActiveTab] = useState<keyof MainTabParamList>("BriefingsTab");
+  // Akkus-Reiter nur, wenn das Ladegerät in den Einstellungen aktiviert ist
+  const [chargerEnabled, setChargerEnabled] = useState(peekChargerFeatureEnabled());
+  useEffect(() => {
+    let alive = true;
+    loadChargerFeatureEnabled().then((on) => alive && setChargerEnabled(on));
+    const unsub = subscribeChargerFeature(setChargerEnabled);
+    return () => {
+      alive = false;
+      unsub();
+    };
+  }, []);
   // Ladegerät: Home-Taste während eines Ladevorgangs → Einstellung befolgen
   useChargerAppStateHandling();
 
@@ -394,14 +406,16 @@ export default function MainTabNavigator() {
             tabBarIcon: ({ focused }) => <TabBarIcon name="aperture" focused={focused} />,
           }}
         />
-        <Tab.Screen
-          name="ChargerTab"
-          component={ChargerTabScreen}
-          options={{
-            tabBarLabel: "Akkus",
-            tabBarIcon: ({ focused }) => <ChargerTabIcon focused={focused} />,
-          }}
-        />
+        {chargerEnabled ? (
+          <Tab.Screen
+            name="ChargerTab"
+            component={ChargerTabScreen}
+            options={{
+              tabBarLabel: "Akkus",
+              tabBarIcon: ({ focused }) => <ChargerTabIcon focused={focused} />,
+            }}
+          />
+        ) : null}
         <Tab.Screen
           name="SettingsTab"
           component={SettingsTabScreen}
