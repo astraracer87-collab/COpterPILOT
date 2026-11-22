@@ -860,8 +860,10 @@ function NotamMapView({ restrictions, milStatusMap, centerLat, centerLon, focusL
           style={[mapStyles.infoPanel, { backgroundColor: theme.bg, borderColor: theme.border, maxHeight: Math.min(520, Math.round(screenH * 0.5)) }]}
           contentContainerStyle={{ paddingBottom: 4 }}
           showsVerticalScrollIndicator={true}
+          // Kopf mit Titel und X bleibt beim Scrollen stehen
+          stickyHeaderIndices={[0]}
         >
-          <View style={mapStyles.infoPanelHeader}>
+          <View style={[mapStyles.infoPanelHeader, { backgroundColor: theme.bg, zIndex: 2 }]}>
             <View style={{ flex: 1 }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                 <ThemedText style={[mapStyles.infoPanelTitle, { color: theme.text, flex: 1 }]} numberOfLines={2}>
