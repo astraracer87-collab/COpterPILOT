@@ -332,6 +332,15 @@ export function parseEd269ToGeozoneInfo(
     // sind, werden verworfen, damit lange gecachte Pakete keinen Speicher
     // binden. Dauerhafte Zonen (ohne Ende) bleiben immer erhalten.
     if (zoneEndedLongAgo({ validEndTs, ed269Applicability }, nowMs)) continue;
+    // Brussels FIR (BE/LU): NOTAM-Gebiete ohne Gültigkeit stammen aus dem
+    // Droneguide-Bestand geo_zone_fast und sind fast immer längst abgelaufen
+    // (z. B. G2219/26 Tour de Luxembourg). Auch aus älteren Gerätespeichern
+    // verwerfen – gültige NOTAMs liefert skeyes mit Start/Ende.
+    if (
+      countryIso.toUpperCase() === "BE" &&
+      validEndTs == null &&
+      String(p.type ?? p.type_code ?? "").toUpperCase() === "NOTAM"
+    ) continue;
 
     // Anklickbare Zonen-Links (dänische Zonen tragen Antrags-/Info-Links und ggf.
     // eine Kontakt-E-Mail). Andere Quellen lassen diese Felder leer.

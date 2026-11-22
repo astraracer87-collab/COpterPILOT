@@ -857,7 +857,7 @@ function NotamMapView({ restrictions, milStatusMap, centerLat, centerLon, focusL
         const screenH = Dimensions.get("window").height;
         return (
         <ScrollView
-          style={[mapStyles.infoPanel, { backgroundColor: theme.bg, borderColor: theme.border, maxHeight: Math.min(560, Math.round(screenH * 0.62)) }]}
+          style={[mapStyles.infoPanel, { backgroundColor: theme.bg, borderColor: theme.border, maxHeight: Math.min(520, Math.round(screenH * 0.5)) }]}
           contentContainerStyle={{ paddingBottom: 4 }}
           showsVerticalScrollIndicator={true}
         >
@@ -1007,16 +1007,29 @@ function NotamMapView({ restrictions, milStatusMap, centerLat, centerLon, focusL
               Identifikation{"\n"}{selectedRestriction.id}
             </ThemedText>
           </View>
-          <Pressable
-            onPress={() => {
-              const link = selectedRestriction.kind === "mil_low_flight_day" ? MIL_LOW_FLIGHT_SOURCE_URL : buildDipulLink(selectedRestriction.name);
-              if (link) WebBrowser.openBrowserAsync(link);
-            }}
-            style={[mapStyles.dipulLink, { borderColor: theme.border }]}
-          >
-            <Feather name="external-link" size={12} color={theme.primary} />
-            <ThemedText style={[mapStyles.dipulLinkText, { color: theme.primary }]}>{selectedRestriction.kind === "mil_low_flight_day" ? (isAdmin ? "Karte und Details auf dipul.de" : "Karte und Details ansehen") : (isAdmin ? "Details auf dipul.de" : "Details ansehen")}</ThemedText>
-          </Pressable>
+          {(() => {
+            // ED-269-NOTAMs anderer Länder haben keinen dipul-Eintrag:
+            // BE/LU → Droneguide-Karte, sonst kein Link.
+            const ed269Iso = selectedRestriction.id.startsWith("ed269-") ? selectedRestriction.id.split("-")[1] : null;
+            const link = selectedRestriction.kind === "mil_low_flight_day"
+              ? MIL_LOW_FLIGHT_SOURCE_URL
+              : ed269Iso
+                ? (ed269Iso === "BE" || ed269Iso === "LU" ? "https://map.droneguide.be/" : null)
+                : buildDipulLink(selectedRestriction.name);
+            if (!link) return null;
+            const label = selectedRestriction.kind === "mil_low_flight_day"
+              ? "Karte und Details ansehen"
+              : ed269Iso ? "Karte auf droneguide.be öffnen" : "Details ansehen";
+            return (
+              <Pressable
+                onPress={() => { WebBrowser.openBrowserAsync(link); }}
+                style={[mapStyles.dipulLink, { borderColor: theme.border, paddingVertical: 10 }]}
+              >
+                <Feather name="external-link" size={14} color={theme.primary} />
+                <ThemedText style={[mapStyles.dipulLinkText, { color: theme.primary, fontSize: 14, fontWeight: "600" }]}>{label}</ThemedText>
+              </Pressable>
+            );
+          })()}
           {totalAdditional > 0 ? (
               <View style={{ marginTop: 10, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border }}>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6 }}>
