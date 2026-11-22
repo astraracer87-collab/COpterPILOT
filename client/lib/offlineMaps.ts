@@ -326,6 +326,25 @@ function bumpCountryEpoch(iso: string): void {
   countryEpochs.set(k, (countryEpochs.get(k) ?? 0) + 1);
 }
 
+/**
+ * Kachel-Adresse für Vorschaubilder: gespeicherte Offline-Kachel (file://),
+ * falls diese Quelle bis zur Zoomstufe offline vorliegt, sonst die Online-URL.
+ */
+export function previewTileUris(
+  template: string,
+  z: number,
+  x: number,
+  y: number,
+  cfg: { root: string; levels: Record<string, number> } | null,
+): { local?: string; remote: string } {
+  const remote = fillTemplate(template, x, y, z);
+  if (!cfg) return { remote };
+  const hash = tileSourceHash(template);
+  const lvl = cfg.levels[hash];
+  if (lvl != null && z <= lvl) return { local: `${cfg.root}${hash}/${z}/${x}/${y}`, remote };
+  return { remote };
+}
+
 export async function getOfflineTileConfig(): Promise<{ root: string; levels: Record<string, number> }> {
   return { root: TILE_ROOT, levels: await loadLevels() };
 }

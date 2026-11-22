@@ -1,7 +1,7 @@
 import React, { useCallback, useState, useMemo, useSyncExternalStore, useEffect, useRef } from "react";
 import { tidyDjiLogEntries } from "@/lib/djiLog";
 import { entryPreviewTracks } from "@/lib/logbookLite";
-import { View, StyleSheet, FlatList, RefreshControl, Pressable, Alert, ScrollView, Image, GestureResponderEvent } from "react-native";
+import { View, StyleSheet, FlatList, RefreshControl, Pressable, Alert, ScrollView, Image, GestureResponderEvent, useWindowDimensions } from "react-native";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
@@ -12,7 +12,7 @@ import * as Haptics from "@/lib/noHaptics";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { Card } from "@/components/Card";
-import MiniTrackSketch from "@/components/MiniTrackSketch";
+import StaticRouteMap from "@/components/StaticRouteMap";
 import StatusBadge from "@/components/StatusBadge";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, Typography, BorderRadius } from "@/constants/theme";
@@ -77,7 +77,7 @@ const CHECKLIST_LABELS: Record<string, string> = {
 const DEPRECATED_CHECKLIST_IDS = ["registration", "insurance", "permissions"];
 
 function LogbookCard({ item, index, onDelete }: { item: LogbookDisplayItem; index: number; onDelete: () => void }) {
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
   const { entitlement } = useAuth();
   const navigation = useNavigation<NavigationProp>();
   const [expanded, setExpanded] = useState(false);
@@ -619,6 +619,28 @@ function LogbookCard({ item, index, onDelete }: { item: LogbookDisplayItem; inde
     );
   };
 
+  // Vorschau-Route für die Mini-Karte: tatsächlicher GPS-Track oder DJI-Log-Track
+  const previewTracks = React.useMemo(() => {
+    if (!entry) return [];
+    const out: { coords: { latitude: number; longitude: number }[]; color: string }[] = [];
+    // Leichte Liste: ausgedünnte Vorschau-Route (≤ 60 Punkte) statt der vollen Tracks
+    for (const seg of entryPreviewTracks(entry)) {
+      out.push({ coords: seg.map((p) => ({ latitude: p.lat, longitude: p.lon })), color: "#0A84FF" });
+    }
+    return out.filter((t) => t.coords.length >= 2);
+  }, [entry]);
+  const routeSegments = React.useMemo(
+    () => previewTracks.map((t) => t.coords.map((c) => ({ lat: c.latitude, lon: c.longitude }))),
+    [previewTracks],
+  );
+  const { width: winW } = useWindowDimensions();
+  const mapW = Math.round(Math.min(420, Math.max(160, winW * 0.38)));
+  const mapH = 150;
+  const locPoint =
+    entry && Number.isFinite(entry.latitude) && Number.isFinite(entry.longitude)
+      ? { lat: entry.latitude as number, lon: entry.longitude as number }
+      : null;
+
   if (item.type === "briefing") {
     return (
       <Animated.View entering={FadeInDown.delay(index * 50).duration(300)}>
@@ -645,16 +667,6 @@ function LogbookCard({ item, index, onDelete }: { item: LogbookDisplayItem; inde
     );
   }
 
-  // Vorschau-Route für die Mini-Karte: tatsächlicher GPS-Track oder DJI-Log-Track
-  const previewTracks = React.useMemo(() => {
-    if (!entry) return [];
-    const out: { coords: { latitude: number; longitude: number }[]; color: string }[] = [];
-    // Leichte Liste: ausgedünnte Vorschau-Route (≤ 60 Punkte) statt der vollen Tracks
-    for (const seg of entryPreviewTracks(entry)) {
-      out.push({ coords: seg.map((p) => ({ latitude: p.lat, longitude: p.lon })), color: "#0A84FF" });
-    }
-    return out.filter((t) => t.coords.length >= 2);
-  }, [entry]);
 
   return (
     <Animated.View entering={FadeInDown.delay(index * 50).duration(300)}>
@@ -730,18 +742,27 @@ function LogbookCard({ item, index, onDelete }: { item: LogbookDisplayItem; inde
                 </View>
               </View>
             </View>
-            {entry?.routeMapSnapshotBase64 || entry?.mapSnapshotBase64 ? (
+            {routeSegments.length > 0 || locPoint ? (
+              // Karte mit Flugroute (sofort aus der ausgedünnten Route berechnet,
+              // Kacheln aus dem Offline-Cache oder online) – ohne Route nur der Ort.
+              <View style={styles.cardMap}>
+                <StaticRouteMap
+                  segments={routeSegments}
+                  point={locPoint}
+                  width={mapW}
+                  height={mapH}
+                  dark={isDark}
+                  borderColor={theme.border}
+                />
+              </View>
+            ) : entry?.routeMapSnapshotBase64 || entry?.mapSnapshotBase64 ? (
               <Image
                 source={{
                   uri: `data:image/jpeg;base64,${entry.routeMapSnapshotBase64 || entry.mapSnapshotBase64}`,
                 }}
-                style={[styles.cardThumb, { borderColor: theme.border }]}
+                style={[styles.cardMap, { width: mapW, height: mapH, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.border }]}
                 resizeMode="cover"
               />
-            ) : previewTracks.length > 0 ? (
-              <View style={[styles.cardThumb, { borderWidth: 0, backgroundColor: "transparent", overflow: "hidden" }]}>
-                <MiniTrackSketch tracks={previewTracks} height={60} />
-              </View>
             ) : null}
           </View>
         </Pressable>
@@ -1148,6 +1169,9 @@ const styles = StyleSheet.create({
   },
   cardInfo: {
     flex: 1,
+  },
+  cardMap: {
+    marginLeft: Spacing.md,
   },
   cardThumb: {
     width: 60,
