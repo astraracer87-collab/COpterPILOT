@@ -528,6 +528,9 @@ export interface DroneBattery {
   source?: "manual" | "dji-log";
   /** Vom Piloten vergebene Akku-Nummer 1–10 (Beschriftung am Akku). */
   number?: number;
+  /** Ausgemustert (ISO): Akku bleibt mit Historie erhalten, wird aber nicht
+   *  mehr zur Auswahl angeboten; seine Nummer ist für einen Nachfolger frei. */
+  retiredAt?: string;
 }
 
 export interface BatteryUsage {

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { View, StyleSheet, ScrollView, Pressable, ActivityIndicator } from "react-native";
+import { View, StyleSheet, ScrollView, Pressable, ActivityIndicator, Alert } from "react-native";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import type { RouteProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -29,6 +29,7 @@ import {
   plausibleTs,
   BATTERY_NUMBER_MAX,
   normalizeCycleCount,
+  takenBatteryNumbers,
 } from "@/lib/djiBatteryLink";
 import Svg, { Polyline, Circle } from "react-native-svg";
 import { batteryKey } from "@/lib/charger/batteryFingerprint";
@@ -106,16 +107,26 @@ export default function BatteryDetailScreen() {
 
   const cycles = history.length;
   const batteryNumber = battery ? batteryNumberOf(battery) : undefined;
-  const takenNumbers = useMemo(
-    () =>
-      new Set(
-        (drone?.batteries ?? [])
-          .filter((b) => b.id !== batteryId)
-          .map((b) => batteryNumberOf(b))
-          .filter((n): n is number => n != null),
-      ),
-    [drone, batteryId],
-  );
+  const takenNumbers = useMemo(() => takenBatteryNumbers(drone?.batteries ?? [], batteryId), [drone, batteryId]);
+  const setRetired = async (retired: boolean) => {
+    if (!drone || !battery) return;
+    const nextBatteries = (drone.batteries ?? []).map((b) => {
+      if (b.id !== batteryId) return b;
+      if (retired) return { ...b, retiredAt: new Date().toISOString() };
+      // Reaktivieren: belegte Nummer freigeben, sonst behalten
+      const n = batteryNumberOf(b);
+      const clash = n != null && takenNumbers.has(n);
+      return clash
+        ? { ...b, retiredAt: undefined, number: undefined, name: batteryDisplayName({ serialNumber: b.serialNumber }) }
+        : { ...b, retiredAt: undefined };
+    });
+    setDrone({ ...drone, batteries: nextBatteries });
+    try {
+      await updateDrone(drone.id, { batteries: nextBatteries });
+    } catch {
+      // Anzeige bleibt; beim nächsten Öffnen wird der gespeicherte Stand geladen
+    }
+  };
   const setBatteryNumber = async (n: number | null) => {
     if (!drone || !battery) return;
     const nextBatteries = (drone.batteries ?? []).map((b) =>
@@ -192,6 +203,7 @@ export default function BatteryDetailScreen() {
           <View style={{ flex: 1 }}>
             <ThemedText style={styles.title}>
               {battery ? batteryDisplayName(battery) : "Akku"}
+              {battery?.retiredAt ? " (ausgemustert)" : ""}
             </ThemedText>
             <ThemedText style={[styles.subtitle, { color: theme.textSecondary }]}>
               {drone?.name ? `${drone.name} · ` : ""}SN: {battery?.serialNumber || "—"}
@@ -236,7 +248,7 @@ export default function BatteryDetailScreen() {
           ) : null}
         </Card>
 
-        {battery ? (
+        {battery && !battery.retiredAt ? (
           <Card style={styles.statsCard}>
             <ThemedText style={[styles.statLabel, { color: theme.textSecondary }]}>
               AKKU-NUMMER (WIE AM AKKU BESCHRIFTET)
@@ -268,6 +280,43 @@ export default function BatteryDetailScreen() {
               })}
             </View>
           </Card>
+        ) : null}
+
+        {battery ? (
+          <Pressable
+            testID="battery-detail-retire"
+            onPress={() => {
+              if (battery.retiredAt) {
+                setRetired(false);
+                return;
+              }
+              Alert.alert(
+                "Akku ausmustern",
+                "Flug- und Ladehistorie bleiben erhalten. Der Akku wird nicht mehr zur Auswahl angeboten, seine Nummer wird für einen neuen Akku frei.",
+                [
+                  { text: "Abbrechen", style: "cancel" },
+                  { text: "Ausmustern", onPress: () => setRetired(true) },
+                ],
+              );
+            }}
+            style={({ pressed }) => [
+              styles.historyCard,
+              { borderColor: theme.border, backgroundColor: theme.backgroundSecondary },
+              pressed && { opacity: 0.75 },
+            ]}
+          >
+            <Feather name={battery.retiredAt ? "rotate-ccw" : "archive"} size={20} color={theme.textSecondary} />
+            <View style={{ flex: 1 }}>
+              <ThemedText style={styles.historyTitle}>
+                {battery.retiredAt ? "Wieder in Betrieb nehmen" : "Akku ausmustern"}
+              </ThemedText>
+              <ThemedText style={[styles.historyMeta, { color: theme.textSecondary }]}>
+                {battery.retiredAt
+                  ? `Ausgemustert am ${formatDate(battery.retiredAt)} – Historie bleibt erhalten`
+                  : "Ersetzt oder entsorgt – Historie bleibt erhalten"}
+              </ThemedText>
+            </View>
+          </Pressable>
         ) : null}
 
         {cycleHistory.length > 0 ? (

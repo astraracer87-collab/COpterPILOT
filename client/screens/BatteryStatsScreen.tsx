@@ -157,8 +157,9 @@ export default function BatteryStatsScreen() {
         <View style={styles.titleRow}>
           <Feather name="battery" size={18} color={theme.primary} />
           <View style={{ flex: 1 }}>
-            <ThemedText style={styles.title} numberOfLines={1}>
+            <ThemedText style={[styles.title, s.retiredAt ? { opacity: 0.6 } : null]} numberOfLines={1}>
               {s.name}
+              {s.retiredAt ? " · ausgemustert" : ""}
             </ThemedText>
             <ThemedText
               style={[styles.sub, { color: theme.textSecondary }]}

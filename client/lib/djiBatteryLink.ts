@@ -26,6 +26,26 @@ export interface LinkBattery {
   source?: "manual" | "dji-log";
   /** Vom Piloten vergebene Akku-Nummer (1–10, z. B. Beschriftung am Akku) */
   number?: number;
+  /** Ausgemustert (ISO) – Historie bleibt, keine Auswahl mehr */
+  retiredAt?: string;
+}
+
+export function isBatteryRetired(b: { retiredAt?: string | null }): boolean {
+  return !!b.retiredAt;
+}
+
+/** Nummern, die aktive (nicht ausgemusterte) Akkus belegen. */
+export function takenBatteryNumbers(
+  batteries: readonly { id: string; number?: number; name?: string; retiredAt?: string }[],
+  exceptId?: string | null,
+): Set<number> {
+  const out = new Set<number>();
+  for (const b of batteries) {
+    if (b.id === exceptId || isBatteryRetired(b)) continue;
+    const n = batteryNumberOf(b);
+    if (n != null) out.add(n);
+  }
+  return out;
 }
 
 export const BATTERY_NUMBER_MAX = 10;
@@ -48,9 +68,13 @@ export function batteryDisplayName(b: { number?: number; name?: string; serialNu
 
 /** Sortierung: nummerierte Akkus zuerst (1, 2, …), dann nach Name. */
 export function compareBatteries(
-  a: { number?: number; name?: string; serialNumber?: string },
-  b: { number?: number; name?: string; serialNumber?: string },
+  a: { number?: number; name?: string; serialNumber?: string; retiredAt?: string },
+  b: { number?: number; name?: string; serialNumber?: string; retiredAt?: string },
 ): number {
+  // ausgemusterte Akkus ans Ende
+  const ra = isBatteryRetired(a) ? 1 : 0;
+  const rb = isBatteryRetired(b) ? 1 : 0;
+  if (ra !== rb) return ra - rb;
   const na = batteryNumberOf(a);
   const nb = batteryNumberOf(b);
   if (na != null && nb != null) return na - nb;
@@ -298,6 +322,8 @@ export interface BatteryStat {
   name: string;
   /** Akku-Nummer (1–10), falls vergeben */
   number?: number;
+  /** Ausgemustert (ISO) */
+  retiredAt?: string;
   serialNumber?: string;
   /** Anzahl Flüge (Logbuch-Einträge) mit diesem Akku */
   flightCount: number;
@@ -351,6 +377,7 @@ export function computeBatteryStats(
         droneName: d.name,
         name: batteryDisplayName(b),
         number: batteryNumberOf(b),
+        ...(b.retiredAt ? { retiredAt: b.retiredAt } : {}),
         serialNumber: b.serialNumber || undefined,
         flightCount: 0,
         cycleCount: normalizeCycleCount(b.cycleCount),

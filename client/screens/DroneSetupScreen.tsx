@@ -1,4 +1,4 @@
-import { batteryNumberOf, batteryDisplayName, compareBatteries, BATTERY_NUMBER_MAX } from "@/lib/djiBatteryLink";
+import { batteryNumberOf, batteryDisplayName, compareBatteries, BATTERY_NUMBER_MAX, takenBatteryNumbers } from "@/lib/djiBatteryLink";
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { DroneImage, ManufacturerBadge } from "@/components/DroneImage";
 import { beaufortLevel, warnThresholdMs, WIND_WARN_FRACTION } from "@/lib/beaufort";
@@ -854,7 +854,7 @@ export default function DroneSetupScreen() {
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
               {
-                const used = new Set(batteries.map((x) => batteryNumberOf(x)).filter((n): n is number => n != null));
+                const used = takenBatteryNumbers(batteries);
                 let free: number | null = null;
                 for (let n = 1; n <= BATTERY_NUMBER_MAX; n++) if (!used.has(n)) { free = n; break; }
                 setBatteryEditor({ visible: true, editingId: null, number: free, serial: "" });
@@ -905,9 +905,14 @@ export default function DroneSetupScreen() {
                 >
                   <Feather name="battery" size={18} color={theme.primary} />
                   <View style={{ flex: 1 }}>
-                    <ThemedText style={{ ...Typography.body, fontWeight: "600" }}>
+                    <ThemedText style={{ ...Typography.body, fontWeight: "600", opacity: b.retiredAt ? 0.55 : 1 }}>
                       {batteryDisplayName(b)} · SN: {b.serialNumber || "—"}
                     </ThemedText>
+                    {b.retiredAt ? (
+                      <ThemedText style={{ ...Typography.caption, color: theme.textTertiary }}>
+                        Ausgemustert am {new Date(b.retiredAt).toLocaleDateString("de-DE")} · Historie bleibt erhalten
+                      </ThemedText>
+                    ) : null}
                   </View>
                 </Pressable>
                 <Pressable
@@ -919,11 +924,44 @@ export default function DroneSetupScreen() {
                   <Feather name="edit-2" size={16} color={theme.textSecondary} />
                 </Pressable>
                 <Pressable
+                  testID={`battery-retire-${b.id}`}
+                  onPress={() => {
+                    if (b.retiredAt) {
+                      if (b.number != null && takenBatteryNumbers(batteries, b.id).has(b.number)) {
+                        Alert.alert(
+                          "Nummer belegt",
+                          `Die Nummer ${b.number} hat inzwischen ein anderer Akku. Der Akku wird ohne Nummer reaktiviert – du kannst ihm danach eine freie Nummer geben.`,
+                        );
+                        setBatteries((prev) => prev.map((x) => (x.id === b.id ? { ...x, retiredAt: undefined, number: undefined, name: batteryDisplayName({ serialNumber: x.serialNumber }) } : x)));
+                        return;
+                      }
+                      setBatteries((prev) => prev.map((x) => (x.id === b.id ? { ...x, retiredAt: undefined } : x)));
+                      return;
+                    }
+                    Alert.alert(
+                      "Akku ausmustern",
+                      `„${batteryDisplayName(b)}" als ausgemustert markieren? Flug- und Ladehistorie bleiben erhalten, der Akku wird aber nicht mehr zur Auswahl angeboten. Seine Nummer wird für einen neuen Akku frei.`,
+                      [
+                        { text: "Abbrechen", style: "cancel" },
+                        {
+                          text: "Ausmustern",
+                          onPress: () => setBatteries((prev) => prev.map((x) => (x.id === b.id ? { ...x, retiredAt: new Date().toISOString() } : x))),
+                        },
+                      ],
+                    );
+                  }}
+                  hitSlop={8}
+                  accessibilityLabel={b.retiredAt ? "Akku reaktivieren" : "Akku ausmustern"}
+                  style={({ pressed }) => [styles.batteryIconBtn, pressed && { opacity: 0.6 }]}
+                >
+                  <Feather name={b.retiredAt ? "rotate-ccw" : "archive"} size={16} color={theme.textSecondary} />
+                </Pressable>
+                <Pressable
                   testID={`battery-delete-${b.id}`}
                   onPress={() => {
                     Alert.alert(
                       "Akku entfernen",
-                      `„${b.name}" wirklich löschen? Bereits gespeicherte Flugeinträge bleiben erhalten.`,
+                      `„${batteryDisplayName(b)}" endgültig löschen? Tipp: „Ausmustern" (Archiv-Symbol) behält die Historie. Gespeicherte Flugeinträge bleiben in jedem Fall erhalten.`,
                       [
                         { text: "Abbrechen", style: "cancel" },
                         {
@@ -1297,7 +1335,7 @@ export default function DroneSetupScreen() {
             <ThemedText style={[styles.sectionLabel, { color: theme.textSecondary }]}>AKKU-NUMMER (WIE AM AKKU BESCHRIFTET)</ThemedText>
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: Spacing.xs }}>
               {Array.from({ length: BATTERY_NUMBER_MAX }, (_, i) => i + 1).map((n) => {
-                const takenBy = batteries.find((x) => x.id !== batteryEditor.editingId && batteryNumberOf(x) === n);
+                const takenBy = takenBatteryNumbers(batteries, batteryEditor.editingId).has(n);
                 const active = batteryEditor.number === n;
                 return (
                   <Pressable

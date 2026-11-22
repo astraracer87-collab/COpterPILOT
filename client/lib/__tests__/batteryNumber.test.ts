@@ -78,3 +78,16 @@ describe("DJI-Produktcode 139", () => {
     assert.equal(dronesCompatible("DJI 139", "Mini 5 Pro"), true);
   });
 });
+
+describe("Akku ausmustern", () => {
+  it("ausgemusterter Akku gibt seine Nummer frei und steht hinten", async () => {
+    const { takenBatteryNumbers, compareBatteries, batteryDisplayName } = await import("../djiBatteryLink");
+    const old = { id: "a", name: "Akku 1", number: 1, retiredAt: "2026-11-01T00:00:00Z" };
+    const fresh = { id: "b", name: "Akku 2", number: 2 };
+    assert.equal(takenBatteryNumbers([old, fresh]).has(1), false);
+    assert.equal(takenBatteryNumbers([old, fresh]).has(2), true);
+    const sorted = [old, fresh, { id: "c", name: "Akku 1", number: 1 }].sort(compareBatteries);
+    assert.deepEqual(sorted.map((b) => b.id), ["c", "b", "a"]);
+    assert.equal(batteryDisplayName(old), "Akku 1");
+  });
+});

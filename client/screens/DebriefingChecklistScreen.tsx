@@ -581,7 +581,7 @@ export default function DebriefingChecklistScreen() {
 
         {drone?.batteries && drone.batteries.length > 0 ? (
           <BatterySelectionBlock
-            batteries={drone.batteries}
+            batteries={drone.batteries.filter((b) => !b.retiredAt)}
             mode="post"
             initial={batteryInitial}
             onChange={setBatteryUsage}

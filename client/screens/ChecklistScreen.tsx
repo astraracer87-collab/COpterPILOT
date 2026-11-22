@@ -320,7 +320,7 @@ export default function ChecklistScreen() {
 
         {drone?.batteries && drone.batteries.length > 0 ? (
           <BatterySelectionBlock
-            batteries={drone.batteries}
+            batteries={drone.batteries.filter((b) => !b.retiredAt)}
             mode="pre"
             onChange={setBatteryUsage}
           />
