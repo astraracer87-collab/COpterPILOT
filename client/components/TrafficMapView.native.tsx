@@ -2243,7 +2243,7 @@ export default function TrafficMapView({
                 ...(Platform.OS === "ios" ? { shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 4 } : { elevation: 4 }),
               }}
             >
-              <DroneImage manufacturer={dronePill.manufacturer} model={dronePill.model} size={28} iconColor="#0A84FF" iconSize={20} />
+              <DroneImage manufacturer={dronePill.manufacturer} model={dronePill.model} size={34} iconColor="#0A84FF" iconSize={22} />
               <Text style={{ fontSize: 12, fontWeight: "700", color: "#0A84FF" }} numberOfLines={1}>{dronePill.label}</Text>
             </Pressable>
           ) : null}

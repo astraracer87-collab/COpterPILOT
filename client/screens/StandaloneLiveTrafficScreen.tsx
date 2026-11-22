@@ -1507,12 +1507,12 @@ export default function StandaloneLiveTrafficScreen() {
                           testID={`radar-drone-${d.id}`}
                           onPress={() => chooseDrone(d)}
                           style={{
-                            width: 128, alignItems: "center", padding: 10, borderRadius: 14,
+                            width: 150, alignItems: "center", padding: 10, borderRadius: 14,
                             borderWidth: 2, borderColor: active ? "#0A84FF" : theme.border,
                             backgroundColor: active ? "rgba(10,132,255,0.12)" : "transparent",
                           }}
                         >
-                          <DroneImage manufacturer={d.manufacturer} model={d.model} size={88} iconColor={theme.textSecondary} iconSize={52} />
+                          <DroneImage manufacturer={d.manufacturer} model={d.model} size={110} iconColor={theme.textSecondary} iconSize={60} />
                           <Text style={{ fontSize: 13, fontWeight: "600", color: theme.text, marginTop: 6 }} numberOfLines={1}>{d.name}</Text>
                           <Text style={{ fontSize: 11, color: "#0A84FF", fontWeight: "700" }}>VLOS {vm} m</Text>
                         </Pressable>

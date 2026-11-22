@@ -502,7 +502,7 @@ export default function DjiBulkImportScreen() {
                 onPress={() => setDronePickerGroup(group.id)}
                 style={[styles.detectedDrone, { borderColor: theme.statusGo }]}
               >
-                <DroneImage manufacturer={det.manufacturer} model={det.model} size={26} iconColor={theme.statusGo} iconSize={18} />
+                <DroneImage manufacturer={det.manufacturer} model={det.model} size={32} iconColor={theme.statusGo} iconSize={20} />
                 <View style={{ flex: 1 }}>
                   <ThemedText style={[styles.detectedText, { color: theme.statusGo }]} numberOfLines={1}>
                     Erkannt: {det.name}
@@ -908,7 +908,7 @@ export default function DjiBulkImportScreen() {
                   onPress={() => dronePickerGroup && assignDroneToGroup(dronePickerGroup, d)}
                   style={[styles.dronePickRow, { borderColor: theme.border }]}
                 >
-                  <DroneImage manufacturer={d.manufacturer} model={d.model} size={40} iconColor={theme.textSecondary} iconSize={26} />
+                  <DroneImage manufacturer={d.manufacturer} model={d.model} size={50} iconColor={theme.textSecondary} iconSize={30} />
                   <View style={{ flex: 1 }}>
                     <ThemedText style={{ fontSize: 14, fontWeight: "600", color: theme.text }} numberOfLines={1}>{d.name}</ThemedText>
                     {d.serialNumber ? (

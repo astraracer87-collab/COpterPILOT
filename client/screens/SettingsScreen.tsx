@@ -448,7 +448,7 @@ export default function SettingsScreen() {
             >
               <View style={{ flexDirection: "row", alignItems: "center", gap: Spacing.sm }}>
                 <Feather name={isSelected ? "check-circle" : "circle"} size={22} color={isSelected ? theme.primary : theme.textTertiary} />
-                <DroneImage manufacturer={drone.manufacturer} model={drone.model} size={44} iconColor={theme.textSecondary} iconSize={22} />
+                <DroneImage manufacturer={drone.manufacturer} model={drone.model} size={54} iconColor={theme.textSecondary} iconSize={26} />
               </View>
             </Pressable>
           }

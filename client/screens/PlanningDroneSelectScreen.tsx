@@ -117,7 +117,7 @@ export default function PlanningDroneSelectScreen() {
           >
             <Card style={styles.tile}>
               <View style={[styles.tileImageWrap, { backgroundColor: theme.backgroundSecondary }]}>
-                <DroneImage manufacturer={item.manufacturer} model={item.model} size={Math.min(130, tileWidth - 48)} iconColor={theme.primary} iconSize={56} />
+                <DroneImage manufacturer={item.manufacturer} model={item.model} size={Math.min(165, tileWidth - 24)} iconColor={theme.primary} iconSize={56} />
                 <View style={[styles.statusDot, { backgroundColor: getStatusColor(status) }]} />
               </View>
               <ThemedText style={styles.tileName} numberOfLines={2}>{item.name}</ThemedText>

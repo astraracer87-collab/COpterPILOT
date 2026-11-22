@@ -407,7 +407,7 @@ export default function DroneSetupScreen() {
           testID={`preset-${key}`}
         >
           <View style={styles.modelImage}>
-            <DroneImage manufacturer={item.manufacturer} model={item.model} size={104} iconColor={theme.textTertiary} iconSize={40} />
+            <DroneImage manufacturer={item.manufacturer} model={item.model} size={130} iconColor={theme.textTertiary} iconSize={48} />
             {opening ? (
               <View style={styles.modelSpinner}>
                 <ActivityIndicator size="small" color={theme.primary} />
@@ -507,7 +507,7 @@ export default function DroneSetupScreen() {
   const renderSidePanel = () => (
     <View style={[styles.sidePanel, { backgroundColor: theme.backgroundDefault, borderColor: theme.border }]} testID="drone-side-panel">
       <View style={[styles.sideImage, { backgroundColor: theme.backgroundSecondary }]}>
-        <DroneImage manufacturer={manufacturer} model={model} size={150} iconColor={theme.primary} iconSize={64} />
+        <DroneImage manufacturer={manufacturer} model={model} size={150} iconColor={theme.primary} iconSize={64} fill />
       </View>
       <ThemedText style={styles.sideName} numberOfLines={2}>
         {name.trim() || (isEditing ? "Drohne bearbeiten" : "Neue Drohne")}
@@ -557,7 +557,7 @@ export default function DroneSetupScreen() {
       {!wide ? (
         <View style={styles.detailsHeader}>
           <View style={[styles.detailsImage, { backgroundColor: theme.backgroundSecondary }]}>
-            <DroneImage manufacturer={manufacturer} model={model} size={84} iconColor={theme.primary} iconSize={40} />
+            <DroneImage manufacturer={manufacturer} model={model} size={104} iconColor={theme.primary} iconSize={46} />
           </View>
           <ThemedText style={[styles.stepTitle, { flex: 1 }]}>
             {isEditing ? "Drohne bearbeiten" : "Details eingeben"}
@@ -1436,7 +1436,7 @@ const styles = StyleSheet.create({
   mfrCell: { flex: 1, padding: Spacing.xs / 2 },
   modelCell: { flex: 1, padding: Spacing.xs / 2 },
   modelCard: { alignItems: "center", paddingVertical: Spacing.sm, paddingHorizontal: Spacing.sm, gap: 4 },
-  modelImage: { width: 104, height: 104, alignItems: "center", justifyContent: "center" },
+  modelImage: { width: 130, height: 130, alignItems: "center", justifyContent: "center" },
   modelSpinner: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, alignItems: "center", justifyContent: "center" },
   modelName: { fontSize: 15, fontWeight: "700", textAlign: "center", lineHeight: 19 },
   mfrCard: { alignItems: "center", justifyContent: "center", gap: Spacing.xs, paddingVertical: Spacing.md, paddingHorizontal: Spacing.sm },
@@ -1456,7 +1456,7 @@ const styles = StyleSheet.create({
   },
   presetImage: { width: 48, height: 48, alignItems: "center", justifyContent: "center", marginRight: Spacing.md },
   detailsHeader: { flexDirection: "row", alignItems: "center", gap: Spacing.lg },
-  detailsImage: { width: 92, height: 92, borderRadius: 16, alignItems: "center", justifyContent: "center", overflow: "hidden" },
+  detailsImage: { width: 115, height: 115, borderRadius: 16, alignItems: "center", justifyContent: "center", overflow: "hidden" },
   presetCard: {
     flexDirection: "row",
     alignItems: "center",

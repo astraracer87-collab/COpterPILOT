@@ -35,15 +35,25 @@ export function DroneImage({
   size,
   iconColor,
   iconSize = 24,
+  fill = false,
 }: {
   manufacturer?: string;
   model?: string;
   size: number;
   iconColor: string;
   iconSize?: number;
+  /** Bild füllt den umgebenden Rahmen (Breite/Höhe 100 %) statt fester Größe */
+  fill?: boolean;
 }) {
   const src = getDroneImage(manufacturer, model);
-  if (src) return <Image source={src} style={{ width: size, height: size }} resizeMode="contain" />;
+  if (src)
+    return (
+      <Image
+        source={src}
+        style={fill ? { width: "100%", height: "100%" } : { width: size, height: size }}
+        resizeMode="contain"
+      />
+    );
   if (manufacturer?.trim()) return <ManufacturerBadge manufacturer={manufacturer.trim()} size={size} color={iconColor} />;
   return <MaterialCommunityIcons name="quadcopter" size={iconSize} color={iconColor} />;
 }
