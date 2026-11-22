@@ -85,6 +85,8 @@ interface TrafficMapViewProps {
   onMapStyleChange?: (style: "standard" | "satellite" | "osm" | "grayscale") => void;
   onCenterGps?: () => void;
   onSettingsPress?: () => void;
+  /** Radius (m), innerhalb dessen markierte Zonen farbig hervorgehoben werden */
+  highlightClipRadiusM?: number;
   /** Geozonen sichtbar (Schalter) */
   geozonesEnabled?: boolean;
   /** Schnellschalter Geozonen */

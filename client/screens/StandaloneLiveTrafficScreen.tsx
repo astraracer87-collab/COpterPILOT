@@ -1487,6 +1487,8 @@ export default function StandaloneLiveTrafficScreen() {
               taRadiusM={(alarmSettings.ta?.radiusKm ?? 3) * 1000}
               scanRadiusM={showRadar ? radiusKm * 1000 : 0}
               vlosRadiusM={vlosKm * 1000}
+              // Zonen nur innerhalb der VLOS-Reichweite farbig hervorheben
+              highlightClipRadiusM={vlosKm * 1000}
               dronePill={dronePill}
               onLongPress={handleMapLongPress}
               wind={showWindsock ? wind : null}
