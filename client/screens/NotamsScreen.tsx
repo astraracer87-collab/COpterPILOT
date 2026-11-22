@@ -1,3 +1,4 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   View,
@@ -358,6 +359,10 @@ function RestrictionCard({ restriction, theme, onShowOnMap }: { restriction: Dip
   );
 }
 
+const NOTAM_SCOPE_KEY = "notams:countryScope";
+/** Kartenmitte für „Alle Länder“ (Mitteleuropa) */
+const ALL_CENTER = { lat: 50.3, lon: 8.5 };
+
 function SectionHeader({ title, count, color, icon, theme }: { title: string; count: number; color: string; icon: string; theme: any }) {
   return (
     <View style={[styles.sectionHeader, { borderLeftColor: color, borderLeftWidth: 3 }]}>
@@ -397,7 +402,7 @@ function NotamMapView({ restrictions, milStatusMap, centerLat, centerLon, focusL
   // Delta aus dem Länder-Profil ableiten, damit beim Wechsel z. B. nach
   // Deutschland nicht nur ein 2°-Ausschnitt um Mittelpunkt zu sehen ist,
   // sondern das ganze Land aufs Display passt.
-  const countryDefaults = getCountryDefaultCenter(countryIso || "DE");
+  const countryDefaults = countryIso ? getCountryDefaultCenter(countryIso) : { ...ALL_CENTER, latDelta: 9, lonDelta: 12 };
   const defaultDelta = { latitudeDelta: countryDefaults.latDelta, longitudeDelta: countryDefaults.lonDelta };
 
   const validMapPoint = (lat: number, lon: number) =>
@@ -1205,24 +1210,38 @@ export default function NotamsScreen() {
   const [currentLon, setCurrentLon] = useState<number | undefined>(locationLon);
   // Land kommt jetzt ausschließlich aus den Einstellungen (preferredCountryIso).
   // null = Settings noch nicht geladen → keine Daten anzeigen.
+  // null = alle unterstützten Länder (Standard), sonst ISO des gewählten Landes
   const [detectedCountry, setDetectedCountry] = useState<string | null>(null);
+  const [scopeLoaded, setScopeLoaded] = useState(false);
   useFocusEffect(
     useCallback(() => {
       let active = true;
       (async () => {
         try {
-          const s = await getSettings();
-          if (active) setDetectedCountry((s.preferredCountryIso || "DE").toUpperCase());
+          const v = await AsyncStorage.getItem(NOTAM_SCOPE_KEY);
+          if (active) setDetectedCountry(v && v !== "ALL" ? v.toUpperCase() : null);
         } catch {
-          if (active) setDetectedCountry("DE");
+          if (active) setDetectedCountry(null);
+        } finally {
+          if (active) setScopeLoaded(true);
         }
       })();
       return () => { active = false; };
     }, [])
   );
+  const [expandedCountries, setExpandedCountries] = useState<Set<string>>(new Set());
+  const toggleCountry = useCallback((iso: string) => {
+    setExpandedCountries((prev) => {
+      const next = new Set(prev);
+      if (next.has(iso)) next.delete(iso);
+      else next.add(iso);
+      return next;
+    });
+  }, []);
   const [result, setResult] = useState<DipulTempRestrictionsResult>({ active: [], upcoming: [] });
   const [luTsaZones, setLuTsaZones] = useState<{ id: string; nomZone: string; description: string; status: string; nature: string; dateRange: string; altitude: string; remarks: string; durPrev: string; resp: string; polygonRings?: [number, number][][]; centerLat?: number; centerLon?: number }[]>([]);
-  const [ed269Notams, setEd269Notams] = useState<DipulTempRestriction[]>([]);
+  const [ed269ByIso, setEd269ByIso] = useState<Record<string, DipulTempRestriction[]>>({});
+  const ed269Notams = useMemo(() => Object.values(ed269ByIso).flat(), [ed269ByIso]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | undefined>();
@@ -1238,13 +1257,16 @@ export default function NotamsScreen() {
 
   const handleSelectCountry = useCallback(async (iso: string) => {
     setCountryPickerOpen(false);
-    try {
-      const s = await getSettings();
-      await saveSettings({ ...s, preferredCountryIso: iso });
-    } catch {
-      // Settings konnten nicht gespeichert werden — UI-State trotzdem aktualisieren
+    AsyncStorage.setItem(NOTAM_SCOPE_KEY, iso.toUpperCase()).catch(() => {});
+    setDetectedCountry(iso === "ALL" ? null : iso.toUpperCase());
+    setMapFocusLat(undefined);
+    setMapFocusLon(undefined);
+    setMapFocusId(undefined);
+    if (iso === "ALL") {
+      setCurrentLat(ALL_CENTER.lat);
+      setCurrentLon(ALL_CENTER.lon);
+      return;
     }
-    setDetectedCountry(iso.toUpperCase());
     // Standort & Fokus zurücksetzen, damit Karte aufs neue Land zentriert
     const c = getCountryDefaultCenter(iso);
     setCurrentLat(c.lat);
@@ -1255,7 +1277,14 @@ export default function NotamsScreen() {
   }, []);
 
   useEffect(() => {
-    if (!detectedCountry) return; // warte bis preferredCountryIso geladen ist
+    if (!scopeLoaded) return;
+    if (!detectedCountry) {
+      if (currentLat == null || currentLon == null) {
+        setCurrentLat(ALL_CENTER.lat);
+        setCurrentLon(ALL_CENTER.lon);
+      }
+      return;
+    }
     const c = getCountryDefaultCenter(detectedCountry);
     const fallbackLat = c.lat;
     const fallbackLon = c.lon;
@@ -1297,7 +1326,7 @@ export default function NotamsScreen() {
       }
     })();
     return () => { active = false; };
-  }, [detectedCountry]);
+  }, [detectedCountry, scopeLoaded]);
 
   const parseLuRaw = useCallback((raw: any[]) => raw.map((r: any) => {
     const lines = (r.iteme || "").split("\n");
@@ -1384,25 +1413,26 @@ export default function NotamsScreen() {
           : NOTAM_LIST_SOURCE_ISOS.includes(detectedCountry)
             ? [detectedCountry]
             : [];
+      if (!scopeLoaded) return;
       if (isos.length === 0) {
-        setEd269Notams([]);
+        setEd269ByIso({});
         return;
       }
-      try {
-        const collected: GeozoneFeatureInfo[] = [];
-        for (const iso of isos) {
+      const next: Record<string, DipulTempRestriction[]> = {};
+      for (const iso of isos) {
+        try {
           const feats = await queryEd269CachedFeatures(0, 0, 1, iso, undefined, true, 30);
-          collected.push(...feats);
+          next[iso] = ed269ZonesToNotamRestrictions(feats as GeozoneFeatureInfo[]);
+        } catch {
+          next[iso] = [];
         }
-        if (!cancelled) setEd269Notams(ed269ZonesToNotamRestrictions(collected));
-      } catch {
-        if (!cancelled) setEd269Notams([]);
       }
+      if (!cancelled) setEd269ByIso(next);
     })();
     return () => {
       cancelled = true;
     };
-  }, [detectedCountry]);
+  }, [detectedCountry, scopeLoaded]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -1489,6 +1519,163 @@ export default function NotamsScreen() {
     setActiveNotamCount(activeCount);
   }, [activeCount]);
 
+  // Länderblöcke der Liste (einzeln oder gruppiert nach Land)
+  const renderDe = () => (
+    <>
+              {filteredActive.filter((r) => r.kind === "mil_low_flight_day").length > 0 ? (
+                <>
+                  <SectionHeader
+                    title="Mil. Tieffluggebiete (Tag)"
+                    count={filteredActive.filter((r) => r.kind === "mil_low_flight_day").length}
+                    color="#7B8B3A"
+                    icon="shield"
+                    theme={theme}
+                  />
+                  {filteredActive.filter((r) => r.kind === "mil_low_flight_day").map((r) => (
+                    <RestrictionCard key={r.id} restriction={r} theme={theme} onShowOnMap={handleShowOnMap} />
+                  ))}
+                </>
+              ) : null}
+
+              {filteredActive.filter((r) => r.kind !== "mil_low_flight_day").length > 0 ? (
+                <>
+                  <SectionHeader title="Aktuell aktiv" count={filteredActive.filter((r) => r.kind !== "mil_low_flight_day").length} color="#FF3B30" icon="zap" theme={theme} />
+                  {filteredActive.filter((r) => r.kind !== "mil_low_flight_day").map((r) => (
+                    <RestrictionCard key={r.id} restriction={r} theme={theme} onShowOnMap={handleShowOnMap} />
+                  ))}
+                </>
+              ) : null}
+
+              {filteredUpcoming.length > 0 ? (
+                <>
+                  <SectionHeader title="Zukünftig geplant" count={filteredUpcoming.length} color="#5856D6" icon="clock" theme={theme} />
+                  {filteredUpcoming.map((r) => (
+                    <RestrictionCard key={r.id} restriction={r} theme={theme} onShowOnMap={handleShowOnMap} />
+                  ))}
+                </>
+              ) : null}
+
+    </>
+  );
+  const renderLu = () => (
+    <>
+              {filteredLuTsa.length > 0 ? (
+                <>
+                  {false ? (
+                    <View style={[styles.scopeBanner, { backgroundColor: "rgba(88,86,214,0.08)", marginTop: Spacing.lg }]}>
+                      <Feather name="globe" size={14} color="#5856D6" />
+                      <ThemedText style={[styles.scopeBannerText, { color: "#5856D6" }]}>
+                        Luxemburg — UAS-Beschränkungen (TSA/Geozonen)
+                      </ThemedText>
+                    </View>
+                  ) : null}
+                  <SectionHeader title="UAS-Beschränkungen" count={filteredLuTsa.length} color="#5856D6" icon="shield" theme={theme} />
+                  {filteredLuTsa.map((z, i) => {
+                    const isActive = z.status === "Aktiv";
+                    const statusColor = isActive ? "#FF9500" : "#8E8E93";
+                    return (
+                      <Card key={`lu-tsa-${i}`} style={[styles.restrictionCard, { borderLeftColor: statusColor, borderLeftWidth: 4 }]}>
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                          <Feather name="shield" size={14} color={statusColor} />
+                          <ThemedText style={[styles.restrictionName, { color: theme.text, flex: 1 }]}>{z.nomZone}</ThemedText>
+                          <View style={[styles.typeBadge, { backgroundColor: isActive ? "rgba(255,149,0,0.12)" : "rgba(142,142,147,0.12)" }]}>
+                            <ThemedText style={[styles.typeBadgeText, { color: statusColor }]}>{z.status || "TSA"}</ThemedText>
+                          </View>
+                        </View>
+                        <ThemedText style={[styles.restrictionDetail, { color: theme.textSecondary }]}>{z.description}</ThemedText>
+                        {z.nature ? (
+                          <View style={styles.restrictionRow}>
+                            <Feather name="info" size={12} color={theme.textTertiary} />
+                            <ThemedText style={[styles.restrictionRowText, { color: theme.textSecondary }]}>{z.nature}</ThemedText>
+                          </View>
+                        ) : null}
+                        {z.dateRange ? (
+                          <View style={styles.restrictionRow}>
+                            <Feather name="calendar" size={12} color={theme.textTertiary} />
+                            <ThemedText style={[styles.restrictionRowText, { color: theme.textSecondary }]}>{z.dateRange}</ThemedText>
+                          </View>
+                        ) : null}
+                        {z.altitude ? (
+                          <View style={styles.restrictionRow}>
+                            <Feather name="arrow-up" size={12} color={theme.textTertiary} />
+                            <ThemedText style={[styles.restrictionRowText, { color: theme.textSecondary }]}>{z.altitude}</ThemedText>
+                          </View>
+                        ) : null}
+                        {z.resp ? (
+                          <View style={styles.restrictionRow}>
+                            <Feather name="user" size={12} color={theme.textTertiary} />
+                            <ThemedText style={[styles.restrictionRowText, { color: theme.textSecondary }]}>{z.resp}</ThemedText>
+                          </View>
+                        ) : null}
+                        {z.durPrev ? (
+                          <View style={styles.restrictionRow}>
+                            <Feather name="clock" size={12} color={theme.textTertiary} />
+                            <ThemedText style={[styles.restrictionRowText, { color: theme.textSecondary }]}>Vorankündigung: {z.durPrev}</ThemedText>
+                          </View>
+                        ) : null}
+                        {z.remarks ? (
+                          <ThemedText style={[styles.restrictionDetail, { color: theme.textTertiary, marginTop: 4, fontSize: 12 }]}>{z.remarks}</ThemedText>
+                        ) : null}
+                      </Card>
+                    );
+                  })}
+                  {isAdmin ? (
+                    <ThemedText style={[styles.sourceInfo, { color: theme.textTertiary }]}>
+                      Quelle: Geoportail.lu WMS — ANA Luxemburg
+                    </ThemedText>
+                  ) : null}
+                </>
+              ) : null}
+
+    </>
+  );
+  const renderEd269 = (list: DipulTempRestriction[]) => (
+    <>
+              {list.length > 0 ? (
+                <>
+                  <View style={[styles.scopeBanner, { backgroundColor: "rgba(255,149,0,0.08)", marginTop: Spacing.lg }]}>
+                    <Feather name="clock" size={14} color="#FF9500" />
+                    <ThemedText style={[styles.scopeBannerText, { color: "#FF9500" }]}>
+                      Temporäre Geozonen (Gültigkeit unter 30 Tagen)
+                    </ThemedText>
+                  </View>
+                  {list.filter((r) => r.status === "active").length > 0 ? (
+                    <>
+                      <SectionHeader title="Aktuell aktiv" count={list.filter((r) => r.status === "active").length} color="#FF9500" icon="zap" theme={theme} />
+                      {list.filter((r) => r.status === "active").map((r) => (
+                        <RestrictionCard key={r.id} restriction={r} theme={theme} onShowOnMap={handleShowOnMap} />
+                      ))}
+                    </>
+                  ) : null}
+                  {list.filter((r) => r.status === "upcoming").length > 0 ? (
+                    <>
+                      <SectionHeader title="Zukünftig geplant" count={list.filter((r) => r.status === "upcoming").length} color="#5856D6" icon="clock" theme={theme} />
+                      {list.filter((r) => r.status === "upcoming").map((r) => (
+                        <RestrictionCard key={r.id} restriction={r} theme={theme} onShowOnMap={handleShowOnMap} />
+                      ))}
+                    </>
+                  ) : null}
+                </>
+              ) : null}
+
+    </>
+  );
+  const countryGroups = useMemo(() => {
+    const groups: { iso: string; count: number; active: number }[] = [];
+    if (showDe) groups.push({ iso: "DE", count: filteredActive.length + filteredUpcoming.length, active: filteredActive.length });
+    if (showLu) groups.push({ iso: "LU", count: filteredLuTsa.length, active: filteredLuTsa.filter((z) => z.status === "Aktiv").length });
+    for (const iso of NOTAM_LIST_SOURCE_ISOS) {
+      if (iso === "DE" || iso === "LU") continue;
+      const list = ed269ByIso[iso] ?? [];
+      groups.push({ iso, count: list.length, active: list.filter((r) => r.status === "active").length });
+    }
+    // Länder mit Einträgen zuerst, sonst alphabetisch
+    return groups.sort((x, y) =>
+      (y.count > 0 ? 1 : 0) - (x.count > 0 ? 1 : 0) ||
+      (getCountryMapConfig(x.iso)?.nameDE || x.iso).localeCompare(getCountryMapConfig(y.iso)?.nameDE || y.iso, "de"),
+    );
+  }, [showDe, showLu, filteredActive, filteredUpcoming, filteredLuTsa, ed269ByIso]);
+
   const tabBg = theme.backgroundSecondary;
   const activeTabBg = theme.primary;
 
@@ -1531,7 +1718,28 @@ export default function NotamsScreen() {
           </Pressable>
         </View>
         <View style={{ flex: 1 }} />
-        {detectedCountry ? (
+        <Pressable
+          onPress={() => handleSelectCountry("ALL")}
+          hitSlop={8}
+          testID="button-notam-all-countries"
+          style={({ pressed }) => ({
+            flexDirection: "row",
+            alignItems: "center",
+            paddingHorizontal: Spacing.md,
+            paddingVertical: 6,
+            borderRadius: 999,
+            marginRight: Spacing.xs,
+            backgroundColor: detectedCountry == null ? theme.primary : theme.backgroundSecondary,
+            gap: 6,
+            opacity: pressed ? 0.6 : 1,
+          })}
+        >
+          <Feather name="globe" size={13} color={detectedCountry == null ? "#FFFFFF" : theme.textSecondary} />
+          <ThemedText style={{ ...Typography.small, color: detectedCountry == null ? "#FFFFFF" : theme.textSecondary, fontWeight: "600" }}>
+            Alle Länder
+          </ThemedText>
+        </Pressable>
+        {true ? (
           <Pressable
             onPress={() => setCountryPickerOpen(true)}
             hitSlop={8}
@@ -1548,9 +1756,9 @@ export default function NotamsScreen() {
               opacity: pressed ? 0.6 : 1,
             })}
           >
-            <ThemedText style={{ fontSize: 14 }}>{getCountryFlag(detectedCountry)}</ThemedText>
+            {detectedCountry ? <ThemedText style={{ fontSize: 14 }}>{getCountryFlag(detectedCountry)}</ThemedText> : null}
             <ThemedText style={{ ...Typography.small, color: theme.textSecondary, fontWeight: "600" }} numberOfLines={1}>
-              {getCountryMapConfig(detectedCountry)?.nameDE || detectedCountry}
+              {detectedCountry ? getCountryMapConfig(detectedCountry)?.nameDE || detectedCountry : "Land wählen"}
             </ThemedText>
             <Feather name="chevron-down" size={12} color={theme.textSecondary} />
           </Pressable>
@@ -1617,7 +1825,7 @@ export default function NotamsScreen() {
               <View style={[styles.scopeBanner, { backgroundColor: "rgba(0,122,255,0.08)" }]}>
                 <Feather name="globe" size={14} color={theme.primary} />
                 <ThemedText style={[styles.scopeBannerText, { color: theme.primary }]}>
-                  {detectedCountry === "LU" ? "Luxemburg — UAS-Beschränkungen" : detectedCountry === "CH" ? "Schweiz — Drohnenbeschränkungen" : detectedCountry === "NL" ? "Niederlande — Drohnenbeschränkungen" : detectedCountry === "BE" ? "Belgien — temporäre Geozonen" : detectedCountry === "AT" ? "Österreich — temporäre Geozonen" : detectedCountry === "DK" ? "Dänemark — temporäre Geozonen" : "Deutschland — dipul (temp. Beschränkungen)"}
+                  {detectedCountry == null ? "Alle unterstützten Länder – nach Land gruppiert" : detectedCountry === "LU" ? "Luxemburg — UAS-Beschränkungen" : detectedCountry === "CH" ? "Schweiz — Drohnenbeschränkungen" : detectedCountry === "NL" ? "Niederlande — Drohnenbeschränkungen" : detectedCountry === "BE" ? "Belgien — temporäre Geozonen" : detectedCountry === "AT" ? "Österreich — temporäre Geozonen" : detectedCountry === "DK" ? "Dänemark — temporäre Geozonen" : "Deutschland — dipul (temp. Beschränkungen)"}
                 </ThemedText>
               </View>
 
@@ -1641,133 +1849,53 @@ export default function NotamsScreen() {
                 )
               ) : null}
 
-              {filteredActive.filter((r) => r.kind === "mil_low_flight_day").length > 0 ? (
-                <>
-                  <SectionHeader
-                    title="Mil. Tieffluggebiete (Tag)"
-                    count={filteredActive.filter((r) => r.kind === "mil_low_flight_day").length}
-                    color="#7B8B3A"
-                    icon="shield"
-                    theme={theme}
-                  />
-                  {filteredActive.filter((r) => r.kind === "mil_low_flight_day").map((r) => (
-                    <RestrictionCard key={r.id} restriction={r} theme={theme} onShowOnMap={handleShowOnMap} />
-                  ))}
-                </>
-              ) : null}
-
-              {filteredActive.filter((r) => r.kind !== "mil_low_flight_day").length > 0 ? (
-                <>
-                  <SectionHeader title="Aktuell aktiv" count={filteredActive.filter((r) => r.kind !== "mil_low_flight_day").length} color="#FF3B30" icon="zap" theme={theme} />
-                  {filteredActive.filter((r) => r.kind !== "mil_low_flight_day").map((r) => (
-                    <RestrictionCard key={r.id} restriction={r} theme={theme} onShowOnMap={handleShowOnMap} />
-                  ))}
-                </>
-              ) : null}
-
-              {filteredUpcoming.length > 0 ? (
-                <>
-                  <SectionHeader title="Zukünftig geplant" count={filteredUpcoming.length} color="#5856D6" icon="clock" theme={theme} />
-                  {filteredUpcoming.map((r) => (
-                    <RestrictionCard key={r.id} restriction={r} theme={theme} onShowOnMap={handleShowOnMap} />
-                  ))}
-                </>
-              ) : null}
-
-              {filteredLuTsa.length > 0 ? (
-                <>
-                  {showDe && showLu ? (
-                    <View style={[styles.scopeBanner, { backgroundColor: "rgba(88,86,214,0.08)", marginTop: Spacing.lg }]}>
-                      <Feather name="globe" size={14} color="#5856D6" />
-                      <ThemedText style={[styles.scopeBannerText, { color: "#5856D6" }]}>
-                        Luxemburg — UAS-Beschränkungen (TSA/Geozonen)
+              {detectedCountry == null ? (
+                countryGroups.map((g) => (
+                  <View key={g.iso} style={{ marginTop: Spacing.sm }}>
+                    <Pressable
+                      onPress={() => toggleCountry(g.iso)}
+                      testID={`notam-country-group-${g.iso}`}
+                      style={({ pressed }) => [
+                        styles.countryGroupHeader,
+                        { backgroundColor: theme.backgroundSecondary, opacity: pressed ? 0.75 : 1 },
+                      ]}
+                    >
+                      <ThemedText style={{ fontSize: 18 }}>{getCountryFlag(g.iso)}</ThemedText>
+                      <ThemedText style={[styles.countryGroupTitle, { color: theme.text }]}>
+                        {getCountryMapConfig(g.iso)?.nameDE || g.iso}
                       </ThemedText>
-                    </View>
-                  ) : null}
-                  <SectionHeader title="UAS-Beschränkungen" count={filteredLuTsa.length} color="#5856D6" icon="shield" theme={theme} />
-                  {filteredLuTsa.map((z, i) => {
-                    const isActive = z.status === "Aktiv";
-                    const statusColor = isActive ? "#FF9500" : "#8E8E93";
-                    return (
-                      <Card key={`lu-tsa-${i}`} style={[styles.restrictionCard, { borderLeftColor: statusColor, borderLeftWidth: 4 }]}>
-                        <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6 }}>
-                          <Feather name="shield" size={14} color={statusColor} />
-                          <ThemedText style={[styles.restrictionName, { color: theme.text, flex: 1 }]}>{z.nomZone}</ThemedText>
-                          <View style={[styles.typeBadge, { backgroundColor: isActive ? "rgba(255,149,0,0.12)" : "rgba(142,142,147,0.12)" }]}>
-                            <ThemedText style={[styles.typeBadgeText, { color: statusColor }]}>{z.status || "TSA"}</ThemedText>
-                          </View>
+                      {g.active > 0 ? (
+                        <View style={[styles.sectionCount, { backgroundColor: "rgba(255,149,0,0.15)" }]}>
+                          <ThemedText style={{ fontSize: 12, fontWeight: "700", color: "#FF9500" }}>{g.active} aktiv</ThemedText>
                         </View>
-                        <ThemedText style={[styles.restrictionDetail, { color: theme.textSecondary }]}>{z.description}</ThemedText>
-                        {z.nature ? (
-                          <View style={styles.restrictionRow}>
-                            <Feather name="info" size={12} color={theme.textTertiary} />
-                            <ThemedText style={[styles.restrictionRowText, { color: theme.textSecondary }]}>{z.nature}</ThemedText>
-                          </View>
-                        ) : null}
-                        {z.dateRange ? (
-                          <View style={styles.restrictionRow}>
-                            <Feather name="calendar" size={12} color={theme.textTertiary} />
-                            <ThemedText style={[styles.restrictionRowText, { color: theme.textSecondary }]}>{z.dateRange}</ThemedText>
-                          </View>
-                        ) : null}
-                        {z.altitude ? (
-                          <View style={styles.restrictionRow}>
-                            <Feather name="arrow-up" size={12} color={theme.textTertiary} />
-                            <ThemedText style={[styles.restrictionRowText, { color: theme.textSecondary }]}>{z.altitude}</ThemedText>
-                          </View>
-                        ) : null}
-                        {z.resp ? (
-                          <View style={styles.restrictionRow}>
-                            <Feather name="user" size={12} color={theme.textTertiary} />
-                            <ThemedText style={[styles.restrictionRowText, { color: theme.textSecondary }]}>{z.resp}</ThemedText>
-                          </View>
-                        ) : null}
-                        {z.durPrev ? (
-                          <View style={styles.restrictionRow}>
-                            <Feather name="clock" size={12} color={theme.textTertiary} />
-                            <ThemedText style={[styles.restrictionRowText, { color: theme.textSecondary }]}>Vorankündigung: {z.durPrev}</ThemedText>
-                          </View>
-                        ) : null}
-                        {z.remarks ? (
-                          <ThemedText style={[styles.restrictionDetail, { color: theme.textTertiary, marginTop: 4, fontSize: 12 }]}>{z.remarks}</ThemedText>
-                        ) : null}
-                      </Card>
-                    );
-                  })}
-                  {isAdmin ? (
-                    <ThemedText style={[styles.sourceInfo, { color: theme.textTertiary }]}>
-                      Quelle: Geoportail.lu WMS — ANA Luxemburg
-                    </ThemedText>
-                  ) : null}
-                </>
-              ) : null}
-
-              {filteredEd269.length > 0 ? (
-                <>
-                  <View style={[styles.scopeBanner, { backgroundColor: "rgba(255,149,0,0.08)", marginTop: Spacing.lg }]}>
-                    <Feather name="clock" size={14} color="#FF9500" />
-                    <ThemedText style={[styles.scopeBannerText, { color: "#FF9500" }]}>
-                      Temporäre Geozonen (Gültigkeit unter 30 Tagen)
-                    </ThemedText>
+                      ) : null}
+                      <ThemedText style={{ ...Typography.small, color: theme.textSecondary }}>
+                        {g.count === 0 ? "keine" : `${g.count} gesamt`}
+                      </ThemedText>
+                      <Feather name={expandedCountries.has(g.iso) ? "chevron-up" : "chevron-down"} size={18} color={theme.textSecondary} />
+                    </Pressable>
+                    {expandedCountries.has(g.iso) ? (
+                      g.count === 0 ? (
+                        <ThemedText style={{ ...Typography.small, color: theme.textSecondary, padding: Spacing.md }}>
+                          Derzeit keine temporären Beschränkungen.
+                        </ThemedText>
+                      ) : g.iso === "DE" ? (
+                        <>{renderDe()}</>
+                      ) : g.iso === "LU" ? (
+                        <>{renderLu()}</>
+                      ) : (
+                        <>{renderEd269(ed269ByIso[g.iso] ?? [])}</>
+                      )
+                    ) : null}
                   </View>
-                  {filteredEd269.filter((r) => r.status === "active").length > 0 ? (
-                    <>
-                      <SectionHeader title="Aktuell aktiv" count={filteredEd269.filter((r) => r.status === "active").length} color="#FF9500" icon="zap" theme={theme} />
-                      {filteredEd269.filter((r) => r.status === "active").map((r) => (
-                        <RestrictionCard key={r.id} restriction={r} theme={theme} onShowOnMap={handleShowOnMap} />
-                      ))}
-                    </>
-                  ) : null}
-                  {filteredEd269.filter((r) => r.status === "upcoming").length > 0 ? (
-                    <>
-                      <SectionHeader title="Zukünftig geplant" count={filteredEd269.filter((r) => r.status === "upcoming").length} color="#5856D6" icon="clock" theme={theme} />
-                      {filteredEd269.filter((r) => r.status === "upcoming").map((r) => (
-                        <RestrictionCard key={r.id} restriction={r} theme={theme} onShowOnMap={handleShowOnMap} />
-                      ))}
-                    </>
-                  ) : null}
+                ))
+              ) : (
+                <>
+                  {renderDe()}
+                  {renderLu()}
+                  {renderEd269(filteredEd269)}
                 </>
-              ) : null}
+              )}
 
               {filteredActive.length + filteredUpcoming.length > 0 && isAdmin ? (
                 <ThemedText style={[styles.sourceInfo, { color: theme.textTertiary }]}>
@@ -1782,8 +1910,8 @@ export default function NotamsScreen() {
           <NotamMapView
               restrictions={mapRestrictions}
               milStatusMap={milStatusMap}
-              centerLat={currentLat ?? getCountryDefaultCenter(detectedCountry || "DE").lat}
-              centerLon={currentLon ?? getCountryDefaultCenter(detectedCountry || "DE").lon}
+              centerLat={currentLat ?? (detectedCountry ? getCountryDefaultCenter(detectedCountry).lat : ALL_CENTER.lat)}
+              centerLon={currentLon ?? (detectedCountry ? getCountryDefaultCenter(detectedCountry).lon : ALL_CENTER.lon)}
               focusLat={mapFocusLat}
               focusLon={mapFocusLon}
               focusId={mapFocusId}
@@ -1812,6 +1940,15 @@ export default function NotamsScreen() {
 }
 
 const styles = StyleSheet.create({
+  countryGroupHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.md,
+    borderRadius: 12,
+  },
+  countryGroupTitle: { ...Typography.body, fontWeight: "700", flex: 1 },
   container: { flex: 1 },
   scrollView: { flex: 1 },
   tabBar: {
