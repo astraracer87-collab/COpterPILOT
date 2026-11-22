@@ -62,7 +62,7 @@ function StatCell({ label, value }: { label: string; value: string }) {
  * Timeline (Play/Pause, Geschwindigkeit, Slider) steuert alles gemeinsam.
  */
 export function DjiFlightReplay({ records }: { records: DjiLogRecord[] }) {
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
 
   const frames = useMemo(
     () => records.filter((r) => Number.isFinite(r.lat) && Number.isFinite(r.lon)),
@@ -142,16 +142,28 @@ export function DjiFlightReplay({ records }: { records: DjiLogRecord[] }) {
 
   return (
     <View>
-      <DjiTracksMap
-        tracks={mapTracks}
-        progressCoords={progressCoords}
-        progressColor={TRACK_COLOR}
-        marker={{ latitude: cur.lat!, longitude: cur.lon!, heading, color: TRACK_COLOR }}
-      />
+      <View>
+        <DjiTracksMap
+          tracks={mapTracks}
+          progressCoords={progressCoords}
+          progressColor={TRACK_COLOR}
+          marker={{ latitude: cur.lat!, longitude: cur.lon!, heading, color: TRACK_COLOR }}
+        />
+        {/* Instrumente direkt in der Karte (unten), damit man nicht scrollen muss */}
+        <View pointerEvents="none" style={styles.overlayWrap}>
+          <View
+            style={[
+              styles.overlay,
+              { backgroundColor: isDark ? "rgba(12,18,32,0.72)" : "rgba(255,255,255,0.8)" },
+            ]}
+          >
+            <DjiAttitudeIndicator pitch={cur.pitch} roll={cur.roll} yaw={cur.yaw} size={96} />
+            {withSticks ? <DjiLiveSticks records={records} t={cur.t ?? 0} size={72} /> : null}
+          </View>
+        </View>
+      </View>
 
       <View style={styles.body}>
-        <DjiAttitudeIndicator pitch={cur.pitch} roll={cur.roll} yaw={cur.yaw} size={150} />
-        {withSticks ? <DjiLiveSticks records={records} t={cur.t ?? 0} /> : null}
         <View style={styles.stats}>
           <StatCell label="Zeit" value={fmt(cur.t)} />
           <StatCell label="Höhe" value={cur.heightM != null ? `${Math.round(cur.heightM)} m` : "–"} />
@@ -213,6 +225,21 @@ export function DjiFlightReplay({ records }: { records: DjiLogRecord[] }) {
 }
 
 const styles = StyleSheet.create({
+  overlayWrap: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 8,
+    alignItems: "center",
+  },
+  overlay: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.md,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 6,
+    borderRadius: 14,
+  },
   body: {
     flexDirection: "row",
     flexWrap: "wrap",
