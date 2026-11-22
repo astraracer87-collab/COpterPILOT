@@ -13,6 +13,10 @@ import { getOfflineTileConfig, previewTileUris } from "@/lib/offlineMaps";
 
 type Pt = { lat: number; lon: number };
 
+/** Gültiger GPS-Punkt (DJI-Logs enthalten vor dem GPS-Fix oft 0/0). */
+const okPt = (p: Pt) =>
+  Number.isFinite(p.lat) && Number.isFinite(p.lon) && !(Math.abs(p.lat) < 0.01 && Math.abs(p.lon) < 0.01);
+
 let cfgPromise: Promise<{ root: string; levels: Record<string, number> } | null> | null = null;
 function tileConfig() {
   if (!cfgPromise) cfgPromise = getOfflineTileConfig().catch(() => null);
@@ -67,7 +71,7 @@ export default function StaticRouteMap({
   }, []);
 
   const layout = useMemo(() => {
-    const pts = segments.flat().filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lon));
+    const pts = segments.flat().filter(okPt);
     const all = pts.length > 0 ? pts : point && Number.isFinite(point.lat) ? [point] : [];
     if (all.length === 0 || width <= 0 || height <= 0) return null;
     let s = Infinity, n = -Infinity, w = Infinity, e = -Infinity;
@@ -79,11 +83,15 @@ export default function StaticRouteMap({
     const src = sourcesForView(box, "map")[0];
     const template = src?.tiles ?? FALLBACK_MAP.tiles;
     const ts = 256;
-    const maxZ = Math.min(17, src?.maxzoom ?? FALLBACK_MAP.maxzoom);
-    const pad = 14;
-    let z = all.length === 1 ? Math.min(15, maxZ) : 3;
+    // Kacheln gibt es nur bis zur maxzoom-Stufe der Quelle; kurze Flüge werden
+    // darüber hinaus vergrößert („Overzoom“: Kacheln skaliert), damit die Route
+    // nicht als einzelner Punkt erscheint.
+    const tileMaxZ = Math.min(18, src?.maxzoom ?? FALLBACK_MAP.maxzoom);
+    const fitMaxZ = 20;
+    const pad = 18;
+    let z = all.length === 1 ? Math.min(16, tileMaxZ) : 3;
     if (all.length > 1) {
-      for (let zz = maxZ; zz >= 3; zz--) {
+      for (let zz = fitMaxZ; zz >= 3; zz--) {
         const a = project(n, w, zz, ts);
         const b = project(s, e, zz, ts);
         if (b.x - a.x <= width - 2 * pad && b.y - a.y <= height - 2 * pad) {
@@ -92,24 +100,27 @@ export default function StaticRouteMap({
         }
       }
     }
+    const tileZ = Math.min(z, tileMaxZ);
+    const scale = Math.pow(2, z - tileZ);
+    const tileSize = ts * scale;
     const a = project(n, w, z, ts);
     const b = project(s, e, z, ts);
     const ox = (a.x + b.x) / 2 - width / 2;
     const oy = (a.y + b.y) / 2 - height / 2;
-    const tiles: { key: string; local?: string; remote: string; left: number; top: number }[] = [];
-    const max = Math.pow(2, z);
-    for (let tx = Math.floor(ox / ts); tx <= Math.floor((ox + width) / ts); tx++) {
-      for (let ty = Math.floor(oy / ts); ty <= Math.floor((oy + height) / ts); ty++) {
+    const tiles: { key: string; local?: string; remote: string; left: number; top: number; size: number }[] = [];
+    const max = Math.pow(2, tileZ);
+    for (let tx = Math.floor(ox / tileSize); tx <= Math.floor((ox + width) / tileSize); tx++) {
+      for (let ty = Math.floor(oy / tileSize); ty <= Math.floor((oy + height) / tileSize); ty++) {
         if (ty < 0 || ty >= max) continue;
         const wx = ((tx % max) + max) % max;
-        const u = previewTileUris(template, z, wx, ty, cfg);
-        tiles.push({ key: `${z}/${tx}/${ty}`, ...u, left: tx * ts - ox, top: ty * ts - oy });
+        const u = previewTileUris(template, tileZ, wx, ty, cfg);
+        tiles.push({ key: `${tileZ}/${tx}/${ty}`, ...u, left: tx * tileSize - ox, top: ty * tileSize - oy, size: tileSize });
       }
     }
     const lines = segments
       .map((seg) =>
         seg
-          .filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lon))
+          .filter(okPt)
           .map((p) => {
             const q = project(p.lat, p.lon, z, ts);
             return `${(q.x - ox).toFixed(1)},${(q.y - oy).toFixed(1)}`;
@@ -131,7 +142,7 @@ export default function StaticRouteMap({
   return (
     <View style={[styles.box, { width, height, borderColor: borderColor ?? "rgba(0,0,0,0.15)" }]}>
       {layout?.tiles.map((t) => (
-        <Tile key={t.key} local={t.local} remote={t.remote} left={t.left} top={t.top} size={256} />
+        <Tile key={t.key} local={t.local} remote={t.remote} left={t.left} top={t.top} size={t.size} />
       ))}
       {dark ? <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(10,16,30,0.35)" }]} /> : null}
       {layout ? (
