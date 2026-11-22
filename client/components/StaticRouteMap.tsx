@@ -52,6 +52,7 @@ export default function StaticRouteMap({
   height,
   dark = false,
   borderColor,
+  radiusM,
 }: {
   segments: Pt[][];
   /** Fallback ohne Route: nur der Ort */
@@ -60,6 +61,8 @@ export default function StaticRouteMap({
   height: number;
   dark?: boolean;
   borderColor?: string;
+  /** Planungs-Umkreis um `point` (m): wird gezeichnet und in den Ausschnitt eingepasst */
+  radiusM?: number;
 }) {
   const [cfg, setCfg] = useState<{ root: string; levels: Record<string, number> } | null>(null);
   useEffect(() => {
@@ -75,7 +78,16 @@ export default function StaticRouteMap({
     const all = pts.length > 0 ? pts : point && Number.isFinite(point.lat) ? [point] : [];
     if (all.length === 0 || width <= 0 || height <= 0) return null;
     let s = Infinity, n = -Infinity, w = Infinity, e = -Infinity;
-    for (const p of all) {
+    const fitPts = [...all];
+    if (radiusM && radiusM > 0 && point && okPt(point)) {
+      const dLat = radiusM / 111320;
+      const dLon = radiusM / (111320 * Math.max(0.1, Math.cos((point.lat * Math.PI) / 180)));
+      fitPts.push(
+        { lat: point.lat + dLat, lon: point.lon + dLon },
+        { lat: point.lat - dLat, lon: point.lon - dLon },
+      );
+    }
+    for (const p of fitPts) {
       s = Math.min(s, p.lat); n = Math.max(n, p.lat);
       w = Math.min(w, p.lon); e = Math.max(e, p.lon);
     }
@@ -89,8 +101,8 @@ export default function StaticRouteMap({
     const tileMaxZ = Math.min(18, src?.maxzoom ?? FALLBACK_MAP.maxzoom);
     const fitMaxZ = 20;
     const pad = 18;
-    let z = all.length === 1 ? Math.min(16, tileMaxZ) : 3;
-    if (all.length > 1) {
+    let z = fitPts.length === 1 ? Math.min(16, tileMaxZ) : 3;
+    if (fitPts.length > 1) {
       for (let zz = fitMaxZ; zz >= 3; zz--) {
         const a = project(n, w, zz, ts);
         const b = project(s, e, zz, ts);
@@ -131,13 +143,20 @@ export default function StaticRouteMap({
     const first = pts[0] ? project(pts[0].lat, pts[0].lon, z, ts) : project(all[0].lat, all[0].lon, z, ts);
     const lastP = pts[pts.length - 1];
     const last = lastP ? project(lastP.lat, lastP.lon, z, ts) : null;
+    let circle: { x: number; y: number; r: number } | null = null;
+    if (radiusM && radiusM > 0 && point && okPt(point)) {
+      const c = project(point.lat, point.lon, z, ts);
+      const mPerPx = (156543.03392 * Math.cos((point.lat * Math.PI) / 180)) / Math.pow(2, z);
+      circle = { x: c.x - ox, y: c.y - oy, r: radiusM / mPerPx };
+    }
     return {
+      circle,
       tiles,
       lines,
       start: { x: first.x - ox, y: first.y - oy },
       end: last ? { x: last.x - ox, y: last.y - oy } : null,
     };
-  }, [segments, point, width, height, cfg]);
+  }, [segments, point, width, height, cfg, radiusM]);
 
   return (
     <View style={[styles.box, { width, height, borderColor: borderColor ?? "rgba(0,0,0,0.15)" }]}>
@@ -153,7 +172,10 @@ export default function StaticRouteMap({
               <Polyline points={l} fill="none" stroke="#0A84FF" strokeWidth={3} strokeLinejoin="round" strokeLinecap="round" />
             </React.Fragment>
           ))}
-          <Circle cx={layout.start.x} cy={layout.start.y} r={5} fill="#34C759" stroke="#FFFFFF" strokeWidth={1.5} />
+          {layout.circle ? (
+            <Circle cx={layout.circle.x} cy={layout.circle.y} r={layout.circle.r} fill="rgba(10,132,255,0.15)" stroke="#0A84FF" strokeWidth={2} />
+          ) : null}
+          <Circle cx={layout.start.x} cy={layout.start.y} r={5} fill={layout.lines.length > 0 ? "#34C759" : "#FF3B30"} stroke="#FFFFFF" strokeWidth={1.5} />
           {layout.end && layout.lines.length > 0 ? (
             <Circle cx={layout.end.x} cy={layout.end.y} r={5} fill="#FF3B30" stroke="#FFFFFF" strokeWidth={1.5} />
           ) : null}

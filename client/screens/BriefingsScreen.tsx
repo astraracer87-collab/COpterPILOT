@@ -1,5 +1,6 @@
 import React, { useCallback, useMemo, useRef, useState } from "react";
-import { View, StyleSheet, FlatList, Pressable, RefreshControl, Alert } from "react-native";
+import { View, StyleSheet, FlatList, Pressable, RefreshControl, Alert, useWindowDimensions } from "react-native";
+import StaticRouteMap from "@/components/StaticRouteMap";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
@@ -156,6 +157,12 @@ function SessionCard({
       minute: "2-digit",
     });
   };
+
+  const { width: winW } = useWindowDimensions();
+  const previewW = Math.round(Math.min(360, Math.max(160, winW * 0.32)));
+  const previewH = 150;
+  const planRadiusKm = session?.planning?.radiusKm;
+  const hasPoint = Number.isFinite(item.latitude) && Number.isFinite(item.longitude) && !(item.latitude === 0 && item.longitude === 0);
 
   const openDipulMap = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -432,6 +439,18 @@ function SessionCard({
                 </View>
               ) : null}
             </View>
+            {hasPoint ? (
+              <Pressable onPress={openDipulMap} style={{ marginLeft: Spacing.md }} testID="briefing-map-preview">
+                <StaticRouteMap
+                  segments={[]}
+                  point={{ lat: item.latitude, lon: item.longitude }}
+                  radiusM={typeof planRadiusKm === "number" && planRadiusKm > 0 ? planRadiusKm * 1000 : undefined}
+                  width={previewW}
+                  height={previewH}
+                  borderColor={theme.border}
+                />
+              </Pressable>
+            ) : null}
             <View style={styles.cardHeaderRight}>
               {item.isExpired ? (
                 <Pressable
