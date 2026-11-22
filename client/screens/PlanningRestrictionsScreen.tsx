@@ -4,7 +4,7 @@ import MapPicker from "@/components/MapPicker";
 import { circleRegion } from "@/lib/areaOverview";
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { InfrastructureFlightGuidance } from "@/components/InfrastructureFlightGuidance";
-import { View, StyleSheet, TextInput, Pressable, ActivityIndicator, ScrollView, Linking, Alert, Platform } from "react-native";
+import { View, StyleSheet, TextInput, Pressable, ActivityIndicator, ScrollView, Linking, Alert, Platform, useWindowDimensions } from "react-native";
 import { useRoute, useNavigation, useFocusEffect } from "@react-navigation/native";
 import type { RouteProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -83,6 +83,14 @@ export default function PlanningRestrictionsScreen() {
   const isAdmin = useShowDataSources();
   const headerHeight = useHeaderHeight();
   const insets = useSafeAreaInsets();
+  const win = useWindowDimensions();
+  // Querformat (RC Pro 2): Karte links quadratisch und fest, Details rechts scrollbar
+  const wide = win.width >= 700 && win.width > win.height;
+  const FOOTER_H = 84;
+  const sideMapSize = wide
+    ? Math.max(200, Math.min(win.height - headerHeight - insets.bottom - Spacing.md * 2, win.width * 0.45))
+    : 0;
+  const sideColWidth = wide ? sideMapSize + Spacing.lg + Spacing.md : 0;
 
   const { droneId, latitude, longitude, locationName, countryIso, mapUrl, radiusKm: initialRadiusKm, maxAltitude, recommendedVlosM, vlosExceeded, vlosCharDimensionM, vlosAltitudeCorrection, vlosHorizontalLimitM, plannedDate, plannedTime, endTime, routeWaypoints, sessionId, restrictionStatus: manualRestrictionStatus, restrictionNotes: manualRestrictionNotes, officialMapCrossCheck } = route.params;
   const localRadiusKm = initialRadiusKm || 1;
@@ -1003,32 +1011,57 @@ export default function PlanningRestrictionsScreen() {
 
   return (
     <ThemedView style={styles.container}>
+      {wide && latitude != null && longitude != null ? (
+        <View
+          style={[
+            styles.sideMap,
+            { top: headerHeight + Spacing.md, left: Spacing.lg, width: sideMapSize, height: sideMapSize },
+          ]}
+        >
+          <MapPicker
+            initialRegion={circleRegion({ lat: latitude, lon: longitude }, Math.max(localRadiusKm * 1000, 1000), 2.4)}
+            selectedLocation={{ latitude, longitude }}
+            locationName={locationName}
+            radiusMeters={localRadiusKm * 1000}
+            allCountriesGeozones
+            showCtrBands
+            mapStyleSwitcherVariant="compact"
+            style={styles.map}
+          />
+        </View>
+      ) : null}
       <KeyboardAwareScrollViewCompat bottomOffset={24}
+        style={wide ? { marginLeft: sideColWidth } : undefined}
         contentContainerStyle={[
           styles.content,
+          wide && { paddingLeft: 0 },
           {
-            paddingTop: headerHeight + Spacing.xl,
-            paddingBottom: insets.bottom + Spacing.xl + 80,
+            paddingTop: headerHeight + (wide ? Spacing.md : Spacing.xl),
+            paddingBottom: insets.bottom + Spacing.xl + FOOTER_H,
           },
         ]}
       >
-        <ThemedText style={styles.title}>Einschränkungen prüfen</ThemedText>
-        <ThemedText style={[styles.subtitle, { color: theme.textSecondary }]}>
-          Automatische Prüfung der Geozonen für deinen Standort
-        </ThemedText>
-        {latitude != null && longitude != null ? (
-          <View style={styles.mapWrap}>
-            <MapPicker
-              initialRegion={circleRegion({ lat: latitude, lon: longitude }, Math.max(localRadiusKm * 1000, 1000), 2.4)}
-              selectedLocation={{ latitude, longitude }}
-              locationName={locationName}
-              radiusMeters={localRadiusKm * 1000}
-              allCountriesGeozones
-              showCtrBands
-              mapStyleSwitcherVariant="compact"
-              style={styles.map}
-            />
-          </View>
+        {!wide ? (
+          <>
+            <ThemedText style={styles.title}>Einschränkungen prüfen</ThemedText>
+            <ThemedText style={[styles.subtitle, { color: theme.textSecondary }]}>
+              Automatische Prüfung der Geozonen für deinen Standort
+            </ThemedText>
+            {latitude != null && longitude != null ? (
+              <View style={styles.mapWrap}>
+                <MapPicker
+                  initialRegion={circleRegion({ lat: latitude, lon: longitude }, Math.max(localRadiusKm * 1000, 1000), 2.4)}
+                  selectedLocation={{ latitude, longitude }}
+                  locationName={locationName}
+                  radiusMeters={localRadiusKm * 1000}
+                  allCountriesGeozones
+                  showCtrBands
+                  mapStyleSwitcherVariant="compact"
+                  style={styles.map}
+                />
+              </View>
+            ) : null}
+          </>
         ) : null}
         <GeozoneDataChangedBanner change={verdictWatch.change} onDismiss={verdictWatch.dismiss} />
         {countryIso === "DE" ? (
@@ -2573,7 +2606,13 @@ export default function PlanningRestrictionsScreen() {
         ) : null}
       </KeyboardAwareScrollViewCompat>
 
-      <View style={[styles.footer, { paddingBottom: insets.bottom + Spacing.lg, backgroundColor: theme.backgroundDefault }]}>
+      <View
+        style={[
+          styles.footer,
+          { paddingBottom: insets.bottom + (wide ? Spacing.md : Spacing.lg), backgroundColor: theme.backgroundDefault },
+          wide && { left: sideColWidth, paddingLeft: 0, paddingTop: Spacing.md, borderTopWidth: 0 },
+        ]}
+      >
         {!loading && tempWaiting ? (
           <ThemedText testID="temp-restrictions-loading-hint" style={{ color: theme.textSecondary, fontSize: 13, marginBottom: Spacing.sm, textAlign: "center" }}>
             Temporäre Beschränkungen werden geprüft …
@@ -2598,6 +2637,7 @@ export default function PlanningRestrictionsScreen() {
 const styles = StyleSheet.create({
   mapWrap: { height: 220, borderRadius: 12, overflow: "hidden", marginBottom: Spacing.md, marginTop: Spacing.sm },
   map: { flex: 1 },
+  sideMap: { position: "absolute", borderRadius: 12, overflow: "hidden" },
   container: {
     flex: 1,
   },
