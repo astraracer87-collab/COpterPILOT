@@ -44,6 +44,7 @@ export function SideTabRail<T extends string>({
   onPress,
   isDark,
   top,
+  bottom,
   hideWhenOpen = true,
   style,
 }: {
@@ -53,6 +54,9 @@ export function SideTabRail<T extends string>({
   isDark: boolean;
   /** Abstand vom oberen Rand des Elternelements */
   top: number;
+  /** Optional: Abstand nach unten – die Reiter teilen sich dann die Höhe
+   *  (max. 116 dp je Reiter), damit auch im Querformat alle sichtbar sind */
+  bottom?: number;
   /** Reiter ausblenden, solange ein Panel offen ist (wie im Radar) */
   hideWhenOpen?: boolean;
   style?: StyleProp<ViewStyle>;
@@ -60,7 +64,7 @@ export function SideTabRail<T extends string>({
   const pal = sideTabPalette(isDark);
   if (hideWhenOpen && activeId != null) return null;
   return (
-    <View style={[railStyles.container, { top }, style]} pointerEvents="box-none">
+    <View style={[railStyles.container, { top }, bottom != null && { bottom }, style]} pointerEvents="box-none">
       {tabs.map((t) => {
         if (t.hidden) return null;
         const isActive = activeId === t.id;
@@ -69,7 +73,7 @@ export function SideTabRail<T extends string>({
           <Pressable
             key={t.id}
             onPress={() => onPress(t.id)}
-            style={[railStyles.tab, { backgroundColor: isActive ? pal.panelBg : t.bg }]}
+            style={[railStyles.tab, bottom != null && railStyles.tabFlex, { backgroundColor: isActive ? pal.panelBg : t.bg }]}
             accessibilityRole="button"
             accessibilityLabel={t.label}
             testID={t.testID ?? `side-tab-${t.id}`}
@@ -154,6 +158,14 @@ export const railStyles = StyleSheet.create({
       ios: { shadowColor: "#000", shadowOffset: { width: -3, height: 2 }, shadowOpacity: 0.35, shadowRadius: 6 },
       android: { elevation: 6 },
     }),
+  },
+  tabFlex: {
+    height: undefined,
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 0,
+    maxHeight: 116,
+    minHeight: 56,
   },
   tabRotateWrap: {
     width: 112,

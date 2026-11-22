@@ -1497,7 +1497,7 @@ export default function StandaloneLiveTrafficScreen() {
                     Drohnen werden geladen … (oder noch keine angelegt – unter Einstellungen → Drohnen).
                   </Text>
                 ) : (
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ flexDirection: "row", gap: 10, paddingVertical: 4 }}>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ flexDirection: "row", gap: 10, paddingVertical: 4, flexGrow: 1, justifyContent: "center" }}>
                     {droneChoices.map((d) => {
                       const active = d.id === radarDrone?.id;
                       const vm = Math.round(vlosKmForDrone(d) * 1000);
@@ -1699,7 +1699,7 @@ export default function StandaloneLiveTrafficScreen() {
             <ProximityAlarmGlow alarmActive={alarmActive} alarmLevel={alarmLevel} clearOfConflict={clearOfConflict} bearingToThreat={activeAlerts.length > 0 && latitude != null && longitude != null ? ((bearingTo(latitude, longitude, activeAlerts[0].aircraft.latitude, activeAlerts[0].aircraft.longitude) - (deviceHeading ?? 0) + 360) % 360) : undefined} />
             <ProximityAlarmBanner alerts={activeAlerts} alarmActive={alarmActive} alarmLevel={alarmLevel} clearOfConflict={clearOfConflict} maxAltitudeM={alarmSettings.maxAltitudeM} onDismiss={dismissAlarm} />
           </AlarmPulseProvider>
-          <SideTabs activePanel={sidePanel} onPress={openSidePanel} isDark={isDark} safeTop={safeTop} alertFlags={alertFlags} weatherStatus={weatherStatus} hideWetter={showWeatherOverlay} geozoneSeverity={geozoneSeverity} hasNotams={sidePanelNotams.length > 0 || sidePanelTempRestrictions.length > 0 || sidePanelDipulRestrictions.length > 0} radarAlarmLevel={alarmLevel} hasLowAltTraffic={lowAltitudeCount > 0} hideRadar={!showRadar} />
+          <SideTabs activePanel={sidePanel} onPress={openSidePanel} isDark={isDark} safeTop={safeTop} bottomInset={tabBarHeight + 8} alertFlags={alertFlags} weatherStatus={weatherStatus} hideWetter={showWeatherOverlay} geozoneSeverity={geozoneSeverity} hasNotams={sidePanelNotams.length > 0 || sidePanelTempRestrictions.length > 0 || sidePanelDipulRestrictions.length > 0} radarAlarmLevel={alarmLevel} hasLowAltTraffic={lowAltitudeCount > 0} hideRadar={!showRadar} />
           {sidePanel ? (
             <SidePanelView
               panel={sidePanel}
@@ -2097,11 +2097,12 @@ function windDirectionArrow(deg: number): string {
   return arrows[Math.round(deg / 45) % 8] || "\u2193";
 }
 
-function SideTabs({ activePanel, onPress, isDark, safeTop, alertFlags, weatherStatus, hideWetter, geozoneSeverity, hasNotams, radarAlarmLevel, hasLowAltTraffic, hideRadar }: {
+function SideTabs({ activePanel, onPress, isDark, safeTop, bottomInset, alertFlags, weatherStatus, hideWetter, geozoneSeverity, hasNotams, radarAlarmLevel, hasLowAltTraffic, hideRadar }: {
   activePanel: "geozone" | "notam" | "wetter" | "radar" | null;
   onPress: (p: "geozone" | "notam" | "wetter" | "radar") => void;
   isDark: boolean;
   safeTop: number;
+  bottomInset?: number;
   alertFlags: { wetter: boolean; notam: boolean; geozone: boolean };
   weatherStatus: "unknown" | "ok" | "caution" | "critical";
   hideWetter?: boolean;
@@ -2172,6 +2173,7 @@ function SideTabs({ activePanel, onPress, isDark, safeTop, alertFlags, weatherSt
       activeId={hasOpenPanel ? activePanel : null}
       isDark={isDark}
       top={safeTop + 8}
+      bottom={bottomInset}
       onPress={(id) => { onPress(id); try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {} }}
     />
   );
