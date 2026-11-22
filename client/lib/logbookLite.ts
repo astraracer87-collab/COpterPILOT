@@ -19,6 +19,8 @@ export const TRACK_PREVIEW_MAX_POINTS = 60;
 export const DJI_SESSION_PREFIX = "dji-log:";
 /** Höchster Abstand Landung → nächster Start, der noch als Akku-Tausch gilt. */
 export const DJI_MERGE_MAX_GAP_MS = 20 * 60 * 1000;
+/** Logs werden nur zusammengeführt, wenn sie höchstens so weit auseinander liegen. */
+export const DJI_MERGE_MAX_DISTANCE_M = 1000;
 
 /** Vom DJI-Import automatisch gesetzte Notiz (logbookEntryFromDjiLog bzw. nach dem Zusammenführen). */
 const AUTO_NOTE_RE = /^Aus DJI-Flugprotokoll(en)? importiert \([^\n]*\)\.$/;
@@ -40,7 +42,65 @@ const LITE_MARK = Symbol.for("copterpilot.liteDjiLog");
 export function summarizeDjiLog(l: DjiLogMeta): DjiLogMeta {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { track, records, messages, ...rest } = l;
-  return rest;
+  const ends = djiLogEnds(l);
+  return ends ? { ...rest, startLat: ends.start.lat, startLon: ends.start.lon, endLat: ends.end.lat, endLon: ends.end.lon } : rest;
+}
+
+type LatLon = { lat: number; lon: number };
+
+const gpsOk = (p: LatLon | undefined | null): p is LatLon =>
+  !!p && Number.isFinite(p.lat) && Number.isFinite(p.lon) && !(Math.abs(p.lat) < 0.01 && Math.abs(p.lon) < 0.01);
+
+/** Erste und letzte gültige Position eines Logs (Track oder gespeicherte Felder). */
+export function djiLogEnds(l: DjiLogMeta): { start: LatLon; end: LatLon } | null {
+  const pts = validPoints(l.track).filter(gpsOk);
+  if (pts.length > 0) return { start: pts[0], end: pts[pts.length - 1] };
+  const s = { lat: l.startLat as number, lon: l.startLon as number };
+  const e = { lat: l.endLat as number, lon: l.endLon as number };
+  if (gpsOk(s)) return { start: s, end: gpsOk(e) ? e : s };
+  return null;
+}
+
+/** Entfernung in Metern (Haversine). */
+export function distanceM(a: LatLon, b: LatLon): number {
+  const R = 6371000;
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLon = toRad(b.lon - a.lon);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+/**
+ * Logs eines Eintrags (chronologisch) in örtlich zusammenhängende Gruppen
+ * teilen: ein Log gehört zur laufenden Gruppe, wenn es höchstens maxDistM von
+ * ihr entfernt startet. Logs ohne Position bleiben in der laufenden Gruppe.
+ */
+export function groupDjiLogsByDistance<T extends DjiLogMeta>(
+  logs: readonly T[],
+  maxDistM = DJI_MERGE_MAX_DISTANCE_M,
+): T[][] {
+  const groups: { logs: T[]; last?: LatLon; anchor?: LatLon }[] = [];
+  for (const l of logs) {
+    const ends = djiLogEnds(l);
+    const cur = groups[groups.length - 1];
+    const near =
+      !!cur &&
+      (!ends ||
+        (!cur.last && !cur.anchor) ||
+        (!!cur.last && distanceM(cur.last, ends.start) <= maxDistM) ||
+        (!!cur.anchor && distanceM(cur.anchor, ends.start) <= maxDistM));
+    if (cur && near) {
+      cur.logs.push(l);
+      if (ends) {
+        cur.last = ends.end;
+        cur.anchor = cur.anchor ?? ends.start;
+      }
+    } else {
+      groups.push({ logs: [l], last: ends?.end, anchor: ends?.start });
+    }
+  }
+  return groups.map((g) => g.logs);
 }
 
 /**
@@ -338,8 +398,18 @@ export function planDjiLogMerges(
   entries: readonly LogbookEntry[],
   getLogs: (e: LogbookEntry) => DjiLogMeta[],
   maxGapMs = DJI_MERGE_MAX_GAP_MS,
+  maxDistM = DJI_MERGE_MAX_DISTANCE_M,
 ): DjiMergePlan[] {
-  type Row = { e: LogbookEntry; sn?: string; name?: string; start: number; end: number; user: boolean };
+  type Row = {
+    e: LogbookEntry;
+    sn?: string;
+    name?: string;
+    start: number;
+    end: number;
+    user: boolean;
+    first?: LatLon;
+    last?: LatLon;
+  };
   const rows: Row[] = [];
   for (const e of entries) {
     if (!isDjiImportEntry(e)) continue;
@@ -350,7 +420,16 @@ export function planDjiLogMerges(
     if (ranges.some((r) => r == null)) continue;
     const start = Math.min(...ranges.map((r) => r!.start));
     const end = Math.max(...ranges.map((r) => r!.end));
+    const ordered = [...logs].sort((a, b) => (a.startTs ?? 0) - (b.startTs ?? 0));
+    const firstEnds = ordered.map(djiLogEnds).find((x) => !!x);
+    const lastEnds = [...ordered].reverse().map(djiLogEnds).find((x) => !!x);
+    const prevSegs = (e.trackPreview ?? []).filter((seg) => seg.length > 0);
+    const prevFirst = prevSegs[0]?.[0];
+    const prevLastSeg = prevSegs[prevSegs.length - 1];
+    const prevLast = prevLastSeg?.[prevLastSeg.length - 1];
     rows.push({
+      first: firstEnds?.start ?? (gpsOk(prevFirst) ? prevFirst : undefined),
+      last: lastEnds?.end ?? (gpsOk(prevLast) ? prevLast : undefined),
       e,
       sn: logs.find((l) => l.aircraftSn)?.aircraftSn,
       name: logs[0].droneName ?? e.droneName,
@@ -361,7 +440,7 @@ export function planDjiLogMerges(
   }
   rows.sort((a, b) => a.start - b.start);
 
-  type Cluster = { members: Row[]; sn?: string; name?: string; end: number; hasUser: boolean };
+  type Cluster = { members: Row[]; sn?: string; name?: string; end: number; hasUser: boolean; first?: LatLon; last?: LatLon };
   const clusters: Cluster[] = [];
   for (const row of rows) {
     let open: Cluster | undefined;
@@ -371,14 +450,23 @@ export function planDjiLogMerges(
         break;
       }
     }
-    const fits = !!open && row.start - open.end <= maxGapMs && (!row.user || !open.hasUser);
+    // Örtlich nah: Start dieses Logs ≤ 1 km vom letzten (oder ersten) Punkt der Serie
+    const nearby =
+      !!open &&
+      (!row.first ||
+        (!open.last && !open.first) ||
+        (!!open.last && distanceM(open.last, row.first) <= maxDistM) ||
+        (!!open.first && distanceM(open.first, row.first) <= maxDistM));
+    const fits = !!open && nearby && row.start - open.end <= maxGapMs && (!row.user || !open.hasUser);
     if (open && fits) {
       open.members.push(row);
+      if (row.last) open.last = row.last;
+      if (!open.first && row.first) open.first = row.first;
       open.end = Math.max(open.end, row.end);
       open.hasUser = open.hasUser || row.user;
       if (!open.sn && row.sn) open.sn = row.sn;
     } else {
-      clusters.push({ members: [row], sn: row.sn, name: row.name, end: row.end, hasUser: row.user });
+      clusters.push({ members: [row], sn: row.sn, name: row.name, end: row.end, hasUser: row.user, first: row.first, last: row.last });
     }
   }
 

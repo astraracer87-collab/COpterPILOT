@@ -89,6 +89,11 @@ export interface DjiLogMeta {
   maxBatteryTempC?: number;
   /** Größte Entfernung vom Startpunkt (m). */
   maxDistanceFromHomeM?: number;
+  /** Erste/letzte gültige GPS-Position (bleibt in der leichten Listenkopie). */
+  startLat?: number;
+  startLon?: number;
+  endLat?: number;
+  endLon?: number;
   /** Start/Ende laut Log (ms seit Epoch). */
   startTs?: number;
   endTs?: number;

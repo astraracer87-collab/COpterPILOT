@@ -28,6 +28,7 @@ import {
   batteryNumberOf,
   plausibleTs,
   BATTERY_NUMBER_MAX,
+  normalizeCycleCount,
 } from "@/lib/djiBatteryLink";
 import Svg, { Polyline, Circle } from "react-native-svg";
 import { batteryKey } from "@/lib/charger/batteryFingerprint";
@@ -357,7 +358,7 @@ export default function BatteryDetailScreen() {
                   <ThemedText style={[styles.historyMeta, { color: theme.textSecondary }]}>
                     {[
                       entry.locationName || "Ohne Ort",
-                      typeof djiLog?.batteryCycleCount === "number" && djiLog.batteryCycleCount > 0 ? `${djiLog.batteryCycleCount} Zyklen` : null,
+                      normalizeCycleCount(djiLog?.batteryCycleCount) != null ? `${normalizeCycleCount(djiLog?.batteryCycleCount)} Zyklen` : null,
                       typeof djiLog?.minCellV === "number" && !djiLog.minCellEstimated ? `min. ${djiLog.minCellV.toFixed(2).replace(".", ",")} V` : null,
                       typeof djiLog?.maxBatteryTempC === "number" ? `max. ${Math.round(djiLog.maxBatteryTempC)} °C` : null,
                     ]

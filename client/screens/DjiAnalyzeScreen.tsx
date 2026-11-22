@@ -1,3 +1,4 @@
+import { normalizeCycleCount } from "@/lib/djiBatteryLink";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { View, StyleSheet, ScrollView, Pressable, Alert } from "react-native";
 import { useNavigation } from "@react-navigation/native";
@@ -375,7 +376,7 @@ export default function DjiAnalyzeScreen() {
                   [meta.batteryLabel, `S/N ${meta.batterySn}`].filter(Boolean).join(" · "),
                 )
               : null}
-            {meta.batteryCycleCount != null ? renderRow("Ladezyklen", String(meta.batteryCycleCount)) : null}
+            {normalizeCycleCount(meta.batteryCycleCount) != null ? renderRow("Ladezyklen", String(normalizeCycleCount(meta.batteryCycleCount))) : null}
             {meta.minCellV != null
               ? renderRow(
                   "Min. Zellspannung",

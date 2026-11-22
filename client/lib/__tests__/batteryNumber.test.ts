@@ -6,6 +6,8 @@ import {
   compareBatteries,
   plausibleTs,
   computeBatteryStats,
+  normalizeCycleCount,
+  linkBatteryForLog,
 } from "../djiBatteryLink";
 
 describe("Akku-Nummern", () => {
@@ -48,5 +50,22 @@ describe("plausibleTs", () => {
     );
     assert.equal(stats[0].lastUsedAt?.slice(0, 10), "2026-11-01");
     assert.equal(stats[0].trend[0].cycleCount, 38);
+  });
+});
+
+describe("normalizeCycleCount", () => {
+  it("rechnet byteweise vertauschte Werte zurück (512 → 2, 1024 → 4)", () => {
+    assert.equal(normalizeCycleCount(512), 2);
+    assert.equal(normalizeCycleCount(768), 3);
+    assert.equal(normalizeCycleCount(1024), 4);
+    assert.equal(normalizeCycleCount(38), 38);
+    assert.equal(normalizeCycleCount(0), undefined);
+    assert.equal(normalizeCycleCount(5000), undefined);
+  });
+
+  it("korrigiert einen falsch gespeicherten Zyklenstand beim nächsten Log", () => {
+    const drone = { id: "d", name: "Neo", batteries: [{ id: "b", name: "Akku 1", serialNumber: "A4LPNAQCA037RL", createdAt: "", cycleCount: 512 }] };
+    const res = linkBatteryForLog(drone, { batterySn: "A4LPNAQCA037RL", batteryCycleCount: 3, startTs: Date.UTC(2026, 2, 3) }, { now: "2026-11-22T00:00:00Z" });
+    assert.equal(res.updatedDrone?.batteries?.[0].cycleCount, 3);
   });
 });

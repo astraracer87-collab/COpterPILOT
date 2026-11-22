@@ -14,6 +14,7 @@ import {
   markLiteDjiLog,
   mergedKeeperPatch,
   planDjiLogMerges,
+  groupDjiLogsByDistance,
   sameDjiLog,
   summarizeDjiLog,
   toLiteLogbookEntry,
@@ -249,6 +250,34 @@ describe("sameDjiLog", () => {
 });
 
 describe("planDjiLogMerges", () => {
+  it("Logs > 1 km auseinander werden nicht zusammengeführt", () => {
+    const e1 = imported("e1", log("a.txt", 0, 15));
+    const e2 = imported("e2", log("b.txt", 20, 10, { track: track(20, 50.6, 8.2) })); // ~250 km entfernt
+    assert.deepEqual(planDjiLogMerges([e1, e2], logsOf), []);
+  });
+
+  it("Logs am selben Ort (≤ 1 km) werden zusammengeführt", () => {
+    const e1 = imported("e1", log("a.txt", 0, 15, { track: track(20) }));
+    const e2 = imported("e2", log("b.txt", 20, 10, { track: track(20, 48.003, 11.003) })); // ~400 m
+    assert.deepEqual(planDjiLogMerges([e1, e2], logsOf), [{ keeperId: "e1", extraIds: ["e2"] }]);
+  });
+
+  it("groupDjiLogsByDistance trennt weit entfernte Logs", () => {
+    const groups = groupDjiLogsByDistance([
+      log("a.txt", 0, 10, { track: track(20) }),
+      log("b.txt", 15, 10, { track: track(20, 48.001, 11.001) }),
+      log("c.txt", 30, 10, { track: track(20, 50.6, 8.2) }),
+    ]);
+    assert.deepEqual(groups.map((g) => g.map((l) => l.fileName)), [["a.txt", "b.txt"], ["c.txt"]]);
+  });
+
+  it("summarizeDjiLog behält Start-/Endposition für die Entfernungsprüfung", () => {
+    const s = summarizeDjiLog(log("a.txt", 0, 10, { track: track(20, 50.6, 8.2) }));
+    assert.equal(s.startLat, 50.6);
+    assert.equal(s.track, undefined);
+    assert.equal(groupDjiLogsByDistance([s, log("b.txt", 15, 10, { track: track(5) })]).length, 2);
+  });
+
   it("Akku-Tausch (Lücke ≤ 20 min) wird zusammengeführt, früheste bleibt", () => {
     const e1 = imported("e1", log("a.txt", 0, 15));
     const e2 = imported("e2", log("b.txt", 25, 15)); // 10 min Lücke

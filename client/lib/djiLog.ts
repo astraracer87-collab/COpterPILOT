@@ -18,6 +18,7 @@ import {
 } from "./storage";
 import {
   DJI_MERGE_MAX_GAP_MS,
+  groupDjiLogsByDistance,
   hasUserEnteredData,
   isDjiImportEntry,
   mergedKeeperPatch,
@@ -400,6 +401,54 @@ export async function mergeRelatedDjiLogEntries(maxGapMinutes = DJI_MERGE_MAX_GA
   return merged;
 }
 
+/** Lite-Vorprüfung: liegen die Logs eines Eintrags > 1 km auseinander? */
+function looksFarApart(e: LogbookEntry): boolean {
+  const logs = getEntryDjiLogs(e);
+  if (logs.length < 2) return false;
+  if (groupDjiLogsByDistance(sortDjiLogs([...logs])).length > 1) return true;
+  // ältere Listenkopien ohne Positionsfelder: Routen-Segmente (eins je Log)
+  const segs = (e.trackPreview ?? []).filter((seg) => seg.length > 0);
+  if (segs.length < 2) return false;
+  const pseudo = segs.map(
+    (seg) => ({ status: "parsed", fileName: "", objectPath: "", track: seg }) as DjiLogMeta,
+  );
+  return groupDjiLogsByDistance(pseudo).length > 1;
+}
+
+/**
+ * Früher (ohne Entfernungsprüfung) zusammengeführte Einträge wieder trennen:
+ * Logs, die mehr als 1 km auseinander liegen, bekommen eigene Einträge. Der
+ * bestehende Eintrag (mit allen Nutzerdaten) behält die erste Gruppe. Neue
+ * Einträge werden zuerst angelegt, erst danach wird der alte gekürzt – so geht
+ * bei einem Abbruch kein Log verloren.
+ */
+export async function splitFarApartDjiLogEntries(): Promise<number> {
+  const all = await getLogbookLite();
+  let created = 0;
+  for (const e of all) {
+    if (!looksFarApart(e)) continue;
+    try {
+      const full = await getLogbookEntryDjiLogsStrict(e.id);
+      if (!full || full.length < 2) continue;
+      const groups = groupDjiLogsByDistance(sortDjiLogs([...full]));
+      if (groups.length < 2) continue;
+      for (const g of groups.slice(1)) {
+        const { meta: linked, drone } = await linkDroneAndBattery(g[0], e.droneId || undefined);
+        const fresh = await createLogbookEntry(logbookEntryFromDjiLog(linked, drone));
+        for (const l of g.slice(1)) await attachDjiLogToEntry(fresh.id, l);
+        if (g.length > 1) {
+          await updateLogbookEntry(fresh.id, mergedKeeperPatch({ ...fresh, maxAltitude: undefined }, [], g));
+        }
+        created++;
+      }
+      await updateLogbookEntry(e.id, mergedKeeperPatch({ ...e, maxAltitude: undefined }, [], groups[0]));
+    } catch {
+      // Eintrag überspringen, Rest weiter prüfen
+    }
+  }
+  return created;
+}
+
 let tidyRunning: Promise<number> | null = null;
 
 /**
@@ -412,6 +461,7 @@ export function tidyDjiLogEntries(): Promise<number> {
   tidyRunning = (async () => {
     let changed = 0;
     changed += await removeDuplicateDjiLogEntries().catch(() => 0);
+    changed += await splitFarApartDjiLogEntries().catch(() => 0);
     changed += await mergeRelatedDjiLogEntries().catch(() => 0);
     return changed;
   })().finally(() => {

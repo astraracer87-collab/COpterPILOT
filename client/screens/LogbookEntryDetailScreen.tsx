@@ -1,3 +1,4 @@
+import { normalizeCycleCount } from "@/lib/djiBatteryLink";
 import React, { useCallback, useRef, useState } from "react";
 import { View, StyleSheet, ScrollView, Image, Pressable, Alert, Platform } from "react-native";
 import { useRoute, useNavigation, useFocusEffect } from "@react-navigation/native";
@@ -675,7 +676,7 @@ export default function LogbookEntryDetailScreen() {
             )
           : null}
         {log.batterySn ? renderDetailRow("Akku S/N", log.batterySn) : null}
-        {log.batteryCycleCount != null ? renderDetailRow("Ladezyklen", String(log.batteryCycleCount)) : null}
+        {normalizeCycleCount(log.batteryCycleCount) != null ? renderDetailRow("Ladezyklen", String(normalizeCycleCount(log.batteryCycleCount))) : null}
         {log.minCellV != null
           ? renderDetailRow(
               "Min. Zellspannung",

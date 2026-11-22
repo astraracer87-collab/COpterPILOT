@@ -300,13 +300,16 @@ const WORKER_SOURCE = String.raw`
     if (job.bytes.length <= CFG.maxRecordsBytes) {
       try {
         var recs = keychains ? log.records(keychains) : log.records();
+        // Zyklen: manche Modelle liefern den Wert byteweise vertauscht (2 → 512).
+        // Alle Kandidaten sammeln, normalisieren, häufigsten plausiblen nehmen.
+        var cycleCands = [];
         for (var x = 0; x < recs.length; x++) {
           var R = recs[x], cnt = R.content;
           if (R.type === "SmartBatteryGroup" && cnt && cnt.type === "SmartBatteryStatic") {
-            if (isNum(cnt.loop_times) && cnt.loop_times > 0 && (!battery.cycleCount || cnt.loop_times > battery.cycleCount)) battery.cycleCount = cnt.loop_times;
+            if (isNum(cnt.loop_times)) cycleCands.push(cnt.loop_times);
             if (isNum(cnt.battery_life) && cnt.battery_life > 0 && cnt.battery_life <= 100) battery.healthPercent = cnt.battery_life;
           } else if (R.type === "CenterBattery" && cnt) {
-            if (isNum(cnt.numberOfDischarges) && cnt.numberOfDischarges > 0 && (!battery.cycleCount || cnt.numberOfDischarges > battery.cycleCount)) battery.cycleCount = cnt.numberOfDischarges;
+            if (isNum(cnt.numberOfDischarges)) cycleCands.push(cnt.numberOfDischarges);
           } else if (R.type === "ComponentSerial" && cnt) {
             if (cnt.componentType === "Battery" && !battery.batterySn && str(cnt.serial)) battery.batterySn = str(cnt.serial);
             if (cnt.componentType === "Aircraft" && !battery.aircraftSn && str(cnt.serial)) battery.aircraftSn = str(cnt.serial);
@@ -315,6 +318,15 @@ const WORKER_SOURCE = String.raw`
           }
         }
         recs = null;
+        var cycleFreq = Object.create(null), bestCyc = 0, bestCnt = 0;
+        for (var ci = 0; ci < cycleCands.length; ci++) {
+          var cv = cycleCands[ci];
+          if (cv >= 256 && cv % 256 === 0 && cv <= 65280) cv = cv / 256;
+          if (!(cv > 0 && cv <= 1500)) continue;
+          cycleFreq[cv] = (cycleFreq[cv] || 0) + 1;
+          if (cycleFreq[cv] > bestCnt || (cycleFreq[cv] === bestCnt && cv > bestCyc)) { bestCyc = cv; bestCnt = cycleFreq[cv]; }
+        }
+        if (bestCyc > 0) battery.cycleCount = bestCyc;
       } catch (e) {}
     }
     for (var m = 0; m < messages.length; m++) if (serious[messages[m].text]) messages[m].kind = "serious";

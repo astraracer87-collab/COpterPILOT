@@ -89,6 +89,7 @@ export default function BatteryStatsScreen() {
   const [stats, setStats] = useState<BatteryStat[] | null>(null);
   const [drones, setDrones] = useState<DroneProfile[]>([]);
   const [droneFilter, setDroneFilter] = useState<string | null>(null);
+  const [showForeign, setShowForeign] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -134,7 +135,13 @@ export default function BatteryStatsScreen() {
       return a.title.localeCompare(b.title, "de", { numeric: true, sensitivity: "base" });
     });
   }, [stats, drones]);
-  const visibleGroups = droneFilter ? groups.filter((g) => g.key === droneFilter) : groups;
+  // Akkus aus Logs von Drohnen, die nicht (mehr) in der eigenen Liste sind
+  // (z. B. geliehene/verkaufte Geräte) standardmäßig ausblenden
+  const ownGroups = groups.filter((g) => !!g.drone);
+  const foreignGroups = groups.filter((g) => !g.drone);
+  const foreignCount = foreignGroups.reduce((n, g) => n + g.items.length, 0);
+  const shownGroups = showForeign ? groups : ownGroups;
+  const visibleGroups = droneFilter ? shownGroups.filter((g) => g.key === droneFilter) : shownGroups;
 
   const renderStat = (s: BatteryStat) => {
     const cells = s.trend
@@ -254,9 +261,9 @@ export default function BatteryStatsScreen() {
           },
         ]}
       >
-        {groups.length > 1 ? (
+        {shownGroups.length > 1 ? (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
-            {[{ key: null as string | null, title: "Alle" }, ...groups.map((g) => ({ key: g.key as string | null, title: g.title }))].map((f) => {
+            {[{ key: null as string | null, title: "Alle" }, ...shownGroups.map((g) => ({ key: g.key as string | null, title: g.title }))].map((f) => {
               const active = droneFilter === f.key;
               return (
                 <Pressable
@@ -302,6 +309,20 @@ export default function BatteryStatsScreen() {
             </View>
           ))
         )}
+        {stats && foreignCount > 0 && !droneFilter ? (
+          <Pressable
+            onPress={() => setShowForeign((v) => !v)}
+            style={({ pressed }) => [styles.foreignToggle, { borderColor: theme.border }, pressed && { opacity: 0.7 }]}
+            testID="battery-stats-toggle-foreign"
+          >
+            <Feather name={showForeign ? "eye-off" : "eye"} size={16} color={theme.textSecondary} />
+            <ThemedText style={[styles.filterText, { color: theme.textSecondary, flex: 1 }]}>
+              {showForeign
+                ? "Akkus fremder Drohnen ausblenden"
+                : `${foreignCount} ${foreignCount === 1 ? "Akku" : "Akkus"} von Drohnen, die nicht in deiner Liste sind, einblenden`}
+            </ThemedText>
+          </Pressable>
+        ) : null}
       </ScrollView>
     </ThemedView>
   );
@@ -327,6 +348,15 @@ const styles = StyleSheet.create({
   filterRow: { gap: Spacing.xs, paddingVertical: 2 },
   filterChip: { borderWidth: 1, borderRadius: 999, paddingHorizontal: Spacing.md, paddingVertical: 6 },
   filterText: { ...Typography.small },
+  foreignToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    borderWidth: 1,
+    borderRadius: BorderRadius.sm,
+    padding: Spacing.md,
+    marginTop: Spacing.sm,
+  },
   groupHeader: { flexDirection: "row", alignItems: "center", gap: Spacing.sm, marginTop: Spacing.sm },
   groupTitle: { ...Typography.h4, flex: 1 },
   groupCount: { ...Typography.caption },

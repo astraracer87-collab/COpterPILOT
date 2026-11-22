@@ -70,6 +70,18 @@ export function plausibleTs(ts: number | null | undefined, nowMs: number = Date.
   return ts;
 }
 
+/**
+ * Ladezyklen plausibilisieren: Einige DJI-Logs liefern den Wert mit
+ * vertauschten Bytes (2 Zyklen → 512, 4 → 1024). Vielfache von 256 werden
+ * zurückgerechnet, Werte über 1500 verworfen.
+ */
+export function normalizeCycleCount(n: number | null | undefined): number | undefined {
+  if (typeof n !== "number" || !Number.isFinite(n) || n <= 0) return undefined;
+  let v = Math.round(n);
+  if (v >= 256 && v % 256 === 0 && v <= 65280) v = v / 256;
+  return v > 0 && v <= 1500 ? v : undefined;
+}
+
 export interface LinkDrone {
   id: string;
   name: string;
@@ -234,18 +246,17 @@ export function linkBatteryForLog<D extends LinkDrone>(
     changed = true;
   }
   const bat = { ...batteries[idx] };
-  if (
-    typeof meta.batteryCycleCount === "number" &&
-    meta.batteryCycleCount > 0
-  ) {
+  // gespeicherten (evtl. falsch gelesenen) Stand korrigieren
+  const stored = normalizeCycleCount(bat.cycleCount);
+  if (stored !== bat.cycleCount) {
+    bat.cycleCount = stored;
+    changed = true;
+  }
+  const logCycles = normalizeCycleCount(meta.batteryCycleCount);
+  if (logCycles != null) {
     // Zyklen nur erhöhen (ältere Logs dürfen den Stand nicht zurücksetzen)
-    if (
-      !(
-        typeof bat.cycleCount === "number" &&
-        bat.cycleCount >= meta.batteryCycleCount
-      )
-    ) {
-      bat.cycleCount = meta.batteryCycleCount;
+    if (!(typeof bat.cycleCount === "number" && bat.cycleCount >= logCycles)) {
+      bat.cycleCount = logCycles;
       changed = true;
     }
   }
@@ -342,10 +353,7 @@ export function computeBatteryStats(
         number: batteryNumberOf(b),
         serialNumber: b.serialNumber || undefined,
         flightCount: 0,
-        cycleCount:
-          typeof b.cycleCount === "number" && b.cycleCount > 0
-            ? b.cycleCount
-            : undefined,
+        cycleCount: normalizeCycleCount(b.cycleCount),
         trend: [],
       });
       byId.set(b.id, key);
@@ -390,11 +398,9 @@ export function computeBatteryStats(
       const ts = entryTs(e, log);
       touch(key, e, ts);
       const st = stats.get(key)!;
-      if (
-        typeof log.batteryCycleCount === "number" &&
-        log.batteryCycleCount > (st.cycleCount ?? 0)
-      ) {
-        st.cycleCount = log.batteryCycleCount;
+      const logCycles = normalizeCycleCount(log.batteryCycleCount);
+      if (logCycles != null && logCycles > (st.cycleCount ?? 0)) {
+        st.cycleCount = logCycles;
       }
       const pt: BatteryTrendPoint = { ts, entryId: e.id };
       if (typeof log.minCellV === "number" && !log.minCellEstimated)
@@ -405,8 +411,7 @@ export function computeBatteryStats(
         pt.startPercent = log.batteryStartPercent;
       if (typeof log.batteryEndPercent === "number")
         pt.endPercent = log.batteryEndPercent;
-      if (typeof log.batteryCycleCount === "number" && log.batteryCycleCount > 0)
-        pt.cycleCount = log.batteryCycleCount;
+      if (logCycles != null) pt.cycleCount = logCycles;
       if (
         pt.cycleCount !== undefined ||
         pt.minCellV !== undefined ||
