@@ -173,6 +173,29 @@ async function searchNominatim(query: string, signal?: AbortSignal): Promise<Poi
     .filter((x: PoiResult | null): x is PoiResult => x !== null);
 }
 
+// Höhen-Slider: 0–150 m nehmen 60 % der Breite ein (feinfühlig im üblichen
+// Bereich), 150–500 m den Rest. Rastet an typischen Höhen ein.
+const ALTITUDE_SLIDER_MAX_M = 500;
+const ALTITUDE_DETENTS = [50, 80, 100, 120];
+const ALTITUDE_SPLIT_POS = 0.6;
+const ALTITUDE_SPLIT_M = 150;
+function altitudePos(m: number): number {
+  const v = Math.max(0, Math.min(ALTITUDE_SLIDER_MAX_M, m));
+  return v <= ALTITUDE_SPLIT_M
+    ? (v / ALTITUDE_SPLIT_M) * ALTITUDE_SPLIT_POS
+    : ALTITUDE_SPLIT_POS + ((v - ALTITUDE_SPLIT_M) / (ALTITUDE_SLIDER_MAX_M - ALTITUDE_SPLIT_M)) * (1 - ALTITUDE_SPLIT_POS);
+}
+function altitudeFromPos(pos: number): number {
+  const p = Math.max(0, Math.min(1, pos));
+  const raw = p <= ALTITUDE_SPLIT_POS
+    ? (p / ALTITUDE_SPLIT_POS) * ALTITUDE_SPLIT_M
+    : ALTITUDE_SPLIT_M + ((p - ALTITUDE_SPLIT_POS) / (1 - ALTITUDE_SPLIT_POS)) * (ALTITUDE_SLIDER_MAX_M - ALTITUDE_SPLIT_M);
+  for (const d of ALTITUDE_DETENTS) {
+    if (Math.abs(raw - d) <= 6) return d;
+  }
+  return raw <= ALTITUDE_SPLIT_M ? Math.round(raw / 5) * 5 : Math.round(raw / 10) * 10;
+}
+
 export default function PlanningLocationScreen() {
   const keyboardInset = useKeyboardInset();
   const navigation = useNavigation<NavigationProp>();
@@ -206,6 +229,13 @@ export default function PlanningLocationScreen() {
   // Geplante Flughöhe (AGL) – ab Schritt 1 gewählt und durch den Flow geführt,
   // damit Höhen-Limit-Zonen bereits hier höhenbewusst bewertet werden.
   const [maxAltitude, setMaxAltitude] = useState(DEFAULT_REACHABLE_ALTITUDE_M);
+  const setAltitudeSnapped = (m: number) => {
+    if (lastAltRef.current !== m && ALTITUDE_DETENTS.includes(m)) {
+      Haptics.selectionAsync?.();
+    }
+    lastAltRef.current = m;
+    setMaxAltitude(m);
+  };
   const [vlosAltitudeCorrection, setVlosAltitudeCorrection] = useState(false);
   const [vlosInfo, setVlosInfo] = useState<{
     vlosM: number;
@@ -215,6 +245,8 @@ export default function PlanningLocationScreen() {
   const vlosInitializedRef = useRef(false);
   const radiusManuallyAdjustedRef = useRef(false);
   const sliderRef = useRef<View>(null);
+  const altSliderRef = useRef<View>(null);
+  const lastAltRef = useRef<number | null>(null);
   const suppressNextSearchRef = useRef(false);
   const searchTokenRef = useRef(0);
 
@@ -663,7 +695,7 @@ export default function PlanningLocationScreen() {
     setTouchedLoading(true);
     const timer = setTimeout(async () => {
       try {
-        const iso = (countryIso || "DE").toUpperCase();
+        const iso = (planningCountryIso || countryIso || "DE").toUpperCase();
         const results = await queryGeozonesInArea(
           selectedLocation.latitude,
           selectedLocation.longitude,
@@ -693,7 +725,7 @@ export default function PlanningLocationScreen() {
       touchedTokenRef.current++;
       clearTimeout(timer);
     };
-  }, [selectedLocation?.latitude, selectedLocation?.longitude, radiusM, countryIso]);
+  }, [selectedLocation?.latitude, selectedLocation?.longitude, radiusM, planningCountryIso, countryIso]);
 
   // Höhenbewusste Bewertung der Geozonen im Umkreis: Zonen, deren Höhen-Limit
   // über/gleich der geplanten Flughöhe liegt, sind unkritisch; Flugverbote und
@@ -1277,39 +1309,50 @@ export default function PlanningLocationScreen() {
                   {maxAltitude} m
                 </ThemedText>
               </View>
-              <View style={styles.altitudeChipRow}>
-                {[30, 50, 80, 100, 120, 150].map((h) => (
+              <View
+                ref={altSliderRef}
+                style={styles.sliderTrack}
+                onStartShouldSetResponder={() => true}
+                onMoveShouldSetResponder={() => true}
+                onResponderTerminationRequest={() => false}
+                onResponderGrant={(e) => {
+                  altSliderRef.current?.measure((_fx, _fy, width, _h, pageX) => {
+                    setAltitudeSnapped(altitudeFromPos((e.nativeEvent.pageX - pageX) / width));
+                  });
+                }}
+                onResponderMove={(e) => {
+                  altSliderRef.current?.measure((_fx, _fy, width, _h, pageX) => {
+                    setAltitudeSnapped(altitudeFromPos((e.nativeEvent.pageX - pageX) / width));
+                  });
+                }}
+                testID="slider-altitude"
+              >
+                <View style={[styles.sliderTrackBg, { backgroundColor: theme.backgroundSecondary }]} />
+                {ALTITUDE_DETENTS.map((h) => (
+                  <View key={h} style={[styles.sliderVlosMark, { left: `${altitudePos(h) * 100}%`, backgroundColor: h === 120 ? "#D97706" : theme.textSecondary }]} />
+                ))}
+                <View style={[styles.sliderFill, { width: `${altitudePos(maxAltitude) * 100}%`, backgroundColor: maxAltitude > 120 ? "#D97706" : theme.primary }]} />
+                <View style={[styles.sliderThumb, { left: `${altitudePos(maxAltitude) * 100}%`, backgroundColor: maxAltitude > 120 ? "#D97706" : theme.primary, borderColor: theme.backgroundDefault }]} />
+              </View>
+              <View style={styles.altitudeLabelRow}>
+                {[0, ...ALTITUDE_DETENTS, ALTITUDE_SLIDER_MAX_M].map((h) => (
                   <Pressable
                     key={h}
-                    style={[
-                      styles.altitudeChip,
-                      { borderColor: maxAltitude === h ? theme.primary : theme.border },
-                      maxAltitude === h ? { backgroundColor: theme.primary + "20" } : undefined,
-                    ]}
-                    onPress={() => setMaxAltitude(h)}
+                    hitSlop={6}
+                    onPress={() => setAltitudeSnapped(h)}
+                    style={[styles.altitudeLabel, { left: `${altitudePos(h) * 100}%` }, h === 0 ? { marginLeft: 0 } : h === ALTITUDE_SLIDER_MAX_M ? { marginLeft: -36 } : null]}
                     testID={`button-altitude-${h}`}
                   >
-                    <ThemedText style={[styles.altitudeChipText, maxAltitude === h ? { color: theme.primary, fontWeight: "700" } : { color: theme.textSecondary }]}>
-                      {h}m
+                    <ThemedText
+                      style={[
+                        styles.sliderLabelText,
+                        { color: maxAltitude === h ? theme.primary : theme.textSecondary, fontWeight: maxAltitude === h ? "700" : "400", textAlign: h === ALTITUDE_SLIDER_MAX_M ? "right" : h === 0 ? "left" : "center" },
+                      ]}
+                    >
+                      {h === ALTITUDE_SLIDER_MAX_M ? `${h} m` : h}
                     </ThemedText>
                   </Pressable>
                 ))}
-              </View>
-              <View style={styles.altitudeCustomRow}>
-                <ThemedText style={[styles.altitudeCustomLabel, { color: theme.textSecondary }]}>Eigene Höhe:</ThemedText>
-                <TextInput disableFullscreenUI
-                  style={[styles.altitudeInput, { color: theme.text, borderColor: theme.border, backgroundColor: theme.backgroundSecondary }]}
-                  value={String(maxAltitude)}
-                  onChangeText={(t) => {
-                    const n = parseInt(t, 10);
-                    if (!isNaN(n) && n >= 0 && n <= 500) setMaxAltitude(n);
-                    else if (t === "") setMaxAltitude(0);
-                  }}
-                  keyboardType="number-pad"
-                  maxLength={3}
-                  testID="input-altitude"
-                />
-                <ThemedText style={[styles.altitudeUnit, { color: theme.textSecondary }]}>m AGL</ThemedText>
               </View>
               {vlosInfo ? (
                 <Pressable
@@ -2037,6 +2080,16 @@ const styles = StyleSheet.create({
     ...Typography.caption,
     fontSize: 11,
     lineHeight: 15,
+  },
+  altitudeLabelRow: {
+    position: "relative",
+    height: 18,
+    marginTop: 4,
+  },
+  altitudeLabel: {
+    position: "absolute",
+    width: 36,
+    marginLeft: -18,
   },
   altitudeChipRow: {
     flexDirection: "row",

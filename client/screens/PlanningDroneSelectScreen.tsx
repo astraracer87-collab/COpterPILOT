@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from "react";
 import { DroneImage } from "@/components/DroneImage";
-import { View, StyleSheet, FlatList, Pressable, ActivityIndicator, useWindowDimensions } from "react-native";
+import { View, StyleSheet, FlatList, Pressable, useWindowDimensions } from "react-native";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useHeaderHeight } from "@react-navigation/elements";
@@ -8,27 +8,16 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import Animated, { FadeInDown } from "react-native-reanimated";
 import * as Haptics from "@/lib/noHaptics";
-import * as Location from "@/lib/location";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { Card } from "@/components/Card";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, Typography } from "@/constants/theme";
 import { getDrones, DroneProfile, getComplianceStatus, getPilotProfile, PilotProfile } from "@/lib/storage";
-import { getCountryMapConfig, detectCountryFromCoordinates, reverseGeocodeCountry } from "@/lib/countryMaps";
+import { loadLastKnownPosition, peekLastKnownPosition } from "@/lib/mapFallbackCenter";
+import { getCountryMapConfig, detectCountryFromCoordinates } from "@/lib/countryMaps";
 import { withTimeout } from "@/lib/fetchWithTimeout";
 import type { FlightPlanningParamList } from "@/navigation/FlightPlanningNavigator";
-
-const ISO_ALIASES: Record<string, string> = {
-  UK: "GB",
-  EL: "GR",
-};
-
-function normalizeCountryCode(code: string | undefined | null): string | null {
-  if (!code) return null;
-  const normalized = code.trim().toUpperCase();
-  return ISO_ALIASES[normalized] || normalized;
-}
 
 type NavigationProp = NativeStackNavigationProp<FlightPlanningParamList, "PlanningDroneSelect">;
 
@@ -43,7 +32,6 @@ export default function PlanningDroneSelectScreen() {
   const tileWidth = (width - Spacing.lg * 2 - Spacing.md * (numColumns - 1)) / numColumns;
   const [drones, setDrones] = useState<DroneProfile[]>([]);
   const [pilotProfile, setPilotProfile] = useState<PilotProfile | null>(null);
-  const [detectingCountry, setDetectingCountry] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -54,48 +42,20 @@ export default function PlanningDroneSelectScreen() {
 
   const handleSelectDrone = async (drone: DroneProfile) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setDetectingCountry(true);
-    
-    let detectedCountryIso: string | null = null;
-    let latitude = 52.52;
-    let longitude = 13.405;
-    
+    // Kein Warten auf GPS/Netz mehr: Das maßgebliche Land ergibt sich aus dem
+    // Ort, den der Pilot im nächsten Schritt wählt (Suche oder Karte). Hier nur
+    // ein schneller Startpunkt für die Karte aus der zuletzt bekannten Position.
+    let countryIso: string | null = null;
     try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status === "granted") {
-        // GPS-Kaltstart kann lange dauern → max. 8 s warten, dann letzte
-        // bekannte Position (max. 3 s) bzw. Standard (Berlin).
-        const location =
-          (await withTimeout(
-            Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }).catch(() => null),
-            8000,
-            null,
-          )) ??
-          (await withTimeout(Location.getLastKnownPositionAsync().catch(() => null), 3000, null));
-        if (location) {
-          latitude = location.coords.latitude;
-          longitude = location.coords.longitude;
-        }
-      }
-    } catch (error) {
+      const last = peekLastKnownPosition() ?? (await withTimeout(loadLastKnownPosition(), 1000, null));
+      if (last) countryIso = detectCountryFromCoordinates(last.latitude, last.longitude);
+    } catch {
+      // egal – die Karte startet dann in Deutschland
     }
-    
-    // Offline-first: lokale Ländererkennung sofort; Netz (mit Timeout) nur,
-    // wenn sie nichts liefert.
-    detectedCountryIso = detectCountryFromCoordinates(latitude, longitude);
-    if (!detectedCountryIso) {
-      detectedCountryIso = await reverseGeocodeCountry(latitude, longitude);
-    }
-    
-    setDetectingCountry(false);
-    
-    const countryConfig = detectedCountryIso ? getCountryMapConfig(detectedCountryIso) : null;
-    
-    if (countryConfig) {
-      navigation.navigate("PlanningLocation", { droneId: drone.id, countryIso: detectedCountryIso! });
-    } else {
-      navigation.navigate("PlanningCountrySelect", { droneId: drone.id });
-    }
+    navigation.navigate("PlanningLocation", {
+      droneId: drone.id,
+      ...(countryIso && getCountryMapConfig(countryIso) ? { countryIso } : {}),
+    });
   };
 
   const getStatusColor = (status: "green" | "yellow" | "red") => {
@@ -132,17 +92,6 @@ export default function PlanningDroneSelectScreen() {
     [navigation, theme, pilotProfile, tileWidth]
   );
 
-  if (detectingCountry) {
-    return (
-      <ThemedView style={[styles.container, styles.loadingContainer]}>
-        <ActivityIndicator size="large" color={theme.primary} />
-        <ThemedText style={[styles.loadingText, { color: theme.textSecondary }]}>
-          Land wird ermittelt...
-        </ThemedText>
-      </ThemedView>
-    );
-  }
-
   return (
     <ThemedView style={styles.container}>
       <FlatList
@@ -155,16 +104,13 @@ export default function PlanningDroneSelectScreen() {
         contentContainerStyle={[
           styles.listContent,
           {
-            paddingTop: headerHeight + Spacing.xl,
+            paddingTop: headerHeight + Spacing.sm,
             paddingBottom: insets.bottom + Spacing.xl,
           },
         ]}
         ListHeaderComponent={
           <View style={styles.header}>
             <ThemedText style={styles.title}>Drohne auswählen</ThemedText>
-            <ThemedText style={[styles.subtitle, { color: theme.textSecondary }]}>
-              Wähle die Drohne für deinen geplanten Flug
-            </ThemedText>
           </View>
         }
       />
@@ -191,11 +137,10 @@ const styles = StyleSheet.create({
   // Kachel-Statuspunkt sitzt oben rechts im Bild
 
   header: {
-    marginBottom: Spacing.lg,
+    marginBottom: Spacing.sm,
   },
   title: {
     ...Typography.h2,
-    marginBottom: Spacing.xs,
   },
   subtitle: {
     ...Typography.body,

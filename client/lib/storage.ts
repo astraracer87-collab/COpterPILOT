@@ -1214,6 +1214,12 @@ export async function getDrones(opts?: { includeArchived?: boolean; onlyArchived
   });
 }
 
+/** Drohnen überall alphabetisch (natürliche Zahlen: „Mini 4“ vor „Mini 10“). */
+export function compareDronesByName(a: DroneProfile, b: DroneProfile): number {
+  const key = (d: DroneProfile) => (d.name || `${d.manufacturer ?? ""} ${d.model ?? ""}`).trim();
+  return key(a).localeCompare(key(b), "de", { numeric: true, sensitivity: "base" });
+}
+
 async function getDronesFresh(opts: { includeArchived: boolean; onlyArchived: boolean }): Promise<DroneProfile[]> {
   await waitForAuthReady();
   const { includeArchived, onlyArchived } = opts;
@@ -1226,7 +1232,7 @@ async function getDronesFresh(opts: { includeArchived: boolean; onlyArchived: bo
   const shape = (list: DroneProfile[]) => list
     .map(normalizeDroneShape)
     .filter(filterFn)
-    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+    .sort(compareDronesByName);
 
   if (useServer()) {
     const remote = await safeApi(() => Api.apiGetDrones({ includeArchived, onlyArchived }));
