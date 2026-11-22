@@ -428,7 +428,7 @@ export default function SettingsScreen() {
       testID="settings-row-charger"
       icon={icon("battery-charging")}
       title="Ladegerät ISDT MA331"
-      subtitle={chargerOwned ? "Vorhanden · Akkus-Reiter, Hintergrund-Loggen, Kopplung" : "Nicht vorhanden · Akkus-Reiter ausgeblendet"}
+      subtitle={chargerOwned ? "Vorhanden · Hintergrund-Loggen, Kopplung" : "Nicht vorhanden · Akkus zeigt nur Daten aus den Flug-Logs"}
       accessory={
         <Switch
           value={chargerOwned}

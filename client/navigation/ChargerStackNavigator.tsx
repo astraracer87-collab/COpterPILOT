@@ -8,7 +8,11 @@
  *  - Verlassen des Tabs trennt ohne laufenden Ladevorgang; sonst entscheidet
  *    „Ladegerät im Hintergrund loggen“ (ggf. mit Rückfrage).
  */
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
+import BatteryStatsScreen from "@/screens/BatteryStatsScreen";
+import BatteryDetailScreen from "@/screens/BatteryDetailScreen";
+import LogbookEntryDetailScreen from "@/screens/LogbookEntryDetailScreen";
+import { loadChargerFeatureEnabled, peekChargerFeatureEnabled, subscribeChargerFeature } from "@/lib/chargerFeature";
 import { compactHeader } from "@/components/CompactStackHeader";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { useNavigation } from "@react-navigation/native";
@@ -37,6 +41,11 @@ export type ChargerStackParamList = {
 };
 
 const Stack = createNativeStackNavigator<ChargerStackParamList>();
+const LogsStack = createNativeStackNavigator<{
+  BatteryStats: undefined;
+  BatteryDetail: { droneId: string; batteryId: string };
+  LogbookEntryDetail: { logbookEntryId?: string; sessionId?: string };
+}>();
 
 /** Fokus/Verlassen des Tabs (Navigation des Tab-Eintrags, nicht des inneren Stacks) */
 function useChargerTabLifecycle() {
@@ -65,6 +74,35 @@ function useChargerTabLifecycle() {
 }
 
 export default function ChargerStackNavigator() {
+  const [chargerOn, setChargerOn] = useState(peekChargerFeatureEnabled());
+  useEffect(() => {
+    let alive = true;
+    loadChargerFeatureEnabled().then((on) => alive && setChargerOn(on));
+    const unsub = subscribeChargerFeature(setChargerOn);
+    return () => {
+      alive = false;
+      unsub();
+    };
+  }, []);
+  return chargerOn ? <ChargerFullStack /> : <BatteryLogsOnlyStack />;
+}
+
+/**
+ * Ohne Ladegerät: der Akkus-Reiter zeigt nur die Akku-Daten aus den
+ * Flug-Logs (Statistik je Drohne, Akku-Details) – keine Ladegerät-Optionen.
+ */
+function BatteryLogsOnlyStack() {
+  const screenOptions = useScreenOptions({ transparent: false });
+  return (
+    <LogsStack.Navigator screenOptions={{ ...screenOptions, header: compactHeader }}>
+      <LogsStack.Screen name="BatteryStats" component={BatteryStatsScreen} options={{ headerTitle: "Akkus" }} />
+      <LogsStack.Screen name="BatteryDetail" component={BatteryDetailScreen} options={{ headerTitle: "Akku" }} />
+      <LogsStack.Screen name="LogbookEntryDetail" component={LogbookEntryDetailScreen} options={{ headerTitle: "Flug" }} />
+    </LogsStack.Navigator>
+  );
+}
+
+function ChargerFullStack() {
   // Nicht transparent: Inhalt beginnt unter der Kopfzeile (kompakt im Querformat)
   const screenOptions = useScreenOptions({ transparent: false });
   useChargerTabLifecycle();

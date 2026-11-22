@@ -406,16 +406,16 @@ export default function MainTabNavigator() {
             tabBarIcon: ({ focused }) => <TabBarIcon name="aperture" focused={focused} />,
           }}
         />
-        {chargerEnabled ? (
-          <Tab.Screen
-            name="ChargerTab"
-            component={ChargerTabScreen}
-            options={{
-              tabBarLabel: "Akkus",
-              tabBarIcon: ({ focused }) => <ChargerTabIcon focused={focused} />,
-            }}
-          />
-        ) : null}
+        <Tab.Screen
+          name="ChargerTab"
+          component={ChargerTabScreen}
+          options={{
+            tabBarLabel: "Akkus",
+            // ohne Ladegerät nur Akku-Daten aus den Logs, kein Ladegerät-Status im Symbol
+            tabBarIcon: ({ focused }) =>
+              chargerEnabled ? <ChargerTabIcon focused={focused} /> : <TabBarIcon name="battery" focused={focused} />,
+          }}
+        />
         <Tab.Screen
           name="SettingsTab"
           component={SettingsTabScreen}
