@@ -1,3 +1,4 @@
+import { batteryNumberOf, batteryDisplayName, compareBatteries, BATTERY_NUMBER_MAX } from "@/lib/djiBatteryLink";
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { DroneImage, ManufacturerBadge } from "@/components/DroneImage";
 import { beaufortLevel, warnThresholdMs, WIND_WARN_FRACTION } from "@/lib/beaufort";
@@ -68,11 +69,6 @@ type RouteParams = RouteProp<SettingsStackParamList, "DroneSetup">;
 
 type SetupStep = "select" | "details";
 
-const batteryCollator = new Intl.Collator("de", { numeric: true, sensitivity: "base" });
-/** Akku 1, Akku 2, … Akku 10 – natürliche Reihenfolge nach Name */
-function sortBatteriesByName<T extends { name: string }>(list: T[]): T[] {
-  return [...list].sort((a, b) => batteryCollator.compare(a.name.trim(), b.name.trim()));
-}
 
 export default function DroneSetupScreen() {
   const route = useRoute<RouteParams>();
@@ -124,9 +120,9 @@ export default function DroneSetupScreen() {
   const [batteryEditor, setBatteryEditor] = useState<{
     visible: boolean;
     editingId: string | null;
-    name: string;
+    number: number | null;
     serial: string;
-  }>({ visible: false, editingId: null, name: "", serial: "" });
+  }>({ visible: false, editingId: null, number: null, serial: "" });
   const [droneType, setDroneType] = useState<DroneType>("standard");
   const [openCategory, setOpenCategory] = useState<OpenCategory>("A1");
   const [compliance, setCompliance] = useState<DroneCompliance>(DEFAULT_COMPLIANCE);
@@ -857,7 +853,12 @@ export default function DroneSetupScreen() {
             testID="battery-add-button"
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-              setBatteryEditor({ visible: true, editingId: null, name: "", serial: "" });
+              {
+                const used = new Set(batteries.map((x) => batteryNumberOf(x)).filter((n): n is number => n != null));
+                let free: number | null = null;
+                for (let n = 1; n <= BATTERY_NUMBER_MAX; n++) if (!used.has(n)) { free = n; break; }
+                setBatteryEditor({ visible: true, editingId: null, number: free, serial: "" });
+              }
             }}
             style={({ pressed }) => [
               styles.batteryAddButton,
@@ -879,7 +880,7 @@ export default function DroneSetupScreen() {
           </ThemedText>
         ) : (
           <View style={{ marginTop: Spacing.sm, gap: Spacing.xs }}>
-            {sortBatteriesByName(batteries).map((b) => (
+            {[...batteries].sort(compareBatteries).map((b) => (
               <View
                 key={b.id}
                 style={[styles.batteryRow, { borderColor: theme.border, backgroundColor: theme.backgroundSecondary }]}
@@ -905,13 +906,13 @@ export default function DroneSetupScreen() {
                   <Feather name="battery" size={18} color={theme.primary} />
                   <View style={{ flex: 1 }}>
                     <ThemedText style={{ ...Typography.body, fontWeight: "600" }}>
-                      {b.name} · SN: {b.serialNumber || "—"}
+                      {batteryDisplayName(b)} · SN: {b.serialNumber || "—"}
                     </ThemedText>
                   </View>
                 </Pressable>
                 <Pressable
                   testID={`battery-edit-${b.id}`}
-                  onPress={() => setBatteryEditor({ visible: true, editingId: b.id, name: b.name, serial: b.serialNumber })}
+                  onPress={() => setBatteryEditor({ visible: true, editingId: b.id, number: batteryNumberOf(b) ?? null, serial: b.serialNumber })}
                   hitSlop={8}
                   style={({ pressed }) => [styles.batteryIconBtn, pressed && { opacity: 0.6 }]}
                 >
@@ -1293,18 +1294,29 @@ export default function DroneSetupScreen() {
             <ThemedText style={{ ...Typography.h4, marginBottom: kbInset > 0 ? 0 : Spacing.sm }}>
               {batteryEditor.editingId ? "Akku bearbeiten" : "Neuen Akku anlegen"}
             </ThemedText>
+            <ThemedText style={[styles.sectionLabel, { color: theme.textSecondary }]}>AKKU-NUMMER (WIE AM AKKU BESCHRIFTET)</ThemedText>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: Spacing.xs }}>
+              {Array.from({ length: BATTERY_NUMBER_MAX }, (_, i) => i + 1).map((n) => {
+                const takenBy = batteries.find((x) => x.id !== batteryEditor.editingId && batteryNumberOf(x) === n);
+                const active = batteryEditor.number === n;
+                return (
+                  <Pressable
+                    key={n}
+                    testID={`battery-number-${n}`}
+                    disabled={!!takenBy}
+                    onPress={() => setBatteryEditor((p) => ({ ...p, number: p.number === n ? null : n }))}
+                    style={[
+                      styles.batteryNumberChip,
+                      { borderColor: active ? theme.primary : theme.border, backgroundColor: active ? theme.primary + "25" : theme.backgroundDefault },
+                      takenBy && { opacity: 0.3 },
+                    ]}
+                  >
+                    <ThemedText style={{ ...Typography.body, fontWeight: active ? "700" : "500", color: active ? theme.primary : theme.text }}>{n}</ThemedText>
+                  </Pressable>
+                );
+              })}
+            </View>
             <View style={styles.row}>
-              <View style={styles.halfInput}>
-                <ThemedText style={[styles.sectionLabel, kbInset > 0 && { marginTop: Spacing.xs }, { color: theme.textSecondary }]}>NAME</ThemedText>
-                <TextInput disableFullscreenUI
-                  testID="battery-input-name"
-                  style={[styles.input, { backgroundColor: theme.backgroundDefault, color: theme.text }]}
-                  placeholder="z.B. Akku 1"
-                  placeholderTextColor={theme.textTertiary}
-                  value={batteryEditor.name}
-                  onChangeText={(t) => setBatteryEditor((p) => ({ ...p, name: t }))}
-                />
-              </View>
               <View style={styles.halfInput}>
                 <ThemedText style={[styles.sectionLabel, kbInset > 0 && { marginTop: Spacing.xs }, { color: theme.textSecondary }]}>SERIENNUMMER</ThemedText>
                 <TextInput disableFullscreenUI
@@ -1330,11 +1342,6 @@ export default function DroneSetupScreen() {
                 title="Speichern"
                 testID="battery-save-button"
                 onPress={() => {
-                  const trimmedName = batteryEditor.name.trim();
-                  if (!trimmedName) {
-                    Alert.alert("Fehler", "Bitte einen Namen für den Akku angeben.");
-                    return;
-                  }
                   const trimmedSerial = batteryEditor.serial.trim();
                   if (!trimmedSerial) {
                     Alert.alert("Fehler", "Bitte eine Seriennummer für den Akku angeben.");
@@ -1344,20 +1351,26 @@ export default function DroneSetupScreen() {
                     setBatteries((prev) =>
                       prev.map((b) =>
                         b.id === batteryEditor.editingId
-                          ? { ...b, name: trimmedName, serialNumber: trimmedSerial }
+                          ? {
+                              ...b,
+                              number: batteryEditor.number ?? undefined,
+                              name: batteryDisplayName({ number: batteryEditor.number ?? undefined, serialNumber: trimmedSerial }),
+                              serialNumber: trimmedSerial,
+                            }
                           : b,
                       ),
                     );
                   } else {
                     const newBattery: DroneBattery = {
                       id: `bat_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-                      name: trimmedName,
+                      number: batteryEditor.number ?? undefined,
+                      name: batteryDisplayName({ number: batteryEditor.number ?? undefined, serialNumber: trimmedSerial }),
                       serialNumber: trimmedSerial,
                       createdAt: new Date().toISOString(),
                     };
                     setBatteries((prev) => [...prev, newBattery]);
                   }
-                  setBatteryEditor({ visible: false, editingId: null, name: "", serial: "" });
+                  setBatteryEditor({ visible: false, editingId: null, number: null, serial: "" });
                 }}
                 style={{ flex: 1 }}
               />
@@ -1591,6 +1604,15 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: BorderRadius.xs,
     borderWidth: 1,
+  },
+  batteryNumberChip: {
+    minWidth: 44,
+    height: 40,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: Spacing.sm,
   },
   batteryHeaderRow: {
     flexDirection: "row",

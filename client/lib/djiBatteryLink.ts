@@ -24,6 +24,50 @@ export interface LinkBattery {
   cycleCount?: number;
   lastSeenAt?: string;
   source?: "manual" | "dji-log";
+  /** Vom Piloten vergebene Akku-Nummer (1–10, z. B. Beschriftung am Akku) */
+  number?: number;
+}
+
+export const BATTERY_NUMBER_MAX = 10;
+
+/** Akku-Nummer: gesetztes Feld, sonst aus einem Namen wie „Akku 3“. */
+export function batteryNumberOf(b: { number?: number; name?: string }): number | undefined {
+  if (typeof b.number === "number" && b.number >= 1 && b.number <= 99) return b.number;
+  const m = /^\s*akku\s*(\d{1,2})\s*$/i.exec(b.name ?? "");
+  return m ? Number(m[1]) : undefined;
+}
+
+/** Anzeigename: „Akku 3“ bei vergebener Nummer, sonst „Akku …02TE“. */
+export function batteryDisplayName(b: { number?: number; name?: string; serialNumber?: string }): string {
+  const n = batteryNumberOf(b);
+  if (n != null) return `Akku ${n}`;
+  if (b.name && b.name.trim()) return b.name.trim();
+  const sn = normalizeSerial(b.serialNumber);
+  return sn ? `Akku …${sn.length > 4 ? sn.slice(-4) : sn}` : "Akku";
+}
+
+/** Sortierung: nummerierte Akkus zuerst (1, 2, …), dann nach Name. */
+export function compareBatteries(
+  a: { number?: number; name?: string; serialNumber?: string },
+  b: { number?: number; name?: string; serialNumber?: string },
+): number {
+  const na = batteryNumberOf(a);
+  const nb = batteryNumberOf(b);
+  if (na != null && nb != null) return na - nb;
+  if (na != null) return -1;
+  if (nb != null) return 1;
+  return batteryDisplayName(a).localeCompare(batteryDisplayName(b), "de", { numeric: true });
+}
+
+/**
+ * Plausibler Zeitstempel: DJI-Logs ohne gültige Uhrzeit liefern teils Werte
+ * weit in der Zukunft (z. B. 2041). Alles nach „jetzt + 2 Tage“ oder vor 2010
+ * wird verworfen.
+ */
+export function plausibleTs(ts: number | null | undefined, nowMs: number = Date.now()): number | undefined {
+  if (typeof ts !== "number" || !Number.isFinite(ts)) return undefined;
+  if (ts < Date.UTC(2010, 0, 1) || ts > nowMs + 2 * 86400000) return undefined;
+  return ts;
 }
 
 export interface LinkDrone {
@@ -145,10 +189,9 @@ export function linkBatteryForLog<D extends LinkDrone>(
   opts: { now?: string; newId?: () => string } = {},
 ): BatteryLinkResult<D> {
   const now = opts.now ?? new Date().toISOString();
+  const startOk = plausibleTs(meta.startTs, Date.parse(now) || Date.now());
   const seenAt =
-    meta.startTs != null && Number.isFinite(meta.startTs)
-      ? new Date(meta.startTs).toISOString()
-      : (meta.parsedAt ?? now);
+    startOk != null ? new Date(startOk).toISOString() : (meta.parsedAt ?? now);
   let changed = false;
   let next: D = drone;
   if (!normalizeSerial(drone.serialNumber) && meta.aircraftSn) {
@@ -215,7 +258,7 @@ export function linkBatteryForLog<D extends LinkDrone>(
   return {
     updatedDrone: changed ? next : null,
     batteryId: bat.id,
-    batteryLabel: bat.name || `Akku …${shortSerial(bat.serialNumber)}`,
+    batteryLabel: batteryDisplayName(bat),
     createdBattery: created,
   };
 }
@@ -232,6 +275,8 @@ export interface BatteryTrendPoint {
   maxTempC?: number;
   startPercent?: number;
   endPercent?: number;
+  /** Ladezyklen laut diesem Log */
+  cycleCount?: number;
 }
 
 export interface BatteryStat {
@@ -240,6 +285,8 @@ export interface BatteryStat {
   droneId?: string;
   droneName?: string;
   name: string;
+  /** Akku-Nummer (1–10), falls vergeben */
+  number?: number;
   serialNumber?: string;
   /** Anzahl Flüge (Logbuch-Einträge) mit diesem Akku */
   flightCount: number;
@@ -258,11 +305,12 @@ function entryLogs(e: LinkEntry): DjiLogMeta[] {
 }
 
 function entryTs(e: LinkEntry, log?: DjiLogMeta): number {
-  if (log?.startTs != null && Number.isFinite(log.startTs)) return log.startTs;
-  const t = log?.track?.find((p) => typeof p.ts === "number")?.ts;
-  if (typeof t === "number") return t;
-  const a = e.takeoffTime ? Date.parse(e.takeoffTime) : NaN;
-  if (Number.isFinite(a)) return a;
+  const s = plausibleTs(log?.startTs);
+  if (s != null) return s;
+  const t = plausibleTs(log?.track?.find((p) => typeof p.ts === "number")?.ts);
+  if (t != null) return t;
+  const a = plausibleTs(e.takeoffTime ? Date.parse(e.takeoffTime) : NaN);
+  if (a != null) return a;
   const b = Date.parse(e.flightDate);
   return Number.isFinite(b) ? b : 0;
 }
@@ -290,7 +338,8 @@ export function computeBatteryStats(
         batteryId: b.id,
         droneId: d.id,
         droneName: d.name,
-        name: b.name || "Akku",
+        name: batteryDisplayName(b),
+        number: batteryNumberOf(b),
         serialNumber: b.serialNumber || undefined,
         flightCount: 0,
         cycleCount:
@@ -356,7 +405,10 @@ export function computeBatteryStats(
         pt.startPercent = log.batteryStartPercent;
       if (typeof log.batteryEndPercent === "number")
         pt.endPercent = log.batteryEndPercent;
+      if (typeof log.batteryCycleCount === "number" && log.batteryCycleCount > 0)
+        pt.cycleCount = log.batteryCycleCount;
       if (
+        pt.cycleCount !== undefined ||
         pt.minCellV !== undefined ||
         pt.maxTempC !== undefined ||
         pt.startPercent !== undefined ||

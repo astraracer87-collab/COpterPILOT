@@ -526,6 +526,8 @@ export interface DroneBattery {
   lastSeenAt?: string;
   /** "dji-log": automatisch aus einem Flugprotokoll angelegt. */
   source?: "manual" | "dji-log";
+  /** Vom Piloten vergebene Akku-Nummer 1–10 (Beschriftung am Akku). */
+  number?: number;
 }
 
 export interface BatteryUsage {

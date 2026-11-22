@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import {
   View,
   StyleSheet,
@@ -20,9 +20,12 @@ import { Spacing, Typography, BorderRadius } from "@/constants/theme";
 import { getDrones, getLogbookLite } from "@/lib/storage";
 import {
   computeBatteryStats,
+  compareBatteries,
   formatTrend,
   type BatteryStat,
 } from "@/lib/djiBatteryLink";
+import { DroneImage } from "@/components/DroneImage";
+import type { DroneProfile } from "@/lib/storage";
 import type { HistoryStackParamList } from "@/navigation/HistoryStackNavigator";
 
 type Nav = NativeStackNavigationProp<HistoryStackParamList>;
@@ -84,6 +87,8 @@ export default function BatteryStatsScreen() {
   const headerHeight = useHeaderHeight();
   const insets = useSafeAreaInsets();
   const [stats, setStats] = useState<BatteryStat[] | null>(null);
+  const [drones, setDrones] = useState<DroneProfile[]>([]);
+  const [droneFilter, setDroneFilter] = useState<string | null>(null);
 
   useFocusEffect(
     useCallback(() => {
@@ -94,7 +99,10 @@ export default function BatteryStatsScreen() {
             getDrones({ includeArchived: true }),
             getLogbookLite(),
           ]);
-          if (!cancelled) setStats(computeBatteryStats(drones, entries));
+          if (!cancelled) {
+            setDrones(drones);
+            setStats(computeBatteryStats(drones, entries));
+          }
         } catch {
           if (!cancelled) setStats([]);
         }
@@ -104,6 +112,29 @@ export default function BatteryStatsScreen() {
       };
     }, []),
   );
+
+  // Je Drohne gruppiert (alphabetisch), innerhalb nach Akku-Nummer
+  const groups = useMemo(() => {
+    if (!stats) return [];
+    const byDrone = new Map<string, { key: string; drone?: DroneProfile; title: string; items: BatteryStat[] }>();
+    for (const st of stats) {
+      const d = st.droneId ? drones.find((x) => x.id === st.droneId) : undefined;
+      const key = d ? d.id : `name:${st.droneName ?? ""}`;
+      let g = byDrone.get(key);
+      if (!g) {
+        g = { key, drone: d, title: d?.name ?? st.droneName ?? "Ohne Drohne", items: [] };
+        byDrone.set(key, g);
+      }
+      g.items.push(st);
+    }
+    const list = [...byDrone.values()];
+    for (const g of list) g.items.sort(compareBatteries);
+    return list.sort((a, b) => {
+      if (!a.drone !== !b.drone) return a.drone ? -1 : 1;
+      return a.title.localeCompare(b.title, "de", { numeric: true, sensitivity: "base" });
+    });
+  }, [stats, drones]);
+  const visibleGroups = droneFilter ? groups.filter((g) => g.key === droneFilter) : groups;
 
   const renderStat = (s: BatteryStat) => {
     const cells = s.trend
@@ -126,9 +157,7 @@ export default function BatteryStatsScreen() {
               style={[styles.sub, { color: theme.textSecondary }]}
               numberOfLines={1}
             >
-              {[s.droneName, s.serialNumber ? `S/N ${s.serialNumber}` : null]
-                .filter(Boolean)
-                .join(" · ") || "—"}
+              {s.serialNumber ? `S/N ${s.serialNumber}` : "—"}
             </ThemedText>
           </View>
           {s.batteryId && s.droneId ? (
@@ -220,17 +249,29 @@ export default function BatteryStatsScreen() {
         contentContainerStyle={[
           styles.content,
           {
-            paddingTop: headerHeight + Spacing.lg,
+            paddingTop: headerHeight + Spacing.sm,
             paddingBottom: insets.bottom + Spacing.xl,
           },
         ]}
       >
-        <ThemedText style={[styles.intro, { color: theme.textSecondary }]}>
-          Flüge pro Akku aus dem Logbuch (DJI-Flugprotokolle und Akku-Auswahl im
-          Pre-Check). Seriennummer und Ladezyklen stammen aus den
-          DJI-Protokollen; unbekannte Akkus einer erkannten Drohne werden beim
-          Zuordnen automatisch angelegt.
-        </ThemedText>
+        {groups.length > 1 ? (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
+            {[{ key: null as string | null, title: "Alle" }, ...groups.map((g) => ({ key: g.key as string | null, title: g.title }))].map((f) => {
+              const active = droneFilter === f.key;
+              return (
+                <Pressable
+                  key={f.key ?? "all"}
+                  onPress={() => setDroneFilter(f.key)}
+                  style={[styles.filterChip, { borderColor: active ? theme.primary : theme.border, backgroundColor: active ? theme.primary + "22" : "transparent" }]}
+                >
+                  <ThemedText style={[styles.filterText, { color: active ? theme.primary : theme.textSecondary, fontWeight: active ? "700" : "500" }]}>
+                    {f.title}
+                  </ThemedText>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        ) : null}
         {stats === null ? (
           <ActivityIndicator
             color={theme.primary}
@@ -244,7 +285,22 @@ export default function BatteryStatsScreen() {
             </ThemedText>
           </Card>
         ) : (
-          stats.map(renderStat)
+          visibleGroups.map((g) => (
+            <View key={g.key} style={{ gap: Spacing.sm }}>
+              <View style={styles.groupHeader}>
+                {g.drone ? (
+                  <DroneImage manufacturer={g.drone.manufacturer} model={g.drone.model} size={44} iconColor={theme.primary} iconSize={22} />
+                ) : (
+                  <Feather name="help-circle" size={22} color={theme.textSecondary} />
+                )}
+                <ThemedText style={styles.groupTitle}>{g.title}</ThemedText>
+                <ThemedText style={[styles.groupCount, { color: theme.textSecondary }]}>
+                  {g.items.length} {g.items.length === 1 ? "Akku" : "Akkus"}
+                </ThemedText>
+              </View>
+              {g.items.map(renderStat)}
+            </View>
+          ))
         )}
       </ScrollView>
     </ThemedView>
@@ -268,7 +324,12 @@ function Kpi({ label, value }: { label: string; value: string }) {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   content: { paddingHorizontal: Spacing.lg, gap: Spacing.md },
-  intro: { ...Typography.small, lineHeight: 18 },
+  filterRow: { gap: Spacing.xs, paddingVertical: 2 },
+  filterChip: { borderWidth: 1, borderRadius: 999, paddingHorizontal: Spacing.md, paddingVertical: 6 },
+  filterText: { ...Typography.small },
+  groupHeader: { flexDirection: "row", alignItems: "center", gap: Spacing.sm, marginTop: Spacing.sm },
+  groupTitle: { ...Typography.h4, flex: 1 },
+  groupCount: { ...Typography.caption },
   card: { padding: Spacing.lg, gap: Spacing.sm },
   titleRow: { flexDirection: "row", alignItems: "center", gap: Spacing.sm },
   title: { ...Typography.body, fontWeight: "700" },

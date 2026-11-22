@@ -12,6 +12,7 @@ import { Card } from "@/components/Card";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, Typography, BorderRadius } from "@/constants/theme";
 import {
+  updateDrone,
   getDrone,
   getBatteryFlightHistory,
   getEntryDjiLogs,
@@ -20,10 +21,51 @@ import {
   LogbookEntry,
 } from "@/lib/storage";
 import type { SettingsStackParamList } from "@/navigation/SettingsStackNavigator";
-import { computeBatteryStats, formatTrend } from "@/lib/djiBatteryLink";
+import {
+  computeBatteryStats,
+  formatTrend,
+  batteryDisplayName,
+  batteryNumberOf,
+  plausibleTs,
+  BATTERY_NUMBER_MAX,
+} from "@/lib/djiBatteryLink";
+import Svg, { Polyline, Circle } from "react-native-svg";
 import { batteryKey } from "@/lib/charger/batteryFingerprint";
 
 type Nav = NativeStackNavigationProp<SettingsStackParamList, "BatteryDetail">;
+
+function entrySortTs(e: LogbookEntry): number {
+  const log = getEntryDjiLogs(e)[0];
+  const t = plausibleTs(log?.startTs) ?? plausibleTs(e.takeoffTime ? Date.parse(e.takeoffTime) : NaN);
+  if (t != null) return t;
+  const d = Date.parse(e.flightDate);
+  return Number.isFinite(d) ? d : 0;
+}
+
+/** Treppenkurve der Ladezyklen über die Zeit. */
+function CycleChart({ points, color }: { points: { ts: number; cycles: number }[]; color: string }) {
+  const width = 160;
+  const height = 48;
+  if (points.length < 2) return null;
+  const t0 = points[0].ts;
+  const t1 = points[points.length - 1].ts;
+  const c0 = Math.min(...points.map((p) => p.cycles));
+  const c1 = Math.max(...points.map((p) => p.cycles));
+  const x = (t: number) => 4 + ((t - t0) / (t1 - t0 || 1)) * (width - 8);
+  const y = (c: number) => 4 + (1 - (c - c0) / (c1 - c0 || 1)) * (height - 8);
+  const pts: string[] = [];
+  points.forEach((p, i) => {
+    if (i > 0) pts.push(`${x(p.ts)},${y(points[i - 1].cycles)}`);
+    pts.push(`${x(p.ts)},${y(p.cycles)}`);
+  });
+  const last = points[points.length - 1];
+  return (
+    <Svg width={width} height={height}>
+      <Polyline points={pts.join(" ")} fill="none" stroke={color} strokeWidth={2} />
+      <Circle cx={x(last.ts)} cy={y(last.cycles)} r={3} fill={color} />
+    </Svg>
+  );
+}
 
 export default function BatteryDetailScreen() {
   const route = useRoute<RouteProp<SettingsStackParamList, "BatteryDetail">>();
@@ -62,6 +104,31 @@ export default function BatteryDetailScreen() {
   );
 
   const cycles = history.length;
+  const batteryNumber = battery ? batteryNumberOf(battery) : undefined;
+  const takenNumbers = useMemo(
+    () =>
+      new Set(
+        (drone?.batteries ?? [])
+          .filter((b) => b.id !== batteryId)
+          .map((b) => batteryNumberOf(b))
+          .filter((n): n is number => n != null),
+      ),
+    [drone, batteryId],
+  );
+  const setBatteryNumber = async (n: number | null) => {
+    if (!drone || !battery) return;
+    const nextBatteries = (drone.batteries ?? []).map((b) =>
+      b.id === batteryId
+        ? { ...b, number: n ?? undefined, name: batteryDisplayName({ number: n ?? undefined, serialNumber: b.serialNumber }) }
+        : b,
+    );
+    setDrone({ ...drone, batteries: nextBatteries });
+    try {
+      await updateDrone(drone.id, { batteries: nextBatteries });
+    } catch {
+      // Anzeige bleibt; beim nächsten Öffnen wird der gespeicherte Stand geladen
+    }
+  };
   // Werte aus den DJI-Flugprotokollen dieses Akkus (chronologisch)
   const logStats = useMemo(() => {
     if (!battery) return null;
@@ -69,6 +136,12 @@ export default function BatteryDetailScreen() {
       (s) => s.batteryId === battery.id,
     ) ?? null;
   }, [drone, battery, history]);
+  const cycleHistory = useMemo(() => {
+    const pts = (logStats?.trend ?? [])
+      .filter((p) => typeof p.cycleCount === "number" && p.ts > 0)
+      .map((p) => ({ ts: p.ts, cycles: p.cycleCount as number }));
+    return pts;
+  }, [logStats]);
   const totalDischarge = useMemo(() => {
     let sum = 0;
     let count = 0;
@@ -106,7 +179,7 @@ export default function BatteryDetailScreen() {
         contentContainerStyle={[
           styles.content,
           {
-            paddingTop: headerHeight + Spacing.xl,
+            paddingTop: headerHeight + Spacing.sm,
             paddingBottom: insets.bottom + Spacing.xl,
           },
         ]}
@@ -117,7 +190,7 @@ export default function BatteryDetailScreen() {
           </View>
           <View style={{ flex: 1 }}>
             <ThemedText style={styles.title}>
-              {battery?.name ?? "Akku"}
+              {battery ? batteryDisplayName(battery) : "Akku"}
             </ThemedText>
             <ThemedText style={[styles.subtitle, { color: theme.textSecondary }]}>
               {drone?.name ? `${drone.name} · ` : ""}SN: {battery?.serialNumber || "—"}
@@ -162,6 +235,57 @@ export default function BatteryDetailScreen() {
           ) : null}
         </Card>
 
+        {battery ? (
+          <Card style={styles.statsCard}>
+            <ThemedText style={[styles.statLabel, { color: theme.textSecondary }]}>
+              AKKU-NUMMER (WIE AM AKKU BESCHRIFTET)
+            </ThemedText>
+            <View style={styles.numberRow}>
+              {Array.from({ length: BATTERY_NUMBER_MAX }, (_, i) => i + 1).map((n) => {
+                const active = batteryNumber === n;
+                const taken = takenNumbers.has(n);
+                return (
+                  <Pressable
+                    key={n}
+                    testID={`battery-detail-number-${n}`}
+                    disabled={taken}
+                    onPress={() => setBatteryNumber(active ? null : n)}
+                    style={[
+                      styles.numberChip,
+                      {
+                        borderColor: active ? theme.primary : theme.border,
+                        backgroundColor: active ? theme.primary + "25" : theme.backgroundSecondary,
+                      },
+                      taken && { opacity: 0.3 },
+                    ]}
+                  >
+                    <ThemedText style={{ ...Typography.body, fontWeight: active ? "700" : "500", color: active ? theme.primary : theme.text }}>
+                      {n}
+                    </ThemedText>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </Card>
+        ) : null}
+
+        {cycleHistory.length > 0 ? (
+          <Card style={styles.statsCard}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: Spacing.md }}>
+              <View style={{ flex: 1 }}>
+                <ThemedText style={styles.sectionTitle}>Ladezyklen-Verlauf</ThemedText>
+                <ThemedText style={[styles.historyMeta, { color: theme.textSecondary }]}>
+                  Aus den DJI-Flugprotokollen: {cycleHistory[0].cycles} Zyklen am {formatDate(new Date(cycleHistory[0].ts).toISOString())}
+                  {cycleHistory.length > 1
+                    ? ` → ${cycleHistory[cycleHistory.length - 1].cycles} am ${formatDate(new Date(cycleHistory[cycleHistory.length - 1].ts).toISOString())}`
+                    : ""}
+                </ThemedText>
+              </View>
+              <CycleChart points={cycleHistory} color={theme.primary} />
+            </View>
+          </Card>
+        ) : null}
+
         <Pressable
           testID="battery-open-charge-history"
           onPress={() =>
@@ -201,7 +325,9 @@ export default function BatteryDetailScreen() {
             </ThemedText>
           </Card>
         ) : (
-          history.map((entry) => {
+          [...history]
+            .sort((a, b) => entrySortTs(b) - entrySortTs(a))
+            .map((entry) => {
             const djiLog = getEntryDjiLogs(entry).find(
               (l) => l.batteryId === batteryId || (!!battery?.serialNumber && l.batterySn === battery.serialNumber),
             );
@@ -229,7 +355,14 @@ export default function BatteryDetailScreen() {
                     {formatDate(entry.flightDate)}
                   </ThemedText>
                   <ThemedText style={[styles.historyMeta, { color: theme.textSecondary }]}>
-                    {entry.locationName || "Ohne Ort"}
+                    {[
+                      entry.locationName || "Ohne Ort",
+                      typeof djiLog?.batteryCycleCount === "number" && djiLog.batteryCycleCount > 0 ? `${djiLog.batteryCycleCount} Zyklen` : null,
+                      typeof djiLog?.minCellV === "number" && !djiLog.minCellEstimated ? `min. ${djiLog.minCellV.toFixed(2).replace(".", ",")} V` : null,
+                      typeof djiLog?.maxBatteryTempC === "number" ? `max. ${Math.round(djiLog.maxBatteryTempC)} °C` : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
                   </ThemedText>
                   <View style={styles.percentRow}>
                     {typeof pre?.percentBefore === "number" ? (
@@ -277,6 +410,16 @@ const styles = StyleSheet.create({
   statLabel: { ...Typography.caption, fontWeight: "600" },
   statValue: { ...Typography.h2, marginTop: 4 },
   note: { ...Typography.caption, fontStyle: "italic" },
+  numberRow: { flexDirection: "row", flexWrap: "wrap", gap: Spacing.xs },
+  numberChip: {
+    minWidth: 44,
+    height: 40,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: Spacing.sm,
+  },
   section: { marginTop: Spacing.lg },
   sectionTitle: { ...Typography.h4 },
   emptyCard: { padding: Spacing.xl, alignItems: "center", gap: Spacing.sm },
