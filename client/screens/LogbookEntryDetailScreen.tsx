@@ -1,3 +1,4 @@
+import { flightDocScope } from "@/lib/flightDocScope";
 import { normalizeCycleCount } from "@/lib/djiBatteryLink";
 import React, { useCallback, useRef, useState } from "react";
 import { View, StyleSheet, ScrollView, Image, Pressable, Alert, Platform } from "react-native";
@@ -160,7 +161,7 @@ export default function LogbookEntryDetailScreen() {
         setResolvedDocs(
           resolveFlightTimeDocuments(pilot, {
             flightDateISO: result.flightDate,
-            bundesland: result.bundesland,
+            ...flightDocScope(result),
           }),
         );
       } catch {

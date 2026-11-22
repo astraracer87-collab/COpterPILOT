@@ -1,3 +1,4 @@
+import { flightDocScope } from "@/lib/flightDocScope";
 import * as Print from "expo-print";
 import { saveToDevice } from "./saveToDevice";
 import * as Sharing from "expo-sharing";
@@ -1540,7 +1541,7 @@ export async function resolveAttachedDocsForEntry(
     const pilot = await getPilotProfile();
     return resolveFlightTimeDocuments(pilot, {
       flightDateISO: entry.flightDate,
-      bundesland: entry.bundesland,
+      ...flightDocScope(entry),
     });
   } catch {
     return [];

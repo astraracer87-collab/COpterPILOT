@@ -58,6 +58,8 @@ export interface ResolveOptions {
   flightDateISO?: string | null;
   /** Erkanntes Bundesland des Flugs (für die AV-Zuordnung). */
   bundesland?: string | null;
+  /** Flug liegt außerhalb Deutschlands → keine (deutsche) Allgemeinverfügung. */
+  outsideGermany?: boolean;
 }
 
 const LABELS: Record<ResolvedPilotDocument["type"], string> = {
@@ -156,7 +158,9 @@ export function resolveFlightTimeDocuments(
   // Menge der relevanten Bundesländer: bei bekanntem Flug-Bundesland nur dieses,
   // sonst alle, für die aktuell eine AV hinterlegt ist.
   const bundeslandSet = new Set<string>();
-  if (requested) {
+  if (opts.outsideGermany) {
+    // Flug im Ausland: eine deutsche Bundesland-AV gilt dort nicht
+  } else if (requested) {
     for (const e of avCurrent) if (norm(e.bundesland) === requested) bundeslandSet.add(e.bundesland);
     for (const a of avArchive) if (norm(a.bundesland) === requested) bundeslandSet.add(a.bundesland || "");
     // Auch wenn (noch) keine AV hinterlegt ist, kein Eintrag erzwingen.

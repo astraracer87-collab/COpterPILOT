@@ -856,14 +856,12 @@ function NotamMapView({ restrictions, milStatusMap, centerLat, centerLon, focusL
           extraWmsZones.some((z) => z.layerLabel === TEMP_RESTRICTION_LAYER_LABEL || z.layerLabel === LU_TEMP_ZONE_LABEL);
         const screenH = Dimensions.get("window").height;
         return (
-        <ScrollView
+        // Fester Kopf (Titel, Status, X) über einem eigenen Scrollbereich –
+        // der Text scrollt nur darunter, nie über die Überschrift.
+        <View
           style={[mapStyles.infoPanel, { backgroundColor: theme.bg, borderColor: theme.border, maxHeight: Math.min(520, Math.round(screenH * 0.5)) }]}
-          contentContainerStyle={{ paddingBottom: 4 }}
-          showsVerticalScrollIndicator={true}
-          // Kopf mit Titel und X bleibt beim Scrollen stehen
-          stickyHeaderIndices={[0]}
         >
-          <View style={[mapStyles.infoPanelHeader, { backgroundColor: theme.bg, zIndex: 2 }]}>
+          <View style={[mapStyles.infoPanelHeader, { paddingBottom: 6, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border }]}>
             <View style={{ flex: 1 }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                 <ThemedText style={[mapStyles.infoPanelTitle, { color: theme.text, flex: 1 }]} numberOfLines={2}>
@@ -900,9 +898,14 @@ function NotamMapView({ restrictions, milStatusMap, centerLat, centerLon, focusL
               ) : null}
             </View>
             <Pressable onPress={() => { setSelectedRestriction(null); setOtherRestrictions([]); setPinCoord(null); setWmsZones([]); }} hitSlop={12}>
-              <Feather name="x" size={20} color={theme.textSec} />
+              <Feather name="x" size={22} color={theme.textSec} />
             </Pressable>
           </View>
+          <ScrollView
+            style={{ flexShrink: 1 }}
+            contentContainerStyle={{ paddingBottom: 4, paddingTop: 2 }}
+            showsVerticalScrollIndicator={true}
+          >
           {totalAdditional > 0 ? (
             <View style={{
               marginTop: 8,
@@ -1096,6 +1099,7 @@ function NotamMapView({ restrictions, milStatusMap, centerLat, centerLon, focusL
               </View>
           ) : null}
         </ScrollView>
+        </View>
         );
       })() : null}
     </View>
