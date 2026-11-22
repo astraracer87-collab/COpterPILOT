@@ -55,6 +55,8 @@ import {
   folderLabelFromUri,
   knownDjiLogNames,
   markDjiLogHandled,
+  unmarkDjiLogHandled,
+  getDjiLogFolder,
 } from "./djiLogFolder";
 
 export { logbookEntryFromDjiLog };
@@ -448,6 +450,83 @@ export async function splitFarApartDjiLogEntries(): Promise<number> {
     }
   }
   return created;
+}
+
+/**
+ * Ein Protokoll aus einem Flug entfernen. Bleiben weitere Logs, werden Zeiten/
+ * Dauer neu berechnet; war es das letzte Log eines reinen Import-Eintrags
+ * (ohne eigene Daten), wird der Eintrag gelöscht. Das Protokoll wird danach
+ * beim Ordner-Abgleich wieder als „neu“ angeboten.
+ */
+export async function removeDjiLogFromEntry(
+  entryId: string,
+  log: Pick<DjiLogMeta, "objectPath" | "fileName" | "startTs" | "aircraftSn">,
+): Promise<{ entryDeleted: boolean }> {
+  const all = await getLogbookEntryDjiLogsStrict(entryId);
+  if (!all) throw new Error("Die Protokolle dieses Flugs konnten nicht gelesen werden.");
+  const remaining = all.filter((l) => !(l.objectPath && l.objectPath === log.objectPath) && !sameDjiLog(l, log));
+  const entry = await getLogbookEntry(entryId);
+  if (!entry) throw new Error("Der Flug wurde nicht gefunden.");
+  let entryDeleted = false;
+  if (remaining.length > 0) {
+    const sorted = sortDjiLogs([...remaining]);
+    // Zeiten/Dauer nur bei reinen Import-Flügen neu berechnen – eigene Angaben bleiben
+    await updateLogbookEntry(
+      entryId,
+      isDjiImportEntry(entry) ? mergedKeeperPatch({ ...entry, maxAltitude: undefined }, [], sorted) : { djiLogs: sorted, djiLog: undefined },
+    );
+  } else {
+    await updateLogbookEntry(entryId, { djiLogs: [], djiLog: undefined });
+    entryDeleted = await deleteLogbookEntryIf(entryId, deletableImport).catch(() => false);
+  }
+  await unmarkDjiLogHandled(log.fileName);
+  return { entryDeleted };
+}
+
+/**
+ * Ein Protokoll erneut auswerten (z. B. nach App-Update oder mit DJI-Schlüssel):
+ * Datei aus dem gemerkten Log-Ordner (gleicher Dateiname), sonst wählt der
+ * Pilot sie aus. Das Ergebnis ersetzt das alte Log im selben Flug.
+ * `null` bei Abbruch.
+ */
+export async function reanalyzeDjiLogInEntry(
+  entryId: string,
+  log: DjiLogMeta,
+  onPhase?: DjiAnalyzeProgress,
+): Promise<LogbookEntry | null> {
+  let file: PickedFile | null = null;
+  const folder = await getDjiLogFolder().catch(() => null);
+  if (folder) {
+    try {
+      const files = await listDjiLogsInFolder(folder);
+      file = files.find((f) => f.name.toLowerCase() === (log.fileName || "").toLowerCase()) ?? null;
+    } catch {
+      file = null;
+    }
+  }
+  if (!file) {
+    const picked = await pickFiles(false);
+    if (!picked || picked.length === 0) return null;
+    file = picked[0];
+  }
+  const res = await analyzeDjiLogFile(file, onPhase);
+  const entry = await getLogbookEntry(entryId);
+  if (!entry) throw new Error("Der Flug wurde nicht gefunden.");
+  const { meta: linked } = await linkDroneAndBattery(res.meta, entry.droneId || undefined);
+  // gleiche Kennung → ersetzt das alte Log im Flug
+  const replaced: DjiLogMeta = {
+    ...linked,
+    objectPath: log.objectPath || linked.objectPath,
+    ...(log.manualAssigned ? { manualAssigned: true } : {}),
+  };
+  const updated = await attachDjiLogToEntry(entryId, replaced);
+  if (!updated) throw new Error("Der Flug wurde nicht gefunden.");
+  const logs = await getLogbookEntryDjiLogsStrict(entryId);
+  if (logs && logs.length > 0 && isDjiImportEntry(updated)) {
+    await updateLogbookEntry(entryId, mergedKeeperPatch({ ...updated, maxAltitude: undefined }, [], sortDjiLogs([...logs])));
+  }
+  await markDjiLogHandled(replaced.fileName);
+  return (await getLogbookEntry(entryId)) ?? updated;
 }
 
 let tidyRunning: Promise<number> | null = null;

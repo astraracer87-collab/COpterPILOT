@@ -118,6 +118,20 @@ async function handledDjiLogNames(): Promise<Set<string>> {
 }
 
 /** Protokoll als erledigt merken (zugeordnet oder als neuer Flug angelegt). */
+/** Protokoll wieder als „neu“ anbieten (z. B. nach dem Entfernen aus einem Flug). */
+export function unmarkDjiLogHandled(fileName: string | undefined | null): Promise<void> {
+  const name = (fileName ?? "").trim().toLowerCase();
+  handledChain = handledChain
+    .then(async () => {
+      if (!name) return;
+      const set = await handledDjiLogNames();
+      if (!set.delete(name)) return;
+      await AsyncStorage.setItem(HANDLED_KEY, JSON.stringify([...set]));
+    })
+    .catch(() => {});
+  return handledChain;
+}
+
 let handledChain: Promise<void> = Promise.resolve();
 export function markDjiLogHandled(fileName: string | undefined | null): Promise<void> {
   // nacheinander schreiben, damit parallele Zuordnungen sich nicht überschreiben

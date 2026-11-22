@@ -35,7 +35,7 @@ import {
 import { getCheckItemLabel } from "@/lib/checklists";
 import { exportFlightProtocolPdf } from "@/lib/pdfExport";
 import { resolveFlightTimeDocuments, type ResolvedPilotDocument } from "../../shared/archivedDocuments";
-import { pickAndUploadDjiLog } from "@/lib/djiLog";
+import { pickAndUploadDjiLog, reanalyzeDjiLogInEntry, removeDjiLogFromEntry } from "@/lib/djiLog";
 import { viewDocument } from "@/lib/documents";
 import { useAuth } from "@/lib/auth";
 import { promptFeatureUpgrade } from "@/components/FeatureGate";
@@ -384,6 +384,63 @@ export default function LogbookEntryDetailScreen() {
       }
     },
     [entry, load],
+  );
+
+  const [logActionBusy, setLogActionBusy] = useState<string | null>(null);
+
+  const handleReanalyzeLog = useCallback(
+    async (log: DjiLogMeta, logKey: string) => {
+      if (!entry) return;
+      setLogActionBusy(`re:${logKey}`);
+      try {
+        const updated = await reanalyzeDjiLogInEntry(entry.id, log);
+        if (updated) {
+          setEntry(updated);
+          await load();
+          await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          Alert.alert("Neu ausgewertet", `„${log.fileName}“ wurde neu ausgewertet.`);
+        }
+      } catch (e) {
+        Alert.alert("Fehler", e instanceof Error ? e.message : "Das Protokoll konnte nicht neu ausgewertet werden.");
+      } finally {
+        setLogActionBusy(null);
+      }
+    },
+    [entry, load],
+  );
+
+  const handleRemoveLog = useCallback(
+    (log: DjiLogMeta, logKey: string) => {
+      if (!entry) return;
+      Alert.alert(
+        "Log entfernen",
+        `„${log.fileName}“ aus diesem Flug entfernen? Es wird beim nächsten Ordner-Abgleich wieder als neues Protokoll angeboten. War es das einzige Log eines reinen Import-Flugs, wird der Flug gelöscht.`,
+        [
+          { text: "Abbrechen", style: "cancel" },
+          {
+            text: "Entfernen",
+            style: "destructive",
+            onPress: async () => {
+              setLogActionBusy(`rm:${logKey}`);
+              try {
+                const { entryDeleted } = await removeDjiLogFromEntry(entry.id, log);
+                await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                if (entryDeleted) {
+                  navigation.goBack();
+                  return;
+                }
+                await load();
+              } catch (e) {
+                Alert.alert("Fehler", e instanceof Error ? e.message : "Das Protokoll konnte nicht entfernt werden.");
+              } finally {
+                setLogActionBusy(null);
+              }
+            },
+          },
+        ],
+      );
+    },
+    [entry, load, navigation],
   );
 
   const handleDjiUpload = useCallback(async () => {
@@ -813,6 +870,39 @@ export default function LogbookEntryDetailScreen() {
             {log.fileName}
           </ThemedText>
         </Pressable>
+
+        <View style={{ flexDirection: "row", gap: Spacing.sm, marginTop: Spacing.sm }}>
+          <Pressable
+            testID={`button-dji-reanalyze-${index}`}
+            disabled={logActionBusy != null}
+            onPress={() => handleReanalyzeLog(log, logKey)}
+            style={({ pressed }) => [
+              styles.djiButton,
+              { flex: 1, backgroundColor: theme.backgroundSecondary },
+              (pressed || logActionBusy != null) && { opacity: 0.6 },
+            ]}
+          >
+            <Feather name="refresh-cw" size={15} color={theme.primary} />
+            <ThemedText style={[styles.djiButtonText, { color: theme.primary }]} numberOfLines={1}>
+              {logActionBusy === `re:${logKey}` ? "Wird ausgewertet …" : "Neu auswerten"}
+            </ThemedText>
+          </Pressable>
+          <Pressable
+            testID={`button-dji-remove-${index}`}
+            disabled={logActionBusy != null}
+            onPress={() => handleRemoveLog(log, logKey)}
+            style={({ pressed }) => [
+              styles.djiButton,
+              { flex: 1, backgroundColor: theme.statusNoGo + "15" },
+              (pressed || logActionBusy != null) && { opacity: 0.6 },
+            ]}
+          >
+            <Feather name="trash-2" size={15} color={theme.statusNoGo} />
+            <ThemedText style={[styles.djiButtonText, { color: theme.statusNoGo }]} numberOfLines={1}>
+              Log entfernen
+            </ThemedText>
+          </Pressable>
+        </View>
       </View>
     );
   };
