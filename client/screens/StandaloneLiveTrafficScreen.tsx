@@ -232,9 +232,9 @@ export default function StandaloneLiveTrafficScreen() {
       (energyMapCenter != null || (latitude != null && longitude != null)) &&
       !!energyCountry?.hasComparableOfficialAssetLayers,
   );
-  const windFacility100mPoints = getGermanWindFacility100mPoints(
-    energyCountry?.iso,
-    energyInfrastructureQuery.data?.features,
+  const windFacility100mPoints = useMemo(
+    () => getGermanWindFacility100mPoints(energyCountry?.iso, energyInfrastructureQuery.data?.features),
+    [energyCountry?.iso, energyInfrastructureQuery.data?.features],
   );
   const nearbyWindFacilityWarnings = useMemo(() => {
     if (latitude == null || longitude == null) return [];
@@ -246,11 +246,15 @@ export default function StandaloneLiveTrafficScreen() {
       .filter((point) => point.distanceMeters <= raRadiusKm * 1000 + 100)
       .sort((a, b) => a.distanceMeters - b.distanceMeters);
   }, [latitude, longitude, raRadiusKm, windFacility100mPoints]);
-  const radarEnergyInfrastructure = getRadarEnergyInfrastructureItems(
-    showEnergyInfrastructure,
-    energyInfrastructureQuery.data?.features,
-    energyInfrastructureQuery.data?.sources,
-    energyCountry?.assetComparisonStatusKeyByKind,
+  const radarEnergyInfrastructure = useMemo(
+    () =>
+      getRadarEnergyInfrastructureItems(
+        showEnergyInfrastructure,
+        energyInfrastructureQuery.data?.features,
+        energyInfrastructureQuery.data?.sources,
+        energyCountry?.assetComparisonStatusKeyByKind,
+      ),
+    [showEnergyInfrastructure, energyInfrastructureQuery.data?.features, energyInfrastructureQuery.data?.sources, energyCountry?.assetComparisonStatusKeyByKind],
   );
   const requiredComparisonStatusKeys = [
     ...new Set(Object.values(energyCountry?.assetComparisonStatusKeyByKind ?? {})),
@@ -1087,6 +1091,21 @@ export default function StandaloneLiveTrafficScreen() {
   const showLocLoading = false;
   const showLocError = false;
   const hasRealPosition = latitude != null && longitude != null;
+  // Stabile Karten-Props: Öffnen eines Seitenreiters soll die Karte nicht neu
+  // rendern (MemoTrafficMapView) – sonst spürbare Verzögerung auf dem RC.
+  const dronePill = useMemo(
+    () => ({
+      manufacturer: radarDrone?.manufacturer,
+      model: radarDrone?.model,
+      label: `VLOS ${Math.round(vlosKm * 1000)} m`,
+      onPress: openDronePicker,
+    }),
+    [radarDrone?.manufacturer, radarDrone?.model, vlosKm, openDronePicker],
+  );
+  const toggleMapConfig = useCallback(() => {
+    setShowMapConfig((v) => !v);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  }, []);
   const mapLatitude = hasRealPosition ? latitude! : mapCenter.latitude;
   const mapLongitude = hasRealPosition ? longitude! : mapCenter.longitude;
   const needsLocationPermission = !hasOverrideLocation && !!permission && !permission.granted;
@@ -1441,33 +1460,28 @@ export default function StandaloneLiveTrafficScreen() {
       <ThemedView style={styles.container}>
         <View style={{ flex: 1, marginBottom: tabBarHeight }}>
           <View ref={mapContainerRef} collapsable={false} style={{ flex: 1 }}>
-            <TrafficMapView
+            <MemoTrafficMapView
               latitude={mapLatitude}
               longitude={mapLongitude}
               latDelta={mapLatDelta}
               lonDelta={mapLonDelta}
               hideUserPosition={!hasRealPosition}
               locationName={locationName}
-              markers={showTraffic ? mapMarkers : []}
-              trails={[]}
+              markers={showTraffic ? mapMarkers : EMPTY_ARR}
+              trails={EMPTY_ARR}
               fullScreen
               alarmRadiusM={(alarmSettings.ra?.radiusKm ?? 1) * 1000}
               taRadiusM={(alarmSettings.ta?.radiusKm ?? 3) * 1000}
               scanRadiusM={showRadar ? radiusKm * 1000 : 0}
               vlosRadiusM={vlosKm * 1000}
-              dronePill={{
-                manufacturer: radarDrone?.manufacturer,
-                model: radarDrone?.model,
-                label: `VLOS ${Math.round(vlosKm * 1000)} m`,
-                onPress: openDronePicker,
-              }}
+              dronePill={dronePill}
               onLongPress={handleMapLongPress}
               wind={showWindsock ? wind : null}
               sourceStatus={sourceStatus}
-              geozoneLayers={showGeozones ? activeGeozoneLayers : []}
+              geozoneLayers={showGeozones ? activeGeozoneLayers : EMPTY_ARR}
               countryIso={detectedCountryIso}
-              highlightedZones={showGeozones ? sidePanelGeozones : []}
-              additionalGeozones={showGeozones ? supplementalWindZones : []}
+              highlightedZones={showGeozones ? sidePanelGeozones : EMPTY_ARR}
+              additionalGeozones={showGeozones ? supplementalWindZones : EMPTY_ARR}
               energyInfrastructure={radarEnergyInfrastructure}
               windRestrictionPoints={windFacility100mPoints}
               energyTilesEnabled={showEnergyInfrastructure || (showGeozones && energyCountry?.iso === "DE")}
@@ -1476,7 +1490,7 @@ export default function StandaloneLiveTrafficScreen() {
               showAllGeozones={showAllGeozones}
               mapStyle={mapStyle}
               onCenterGps={handleCenterOnGps}
-              onSettingsPress={() => { setShowMapConfig(!showMapConfig); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+              onSettingsPress={toggleMapConfig}
               settingsActive={showMapConfig}
               bottomPadding={showWeatherOverlay && sidePanelForecasts.length > 0 ? 290 : 0}
               infoBubbleBottomInset={(activeAlerts.length > 0 || clearOfConflict) ? 96 : 0}
@@ -2120,6 +2134,9 @@ function windDirectionArrow(deg: number): string {
   const arrows = ["\u2193", "\u2199", "\u2190", "\u2196", "\u2191", "\u2197", "\u2192", "\u2198"];
   return arrows[Math.round(deg / 45) % 8] || "\u2193";
 }
+
+const EMPTY_ARR: never[] = [];
+const MemoTrafficMapView = React.memo(TrafficMapView);
 
 function SideTabs({ activePanel, onPress, isDark, safeTop, bottomInset, alertFlags, weatherStatus, hideWetter, geozoneSeverity, hasNotams, radarAlarmLevel, hasLowAltTraffic, hideRadar }: {
   activePanel: "geozone" | "notam" | "wetter" | "radar" | null;
