@@ -34,6 +34,7 @@ import {
   DJI_FLY_FLIGHTRECORD_DOC_URI,
   DJI_LOG_FOLDER_STORAGE_KEY,
   checkDjiLogFolderAccess,
+  markDjiLogHandled,
   getDjiLogFolder,
   getDjiLogNewHint,
   refreshDjiLogNewHint,
@@ -239,5 +240,16 @@ describe("DjiLogFolderCard", () => {
       "Zugriff OK · 1 Protokoll (.txt) · 1 noch nicht importiert",
     );
     expect(djiLogFolderStatusText({ ok: false, count: 0, newCount: 0 })).toContain("verloren");
+  });
+});
+
+describe("Zugeordnete Logs bleiben erledigt", () => {
+  it("ein einmal zugeordnetes Log zählt nicht mehr als neu (auch wenn nicht ausgewertet)", async () => {
+    mockReadDirectory.mockResolvedValue([
+      child(DOWNLOAD_TREE, "DJIFlightRecord_2026-05-02_[11-00-00].txt"),
+    ]);
+    await markDjiLogHandled("DJIFlightRecord_2026-05-02_[11-00-00].txt");
+    const res = await checkDjiLogFolderAccess(DOWNLOAD_TREE);
+    expect(res).toEqual({ ok: true, count: 1, newCount: 0 });
   });
 });

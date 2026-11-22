@@ -87,6 +87,7 @@ export function groupDjiLogsByDistance<T extends DjiLogMeta>(
     const near =
       !!cur &&
       (!ends ||
+        l.manualAssigned === true ||
         (!cur.last && !cur.anchor) ||
         (!!cur.last && distanceM(cur.last, ends.start) <= maxDistM) ||
         (!!cur.anchor && distanceM(cur.anchor, ends.start) <= maxDistM));

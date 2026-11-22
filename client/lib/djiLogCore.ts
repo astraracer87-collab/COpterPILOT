@@ -94,6 +94,8 @@ export interface DjiLogMeta {
   startLon?: number;
   endLat?: number;
   endLon?: number;
+  /** Vom Piloten bewusst einem bestehenden Flug zugeordnet (nie automatisch trennen). */
+  manualAssigned?: boolean;
   /** Start/Ende laut Log (ms seit Epoch). */
   startTs?: number;
   endTs?: number;

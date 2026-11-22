@@ -54,6 +54,7 @@ import {
   filterDjiLogNames,
   folderLabelFromUri,
   knownDjiLogNames,
+  markDjiLogHandled,
 } from "./djiLogFolder";
 
 export { logbookEntryFromDjiLog };
@@ -475,6 +476,17 @@ export async function assignDjiLog(params: {
   target: "existing" | "new";
   entryId?: string;
 }): Promise<LogbookEntry> {
+  const result = await assignDjiLogInner(params);
+  // Einmal zugeordnet = nie wieder als „neu“ anbieten
+  await markDjiLogHandled(params.meta.fileName).catch(() => {});
+  return result;
+}
+
+async function assignDjiLogInner(params: {
+  meta: DjiLogMeta;
+  target: "existing" | "new";
+  entryId?: string;
+}): Promise<LogbookEntry> {
   const { meta, target, entryId } = params;
   // Ein Flug nur einmal: steckt das Protokoll schon in einem Eintrag, diesen nehmen
   const lite = await getLogbookLite().catch(() => [] as LogbookEntry[]);
@@ -488,7 +500,8 @@ export async function assignDjiLog(params: {
       meta,
       entry.droneId || undefined,
     );
-    const updated = await attachDjiLogToEntry(entryId, linked);
+    // bewusste Zuordnung durch den Piloten: später nicht automatisch wieder trennen
+    const updated = await attachDjiLogToEntry(entryId, { ...linked, manualAssigned: true });
     if (!updated) throw new Error("Der Flug wurde nicht gefunden.");
     return updated;
   }

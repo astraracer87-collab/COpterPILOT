@@ -94,11 +94,49 @@ export async function chooseDjiLogFolder(
 
 /** Dateinamen aller schon ausgewerteten (im Logbuch hinterlegten) Protokolle (leichte Liste, keine Blob-Dateien). */
 export async function knownDjiLogNames(): Promise<Set<string>> {
-  const known = new Set<string>();
+  // Ausgewertete Protokolle im Logbuch plus alle vom Piloten je zugeordneten
+  // Dateinamen (auch wenn ein Log später durch Zusammenführen/Bereinigen
+  // umzieht oder nicht entschlüsselbar war) – einmal zugeordnet = erledigt.
+  const known = await handledDjiLogNames();
   for (const e of await getLogbookLite().catch(() => [] as LogbookEntry[])) {
-    for (const l of getEntryDjiLogs(e)) if (l.status === "parsed") known.add(l.fileName.toLowerCase());
+    for (const l of getEntryDjiLogs(e)) if (l.status === "parsed" && l.fileName) known.add(l.fileName.toLowerCase());
   }
   return known;
+}
+
+const HANDLED_KEY = "djiLogs:handledNames";
+const HANDLED_MAX = 5000;
+
+async function handledDjiLogNames(): Promise<Set<string>> {
+  try {
+    const raw = await AsyncStorage.getItem(HANDLED_KEY);
+    const arr = raw ? (JSON.parse(raw) as unknown) : [];
+    return new Set(Array.isArray(arr) ? arr.filter((x): x is string => typeof x === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+
+/** Protokoll als erledigt merken (zugeordnet oder als neuer Flug angelegt). */
+let handledChain: Promise<void> = Promise.resolve();
+export function markDjiLogHandled(fileName: string | undefined | null): Promise<void> {
+  // nacheinander schreiben, damit parallele Zuordnungen sich nicht überschreiben
+  handledChain = handledChain.then(() => writeHandled(fileName)).catch(() => {});
+  return handledChain;
+}
+
+async function writeHandled(fileName: string | undefined | null): Promise<void> {
+  const name = (fileName ?? "").trim().toLowerCase();
+  if (!name) return;
+  try {
+    const set = await handledDjiLogNames();
+    if (set.has(name)) return;
+    set.add(name);
+    const arr = [...set];
+    await AsyncStorage.setItem(HANDLED_KEY, JSON.stringify(arr.slice(Math.max(0, arr.length - HANDLED_MAX))));
+  } catch {
+    // nicht kritisch: Bekanntheit ergibt sich weiterhin aus dem Logbuch
+  }
 }
 
 /** Freigabe noch gültig? Anzahl Protokolle und davon neue. */
