@@ -976,7 +976,7 @@ export default function HistoryScreen() {
             style={[styles.djiNewBadge, { backgroundColor: theme.primary }]}
           >
             <ThemedText style={styles.djiNewBadgeText} numberOfLines={1}>
-              {`${djiAutoImported} übernommen`}
+              {djiAutoImported > 99 ? "99+" : String(djiAutoImported)}
             </ThemedText>
           </View>
         ) : null}
@@ -987,7 +987,7 @@ export default function HistoryScreen() {
             style={[styles.djiNewBadge, { backgroundColor: theme.statusGo }]}
           >
             <ThemedText style={styles.djiNewBadgeText} numberOfLines={1}>
-              {`${djiNewLogs} neu`}
+              {djiNewLogs > 99 ? "99+" : String(djiNewLogs)}
             </ThemedText>
           </View>
         ) : null}
@@ -1511,14 +1511,24 @@ const styles = StyleSheet.create({
     ...Typography.body,
     fontWeight: "600",
   },
+  // Zähl-Kreis oben rechts am Knopf (wie beim NOTAM-Reiter)
   djiNewBadge: {
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    borderRadius: BorderRadius.sm,
+    position: "absolute",
+    top: -8,
+    right: -6,
+    minWidth: 22,
+    height: 22,
+    borderRadius: 11,
+    paddingHorizontal: 5,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "#FFFFFF",
   },
   djiNewBadgeText: {
-    ...Typography.caption,
-    fontWeight: "700",
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "800",
     color: "#FFFFFF",
   },
   djiEntryHeader: {

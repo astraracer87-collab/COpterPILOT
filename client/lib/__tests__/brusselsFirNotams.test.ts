@@ -77,13 +77,11 @@ describe("Brussels FIR – Länderzuordnung nach Geometrie", () => {
     assert.equal(split.BE.length + split.LU.length, list.length);
   });
 
-  it("Eintrag über LU ohne belegte Gültigkeit bleibt bei BE (keine Änderung zu heute)", () => {
+  it("Eintrag über LU ohne belegte Gültigkeit erscheint gar nicht (undatierte Brussels-FIR-NOTAMs verworfen)", () => {
     const list = toRestrictions([zone("TNFZ", circle(49.61, 6.13, 2), null, null)]);
-    assert.equal(list.length, 1);
-    assert.equal(list[0].validityUnknown, true);
     const split = splitBrusselsFirNotams(list);
     assert.equal(split.LU.length, 0);
-    assert.equal(split.BE.length, 1);
+    assert.equal(split.BE.length + split.LU.length, list.length);
   });
 });
 
