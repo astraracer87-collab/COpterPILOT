@@ -405,7 +405,27 @@ export interface RadarForecastLike {
   visibility?: number;
 }
 
+/**
+ * Sichtweite relativ zur VLOS-Reichweite der Drohne:
+ * kürzer als VLOS → kritisch (rot), unter 2 km → orange, 2–5 km → gelb
+ * (Hinweis), ab 5 km → ok (grün).
+ * Ohne bekannte VLOS gilt 500 m als Untergrenze (bisheriges Verhalten).
+ */
+export const VISIBILITY_HINT_M = 2000;
+/** Ab dieser Sichtweite gilt sie als gut (grün); 2–5 km = gelber Hinweis. */
+export const VISIBILITY_GOOD_M = 5000;
+export function visibilityLevel(visibilityM: number | null | undefined, vlosM?: number | null): "ok" | "hint" | "caution" | "critical" {
+  if (visibilityM == null || !Number.isFinite(visibilityM)) return "ok";
+  const limit = vlosM != null && vlosM > 0 ? vlosM : 500;
+  if (visibilityM < limit) return "critical";
+  if (visibilityM < VISIBILITY_HINT_M) return "caution";
+  if (visibilityM < VISIBILITY_GOOD_M) return "hint";
+  return "ok";
+}
+
 export interface RadarAreaFlagInput {
+  /** VLOS-Reichweite der gewählten Drohne (m) für die Sichtweiten-Bewertung */
+  vlosM?: number | null;
   forecast: RadarForecastLike | null | undefined;
   kpValue: number | null | undefined;
   /** NOTAM-Abfrage fehlgeschlagen → kein „alles frei“ */
@@ -428,11 +448,11 @@ export function computeRadarAreaFlags(i: RadarAreaFlagInput): RadarAreaFlags {
   const f = i.forecast ?? null;
   const kp = i.kpValue ?? null;
   const isCritical =
-    !!(f && (f.windSpeed > 10 || (f.windGust != null && f.windGust > 12) || f.rain > 0.5 || f.snow > 0.5 || f.temperature < -5 || (f.visibility != null && f.visibility < 500))) ||
+    !!(f && (f.windSpeed > 10 || (f.windGust != null && f.windGust > 12) || f.rain > 0.5 || f.snow > 0.5 || f.temperature < -5 || visibilityLevel(f.visibility, i.vlosM) === "critical")) ||
     !!(kp != null && kp >= 6);
   const isCaution =
     (!isCritical &&
-      !!(f && (f.windSpeed > 7 || (f.windGust != null && f.windGust > 9) || f.rain > 0.1 || f.snow > 0.1 || f.temperature < 0 || f.cloudCover > 80 || (f.visibility != null && f.visibility < 1000)))) ||
+      !!(f && (f.windSpeed > 7 || (f.windGust != null && f.windGust > 9) || f.rain > 0.1 || f.snow > 0.1 || f.temperature < 0 || f.cloudCover > 80 || visibilityLevel(f.visibility, i.vlosM) === "caution"))) ||
     (!isCritical && !!(kp != null && kp >= 3));
   const weatherStatus = !f ? "unknown" : isCritical ? "critical" : isCaution ? "caution" : "ok";
   return {

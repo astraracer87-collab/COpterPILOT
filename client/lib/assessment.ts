@@ -1,3 +1,4 @@
+import { visibilityLevel } from "./radarAlertLogic";
 import { WeatherData } from "@/lib/weather";
 import { WIND_WARN_FRACTION } from "@/lib/beaufort";
 import { getKpAssessment } from "@/lib/kpindex";
@@ -50,6 +51,8 @@ export interface AssessmentContext {
    * "nogo" = aktive, erreichbare Flugverbotszone (PROHIBITED) ohne
    * dokumentierte Begründung → NO-GO. */
   restrictionVerdict?: RestrictionVerdict;
+  /** VLOS-Reichweite der Drohne (m): Sichtweite wird daran gemessen. */
+  vlosM?: number | null;
 }
 
 /** Land für die Nachtflug-Regel: immer aus dem Standort (Koordinaten), nur
@@ -551,6 +554,31 @@ export function assessWeather(
       message: `Sichtweite zu gering für VLOS`,
     });
     markSevere();
+  }
+
+  // Sichtweite relativ zur VLOS-Reichweite der Drohne: kürzer als VLOS → rot
+  // (Bestätigung), unter 2 km → Hinweis. Nur wenn das Minimum oben nicht schon griff.
+  const vlosM = context?.vlosM;
+  if (current.visibility && vlosM && vlosM > 0 && !(current.visibility < limits.minVisibility)) {
+    const lvl = visibilityLevel(current.visibility, vlosM);
+    if (lvl === "critical") {
+      warnings.push({
+        message: `Sichtweite ${current.visibility} m kürzer als die VLOS-Reichweite der Drohne (${Math.round(vlosM)} m)`,
+        severity: "warning",
+        expertTip: {
+          title: "Sicht unter VLOS-Reichweite",
+          description: `Bei ${current.visibility} m Sichtweite verlierst du die Drohne früher aus den Augen als ihre VLOS-Reichweite von ${Math.round(vlosM)} m.`,
+          practiceCheck: "Nur innerhalb der tatsächlichen Sichtweite fliegen – Umkreis entsprechend verkleinern.",
+        },
+      });
+      reasons.push({ type: "caution", message: "Sichtweite kürzer als VLOS-Reichweite" });
+      markSevere();
+    } else if (lvl === "caution") {
+      warnings.push({
+        message: `Sichtweite ${(current.visibility / 1000).toFixed(1).replace(".", ",")} km – eingeschränkte Sicht, Drohne im Blick behalten`,
+        severity: "caution",
+      });
+    }
   }
 
   if (airportMetar) {

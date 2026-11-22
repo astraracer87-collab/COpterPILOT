@@ -63,6 +63,7 @@ import { getActiveOrUpcomingNearbyMilLowFlight } from "@/lib/milLowFlight";
 import { useFocusEffect, useIsFocused } from "@react-navigation/native";
 import { getSettings, saveSettings, getSelectedDrone, getDrones, setSelectedDroneId, type DroneProfile, getDroneMaxAltitudeM, getPilotProfile, PilotProfile, de21hRule, isDe21hZoneAvEligible, isErlaubnisExpired, Bundesland } from "@/lib/storage";
 import { detectBundeslandFromCoordinates } from "@/lib/countryMaps";
+import { visibilityLevel } from "@/lib/radarAlertLogic";
 import { computeGeozoneTabSeverity, GeozoneTabSeverity, assessGeozoneForRadar, isGeozoneActiveForRadar } from "@/lib/geozoneSeverity";
 import { RESTRICTION_POLICY, zoneRestriction } from "../../shared/restrictionPolicy";
 import { Geozone21hRules } from "@/components/Geozone21hRules";
@@ -1067,14 +1068,18 @@ export default function StandaloneLiveTrafficScreen() {
         alerts.push({ label: "Beschlag", value: `${f.temperature.toFixed(0)}°/${Math.round(f.humidity)}%`, color: orange });
       }
     }
-    if (f.visibility != null && f.visibility < 500) alerts.push({ label: "Sicht", value: Math.round(f.visibility) + "m", color: red });
-    else if (f.visibility != null && f.visibility < 1000) alerts.push({ label: "Sicht", value: Math.round(f.visibility) + "m", color: orange });
+    // Sicht relativ zur VLOS-Reichweite: < VLOS rot, < 2 km orange, 2–5 km gelb
+    const visLvl = visibilityLevel(f.visibility, vlosKm * 1000);
+    if (f.visibility != null && visLvl !== "ok") {
+      const v = f.visibility < 1000 ? Math.round(f.visibility) + "m" : (f.visibility / 1000).toFixed(1) + "km";
+      alerts.push({ label: "Sicht", value: v, color: visLvl === "critical" ? red : visLvl === "caution" ? orange : "#E6B800" });
+    }
     const kpVal = sidePanelKpTimeline.length > 0 ? getKpForHour(sidePanelKpTimeline, new Date()) : sidePanelKp?.value ?? null;
     if (kpVal != null && kpVal >= 3) {
       alerts.push({ label: "KP", value: kpVal.toFixed(1), color: getKpAssessment(kpVal).color });
     }
     return alerts;
-  }, [sidePanelWeather, sidePanelKp, sidePanelKpTimeline]);
+  }, [sidePanelWeather, sidePanelKp, sidePanelKpTimeline, vlosKm]);
 
   const getAltitudeColor = (alt: number | null) => {
     if (alt == null) return theme.textTertiary;
@@ -1711,6 +1716,7 @@ export default function StandaloneLiveTrafficScreen() {
           {showWeatherOverlay ? (
             sidePanelForecasts.length > 0 ? (
               <BottomWeatherOverlay
+                vlosM={vlosKm * 1000}
                 forecasts={sidePanelForecasts}
                 kpIndex={sidePanelKp}
                 isDark={isDark}
@@ -3547,7 +3553,9 @@ const sidePanelStyles = StyleSheet.create({
   },
 });
 
-function BottomWeatherOverlay({ forecasts, kpIndex, isDark, latitude, longitude, onForecastsUpdate }: {
+function BottomWeatherOverlay({ forecasts, kpIndex, isDark, latitude, longitude, onForecastsUpdate, vlosM: vlosMForVis }: {
+  /** VLOS-Reichweite (m) für die Sichtweiten-Bewertung */
+  vlosM?: number;
   forecasts: ForecastData[];
   kpIndex: KpIndexData | null;
   isDark: boolean;
@@ -3696,10 +3704,10 @@ function BottomWeatherOverlay({ forecasts, kpIndex, isDark, latitude, longitude,
       case "humidity":
         if (fc.humidity > 95) return "caution";
         return "ok";
-      case "vis":
-        if (fc.visibility != null && fc.visibility < 1000) return "critical";
-        if (fc.visibility != null && fc.visibility < 3000) return "caution";
-        return "ok";
+      case "vis": {
+        const l = visibilityLevel(fc.visibility, vlosMForVis);
+        return l === "hint" ? "ok" : l;
+      }
       case "dir": return "ok";
       case "qnh": return "ok";
       case "kp": {

@@ -170,6 +170,7 @@ export default function ResultsScreen() {
         "precheck",
       ),
       officialMapCrossCheck: session?.planning?.officialMapCrossCheck,
+      vlosM: vlos?.vlosM ?? null,
     });
     setAssessment(result);
 
@@ -178,7 +179,7 @@ export default function ResultsScreen() {
     } else {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     }
-  }, [weatherData, limits, hasRestrictions, restrictionStatus, restrictionVerdict, kpIndex, kpOfflineFetchedAt, latitude, longitude, sessionId]);
+  }, [weatherData, limits, hasRestrictions, restrictionStatus, restrictionVerdict, kpIndex, kpOfflineFetchedAt, latitude, longitude, sessionId, vlos?.vlosM]);
 
   useEffect(() => {
     runAssessment();

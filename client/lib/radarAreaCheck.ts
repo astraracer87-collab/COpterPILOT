@@ -103,6 +103,7 @@ export async function fetchRadarAreaData(lat: number, lon: number, raRadiusKm: n
   // Fehlgeschlagene NOTAM-Abfrage ist KEIN „alles frei“
   const notamUnknown = notamCountOrUnknown(notamResult) === null;
   const flags = computeRadarAreaFlags({
+    vlosM: geozoneRadiusKm * 1000,
     forecast: f,
     kpValue: currentKpValue,
     notamUnknown,

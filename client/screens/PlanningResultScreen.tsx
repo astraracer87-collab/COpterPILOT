@@ -1,3 +1,4 @@
+import { computeVlosM, alosKindForDroneType } from "@/lib/vlos";
 import React, { useEffect, useState } from "react";
 import { View, StyleSheet, ScrollView, Alert, Pressable } from "react-native";
 import { useNavigation, useRoute } from "@react-navigation/native";
@@ -47,6 +48,7 @@ export default function PlanningResultScreen() {
   const [solarTimes, setSolarTimes] = useState<SolarTimes | null>(null);
   const [dronePreset, setDronePreset] = useState<DronePreset | null>(null);
   const [droneOwnedNdFilters, setDroneOwnedNdFilters] = useState<string[] | null>(null);
+  const [droneVlosM, setDroneVlosM] = useState<number | null>(null);
   const [noGoOverride, setNoGoOverride] = useState<{ acknowledgedAt: string; reasons: string[]; originalStatus: "go" | "caution" | "nogo" } | null>(null);
   // Gegenprüfung der offiziellen Staatskarte (aus der Session geladen). "blocking"
   // hebt den Status auf mindestens "caution" an, ersetzt aber NICHT die
@@ -134,6 +136,7 @@ export default function PlanningResultScreen() {
     maxAltitude,
     stored: storedChecks,
     officialMapCrossCheck: crossCheck,
+    vlosM: droneVlosM,
   });
   // Darstellung: wirksame Befunde zuerst, dann Info-Befunde.
   const displayedChecks = sortChecks(evaluation.results);
@@ -149,6 +152,8 @@ export default function PlanningResultScreen() {
         const preset = findPresetForDrone(drone.name, drone.manufacturer, drone.model);
         setDronePreset(preset);
         setDroneOwnedNdFilters(drone.ownedNdFilters ?? null);
+        const cd = typeof drone.charDimensionM === "number" && drone.charDimensionM > 0 ? drone.charDimensionM : preset?.charDimensionM;
+        setDroneVlosM(cd && cd > 0 ? computeVlosM(cd, { kind: alosKindForDroneType(drone.droneType) }).vlosM : null);
       }
     });
     getDrones().then(setAllDrones).catch(() => setAllDrones([]));

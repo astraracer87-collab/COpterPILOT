@@ -132,6 +132,8 @@ export interface WeatherCheckInput {
   airportMetar?: AirportMetarObservation | null;
   /** Prüfzeitpunkt (ms) für das Alter der Offline-Daten; Standard: jetzt. */
   now?: number;
+  /** VLOS-Reichweite der Drohne (m) für die Sichtweiten-Bewertung */
+  vlosM?: number | null;
 }
 
 export const WEATHER_WIND_AGED_TEXT_PREFIX = "Wind-/Böendaten älter als 6 h";
@@ -192,7 +194,7 @@ export function weatherChecks(input: WeatherCheckInput, latitude = 0, longitude 
     undefined,
     hasWeather && kpUsable ? input.kpIndex : undefined,
     input.maxAltitude,
-    undefined,
+    input.vlosM ? { vlosM: input.vlosM } : undefined,
     hasWeather ? metarForVerdict : null,
   );
   const out: CheckResult[] = res.warnings.map((w, i) => warningToCheck(w, "weather", `weather:${i}`, context));
@@ -392,6 +394,8 @@ export interface FlightEvaluationInput {
   /** Gespeicherte Befunde (storedChecksFor). */
   stored: CheckResult[];
   officialMapCrossCheck?: { blocking: boolean; note?: string } | null;
+  /** VLOS-Reichweite der Drohne (m) für die Sichtweiten-Bewertung */
+  vlosM?: number | null;
 }
 
 export interface FlightEvaluation extends CheckAggregate {
@@ -422,6 +426,7 @@ export function evaluateFlight(input: FlightEvaluationInput): FlightEvaluation {
         maxAltitude: input.maxAltitude,
         airportMetar: input.airportMetar,
         now: input.now,
+        vlosM: input.vlosM,
       },
       input.latitude,
       input.longitude,
