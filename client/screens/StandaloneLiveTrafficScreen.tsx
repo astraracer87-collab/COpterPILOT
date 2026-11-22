@@ -1107,6 +1107,14 @@ export default function StandaloneLiveTrafficScreen() {
     }),
     [radarDrone?.manufacturer, radarDrone?.model, vlosKm, openDronePicker],
   );
+  const toggleGeozones = useCallback(() => {
+    setShowGeozones((v) => {
+      const n = !v;
+      saveRadarSettings({ showGeozones: n });
+      return n;
+    });
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  }, []);
   const toggleMapConfig = useCallback(() => {
     setShowMapConfig((v) => !v);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -1496,6 +1504,8 @@ export default function StandaloneLiveTrafficScreen() {
               mapStyle={mapStyle}
               onCenterGps={handleCenterOnGps}
               onSettingsPress={toggleMapConfig}
+              geozonesEnabled={showGeozones}
+              onToggleGeozones={toggleGeozones}
               settingsActive={showMapConfig}
               bottomPadding={showWeatherOverlay && sidePanelForecasts.length > 0 ? 290 : 0}
               infoBubbleBottomInset={(activeAlerts.length > 0 || clearOfConflict) ? 96 : 0}

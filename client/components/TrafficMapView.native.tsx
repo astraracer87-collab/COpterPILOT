@@ -137,6 +137,10 @@ interface TrafficMapViewProps {
   onMapStyleChange?: (style: "standard" | "satellite" | "osm" | "grayscale") => void;
   onCenterGps?: () => void;
   onSettingsPress?: () => void;
+  /** Geozonen sichtbar (Schalter). false → keine Zonen-Kacheln/-Polygone. */
+  geozonesEnabled?: boolean;
+  /** Schnellschalter Geozonen (Knopf zwischen Position und Zahnrad) */
+  onToggleGeozones?: () => void;
   /** Drohnenwahl neben GPS/Einstellungen: Bild + VLOS-Reichweite */
   dronePill?: { manufacturer?: string; model?: string; label: string; onPress: () => void };
   settingsActive?: boolean;
@@ -1174,7 +1178,7 @@ export default function TrafficMapView({
   latitude, longitude, latDelta, lonDelta, locationName, markers, trails,
   fullScreen, alarmRadiusM, taRadiusM, scanRadiusM, vlosRadiusM, onLongPress, wind, sourceStatus,
   geozoneLayers, countryIso, highlightedZones, additionalGeozones = [], energyInfrastructure = [], windRestrictionPoints = [], energyTilesEnabled, energyTilesShowSupplemental, mapStyle = "grayscale", onMapStyleChange,
-  onCenterGps, onSettingsPress, dronePill, settingsActive, bottomPadding = 0, infoBubbleBottomInset = 0, topInset = 0, weatherAlerts,
+  onCenterGps, onSettingsPress, geozonesEnabled = true, onToggleGeozones, dronePill, settingsActive, bottomPadding = 0, infoBubbleBottomInset = 0, topInset = 0, weatherAlerts,
   onHeadingChange, disableGeozoneQuery = false, lockPan = false, onViewportChange,
   maxReachableAltitudeM = DEFAULT_REACHABLE_ALTITUDE_M, showAllGeozones = false,
   hideUserPosition = false, highlightClipRadiusM,
@@ -1358,6 +1362,7 @@ export default function TrafficMapView({
 
   // Eine serverseitig gecachte XYZ-Kachel-URL pro freigeschaltetem Land.
   const geozoneTileUrls = useMemo(() => {
+    if (!geozonesEnabled) return [];
     const tiledNow = new Set(tiledVectorKey ? tiledVectorKey.split(",") : []);
     const countries = (countryListKey ? countryListKey.split(",") : []).filter(
       (iso) => !lockedSet.has(iso) && !tiledNow.has(iso),
@@ -1378,7 +1383,7 @@ export default function TrafficMapView({
         : fallbackLayers;
       return buildGeozoneTileUrls(layerSet, iso).map((url) => ({ iso, url }));
     }).flat().filter((t) => t.url);
-  }, [countryListKey, geozoneLayers, countryIso, lockedSet, tiledVectorKey]);
+  }, [countryListKey, geozoneLayers, countryIso, lockedSet, tiledVectorKey, geozonesEnabled]);
 
   // ED-269-Vektorländer (ohne WMS, z. B. AT/BE/DK) aus dem sichtbaren Viewport
   // laden. Quelle ist settledRegion (Gestenende), damit sich die Polygone nicht
@@ -1713,12 +1718,13 @@ export default function TrafficMapView({
   // erreichbaren/geplanten Flughöhe liegt. Der Sicherheits-Schalter
   // (showAllGeozones) hebt die Filterung auf.
   const filteredVectorZones = useMemo(() => {
+    if (!geozonesEnabled) return [];
     if (showAllGeozones) return vectorZones;
     return partitionByReachability(vectorZones, {
       reachableAltitudeM: maxReachableAltitudeM,
       terrain: activeTerrain,
     }).visible;
-  }, [vectorZones, showAllGeozones, maxReachableAltitudeM, activeTerrain]);
+  }, [vectorZones, showAllGeozones, maxReachableAltitudeM, activeTerrain, geozonesEnabled]);
 
   // ED-269-Vektorzonen → kompaktes WebView-Format. r ist eine Liste von Polygonen,
   // jedes Polygon ist [Außenring, …Löcher], damit Leaflet Löcher aussticht.
@@ -2211,6 +2217,23 @@ export default function TrafficMapView({
                   }}
                 >
                   <Feather name="navigation" size={18} color="#007AFF" />
+                </Pressable>
+              ) : null}
+              {onToggleGeozones ? (
+                <Pressable
+                  onPress={onToggleGeozones}
+                  testID="radar-toggle-geozones"
+                  accessibilityRole="switch"
+                  accessibilityState={{ checked: geozonesEnabled }}
+                  accessibilityLabel={geozonesEnabled ? "Geozonen ausblenden" : "Geozonen einblenden"}
+                  style={{
+                    width: 36, height: 36, borderRadius: 18,
+                    backgroundColor: geozonesEnabled ? "#FF9500" : isDark ? "rgba(30,40,60,0.88)" : "rgba(255,255,255,0.92)",
+                    alignItems: "center", justifyContent: "center",
+                    ...(Platform.OS === "ios" ? { shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 4 } : { elevation: 4 }),
+                  }}
+                >
+                  <Feather name="layers" size={18} color={geozonesEnabled ? "#FFFFFF" : isDark ? "#FFFFFF" : "#333333"} />
                 </Pressable>
               ) : null}
               {onSettingsPress ? (

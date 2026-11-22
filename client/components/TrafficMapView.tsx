@@ -85,6 +85,10 @@ interface TrafficMapViewProps {
   onMapStyleChange?: (style: "standard" | "satellite" | "osm" | "grayscale") => void;
   onCenterGps?: () => void;
   onSettingsPress?: () => void;
+  /** Geozonen sichtbar (Schalter) */
+  geozonesEnabled?: boolean;
+  /** Schnellschalter Geozonen */
+  onToggleGeozones?: () => void;
   settingsActive?: boolean;
   bottomPadding?: number;
   infoBubbleBottomInset?: number;
