@@ -73,6 +73,7 @@ import {
   ed269ZonesToNotamRestrictions,
   formatBelgianNotamValidityRange,
 } from "@/lib/ed269Notams";
+import { splitBrusselsFirNotams } from "@/lib/brusselsFirNotams";
 import { FT_M } from "../../shared/heights";
 
 type RouteParams = RouteProp<NotamsStackParamList, "Notams">;
@@ -1407,12 +1408,16 @@ export default function NotamsScreen() {
     let cancelled = false;
     (async () => {
       // Länder laut Quellen-Registry (notamListOrder)
+      // LU liegt in der Brussels FIR: LU-NOTAMs stecken im belgischen Bestand
+      // (skeyes) und werden unten nach Geometrie LU zugeordnet.
       const isos =
         detectedCountry == null
           ? NOTAM_LIST_SOURCE_ISOS
-          : NOTAM_LIST_SOURCE_ISOS.includes(detectedCountry)
-            ? [detectedCountry]
-            : [];
+          : detectedCountry === "LU"
+            ? ["BE"]
+            : NOTAM_LIST_SOURCE_ISOS.includes(detectedCountry)
+              ? [detectedCountry]
+              : [];
       if (!scopeLoaded) return;
       if (isos.length === 0) {
         setEd269ByIso({});
@@ -1426,6 +1431,14 @@ export default function NotamsScreen() {
         } catch {
           next[iso] = [];
         }
+      }
+      // Brussels FIR: NOTAMs über Luxemburg unter LU statt BE (nicht doppelt).
+      if (next.BE) {
+        const split = splitBrusselsFirNotams(next.BE);
+        next.BE = split.BE;
+        next.LU = split.LU;
+        if (detectedCountry === "LU") delete next.BE;
+        else if (detectedCountry === "BE") delete next.LU;
       }
       if (!cancelled) setEd269ByIso(next);
     })();
@@ -1442,7 +1455,7 @@ export default function NotamsScreen() {
 
   const showDe = detectedCountry === "DE" || detectedCountry == null;
   const showLu = detectedCountry === "LU" || detectedCountry == null;
-  const showEd269 = detectedCountry == null || NOTAM_LIST_SOURCE_ISOS.includes(detectedCountry);
+  const showEd269 = detectedCountry == null || detectedCountry === "LU" || NOTAM_LIST_SOURCE_ISOS.includes(detectedCountry);
   const filteredEd269 = showEd269 ? ed269Notams : [];
   const filteredActive = showDe ? result.active : [];
   const filteredUpcoming = showDe ? result.upcoming : [];
@@ -1663,7 +1676,14 @@ export default function NotamsScreen() {
   const countryGroups = useMemo(() => {
     const groups: { iso: string; count: number; active: number }[] = [];
     if (showDe) groups.push({ iso: "DE", count: filteredActive.length + filteredUpcoming.length, active: filteredActive.length });
-    if (showLu) groups.push({ iso: "LU", count: filteredLuTsa.length, active: filteredLuTsa.filter((z) => z.status === "Aktiv").length });
+    if (showLu) {
+      const luFir = ed269ByIso.LU ?? [];
+      groups.push({
+        iso: "LU",
+        count: filteredLuTsa.length + luFir.length,
+        active: filteredLuTsa.filter((z) => z.status === "Aktiv").length + luFir.filter((r) => r.status === "active").length,
+      });
+    }
     for (const iso of NOTAM_LIST_SOURCE_ISOS) {
       if (iso === "DE" || iso === "LU") continue;
       const list = ed269ByIso[iso] ?? [];
@@ -1882,7 +1902,7 @@ export default function NotamsScreen() {
                       ) : g.iso === "DE" ? (
                         <>{renderDe()}</>
                       ) : g.iso === "LU" ? (
-                        <>{renderLu()}</>
+                        <>{renderLu()}{renderEd269(ed269ByIso.LU ?? [])}</>
                       ) : (
                         <>{renderEd269(ed269ByIso[g.iso] ?? [])}</>
                       )

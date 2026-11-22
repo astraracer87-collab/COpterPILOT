@@ -11,12 +11,15 @@ import { fetchNotams, getNotamSeverity, notamCountOrUnknown, type NotamData } fr
 import {
   fetchLuTsaAsNotams,
   fetchNearbyTempRestrictionsRaw,
+  queryEd269CachedFeatures,
   queryGeozonesInArea,
   separateTempRestrictions,
   type DipulTempRestriction,
   type GeozoneFeatureInfo,
 } from "@/lib/geozones";
 import { getActiveOrUpcomingNearbyMilLowFlight } from "@/lib/milLowFlight";
+import { ed269ZonesToNotamRestrictions } from "@/lib/ed269Notams";
+import { luBrusselsFirNotamsNear } from "@/lib/brusselsFirNotams";
 import { computeRadarAreaFlags, type RadarAreaFlags, type RadarAreaSnapshot } from "@/lib/radarAlertLogic";
 
 export interface RadarAreaData {
@@ -44,23 +47,34 @@ export interface AreaNotamData {
 }
 
 /**
+ * NOTAMs der Brussels FIR über Luxemburg im Umkreis (aus dem belgischen
+ * ED-269-Bestand mit skeyes-Gültigkeit; abgelaufene entfallen). Nur für LU.
+ */
+export async function fetchLuBrusselsFirNotams(lat: number, lon: number, radiusKm: number): Promise<DipulTempRestriction[]> {
+  const feats = await queryEd269CachedFeatures(lat, lon, radiusKm, "BE", undefined, false, 30);
+  return luBrusselsFirNotamsNear(ed269ZonesToNotamRestrictions(feats as GeozoneFeatureInfo[]), lat, lon, radiusKm);
+}
+
+/**
  * NOTAM-Teil der Gebietsprüfung (autorouter-NOTAMs, dipul temporäre
  * Beschränkungen, militärischer Tiefflug, LU-TSA). Gemeinsam für Radar und
  * die Gebietsübersicht der Flugplanung.
  */
 export async function fetchAreaNotamData(lat: number, lon: number, radiusKm: number, countryIso: string | undefined): Promise<AreaNotamData> {
   let dipulFailed = false;
-  const [notamResult, dipulResult, luTsaNotams] = await Promise.all([
+  const [notamResult, dipulResult, luTsaNotams, luFirNotams] = await Promise.all([
     fetchNotams(lat, lon).catch(() => ({ notams: [] as NotamData[], total: 0, queriedCodes: [] as string[], failed: true })),
     fetchNearbyTempRestrictionsRaw(lat, lon, radiusKm).catch(() => {
       dipulFailed = true;
       return { active: [] as DipulTempRestriction[], upcoming: [] as DipulTempRestriction[] } as Awaited<ReturnType<typeof fetchNearbyTempRestrictionsRaw>>;
     }),
     countryIso === "LU" ? fetchLuTsaAsNotams(lat, lon, radiusKm).catch(() => []) : Promise.resolve([]),
+    countryIso === "LU" ? fetchLuBrusselsFirNotams(lat, lon, radiusKm).catch(() => [] as DipulTempRestriction[]) : Promise.resolve([] as DipulTempRestriction[]),
   ]);
   const milNearby = getActiveOrUpcomingNearbyMilLowFlight(dipulResult, lat, lon, radiusKm);
-  const active = [...dipulResult.active, ...milNearby.active];
-  const upcoming = [...dipulResult.upcoming, ...milNearby.upcoming];
+  // LU-NOTAMs der Brussels FIR wie dipul-Beschränkungen: aktive färben den NOTAM-Reiter.
+  const active = [...dipulResult.active, ...milNearby.active, ...luFirNotams.filter((r) => r.status === "active")];
+  const upcoming = [...dipulResult.upcoming, ...milNearby.upcoming, ...luFirNotams.filter((r) => r.status !== "active")];
   return {
     notamResult: notamResult as RadarAreaData["notamResult"],
     combinedNotams: [...notamResult.notams, ...(luTsaNotams as unknown as NotamData[])],

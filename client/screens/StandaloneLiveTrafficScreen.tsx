@@ -92,7 +92,7 @@ import {
 } from "@/lib/opensky";
 import { aircraftMslM, currentQnhHpa, refreshQnh } from "@/lib/traffic/altitude";
 import { getMarkerPinColor } from "@/lib/markerColors";
-import { fetchRadarAreaData } from "@/lib/radarAreaCheck";
+import { fetchRadarAreaData, fetchLuBrusselsFirNotams } from "@/lib/radarAreaCheck";
 import { useRadarBackgroundMonitor } from "@/hooks/useRadarBackgroundMonitor";
 import { getAgencyTag, agencyTagColor } from "@/lib/agencyTag";
 import { InfoDialog } from "@/components/InfoDialog";
@@ -829,11 +829,12 @@ export default function StandaloneLiveTrafficScreen() {
         setSidePanelTempRestrictions(tempRestrictions);
         setGeozoneDataStatus(geozonesLoaded ? "loaded" : "error");
       } else if (panel === "notam") {
-        const [result, zones, dipulResult, luTsaNotams] = await Promise.all([
+        const [result, zones, dipulResult, luTsaNotams, luFirNotams] = await Promise.all([
           fetchNotams(latitude, longitude).catch(() => ({ notams: [] as NotamData[], total: 0, queriedCodes: [] as string[], failed: true })),
           queryGeozonesInArea(latitude, longitude, vlosKm, detectedCountryIso).catch(() => [] as GeozoneFeatureInfo[]),
           fetchNearbyTempRestrictionsRaw(latitude, longitude, raRadiusKm).catch(() => ({ active: [] as DipulTempRestriction[], upcoming: [] as DipulTempRestriction[] })),
           detectedCountryIso === "LU" ? fetchLuTsaAsNotams(latitude, longitude, raRadiusKm).catch(() => []) : Promise.resolve([]),
+          detectedCountryIso === "LU" ? fetchLuBrusselsFirNotams(latitude, longitude, raRadiusKm).catch(() => [] as DipulTempRestriction[]) : Promise.resolve([] as DipulTempRestriction[]),
         ]);
         const { tempRestrictions } = separateTempRestrictions(zones);
         const combinedNotams = [...result.notams, ...luTsaNotams as unknown as NotamData[]];
@@ -844,8 +845,10 @@ export default function StandaloneLiveTrafficScreen() {
         setSidePanelDipulRestrictions([
           ...dipulResult.active,
           ...milNearby.active,
+          ...luFirNotams.filter((r) => r.status === "active"),
           ...dipulResult.upcoming,
           ...milNearby.upcoming,
+          ...luFirNotams.filter((r) => r.status !== "active"),
         ]);
       } else if (panel === "wetter") {
         const [data, kpTl] = await Promise.all([
@@ -2697,6 +2700,9 @@ function SidePanelView({ panel, loading, geozones, windFacilityWarnings = [], ge
                   const todayLocal = now.toLocaleDateString("sv-SE", { timeZone: "Europe/Berlin" });
                   const toLocalDate = (ts: string) => new Date(ts).toLocaleDateString("sv-SE", { timeZone: "Europe/Berlin" });
                   const activeCount = dipulRestrictions.filter((d) => d.status === "active").length;
+                  // LU-NOTAMs der Brussels FIR (skeyes, id „ed269-…“) sind keine dipul-Einträge
+                  const isEd269Entry = (d: DipulTempRestriction) => d.id.startsWith("ed269-");
+                  const activeSourceLabel = dipulRestrictions.filter((d) => d.status === "active").every(isEd269Entry) ? "NOTAM" : "dipul";
                   const upcomingTodayCount = dipulRestrictions.filter((d) => d.status === "upcoming" && d.startTs && toLocalDate(d.startTs) === todayLocal).length;
                   return (
                 <>
@@ -2704,7 +2710,7 @@ function SidePanelView({ panel, loading, geozones, windFacilityWarnings = [], ge
                     <View style={[sidePanelStyles.infoBox, { backgroundColor: isDark ? "rgba(255,59,48,0.15)" : "rgba(255,59,48,0.12)" }]}>
                       <Feather name="alert-circle" size={14} color={isDark ? "#FFFFFF" : "#CC2D25"} />
                       <Text style={[sidePanelStyles.infoBoxText, { color: isDark ? "#FFFFFF" : "#CC2D25" }]}>
-                        {activeCount} Aktive Einschränkung{activeCount !== 1 ? "en" : ""} (dipul)
+                        {activeCount} Aktive Einschränkung{activeCount !== 1 ? "en" : ""} ({activeSourceLabel})
                       </Text>
                     </View>
                   ) : null}
@@ -2717,7 +2723,8 @@ function SidePanelView({ panel, loading, geozones, windFacilityWarnings = [], ge
                     </View>
                   ) : null}
                   {dipulRestrictions.map((dr, i) => {
-                    const dipulUrl = buildDipulLink(dr.name);
+                    const isEd269 = isEd269Entry(dr);
+                    const dipulUrl = isEd269 ? null : buildDipulLink(dr.name);
                     const isUpcoming = dr.status === "upcoming";
                     const isUpcomingToday = isUpcoming && dr.startTs && toLocalDate(dr.startTs) === todayLocal;
                     const borderColor = isUpcoming ? (isUpcomingToday ? "#FF9500" : "#5856D6") : "#FF3B30";
@@ -2778,11 +2785,11 @@ function SidePanelView({ panel, loading, geozones, windFacilityWarnings = [], ge
                         <Text style={{ color: mutedColor, fontSize: 10, marginTop: 3 }}>Identifikation</Text>
                         <Text style={{ color: mutedColor, fontSize: 10 }}>{dr.extRef}</Text>
                         <Pressable
-                          onPress={() => { WebBrowser.openBrowserAsync(dipulUrl || "https://www.dipul.de/homepage/de/temporaere-betriebseinschraenkungen/").catch(() => {}); }}
+                          onPress={() => { WebBrowser.openBrowserAsync(isEd269 ? "https://map.droneguide.be/" : dipulUrl || "https://www.dipul.de/homepage/de/temporaere-betriebseinschraenkungen/").catch(() => {}); }}
                           style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 5, paddingVertical: 2 }}
                         >
                           <Feather name="external-link" size={12} color={borderColor} />
-                          <Text style={{ color: borderColor, fontSize: 12, fontWeight: "600" }}>{isAdmin ? (dipulUrl ? "Details auf dipul.de" : "Alle Einschränkungen auf dipul.de") : (dipulUrl ? "Details ansehen" : "Alle Einschränkungen ansehen")}</Text>
+                          <Text style={{ color: borderColor, fontSize: 12, fontWeight: "600" }}>{isEd269 ? (isAdmin ? "Karte auf Droneguide (skeyes)" : "Karte ansehen") : isAdmin ? (dipulUrl ? "Details auf dipul.de" : "Alle Einschränkungen auf dipul.de") : (dipulUrl ? "Details ansehen" : "Alle Einschränkungen ansehen")}</Text>
                         </Pressable>
                       </View>
                     );
