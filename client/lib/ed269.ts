@@ -2,6 +2,7 @@ import { ed269SourceLabels } from "./geozoneSources/registry";
 import { translateLineDe, translateTextDe, translateZoneNameDe } from "../../shared/zoneTranslate";
 import type { GeozoneFeatureInfo } from "@/lib/geozones";
 import { belgianAltitudeMeters } from "../../shared/belgianGeozones";
+import { belgianEventVerdict } from "../../shared/belgianEventValidity";
 import { stripHtml } from "../../shared/geozoneKit/text";
 import { ORIGINAL_TEXT_HEADING } from "../../shared/geozoneKit/messages";
 import { normalizeAltitudeReference, type AltitudeReference } from "../../shared/geozoneAltitudeFilter";
@@ -175,8 +176,17 @@ export function parseEd269ToGeozoneInfo(
   const out: GeozoneFeatureInfo[] = [];
   for (const f of features) {
     if (!f || !f.geometry) continue;
-    const p: Record<string, any> = f.properties || {};
+    let p: Record<string, any> = f.properties || {};
     if (p.hidden === true) continue;
+    // Belgische Veranstaltungs-Sperrzonen (Tomorrowland 2025, „21 July 2026“ …):
+    // nachweislich vorbei → verwerfen; Datum im Text → Gültigkeit setzen. Auch
+    // für ältere Gerätespeicher (beim Download filtert zusätzlich Droneguides
+    // Zeitfenster-Abfrage). Dauerhafte Zonen sind davon nie betroffen.
+    if (countryIso.toUpperCase() === "BE") {
+      const verdict = belgianEventVerdict(p, nowMs);
+      if (verdict.action === "drop") continue;
+      if (verdict.action === "date") p = { ...p, validStartTs: verdict.validStartTs, validEndTs: verdict.validEndTs };
+    }
 
     const geom = f.geometry;
     const polygonRings: [number, number][][] = [];

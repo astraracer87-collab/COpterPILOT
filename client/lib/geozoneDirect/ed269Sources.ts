@@ -54,6 +54,12 @@ import {
   normalizeSkeyesApiZones,
   mergeBelgianGeozones,
 } from "../../../shared/belgianGeozones";
+import {
+  BE_EVENT_ZONE_TYPE,
+  applyBelgianEventValidity,
+  applyDroneguideEventWindow,
+  isBelgianEventZone,
+} from "../../../shared/belgianEventValidity";
 
 export type GeoFeature = {
   type: "Feature";
@@ -463,6 +469,29 @@ async function fetchBelgianDroneguideWfs(): Promise<GeoFeature[]> {
   return finalize(normalizeDroneguideWfsFeatures(features) as unknown as GeoFeature[], "be");
 }
 
+// Event-Sperrzonen (TEMPORARY-NO-FLY-ZONE), die laut Droneguide ab jetzt noch
+// gültig sind: Layer `uaszone` mit Zeitfenster [jetzt, +10 Jahre] (viewparams
+// wie die Droneguide-Webkarte). Fehlt eine Event-Zone darin, ist sie vorbei.
+async function fetchDroneguideValidEventZones(nowMs: number = Date.now()): Promise<{ id: string; code: string }[]> {
+  const fmt = (ms: number) => new Date(ms).toISOString().replace(/:/g, "\\:");
+  const params = new URLSearchParams({
+    service: "WFS",
+    version: "2.0.0",
+    request: "GetFeature",
+    typeNames: "uaszone",
+    outputFormat: "application/json",
+    cql_filter: `type_code='${BE_EVENT_ZONE_TYPE}'`,
+    propertyName: "unique_identifier,code",
+    viewparams: `window_start:${fmt(nowMs)};window_end:${fmt(nowMs + 10 * 365 * 86_400_000)}`,
+  });
+  const body = await fetchJson(`${BE_DRONEGUIDE_WFS_URL}?${params.toString()}`);
+  if (!Array.isArray(body?.features)) throw new Error("uaszone-Fensterabfrage ohne features");
+  return body.features.map((f: any) => ({
+    id: String(f?.properties?.unique_identifier ?? "").trim(),
+    code: String(f?.properties?.code ?? "").trim(),
+  }));
+}
+
 async function fetchBelgianLiveZones(): Promise<GeoFeature[]> {
   const body = await fetchJson(BE_SKEYES_UAS_ZONES_URL);
   const items = Array.isArray(body?.items) ? body.items : [];
@@ -472,8 +501,15 @@ async function fetchBelgianLiveZones(): Promise<GeoFeature[]> {
 async function fetchBelgium(): Promise<GeoFeature[]> {
   let features = loadBelgianBundle();
   let anyOnline = false;
+  let wfsEvents: { id: string; code: string }[] | null = null;
   try {
     const wfs = await fetchBelgianDroneguideWfs();
+    wfsEvents = wfs
+      .filter((f) => isBelgianEventZone(f.properties as Record<string, unknown>))
+      .map((f) => ({
+        id: String((f.properties as any)?.uniqueIdentifier ?? "").trim(),
+        code: String((f.properties as any)?.code ?? "").trim(),
+      }));
     features = mergeBelgianGeozones(wfs as any, features as any) as unknown as GeoFeature[];
     anyOnline = true;
   } catch (e) {
@@ -491,7 +527,18 @@ async function fetchBelgium(): Promise<GeoFeature[]> {
   // Ohne jede Online-Quelle ist das Ergebnis nur das Bundle -> als Fehler
   // melden, damit ein (evtl. aktuellerer) Gerätebestand nicht überschrieben wird.
   if (!anyOnline) throw new Error("Belgische Online-Quellen nicht erreichbar");
-  return features;
+  // Vergangene Veranstaltungs-Sperrzonen (Tomorrowland, Gentse Feesten, …)
+  // führen beide Quellen ohne Ende weiter. Droneguides Zeitfenster-Abfrage
+  // entscheidet; schlägt sie fehl, bleibt alles (konservativ).
+  if (wfsEvents && wfsEvents.length > 0) {
+    try {
+      const valid = await fetchDroneguideValidEventZones();
+      features = applyDroneguideEventWindow(features, wfsEvents, valid);
+    } catch (e) {
+      console.warn("[geozoneDirect] BE: Droneguide-Zeitfenster nicht abrufbar:", (e as Error)?.message || e);
+    }
+  }
+  return applyBelgianEventValidity(features);
 }
 
 // ---------------------------------------------------------------------------
