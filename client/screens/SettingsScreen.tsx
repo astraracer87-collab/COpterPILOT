@@ -547,6 +547,13 @@ export default function SettingsScreen() {
         onPress={() => navigation.navigate("DipulWeather")}
       />
       <SettingsRow
+        testID="settings-row-cinematic"
+        icon={icon("sunrise")}
+        title="Cinematic-Vorschau (Wolkenmeer)"
+        subtitle="Gipfel über Nebel, 24 h"
+        onPress={() => navigation.navigate("CinematicForecast")}
+      />
+      <SettingsRow
         testID="settings-row-wind-unit"
         icon={icon("wind")}
         title="Windgeschwindigkeit"

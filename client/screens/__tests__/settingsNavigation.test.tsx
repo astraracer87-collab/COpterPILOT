@@ -75,6 +75,7 @@ const EXPECTED: Array<[testID: string, route: string, params?: unknown]> = [
   ["menu-offline-maps", "RcOfflineMaps"],
   ["menu-rc-key-test", "RcKeyTest"],
   ["settings-row-weather", "DipulWeather"],
+  ["settings-row-cinematic", "CinematicForecast"],
   ["settings-row-privacy", "PrivacyPolicy"],
   ["settings-row-terms", "LegalDocument", { doc: "terms" }],
   ["menu-data-sources", "DataSources"],

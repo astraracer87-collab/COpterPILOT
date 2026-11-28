@@ -6,6 +6,7 @@ import DronesScreen from "@/screens/DronesScreen";
 import DroneSetupScreen from "@/screens/DroneSetupScreen";
 import DroneInfoScreen from "@/screens/DroneInfoScreen";
 import DipulWeatherScreen from "@/screens/DipulWeatherScreen";
+import CinematicForecastScreen from "@/screens/CinematicForecastScreen";
 import DroneHistoryScreen from "@/screens/DroneHistoryScreen";
 import LogbookEntryDetailScreen from "@/screens/LogbookEntryDetailScreen";
 import BatteryDetailScreen from "@/screens/BatteryDetailScreen";
@@ -44,6 +45,7 @@ export type SettingsStackParamList = {
   DroneSetup: { droneId?: string };
   DroneInfo: { droneId: string };
   DipulWeather: undefined;
+  CinematicForecast: undefined;
   DroneHistory: { droneId: string };
   LogbookEntryDetail: {
     sessionId?: string;
@@ -141,6 +143,13 @@ export default function SettingsStackNavigator() {
         component={DipulWeatherScreen}
         options={{
           headerTitle: "Wetter (dipul)",
+        }}
+      />
+      <Stack.Screen
+        name="CinematicForecast"
+        component={CinematicForecastScreen}
+        options={{
+          headerTitle: "Cinematic-Vorschau",
         }}
       />
       <Stack.Screen

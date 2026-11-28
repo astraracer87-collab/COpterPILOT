@@ -206,6 +206,12 @@ export const radarMonitorDeps: RadarMonitorDeps = {
   loadAlarmSettings: async () => (await getSettings().catch(() => null))?.proximityAlarm ?? DEFAULT_PROXIMITY_ALARM,
   fetchAircraft: async (lat, lon, radiusKm) => {
     void refreshQnh(lat, lon);
+    // Cinematic-Vorschau im Takt des Vordergrunddiensts (selbst auf stündlich gedrosselt)
+    try {
+      // lazy: hält die Radar-Verdrahtung frei von der Vorschau-Logik
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      void (require("./cinematicNotify") as typeof import("./cinematicNotify")).runCinematicCheck();
+    } catch {}
     return (await fetchNearbyAircraft(lat, lon, radiusKm, 60)).states;
   },
   notify: (n) => postNotification(n).catch((e) => console.warn("[radarMonitor] notify:", e)),

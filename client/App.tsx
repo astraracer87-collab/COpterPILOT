@@ -63,6 +63,7 @@ import { AuthProvider } from "@/lib/auth";
 import { NetworkProvider } from "@/lib/network";
 import { OfflineBanner } from "@/components/OfflineBanner";
 import { rescheduleExpiryWarnings } from "@/lib/expiryWarnings";
+import { useCinematicWatch } from "@/hooks/useCinematicWatch";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -198,6 +199,8 @@ function AuthGate({
     }, 1500);
     return () => clearTimeout(t);
   }, []);
+  // Cinematic-Vorschau: Wolkenmeer-Benachrichtigung (Start, Rückkehr, stündlich)
+  useCinematicWatch();
 
   if (SHOW_STARTUP_DISCLAIMER && !disclaimerAccepted) {
     return (
